@@ -241,11 +241,16 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
     confirm_days = STRATEGY_PARAMS.get("confirm_days", 1)
     if confirm_days > 1:
         buy_streak = (result["raw_signal"] == "BUY").astype(int)
-        # 計算連續 BUY 天數
         rolling_sum = buy_streak.rolling(window=confirm_days, min_periods=confirm_days).sum()
-        # 只有連續 N 天都是 BUY 才確認
         not_confirmed = rolling_sum < confirm_days
         result.loc[not_confirmed & (result["signal"] == "BUY"), "signal"] = "HOLD"
+
+    # ===== v3 過濾 =====
+    # 4. 評分趨勢確認：composite_score 需比前一天高（動能上升中）
+    if STRATEGY_PARAMS.get("score_rising", False):
+        score_diff = result["composite_score"].diff()
+        score_falling = score_diff <= 0
+        result.loc[score_falling & (result["signal"] == "BUY"), "signal"] = "HOLD"
 
     return result
 

@@ -86,14 +86,21 @@ with st.sidebar:
         buy_threshold = st.slider("買入閾值", 0.0, 1.0, STRATEGY_PARAMS["buy_threshold"], 0.05)
         sell_threshold = st.slider("賣出閾值", -1.0, 0.0, STRATEGY_PARAMS["sell_threshold"], 0.05)
 
-        st.caption("v2 風控參數")
-        stop_loss = st.slider("停損 (%)", 1, 20, int(RISK_PARAMS["stop_loss"] * 100), 1)
-        trailing_stop = st.slider("移動停利 (%)", 1, 20, int(RISK_PARAMS["trailing_stop"] * 100), 1)
+        st.caption("風控參數")
+        use_atr_stops = st.checkbox("ATR 動態停損停利（v3）", value=RISK_PARAMS.get("use_atr_stops", True))
+        if use_atr_stops:
+            atr_sl_mult = st.slider("停損倍數 (xATR)", 1.0, 5.0, RISK_PARAMS.get("atr_stop_loss_mult", 3.0), 0.5)
+            atr_ts_mult = st.slider("停利倍數 (xATR)", 1.0, 5.0, RISK_PARAMS.get("atr_trailing_mult", 2.5), 0.5)
+        else:
+            stop_loss = st.slider("停損 (%)", 1, 20, int(RISK_PARAMS["stop_loss"] * 100), 1)
+            trailing_stop = st.slider("移動停利 (%)", 1, 20, int(RISK_PARAMS["trailing_stop"] * 100), 1)
         max_position_pct = st.slider("單筆最大部位 (%)", 10, 100, int(RISK_PARAMS["max_position_pct"] * 100), 10)
+        min_hold_days = st.number_input("最短持有天數（v3）", min_value=0, max_value=10, value=RISK_PARAMS.get("min_hold_days", 3))
 
-        st.caption("v2 訊號過濾")
+        st.caption("訊號過濾")
         trend_filter = st.checkbox("趨勢過濾（MA20>MA60 才做多）", value=STRATEGY_PARAMS.get("trend_filter", True))
         volume_confirm = st.checkbox("量能確認（買入量>5日均量）", value=STRATEGY_PARAMS.get("volume_confirm", True))
+        score_rising = st.checkbox("評分上升確認（v3）", value=STRATEGY_PARAMS.get("score_rising", True))
         confirm_days = st.number_input("訊號確認天數", min_value=1, max_value=5, value=STRATEGY_PARAMS.get("confirm_days", 2))
 
     # Redis 快取狀態
@@ -145,15 +152,22 @@ if page != "推薦股票":
         st.error(f"無法載入股票 {stock_code} 的資料：{e}")
         st.stop()
 
-# ===== 覆寫策略閾值 & v2 參數 =====
+# ===== 覆寫策略閾值 & 風控參數 =====
 STRATEGY_PARAMS["buy_threshold"] = buy_threshold
 STRATEGY_PARAMS["sell_threshold"] = sell_threshold
 STRATEGY_PARAMS["trend_filter"] = trend_filter
 STRATEGY_PARAMS["volume_confirm"] = volume_confirm
 STRATEGY_PARAMS["confirm_days"] = confirm_days
-RISK_PARAMS["stop_loss"] = stop_loss / 100
-RISK_PARAMS["trailing_stop"] = trailing_stop / 100
+STRATEGY_PARAMS["score_rising"] = score_rising
+RISK_PARAMS["use_atr_stops"] = use_atr_stops
+if use_atr_stops:
+    RISK_PARAMS["atr_stop_loss_mult"] = atr_sl_mult
+    RISK_PARAMS["atr_trailing_mult"] = atr_ts_mult
+else:
+    RISK_PARAMS["stop_loss"] = stop_loss / 100
+    RISK_PARAMS["trailing_stop"] = trailing_stop / 100
 RISK_PARAMS["max_position_pct"] = max_position_pct / 100
+RISK_PARAMS["min_hold_days"] = min_hold_days
 
 
 # ===== 輔助函式：產生訊號原因說明 =====

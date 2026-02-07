@@ -64,7 +64,7 @@ class MonthlySimulator:
         self.tax_rate = tax_rate or BACKTEST_PARAMS["tax_rate"]
 
     def run(self, df: pd.DataFrame, days: int = 30) -> SimulationResult:
-        """執行模擬（v2：含停損停利 + 部位管理）
+        """執行模擬（v3：ATR 動態停損停利 + 部位管理 + 最短持有期）
 
         Args:
             df: 原始股價 DataFrame（需包含足夠的歷史資料供指標計算）
@@ -78,14 +78,20 @@ class MonthlySimulator:
         sim_df = signals_df.tail(days)
 
         # 風控參數
+        use_atr = RISK_PARAMS.get("use_atr_stops", False)
         stop_loss_pct = RISK_PARAMS.get("stop_loss", 0.07)
         trailing_stop_pct = RISK_PARAMS.get("trailing_stop", 0.05)
+        atr_sl_mult = RISK_PARAMS.get("atr_stop_loss_mult", 3.0)
+        atr_ts_mult = RISK_PARAMS.get("atr_trailing_mult", 2.5)
         max_position_pct = RISK_PARAMS.get("max_position_pct", 0.5)
+        min_hold_days = RISK_PARAMS.get("min_hold_days", 0)
 
         cash = self.initial_capital
         position = 0
         entry_price = 0.0
         highest_since_entry = 0.0
+        entry_atr = 0.0
+        hold_day_count = 0
         prev_equity = self.initial_capital
 
         result = SimulationResult(initial_capital=self.initial_capital)
@@ -96,27 +102,42 @@ class MonthlySimulator:
             price = row["close"]
             high = row.get("high", price)
             signal = row["signal"]
+            current_atr = row.get("atr", 0.0)
             action = ""
             trade_info = None
 
             # 更新持倉期間最高價
             if position > 0:
                 highest_since_entry = max(highest_since_entry, high)
+                hold_day_count += 1
 
-            # ===== v2 風控檢查 =====
+            # ===== 風控檢查 =====
             force_sell = False
             exit_reason = ""
 
             if position > 0 and entry_price > 0:
-                # 1. 停損
-                if price <= entry_price * (1 - stop_loss_pct):
-                    force_sell = True
-                    exit_reason = "停損"
-                # 2. 移動停利
-                elif highest_since_entry > entry_price and \
-                     price <= highest_since_entry * (1 - trailing_stop_pct):
-                    force_sell = True
-                    exit_reason = "移動停利"
+                if hold_day_count <= min_hold_days:
+                    pass  # 最短持有期未滿
+                elif use_atr and entry_atr > 0:
+                    # v3: ATR 動態停損停利
+                    sl_distance = entry_atr * atr_sl_mult
+                    ts_distance = entry_atr * atr_ts_mult
+                    if price <= entry_price - sl_distance:
+                        force_sell = True
+                        exit_reason = "停損"
+                    elif highest_since_entry > entry_price and \
+                         price <= highest_since_entry - ts_distance:
+                        force_sell = True
+                        exit_reason = "移動停利"
+                else:
+                    # v2 fallback
+                    if price <= entry_price * (1 - stop_loss_pct):
+                        force_sell = True
+                        exit_reason = "停損"
+                    elif highest_since_entry > entry_price and \
+                         price <= highest_since_entry * (1 - trailing_stop_pct):
+                        force_sell = True
+                        exit_reason = "移動停利"
 
             if force_sell and position > 0:
                 revenue = position * price
@@ -149,10 +170,11 @@ class MonthlySimulator:
                 position = 0
                 entry_price = 0.0
                 highest_since_entry = 0.0
+                entry_atr = 0.0
+                hold_day_count = 0
 
             # ===== 正常訊號交易 =====
             elif signal == "BUY" and position == 0:
-                # v2 部位管理：最多用 max_position_pct 的資金
                 available = cash * max_position_pct
                 max_shares = int(
                     available / (price * TRADE_UNIT * (1 + self.commission_rate))
@@ -163,6 +185,8 @@ class MonthlySimulator:
                     commission = cost * self.commission_rate
                     cash -= cost + commission
                     entry_price = price
+                    entry_atr = current_atr  # v3: 記錄進場 ATR
+                    hold_day_count = 0       # v3: 重置持有天數
                     highest_since_entry = high
                     total_commission += commission
                     action = "買入"
@@ -209,6 +233,8 @@ class MonthlySimulator:
                 position = 0
                 entry_price = 0.0
                 highest_since_entry = 0.0
+                entry_atr = 0.0
+                hold_day_count = 0
 
             else:
                 action = "持有" if position > 0 else "空手觀望"

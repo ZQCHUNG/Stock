@@ -66,7 +66,7 @@ class BacktestEngine:
         self.tax_rate = tax_rate or BACKTEST_PARAMS["tax_rate"]
 
     def run(self, df: pd.DataFrame) -> BacktestResult:
-        """執行回測（v2：含停損停利 + 部位管理）
+        """執行回測（v3：ATR 動態停損停利 + 部位管理 + 最短持有期）
 
         Args:
             df: 原始股價 DataFrame
@@ -77,9 +77,13 @@ class BacktestEngine:
         signals_df = generate_signals(df)
 
         # 風控參數
+        use_atr = RISK_PARAMS.get("use_atr_stops", False)
         stop_loss_pct = RISK_PARAMS.get("stop_loss", 0.07)
         trailing_stop_pct = RISK_PARAMS.get("trailing_stop", 0.05)
+        atr_sl_mult = RISK_PARAMS.get("atr_stop_loss_mult", 3.0)
+        atr_ts_mult = RISK_PARAMS.get("atr_trailing_mult", 2.5)
         max_position_pct = RISK_PARAMS.get("max_position_pct", 0.5)
+        min_hold_days = RISK_PARAMS.get("min_hold_days", 0)
 
         cash = self.initial_capital
         position = 0  # 持有股數
@@ -87,33 +91,51 @@ class BacktestEngine:
         current_trade: Trade | None = None
         equity_history = []
         highest_since_entry = 0.0  # 進場後最高價（用於移動停利）
+        entry_atr = 0.0  # 進場時的 ATR（v3）
+        hold_day_count = 0  # 持有天數計數（v3）
 
         for date, row in signals_df.iterrows():
             price = row["close"]
             high = row.get("high", price)
             signal = row["signal"]
+            current_atr = row.get("atr", 0.0)
 
             # 更新持倉期間最高價（用當日最高價）
             if position > 0:
                 highest_since_entry = max(highest_since_entry, high)
+                hold_day_count += 1
 
-            # ===== v2 風控檢查（優先於訊號） =====
+            # ===== 風控檢查（優先於訊號） =====
             force_sell = False
             exit_reason = ""
 
             if position > 0 and current_trade is not None:
                 entry_price = current_trade.price_open
 
-                # 1. 停損檢查：跌破買入價 * (1 - stop_loss_pct)
-                if price <= entry_price * (1 - stop_loss_pct):
-                    force_sell = True
-                    exit_reason = "stop_loss"
+                # v3: 最短持有期檢查
+                if hold_day_count <= min_hold_days:
+                    pass  # 持有天數不足，不觸發停損停利
+                elif use_atr and entry_atr > 0:
+                    # v3: ATR 動態停損停利
+                    sl_distance = entry_atr * atr_sl_mult
+                    ts_distance = entry_atr * atr_ts_mult
 
-                # 2. 移動停利檢查：從最高點回落超過 trailing_stop_pct
-                elif highest_since_entry > entry_price and \
-                     price <= highest_since_entry * (1 - trailing_stop_pct):
-                    force_sell = True
-                    exit_reason = "trailing_stop"
+                    if price <= entry_price - sl_distance:
+                        force_sell = True
+                        exit_reason = "stop_loss"
+                    elif highest_since_entry > entry_price and \
+                         price <= highest_since_entry - ts_distance:
+                        force_sell = True
+                        exit_reason = "trailing_stop"
+                else:
+                    # v2 fallback: 固定百分比
+                    if price <= entry_price * (1 - stop_loss_pct):
+                        force_sell = True
+                        exit_reason = "stop_loss"
+                    elif highest_since_entry > entry_price and \
+                         price <= highest_since_entry * (1 - trailing_stop_pct):
+                        force_sell = True
+                        exit_reason = "trailing_stop"
 
             # 執行強制賣出（停損/停利）
             if force_sell and position > 0 and current_trade is not None:
@@ -140,6 +162,8 @@ class BacktestEngine:
                 position = 0
                 current_trade = None
                 highest_since_entry = 0.0
+                entry_atr = 0.0
+                hold_day_count = 0
 
             # 計算當前權益
             equity = cash + position * price
@@ -157,6 +181,8 @@ class BacktestEngine:
                     cash -= cost + commission
                     position = shares
                     highest_since_entry = high
+                    entry_atr = current_atr  # v3: 記錄進場 ATR
+                    hold_day_count = 0       # v3: 重置持有天數
 
                     current_trade = Trade(
                         date_open=date,
@@ -191,6 +217,8 @@ class BacktestEngine:
                 position = 0
                 current_trade = None
                 highest_since_entry = 0.0
+                entry_atr = 0.0
+                hold_day_count = 0
 
         # 如果最後還有持倉，以最後收盤價平倉
         if position > 0 and current_trade is not None:

@@ -77,13 +77,20 @@ STRATEGY_PARAMS = {
     "confirm_days": 2,          # 訊號需連續 N 天確認才進場
     "trend_filter": True,       # 趨勢過濾：MA20 > MA60 才做多
     "volume_confirm": True,     # 買入當天量 > 5日均量
+    # v3 新增
+    "score_rising": False,      # 評分需上升中才進場（預設關閉，過嚴）
 }
 
-# 風控參數（v2 新增）
+# 風控參數（v2 新增，v3 改為 ATR 動態）
 RISK_PARAMS = {
-    "stop_loss": 0.07,          # 停損：跌 7% 強制出場
-    "trailing_stop": 0.05,      # 移動停利：從最高點回落 5% 出場
+    "stop_loss": 0.07,          # 停損：固定百分比（v2 fallback）
+    "trailing_stop": 0.05,      # 移動停利：固定百分比（v2 fallback）
     "max_position_pct": 0.5,    # 單筆最多用 50% 資金
+    # v3 新增（ATR 預設關閉，可在 UI 手動開啟）
+    "use_atr_stops": False,     # ATR 動態停損停利（預設關，大盤測試固定%更穩）
+    "atr_stop_loss_mult": 3.0,  # 停損 = 買入價 - 3x ATR
+    "atr_trailing_mult": 2.5,   # 移動停利 = 最高價 - 2.5x ATR
+    "min_hold_days": 2,         # 最短持有天數（防止正常波動踢出場）
 }
 
 # 回測參數

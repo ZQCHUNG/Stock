@@ -202,6 +202,37 @@ def calculate_volume_analysis(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """計算 ATR (Average True Range) 平均真實波幅
+
+    ATR 衡量股票的波動度，用於動態調整停損停利距離。
+
+    Args:
+        df: 包含 'high', 'low', 'close' 欄位的 DataFrame
+        period: ATR 週期，預設 14
+
+    Returns:
+        新增 'atr', 'atr_pct' 欄位的 DataFrame
+    """
+    result = df.copy()
+    high = result["high"]
+    low = result["low"]
+    prev_close = result["close"].shift(1)
+
+    # True Range = max(H-L, |H-prevC|, |L-prevC|)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    result["atr"] = tr.ewm(span=period, adjust=False).mean()
+    # ATR 百分比（相對收盤價）
+    result["atr_pct"] = result["atr"] / result["close"]
+
+    return result
+
+
 def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """一次計算所有技術指標
 
@@ -218,5 +249,6 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     result = calculate_kd(result)
     result = calculate_bollinger_bands(result)
     result = calculate_volume_analysis(result)
+    result = calculate_atr(result)
 
     return result
