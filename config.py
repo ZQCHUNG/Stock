@@ -1,0 +1,54 @@
+"""台股技術分析系統 - 設定檔"""
+
+# 預設股票清單（台股熱門股）
+DEFAULT_STOCKS = {
+    "2330": "台積電",
+    "2317": "鴻海",
+    "2454": "聯發科",
+    "2881": "富邦金",
+    "2882": "國泰金",
+    "2891": "中信金",
+    "0050": "元大台灣50",
+    "0056": "元大高股息",
+    "2603": "長榮",
+    "3008": "大立光",
+}
+
+# 技術指標參數
+INDICATOR_PARAMS = {
+    "ma_short": 5,
+    "ma_mid": 20,
+    "ma_long": 60,
+    "rsi_period": 14,
+    "macd_fast": 12,
+    "macd_slow": 26,
+    "macd_signal": 9,
+    "kd_period": 9,
+    "bb_period": 20,
+    "bb_std": 2,
+}
+
+# 策略參數
+STRATEGY_PARAMS = {
+    "buy_threshold": 0.3,
+    "sell_threshold": -0.3,
+    "weights": {
+        "ma": 0.20,
+        "rsi": 0.20,
+        "macd": 0.20,
+        "kd": 0.20,
+        "bb": 0.10,
+        "volume": 0.10,
+    },
+}
+
+# 回測參數
+BACKTEST_PARAMS = {
+    "initial_capital": 1_000_000,  # 初始資金 100 萬
+    "commission_rate": 0.001425,   # 手續費 0.1425%
+    "tax_rate": 0.003,             # 交易稅 0.3%
+    "slippage": 0.001,             # 滑價 0.1%
+}
+
+# 台股交易單位
+TRADE_UNIT = 1000  # 一張 = 1000 股
