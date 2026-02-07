@@ -27,7 +27,7 @@ class Trade:
     tax: float = 0.0
     pnl: float = 0.0
     return_pct: float = 0.0
-    exit_reason: str = ""  # "signal" / "stop_loss" / "trailing_stop"
+    exit_reason: str = ""  # "signal" / "stop_loss" / "trailing_stop" / "take_profit"
 
 
 @dataclass
@@ -296,6 +296,7 @@ class BacktestEngine:
         highest_since_entry = 0.0
         tp_price = 0.0
         sl_price = 0.0
+        original_sl_price = 0.0
 
         for date, row in signals_df.iterrows():
             price = row["close"]
@@ -327,7 +328,7 @@ class BacktestEngine:
                         exit_price = tp_price
                     else:
                         force_sell = True
-                        exit_reason = "stop_loss"
+                        exit_reason = "trailing_stop" if sl_price > original_sl_price else "stop_loss"
                         exit_price = sl_price
                 elif tp_pct > 0 and high >= tp_price:
                     force_sell = True
@@ -335,7 +336,7 @@ class BacktestEngine:
                     exit_price = tp_price
                 elif low <= sl_price:
                     force_sell = True
-                    exit_reason = "stop_loss"
+                    exit_reason = "trailing_stop" if sl_price > original_sl_price else "stop_loss"
                     exit_price = sl_price
 
             if force_sell and position > 0 and current_trade is not None:
@@ -381,6 +382,7 @@ class BacktestEngine:
                     hold_days = 0
                     tp_price = price * (1 + tp_pct) if tp_pct > 0 else float("inf")
                     sl_price = price * (1 - sl_pct)
+                    original_sl_price = sl_price
 
                     current_trade = Trade(
                         date_open=date,

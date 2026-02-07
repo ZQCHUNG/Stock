@@ -718,94 +718,191 @@ elif page == "模擬交易":
 
 # ===== 頁面 4：推薦股票 =====
 elif page == "推薦股票":
-    st.header("推薦股票 — 技術面綜合評分 Top 3")
-    st.caption("從股票池中掃描所有股票，依綜合評分排序，推薦前 3 名最具技術面買進訊號的股票。")
+    if use_v4:
+        st.header("推薦股票 — v4 趨勢動量掃描")
+        st.caption("掃描股票池，篩選 v4 策略發出「買入」訊號的股票。只推薦真正值得進場的標的。")
+    else:
+        st.header("推薦股票 — v2 技術面綜合評分")
+        st.caption("掃描股票池，篩選綜合評分達到買入閾值的股票。")
 
-    def scan_all_stocks():
-        """掃描所有股票池（優先用 Redis 快取）"""
-        # 嘗試 Redis 快取
+    # 掃描範圍選擇
+    scan_scope = st.radio(
+        "掃描範圍",
+        ["全部股票（較慢，首次約 5-15 分鐘）", "精選 25 檔（快速）"],
+        horizontal=True,
+    )
+    use_full_scan = scan_scope.startswith("全部")
+    scan_pool = all_stocks if use_full_scan else SCAN_STOCKS
+
+    def _resolve_name(name):
+        return name.get("name", "") if isinstance(name, dict) else name
+
+    def scan_stocks_v4(stock_dict: dict):
+        """用 v4 策略掃描，只回傳 BUY 訊號"""
         cached = get_cached_scan_results()
-        if cached:
+        if cached and isinstance(cached, list) and len(cached) > 0 and "entry_type" in cached[0]:
             return cached
 
         results = []
         progress_bar = st.progress(0, text="掃描中...")
-        total = len(SCAN_STOCKS)
-        for i, (code, name) in enumerate(SCAN_STOCKS.items()):
-            progress_bar.progress((i + 1) / total, text=f"掃描 {code} {name}... ({i+1}/{total})")
+        total = len(stock_dict)
+        for i, (code, name) in enumerate(stock_dict.items()):
+            display_name = _resolve_name(name)
+            progress_bar.progress((i + 1) / total, text=f"掃描 {code} {display_name}... ({i+1}/{total})")
             try:
                 df = get_stock_data(code, period_days=200)
+                if df is None or len(df) < 60:
+                    continue
+                analysis = get_v4_analysis(df)
+                analysis["code"] = code
+                analysis["name"] = display_name
+                if analysis["signal"] == "BUY":
+                    results.append(analysis)
+            except Exception:
+                continue
+        progress_bar.empty()
+
+        if results:
+            set_cached_scan_results(results, ttl=600)
+        return results
+
+    def scan_stocks_v2(stock_dict: dict):
+        """用 v2 評分掃描全部股票"""
+        cached = get_cached_scan_results()
+        if cached and isinstance(cached, list) and len(cached) > 0 and "composite_score" in cached[0]:
+            return cached
+
+        results = []
+        progress_bar = st.progress(0, text="掃描中...")
+        total = len(stock_dict)
+        for i, (code, name) in enumerate(stock_dict.items()):
+            display_name = _resolve_name(name)
+            progress_bar.progress((i + 1) / total, text=f"掃描 {code} {display_name}... ({i+1}/{total})")
+            try:
+                df = get_stock_data(code, period_days=200)
+                if df is None or len(df) < 60:
+                    continue
                 analysis = get_latest_analysis(df)
                 analysis["code"] = code
-                analysis["name"] = name
+                analysis["name"] = display_name
                 results.append(analysis)
             except Exception:
                 continue
         progress_bar.empty()
 
-        # 寫入 Redis 快取（10 分鐘）
         if results:
             set_cached_scan_results(results, ttl=600)
         return results
 
-    with st.spinner("正在掃描股票池..."):
-        all_results = scan_all_stocks()
+    if st.button("開始掃描", type="primary"):
+        if use_v4:
+            # ===== v4 掃描 =====
+            buy_results = scan_stocks_v4(scan_pool)
 
-    if not all_results:
-        st.error("無法取得任何股票資料")
-        st.stop()
+            if not buy_results:
+                st.warning(
+                    f"掃描完成（共 {len(scan_pool)} 檔），目前沒有任何股票符合 v4 買入條件。\n\n"
+                    "v4 進場條件較嚴格（ADX≥18 + MA20>MA60 連續10天 + 支撐反彈或動量突破），"
+                    "代表目前市場可能缺乏明確趨勢機會，建議耐心等待。"
+                )
+            else:
+                st.success(f"掃描完成（共 {len(scan_pool)} 檔），找到 **{len(buy_results)}** 檔符合 v4 買入條件！")
 
-    # 依綜合評分排序，取前 3 名
-    sorted_results = sorted(all_results, key=lambda x: x["composite_score"], reverse=True)
-    top3 = sorted_results[:3]
+                buy_results.sort(key=lambda x: x.get("uptrend_days", 0), reverse=True)
+                entry_type_map = {"support": "支撐反彈", "momentum": "動量突破"}
 
-    for rank, stock in enumerate(top3, 1):
-        signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
-        signal_text = signal_map.get(stock["signal"], stock["signal"])
+                for rank, stock in enumerate(buy_results[:10], 1):
+                    st.subheader(f"第 {rank} 名：{stock['code']} {stock['name']}")
 
-        st.subheader(f"第 {rank} 名：{stock['code']} {stock['name']}")
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("收盤價", f"${stock['close']:.2f}")
+                    with col2:
+                        st.metric("進場類型", entry_type_map.get(stock.get("entry_type", ""), "—"))
+                    with col3:
+                        st.metric("上升趨勢天數", f"{stock.get('uptrend_days', 0)} 天")
+                    with col4:
+                        st.metric("距離 MA20", f"{stock.get('dist_ma20', 0):.1%}")
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("收盤價", f"${stock['close']:.2f}")
-        with col2:
-            st.metric("訊號", signal_text)
-        with col3:
-            st.metric("綜合評分", f"{stock['composite_score']:+.3f}")
+                    ind = stock.get("indicators", {})
+                    ind_cols = st.columns(5)
+                    for j, label in enumerate(["ADX", "RSI", "+DI", "-DI", "ROC"]):
+                        with ind_cols[j]:
+                            val = ind.get(label)
+                            st.metric(label, f"{val:.1f}" if val is not None and not pd.isna(val) else "—")
+                    st.divider()
 
-        # 推薦原因
-        explanation = explain_signal(stock)
-        st.markdown(explanation)
+                # 全部列表
+                st.subheader("全部買入訊號股票")
+                table_data = []
+                for i, s in enumerate(buy_results, 1):
+                    ind = s.get("indicators", {})
+                    table_data.append({
+                        "排名": i,
+                        "代碼": s["code"],
+                        "名稱": s["name"],
+                        "收盤價": f"${s['close']:.2f}",
+                        "進場類型": entry_type_map.get(s.get("entry_type", ""), "—"),
+                        "趨勢天數": s.get("uptrend_days", 0),
+                        "距離MA20": f"{s.get('dist_ma20', 0):.1%}",
+                        "ADX": f"{ind.get('ADX', 0):.1f}" if ind.get("ADX") else "—",
+                        "RSI": f"{ind.get('RSI', 0):.1f}" if ind.get("RSI") else "—",
+                    })
+                st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
 
-        # 各指標評分一覽
-        score_cols = st.columns(6)
-        for i, (name, score) in enumerate(stock["scores"].items()):
-            with score_cols[i]:
-                icon = "🟢" if score > 0 else "🔴" if score < 0 else "⚪"
-                st.metric(name, f"{icon} {score:+.2f}")
+        else:
+            # ===== v2 掃描 =====
+            all_scan = scan_stocks_v2(scan_pool)
 
-        st.divider()
+            if not all_scan:
+                st.error("無法取得任何股票資料")
+            else:
+                buy_only = [s for s in all_scan if s["signal"] == "BUY"]
 
-    # 完整排行表
-    st.subheader("全部股票評分排行")
-    ranking_data = []
-    for i, s in enumerate(sorted_results, 1):
-        signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
-        ranking_data.append({
-            "排名": i,
-            "代碼": s["code"],
-            "名稱": s["name"],
-            "收盤價": f"${s['close']:.2f}",
-            "訊號": signal_map.get(s["signal"], s["signal"]),
-            "綜合評分": f"{s['composite_score']:+.3f}",
-            "MA": f"{s['scores']['MA']:+.2f}",
-            "RSI": f"{s['scores']['RSI']:+.2f}",
-            "MACD": f"{s['scores']['MACD']:+.2f}",
-            "KD": f"{s['scores']['KD']:+.2f}",
-            "布林": f"{s['scores']['布林通道']:+.2f}",
-            "量能": f"{s['scores']['成交量']:+.2f}",
-        })
-    st.dataframe(pd.DataFrame(ranking_data), use_container_width=True, hide_index=True)
+                if not buy_only:
+                    st.warning(
+                        f"掃描完成（共 {len(scan_pool)} 檔），目前沒有股票綜合評分達到買入閾值（≥ {STRATEGY_PARAMS['buy_threshold']}）。\n\n"
+                        "建議耐心等待更好的進場時機。以下為全部股票評分排行僅供參考。"
+                    )
+                    sorted_results = sorted(all_scan, key=lambda x: x["composite_score"], reverse=True)
+                else:
+                    st.success(f"掃描完成（共 {len(scan_pool)} 檔），找到 **{len(buy_only)}** 檔發出買入訊號！")
+                    sorted_results = sorted(buy_only, key=lambda x: x["composite_score"], reverse=True)
+
+                    for rank, stock in enumerate(sorted_results[:10], 1):
+                        st.subheader(f"第 {rank} 名：{stock['code']} {stock['name']}")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("收盤價", f"${stock['close']:.2f}")
+                        with col2:
+                            st.metric("訊號", "🟢 買入")
+                        with col3:
+                            st.metric("綜合評分", f"{stock['composite_score']:+.3f}")
+                        explanation = explain_signal(stock)
+                        st.markdown(explanation)
+                        score_cols = st.columns(6)
+                        for j, (sname, score) in enumerate(stock["scores"].items()):
+                            with score_cols[j]:
+                                icon = "🟢" if score > 0 else "🔴" if score < 0 else "⚪"
+                                st.metric(sname, f"{icon} {score:+.2f}")
+                        st.divider()
+
+                # 全部排行表
+                if not buy_only:
+                    sorted_results = sorted(all_scan, key=lambda x: x["composite_score"], reverse=True)
+                st.subheader("全部股票評分排行")
+                ranking_data = []
+                for i, s in enumerate(sorted_results, 1):
+                    signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
+                    ranking_data.append({
+                        "排名": i,
+                        "代碼": s["code"],
+                        "名稱": s["name"],
+                        "收盤價": f"${s['close']:.2f}",
+                        "訊號": signal_map.get(s["signal"], s["signal"]),
+                        "綜合評分": f"{s['composite_score']:+.3f}",
+                    })
+                st.dataframe(pd.DataFrame(ranking_data), use_container_width=True, hide_index=True)
 
 
 # ===== Footer =====

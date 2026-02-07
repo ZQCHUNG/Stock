@@ -307,6 +307,7 @@ class MonthlySimulator:
         entry_price = 0.0
         tp_price = 0.0
         sl_price = 0.0
+        original_sl_price = 0.0
         highest_since_entry = 0.0
         hold_days = 0
         prev_equity = self.initial_capital
@@ -343,11 +344,13 @@ class MonthlySimulator:
                     if price >= entry_price:
                         force_sell, exit_reason, exit_price = True, "停利", tp_price
                     else:
-                        force_sell, exit_reason, exit_price = True, "停損", sl_price
+                        _reason = "移動停利" if sl_price > original_sl_price else "停損"
+                        force_sell, exit_reason, exit_price = True, _reason, sl_price
                 elif tp_pct > 0 and high >= tp_price:
                     force_sell, exit_reason, exit_price = True, "停利", tp_price
                 elif low <= sl_price:
-                    force_sell, exit_reason, exit_price = True, "停損", sl_price
+                    _reason = "移動停利" if sl_price > original_sl_price else "停損"
+                    force_sell, exit_reason, exit_price = True, _reason, sl_price
 
             if force_sell and position > 0:
                 revenue = position * exit_price
@@ -392,6 +395,7 @@ class MonthlySimulator:
                     hold_days = 0
                     tp_price = price * (1 + tp_pct) if tp_pct > 0 else float("inf")
                     sl_price = price * (1 - sl_pct)
+                    original_sl_price = sl_price
                     total_commission += commission
                     action = "買入"
                     trade_info = {
