@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 
-from config import DEFAULT_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, INDICATOR_PARAMS
+from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, INDICATOR_PARAMS
 from data.fetcher import get_stock_data
 from analysis.indicators import calculate_all_indicators
 from analysis.strategy import generate_signals, get_latest_analysis
@@ -36,7 +36,11 @@ with st.sidebar:
     )
     default_code = stock_options[selected_display]
 
-    custom_code = st.text_input("或輸入股票代碼", value="", placeholder="例如: 2330")
+    custom_code = st.text_input(
+        "或輸入股票代碼（上市/上櫃皆可）",
+        value="",
+        placeholder="例如: 2330 或 6748",
+    )
     stock_code = custom_code.strip() if custom_code.strip() else default_code
 
     st.divider()
@@ -44,7 +48,7 @@ with st.sidebar:
     # 頁面選擇
     page = st.radio(
         "功能",
-        options=["技術分析", "回測報告", "模擬交易"],
+        options=["技術分析", "回測報告", "模擬交易", "推薦股票"],
         index=0,
     )
 
@@ -66,6 +70,24 @@ with st.sidebar:
         buy_threshold = st.slider("買入閾值", 0.0, 1.0, STRATEGY_PARAMS["buy_threshold"], 0.05)
         sell_threshold = st.slider("賣出閾值", -1.0, 0.0, STRATEGY_PARAMS["sell_threshold"], 0.05)
 
+    # 顏色圖例
+    with st.expander("顏色說明", expanded=False):
+        st.markdown("""
+        **訊號顏色**
+        - 🟢 **綠色 / 買入 (BUY)** — 技術面偏多，建議買進
+        - 🔴 **紅色 / 賣出 (SELL)** — 技術面偏空，建議賣出
+        - 🟡 **黃色 / 持有 (HOLD)** — 訊號不明確，建議觀望
+
+        **指標評分**
+        - 🟢 正分 (+) — 該指標偏多頭
+        - 🔴 負分 (-) — 該指標偏空頭
+        - ⚪ 零分 (0) — 中性
+
+        **K 線圖**
+        - 🔴 紅色 K 棒 — 收盤 > 開盤（上漲）
+        - 🟢 綠色 K 棒 — 收盤 < 開盤（下跌）
+        """)
+
 
 # ===== 資料載入 =====
 @st.cache_data(ttl=300)  # 快取 5 分鐘
@@ -73,20 +95,117 @@ def load_data(code: str, days: int):
     return get_stock_data(code, period_days=days)
 
 
-try:
-    # 多抓一些資料供指標計算使用（指標需要前面的資料暖機）
-    fetch_days = max(backtest_days, 365) + 120
-    raw_df = load_data(stock_code, fetch_days)
-    stock_name = DEFAULT_STOCKS.get(stock_code, stock_code)
-    st.sidebar.success(f"已載入 {stock_code} {stock_name}")
-except Exception as e:
-    st.error(f"無法載入股票 {stock_code} 的資料：{e}")
-    st.stop()
-
+# 推薦股票頁面不需要預先載入單一股票
+if page != "推薦股票":
+    try:
+        fetch_days = max(backtest_days, 365) + 120
+        raw_df = load_data(stock_code, fetch_days)
+        stock_name = DEFAULT_STOCKS.get(stock_code, stock_code)
+        st.sidebar.success(f"已載入 {stock_code} {stock_name}")
+    except Exception as e:
+        st.error(f"無法載入股票 {stock_code} 的資料：{e}")
+        st.stop()
 
 # ===== 覆寫策略閾值 =====
 STRATEGY_PARAMS["buy_threshold"] = buy_threshold
 STRATEGY_PARAMS["sell_threshold"] = sell_threshold
+
+
+# ===== 輔助函式：產生訊號原因說明 =====
+def explain_signal(analysis: dict) -> str:
+    """根據各指標評分產生訊號原因的中文說明"""
+    scores = analysis["scores"]
+    indicators = analysis["indicators"]
+    signal = analysis["signal"]
+    composite = analysis["composite_score"]
+
+    bullish = []  # 偏多的指標
+    bearish = []  # 偏空的指標
+    neutral = []  # 中性的指標
+
+    # MA
+    ma_score = scores["MA"]
+    if ma_score > 0:
+        bullish.append(f"MA 均線多頭排列（MA5 > MA20），短期趨勢向上")
+    elif ma_score < 0:
+        bearish.append(f"MA 均線空頭排列（MA5 < MA20），短期趨勢向下")
+    else:
+        neutral.append("MA 均線方向不明")
+
+    # RSI
+    rsi_score = scores["RSI"]
+    rsi_val = indicators.get("RSI", 0)
+    if rsi_val and not pd.isna(rsi_val):
+        if rsi_score > 0.5:
+            bullish.append(f"RSI = {rsi_val:.1f}，處於超賣區（< 30），有反彈空間")
+        elif rsi_score > 0:
+            bullish.append(f"RSI = {rsi_val:.1f}，偏低但未超賣，仍有上漲動能")
+        elif rsi_score < -0.5:
+            bearish.append(f"RSI = {rsi_val:.1f}，處於超買區（> 70），注意回檔風險")
+        elif rsi_score < 0:
+            bearish.append(f"RSI = {rsi_val:.1f}，偏高，上漲動能趨緩")
+        else:
+            neutral.append(f"RSI = {rsi_val:.1f}，處於中性區間")
+
+    # MACD
+    macd_score = scores["MACD"]
+    if macd_score > 0:
+        bullish.append("MACD 多頭訊號，DIF 在 MACD 之上且柱狀體為正")
+    elif macd_score < 0:
+        bearish.append("MACD 空頭訊號，DIF 在 MACD 之下且柱狀體為負")
+    else:
+        neutral.append("MACD 訊號不明確")
+
+    # KD
+    kd_score = scores["KD"]
+    k_val = indicators.get("K", 0)
+    d_val = indicators.get("D", 0)
+    if k_val and d_val and not pd.isna(k_val):
+        if kd_score > 0:
+            bullish.append(f"KD 指標 K={k_val:.1f} D={d_val:.1f}，K > D 黃金交叉偏多")
+        elif kd_score < 0:
+            bearish.append(f"KD 指標 K={k_val:.1f} D={d_val:.1f}，K < D 死亡交叉偏空")
+
+    # 布林通道
+    bb_score = scores["布林通道"]
+    if bb_score > 0.3:
+        bullish.append("股價靠近布林通道下軌，有反彈機會")
+    elif bb_score < -0.3:
+        bearish.append("股價靠近布林通道上軌，注意壓力")
+
+    # 成交量
+    vol_score = scores["成交量"]
+    if vol_score > 0:
+        bullish.append("成交量配合（量增價漲或量縮整理）")
+    elif vol_score < 0:
+        bearish.append("量增價跌，可能為出貨訊號")
+
+    # 組合說明
+    lines = []
+
+    if signal == "BUY":
+        lines.append(f"**建議買入** — 綜合評分 {composite:+.3f}（超過買入閾值 {buy_threshold}）")
+    elif signal == "SELL":
+        lines.append(f"**建議賣出** — 綜合評分 {composite:+.3f}（低於賣出閾值 {sell_threshold}）")
+    else:
+        lines.append(f"**建議持有/觀望** — 綜合評分 {composite:+.3f}（介於賣出閾值 {sell_threshold} 與買入閾值 {buy_threshold} 之間，訊號不夠強烈）")
+
+    if bullish:
+        lines.append("\n**偏多因素：**")
+        for b in bullish:
+            lines.append(f"- {b}")
+
+    if bearish:
+        lines.append("\n**偏空因素：**")
+        for b in bearish:
+            lines.append(f"- {b}")
+
+    if neutral:
+        lines.append("\n**中性因素：**")
+        for n in neutral:
+            lines.append(f"- {n}")
+
+    return "\n".join(lines)
 
 
 # ===== 頁面 1：技術分析 =====
@@ -100,8 +219,8 @@ if page == "技術分析":
     with col1:
         st.metric("收盤價", f"${analysis['close']:.2f}")
     with col2:
-        signal_color = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
-        st.metric("訊號", signal_color.get(analysis["signal"], analysis["signal"]))
+        signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
+        st.metric("訊號", signal_map.get(analysis["signal"], analysis["signal"]))
     with col3:
         st.metric("綜合評分", f"{analysis['composite_score']:.3f}")
     with col4:
@@ -116,10 +235,14 @@ if page == "技術分析":
             color = "🟢" if score > 0 else "🔴" if score < 0 else "⚪"
             st.metric(name, f"{color} {score:+.2f}")
 
+    # 訊號原因說明
+    st.subheader("訊號分析原因")
+    explanation = explain_signal(analysis)
+    st.markdown(explanation)
+
     # K線圖 + 技術指標
     signals_df = generate_signals(raw_df).tail(120)  # 最近 120 個交易日
 
-    # 主圖：K線 + MA + 布林通道 + 買賣訊號
     fig = make_subplots(
         rows=4, cols=1,
         shared_xaxes=True,
@@ -207,7 +330,6 @@ if page == "技術分析":
         x=signals_df.index, y=signals_df["d"],
         mode="lines", name="D", line=dict(color="#FF9800", width=1),
     ), row=3, col=1)
-    # 超買超賣線
     fig.add_hline(y=80, line_dash="dash", line_color="red", opacity=0.5, row=3, col=1)
     fig.add_hline(y=20, line_dash="dash", line_color="green", opacity=0.5, row=3, col=1)
 
@@ -243,8 +365,7 @@ elif page == "回測報告":
     st.header(f"{stock_code} {stock_name} - 回測報告")
 
     with st.spinner("正在執行回測..."):
-        # 取回測期間的資料
-        backtest_df = raw_df.tail(backtest_days + 60)  # 多取一些供指標暖機
+        backtest_df = raw_df.tail(backtest_days + 60)
         result = run_backtest(backtest_df, initial_capital=initial_capital)
 
     # 績效指標
@@ -436,6 +557,86 @@ elif page == "模擬交易":
     sim_df = simulation_to_dataframe(sim_result)
     sim_df["日期"] = pd.to_datetime(sim_df["日期"]).dt.strftime("%Y-%m-%d")
     st.dataframe(sim_df, use_container_width=True, height=400)
+
+
+# ===== 頁面 4：推薦股票 =====
+elif page == "推薦股票":
+    st.header("推薦股票 — 技術面綜合評分 Top 3")
+    st.caption("從股票池中掃描所有股票，依綜合評分排序，推薦前 3 名最具技術面買進訊號的股票。")
+
+    @st.cache_data(ttl=600)  # 快取 10 分鐘
+    def scan_all_stocks():
+        """掃描所有股票池，回傳分析結果"""
+        results = []
+        for code, name in SCAN_STOCKS.items():
+            try:
+                df = get_stock_data(code, period_days=200)
+                analysis = get_latest_analysis(df)
+                analysis["code"] = code
+                analysis["name"] = name
+                results.append(analysis)
+            except Exception:
+                continue
+        return results
+
+    with st.spinner("正在掃描股票池（首次載入較慢，結果快取 10 分鐘）..."):
+        all_results = scan_all_stocks()
+
+    if not all_results:
+        st.error("無法取得任何股票資料")
+        st.stop()
+
+    # 依綜合評分排序，取前 3 名
+    sorted_results = sorted(all_results, key=lambda x: x["composite_score"], reverse=True)
+    top3 = sorted_results[:3]
+
+    for rank, stock in enumerate(top3, 1):
+        signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
+        signal_text = signal_map.get(stock["signal"], stock["signal"])
+
+        st.subheader(f"第 {rank} 名：{stock['code']} {stock['name']}")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("收盤價", f"${stock['close']:.2f}")
+        with col2:
+            st.metric("訊號", signal_text)
+        with col3:
+            st.metric("綜合評分", f"{stock['composite_score']:+.3f}")
+
+        # 推薦原因
+        explanation = explain_signal(stock)
+        st.markdown(explanation)
+
+        # 各指標評分一覽
+        score_cols = st.columns(6)
+        for i, (name, score) in enumerate(stock["scores"].items()):
+            with score_cols[i]:
+                icon = "🟢" if score > 0 else "🔴" if score < 0 else "⚪"
+                st.metric(name, f"{icon} {score:+.2f}")
+
+        st.divider()
+
+    # 完整排行表
+    st.subheader("全部股票評分排行")
+    ranking_data = []
+    for i, s in enumerate(sorted_results, 1):
+        signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
+        ranking_data.append({
+            "排名": i,
+            "代碼": s["code"],
+            "名稱": s["name"],
+            "收盤價": f"${s['close']:.2f}",
+            "訊號": signal_map.get(s["signal"], s["signal"]),
+            "綜合評分": f"{s['composite_score']:+.3f}",
+            "MA": f"{s['scores']['MA']:+.2f}",
+            "RSI": f"{s['scores']['RSI']:+.2f}",
+            "MACD": f"{s['scores']['MACD']:+.2f}",
+            "KD": f"{s['scores']['KD']:+.2f}",
+            "布林": f"{s['scores']['布林通道']:+.2f}",
+            "量能": f"{s['scores']['成交量']:+.2f}",
+        })
+    st.dataframe(pd.DataFrame(ranking_data), use_container_width=True, hide_index=True)
 
 
 # ===== Footer =====
