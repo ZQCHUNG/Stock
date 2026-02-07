@@ -9,8 +9,9 @@
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
-from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT
+from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT, STRATEGY_V4_PARAMS
 from analysis.strategy import generate_signals
+from analysis.strategy_v4 import generate_v4_signals
 
 
 @dataclass
@@ -258,6 +259,174 @@ class BacktestEngine:
 
         return result
 
+    def run_v4(self, df: pd.DataFrame, params: dict | None = None) -> BacktestResult:
+        """執行 v4 回測（趨勢動量 + 支撐進場 + 移動停利停損）
+
+        v4 使用完全不同的進出場邏輯：
+        - 進場：v4_signal == "BUY" 時買入
+        - 出場：固定停利 / 固定停損 / 移動停利（trailing stop）
+        - 用當日最高最低價偵測 TP/SL（更貼近真實盤中行為）
+        - 最短持有天數：避免正常波動觸發假停損
+
+        Args:
+            df: 原始股價 DataFrame
+            params: 覆蓋 STRATEGY_V4_PARAMS 的參數
+
+        Returns:
+            BacktestResult 回測結果
+        """
+        p = dict(STRATEGY_V4_PARAMS)
+        if params:
+            p.update(params)
+
+        signals_df = generate_v4_signals(df, params=p)
+
+        tp_pct = p.get("take_profit_pct", 0.10)
+        sl_pct = p.get("stop_loss_pct", 0.07)
+        trailing_pct = p.get("trailing_stop_pct", 0.02)
+        max_pos_pct = p.get("max_position_pct", 0.9)
+        min_hold = p.get("min_hold_days", 5)
+
+        cash = self.initial_capital
+        position = 0
+        trades: list[Trade] = []
+        current_trade: Trade | None = None
+        equity_history = []
+        hold_days = 0
+        highest_since_entry = 0.0
+        tp_price = 0.0
+        sl_price = 0.0
+
+        for date, row in signals_df.iterrows():
+            price = row["close"]
+            high = row.get("high", price)
+            low = row.get("low", price)
+            signal = row.get("v4_signal", "HOLD")
+
+            if position > 0:
+                highest_since_entry = max(highest_since_entry, high)
+                hold_days += 1
+
+                # 移動停利：從最高價回落 trailing_pct 時出場
+                if trailing_pct > 0:
+                    new_sl = highest_since_entry * (1 - trailing_pct)
+                    if new_sl > sl_price:
+                        sl_price = new_sl
+
+            # ===== 出場檢查（用 high/low 偵測盤中觸及） =====
+            force_sell = False
+            exit_reason = ""
+            exit_price = 0.0
+
+            if position > 0 and current_trade is not None and hold_days >= min_hold:
+                # 當日同時觸及 TP 和 SL：以收盤方向判斷
+                if tp_pct > 0 and high >= tp_price and low <= sl_price:
+                    if price >= current_trade.price_open:
+                        force_sell = True
+                        exit_reason = "take_profit"
+                        exit_price = tp_price
+                    else:
+                        force_sell = True
+                        exit_reason = "stop_loss"
+                        exit_price = sl_price
+                elif tp_pct > 0 and high >= tp_price:
+                    force_sell = True
+                    exit_reason = "take_profit"
+                    exit_price = tp_price
+                elif low <= sl_price:
+                    force_sell = True
+                    exit_reason = "stop_loss"
+                    exit_price = sl_price
+
+            if force_sell and position > 0 and current_trade is not None:
+                revenue = position * exit_price
+                commission = revenue * self.commission_rate
+                tax = revenue * self.tax_rate
+                cash += revenue - commission - tax
+
+                current_trade.date_close = date
+                current_trade.price_close = exit_price
+                current_trade.commission += commission
+                current_trade.tax = tax
+                current_trade.pnl = (
+                    (exit_price - current_trade.price_open) * position
+                    - current_trade.commission
+                    - current_trade.tax
+                )
+                current_trade.return_pct = (
+                    current_trade.pnl / (current_trade.price_open * position)
+                )
+                current_trade.exit_reason = exit_reason
+
+                trades.append(current_trade)
+                position = 0
+                current_trade = None
+                hold_days = 0
+
+            # 當前權益
+            equity = cash + position * price
+            equity_history.append({"date": date, "equity": equity})
+
+            # ===== 進場 =====
+            if signal == "BUY" and position == 0:
+                available = cash * max_pos_pct
+                max_shares = int(available / (price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
+                if max_shares >= TRADE_UNIT:
+                    shares = max_shares
+                    cost = shares * price
+                    commission = cost * self.commission_rate
+                    cash -= cost + commission
+                    position = shares
+                    highest_since_entry = high
+                    hold_days = 0
+                    tp_price = price * (1 + tp_pct) if tp_pct > 0 else float("inf")
+                    sl_price = price * (1 - sl_pct)
+
+                    current_trade = Trade(
+                        date_open=date,
+                        side="BUY",
+                        shares=shares,
+                        price_open=price,
+                        commission=commission,
+                    )
+
+        # 期末平倉
+        if position > 0 and current_trade is not None:
+            last_date = signals_df.index[-1]
+            last_price = signals_df.iloc[-1]["close"]
+            revenue = position * last_price
+            commission = revenue * self.commission_rate
+            tax = revenue * self.tax_rate
+            cash += revenue - commission - tax
+
+            current_trade.date_close = last_date
+            current_trade.price_close = last_price
+            current_trade.commission += commission
+            current_trade.tax = tax
+            current_trade.pnl = (
+                (last_price - current_trade.price_open) * position
+                - current_trade.commission
+                - current_trade.tax
+            )
+            current_trade.return_pct = (
+                current_trade.pnl / (current_trade.price_open * position)
+            )
+            current_trade.exit_reason = "end_of_period"
+            trades.append(current_trade)
+
+        # 權益曲線
+        equity_df = pd.DataFrame(equity_history)
+        if not equity_df.empty:
+            equity_df.set_index("date", inplace=True)
+            equity_curve = equity_df["equity"]
+        else:
+            equity_curve = pd.Series(dtype=float)
+
+        result = BacktestResult(trades=trades, equity_curve=equity_curve)
+        self._calculate_metrics(result)
+
+        return result
+
     def _calculate_metrics(self, result: BacktestResult) -> None:
         """計算績效指標"""
         if result.equity_curve.empty:
@@ -327,6 +496,25 @@ def run_backtest(
     """
     engine = BacktestEngine(initial_capital=initial_capital)
     return engine.run(df)
+
+
+def run_backtest_v4(
+    df: pd.DataFrame,
+    initial_capital: float | None = None,
+    params: dict | None = None,
+) -> BacktestResult:
+    """便捷函式：執行 v4 回測
+
+    Args:
+        df: 原始股價 DataFrame
+        initial_capital: 初始資金
+        params: v4 策略參數覆蓋
+
+    Returns:
+        BacktestResult
+    """
+    engine = BacktestEngine(initial_capital=initial_capital)
+    return engine.run_v4(df, params=params)
 
 
 def format_backtest_summary(result: BacktestResult) -> str:

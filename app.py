@@ -6,14 +6,15 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 
-from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, RISK_PARAMS, INDICATOR_PARAMS
+from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, RISK_PARAMS, INDICATOR_PARAMS, STRATEGY_V4_PARAMS
 from data.fetcher import get_stock_data
 from data.stock_list import get_all_stocks, get_stock_name
 from data.cache import get_cached_scan_results, set_cached_scan_results, get_cache_stats, flush_cache
 from analysis.indicators import calculate_all_indicators
 from analysis.strategy import generate_signals, get_latest_analysis
-from backtest.engine import run_backtest, BacktestResult
-from simulation.simulator import run_simulation, simulation_to_dataframe, SimulationResult
+from analysis.strategy_v4 import generate_v4_signals, get_v4_analysis
+from backtest.engine import run_backtest, run_backtest_v4, BacktestResult
+from simulation.simulator import run_simulation, run_simulation_v4, simulation_to_dataframe, SimulationResult
 
 # ===== 頁面設定 =====
 st.set_page_config(
@@ -70,6 +71,17 @@ with st.sidebar:
 
     st.divider()
 
+    # 策略版本選擇
+    strategy_version = st.radio(
+        "策略版本",
+        options=["v4（趨勢動量）", "v2（評分系統）"],
+        index=0,
+        help="v4：趨勢動量+支撐進場+移動停利，回測 WR 54%、平均報酬 +59%\nv2：綜合評分系統+ATR 停損停利",
+    )
+    use_v4 = strategy_version.startswith("v4")
+
+    st.divider()
+
     # 參數設定
     with st.expander("進階參數", expanded=False):
         initial_capital = st.number_input(
@@ -97,11 +109,19 @@ with st.sidebar:
         max_position_pct = st.slider("單筆最大部位 (%)", 10, 100, int(RISK_PARAMS["max_position_pct"] * 100), 10)
         min_hold_days = st.number_input("最短持有天數（v3）", min_value=0, max_value=10, value=RISK_PARAMS.get("min_hold_days", 3))
 
-        st.caption("訊號過濾")
-        trend_filter = st.checkbox("趨勢過濾（MA20>MA60 才做多）", value=STRATEGY_PARAMS.get("trend_filter", True))
-        volume_confirm = st.checkbox("量能確認（買入量>5日均量）", value=STRATEGY_PARAMS.get("volume_confirm", True))
-        score_rising = st.checkbox("評分上升確認（v3）", value=STRATEGY_PARAMS.get("score_rising", True))
-        confirm_days = st.number_input("訊號確認天數", min_value=1, max_value=5, value=STRATEGY_PARAMS.get("confirm_days", 2))
+        if use_v4:
+            st.caption("v4 策略參數")
+            v4_tp = st.slider("停利 (%)", 3, 30, int(STRATEGY_V4_PARAMS["take_profit_pct"] * 100), 1)
+            v4_sl = st.slider("停損 (%)", 2, 15, int(STRATEGY_V4_PARAMS["stop_loss_pct"] * 100), 1)
+            v4_trail = st.slider("移動停利 (%)", 1, 10, int(STRATEGY_V4_PARAMS["trailing_stop_pct"] * 100), 1)
+            v4_hold = st.number_input("最短持有天數", min_value=0, max_value=15, value=STRATEGY_V4_PARAMS["min_hold_days"])
+            v4_adx = st.slider("ADX 最低要求", 10, 35, STRATEGY_V4_PARAMS["adx_min"], 1)
+        else:
+            st.caption("訊號過濾")
+            trend_filter = st.checkbox("趨勢過濾（MA20>MA60 才做多）", value=STRATEGY_PARAMS.get("trend_filter", True))
+            volume_confirm = st.checkbox("量能確認（買入量>5日均量）", value=STRATEGY_PARAMS.get("volume_confirm", True))
+            score_rising = st.checkbox("評分上升確認（v3）", value=STRATEGY_PARAMS.get("score_rising", True))
+            confirm_days = st.number_input("訊號確認天數", min_value=1, max_value=5, value=STRATEGY_PARAMS.get("confirm_days", 2))
 
     # Redis 快取狀態
     with st.expander("快取狀態 (Redis)", expanded=False):
@@ -153,21 +173,28 @@ if page != "推薦股票":
         st.stop()
 
 # ===== 覆寫策略閾值 & 風控參數 =====
-STRATEGY_PARAMS["buy_threshold"] = buy_threshold
-STRATEGY_PARAMS["sell_threshold"] = sell_threshold
-STRATEGY_PARAMS["trend_filter"] = trend_filter
-STRATEGY_PARAMS["volume_confirm"] = volume_confirm
-STRATEGY_PARAMS["confirm_days"] = confirm_days
-STRATEGY_PARAMS["score_rising"] = score_rising
-RISK_PARAMS["use_atr_stops"] = use_atr_stops
-if use_atr_stops:
-    RISK_PARAMS["atr_stop_loss_mult"] = atr_sl_mult
-    RISK_PARAMS["atr_trailing_mult"] = atr_ts_mult
+if use_v4:
+    STRATEGY_V4_PARAMS["take_profit_pct"] = v4_tp / 100
+    STRATEGY_V4_PARAMS["stop_loss_pct"] = v4_sl / 100
+    STRATEGY_V4_PARAMS["trailing_stop_pct"] = v4_trail / 100
+    STRATEGY_V4_PARAMS["min_hold_days"] = v4_hold
+    STRATEGY_V4_PARAMS["adx_min"] = v4_adx
 else:
-    RISK_PARAMS["stop_loss"] = stop_loss / 100
-    RISK_PARAMS["trailing_stop"] = trailing_stop / 100
-RISK_PARAMS["max_position_pct"] = max_position_pct / 100
-RISK_PARAMS["min_hold_days"] = min_hold_days
+    STRATEGY_PARAMS["buy_threshold"] = buy_threshold
+    STRATEGY_PARAMS["sell_threshold"] = sell_threshold
+    STRATEGY_PARAMS["trend_filter"] = trend_filter
+    STRATEGY_PARAMS["volume_confirm"] = volume_confirm
+    STRATEGY_PARAMS["confirm_days"] = confirm_days
+    STRATEGY_PARAMS["score_rising"] = score_rising
+    RISK_PARAMS["use_atr_stops"] = use_atr_stops
+    if use_atr_stops:
+        RISK_PARAMS["atr_stop_loss_mult"] = atr_sl_mult
+        RISK_PARAMS["atr_trailing_mult"] = atr_ts_mult
+    else:
+        RISK_PARAMS["stop_loss"] = stop_loss / 100
+        RISK_PARAMS["trailing_stop"] = trailing_stop / 100
+    RISK_PARAMS["max_position_pct"] = max_position_pct / 100
+    RISK_PARAMS["min_hold_days"] = min_hold_days
 
 
 # ===== 輔助函式：產生訊號原因說明 =====
@@ -271,36 +298,92 @@ def explain_signal(analysis: dict) -> str:
 if page == "技術分析":
     st.header(f"{stock_code} {stock_name} - 技術分析")
 
-    # 最新分析摘要
-    analysis = get_latest_analysis(raw_df)
+    if use_v4:
+        # v4 分析
+        analysis = get_v4_analysis(raw_df)
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("收盤價", f"${analysis['close']:.2f}")
+        with col2:
+            signal_map = {"BUY": "🟢 買入", "HOLD": "🟡 持有"}
+            st.metric("v4 訊號", signal_map.get(analysis["signal"], analysis["signal"]))
+        with col3:
+            entry_type = analysis["entry_type"] or "—"
+            st.metric("進場類型", entry_type)
+        with col4:
+            ut = analysis["uptrend_days"]
+            st.metric("上升趨勢天數", f"{ut} 天")
 
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("收盤價", f"${analysis['close']:.2f}")
-    with col2:
-        signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
-        st.metric("訊號", signal_map.get(analysis["signal"], analysis["signal"]))
-    with col3:
-        st.metric("綜合評分", f"{analysis['composite_score']:.3f}")
-    with col4:
-        rsi_val = analysis["indicators"].get("RSI", 0)
-        st.metric("RSI", f"{rsi_val:.1f}" if rsi_val else "N/A")
+        # v4 指標明細
+        st.subheader("v4 策略指標")
+        ind = analysis["indicators"]
+        ind_cols = st.columns(4)
+        with ind_cols[0]:
+            adx_val = ind.get("ADX")
+            st.metric("ADX", f"{adx_val:.1f}" if adx_val and not pd.isna(adx_val) else "N/A",
+                      help=f"要求 ≥ {STRATEGY_V4_PARAMS['adx_min']}")
+        with ind_cols[1]:
+            rsi_val = ind.get("RSI")
+            st.metric("RSI", f"{rsi_val:.1f}" if rsi_val and not pd.isna(rsi_val) else "N/A")
+        with ind_cols[2]:
+            di_p = ind.get("+DI")
+            di_m = ind.get("-DI")
+            if di_p and di_m and not pd.isna(di_p):
+                st.metric("+DI / -DI", f"{di_p:.1f} / {di_m:.1f}")
+            else:
+                st.metric("+DI / -DI", "N/A")
+        with ind_cols[3]:
+            dist = analysis["dist_ma20"]
+            st.metric("距離 MA20", f"{dist:+.1%}" if not pd.isna(dist) else "N/A")
 
-    # 各指標評分
-    st.subheader("指標評分明細")
-    score_cols = st.columns(6)
-    for i, (name, score) in enumerate(analysis["scores"].items()):
-        with score_cols[i]:
-            color = "🟢" if score > 0 else "🔴" if score < 0 else "⚪"
-            st.metric(name, f"{color} {score:+.2f}")
+        # v4 訊號說明
+        st.subheader("v4 訊號分析")
+        if analysis["signal"] == "BUY":
+            st.success(f"**建議買入**（{analysis['entry_type']}模式）— 趨勢確認 {ut} 天，ADX={ind.get('ADX', 0):.1f}，RSI={ind.get('RSI', 0):.1f}")
+        else:
+            reasons = []
+            if ut < STRATEGY_V4_PARAMS["min_uptrend_days"]:
+                reasons.append(f"上升趨勢天數不足（{ut} < {STRATEGY_V4_PARAMS['min_uptrend_days']}）")
+            if adx_val and not pd.isna(adx_val) and adx_val < STRATEGY_V4_PARAMS["adx_min"]:
+                reasons.append(f"ADX 趨勢強度不足（{adx_val:.1f} < {STRATEGY_V4_PARAMS['adx_min']}）")
+            if di_p and di_m and not pd.isna(di_p) and di_p <= di_m:
+                reasons.append(f"+DI ≤ -DI，方向偏空")
+            if not reasons:
+                reasons.append("進場條件未滿足（支撐/動量模式均未觸發）")
+            st.warning("**建議觀望** — " + "；".join(reasons))
+    else:
+        # v2 分析
+        analysis = get_latest_analysis(raw_df)
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("收盤價", f"${analysis['close']:.2f}")
+        with col2:
+            signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
+            st.metric("訊號", signal_map.get(analysis["signal"], analysis["signal"]))
+        with col3:
+            st.metric("綜合評分", f"{analysis['composite_score']:.3f}")
+        with col4:
+            rsi_val = analysis["indicators"].get("RSI", 0)
+            st.metric("RSI", f"{rsi_val:.1f}" if rsi_val else "N/A")
 
-    # 訊號原因說明
-    st.subheader("訊號分析原因")
-    explanation = explain_signal(analysis)
-    st.markdown(explanation)
+        # 各指標評分
+        st.subheader("指標評分明細")
+        score_cols = st.columns(6)
+        for i, (name, score) in enumerate(analysis["scores"].items()):
+            with score_cols[i]:
+                color = "🟢" if score > 0 else "🔴" if score < 0 else "⚪"
+                st.metric(name, f"{color} {score:+.2f}")
+
+        # 訊號原因說明
+        st.subheader("訊號分析原因")
+        explanation = explain_signal(analysis)
+        st.markdown(explanation)
 
     # K線圖 + 技術指標
-    signals_df = generate_signals(raw_df).tail(120)  # 最近 120 個交易日
+    if use_v4:
+        signals_df = generate_v4_signals(raw_df).tail(120)
+    else:
+        signals_df = generate_signals(raw_df).tail(120)
 
     fig = make_subplots(
         rows=4, cols=1,
@@ -349,8 +432,9 @@ if page == "技術分析":
         ), row=1, col=1)
 
     # 買賣訊號標記
-    buy_signals = signals_df[signals_df["signal"] == "BUY"]
-    sell_signals = signals_df[signals_df["signal"] == "SELL"]
+    signal_col = "v4_signal" if use_v4 else "signal"
+    buy_signals = signals_df[signals_df[signal_col] == "BUY"]
+    sell_signals = signals_df[signals_df[signal_col] == "SELL"] if not use_v4 else signals_df.iloc[0:0]
 
     if not buy_signals.empty:
         fig.add_trace(go.Scatter(
@@ -425,7 +509,10 @@ elif page == "回測報告":
 
     with st.spinner("正在執行回測..."):
         backtest_df = raw_df.tail(backtest_days + 60)
-        result = run_backtest(backtest_df, initial_capital=initial_capital)
+        if use_v4:
+            result = run_backtest_v4(backtest_df, initial_capital=initial_capital)
+        else:
+            result = run_backtest(backtest_df, initial_capital=initial_capital)
 
     # 績效指標
     st.subheader("績效摘要")
@@ -501,6 +588,7 @@ elif page == "回測報告":
             "signal": "訊號賣出",
             "stop_loss": "停損",
             "trailing_stop": "移動停利",
+            "take_profit": "停利",
             "end_of_period": "期末平倉",
         }
         trade_data = []
@@ -527,7 +615,10 @@ elif page == "模擬交易":
     st.header(f"{stock_code} {stock_name} - 模擬交易（最近 {sim_days} 個交易日）")
 
     with st.spinner("正在執行模擬..."):
-        sim_result = run_simulation(raw_df, initial_capital=initial_capital, days=sim_days)
+        if use_v4:
+            sim_result = run_simulation_v4(raw_df, initial_capital=initial_capital, days=sim_days)
+        else:
+            sim_result = run_simulation(raw_df, initial_capital=initial_capital, days=sim_days)
 
     # 績效摘要
     st.subheader("模擬績效")

@@ -101,5 +101,23 @@ BACKTEST_PARAMS = {
     "slippage": 0.001,             # 滑價 0.1%
 }
 
+# v4 策略參數（趨勢動量 + 支撐進場 + 移動停利停損）
+STRATEGY_V4_PARAMS = {
+    # 進場過濾
+    "adx_min": 18,              # ADX 最低要求（趨勢存在）
+    "rsi_low": 30,              # RSI 下限
+    "rsi_high": 80,             # RSI 上限
+    "min_uptrend_days": 10,     # MA20>MA60 最少持續天數
+    "support_max_dist": 0.05,   # 支撐進場：價格距 MA20 最大百分比
+    "min_volume_ratio": 0.7,    # 最低量能比（相對 5 日均量）
+    # 出場
+    "take_profit_pct": 0.10,    # 停利 +10%
+    "stop_loss_pct": 0.07,      # 停損 -7%
+    "trailing_stop_pct": 0.02,  # 移動停利 2%（從最高價回落 2% 出場）
+    "min_hold_days": 5,         # 最短持有天數（避免正常波動假停損）
+    # 部位
+    "max_position_pct": 0.9,    # 單筆最大部位 90%
+}
+
 # 台股交易單位
 TRADE_UNIT = 1000  # 一張 = 1000 股

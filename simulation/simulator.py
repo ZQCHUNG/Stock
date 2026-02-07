@@ -7,8 +7,9 @@
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
-from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT
+from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT, STRATEGY_V4_PARAMS
 from analysis.strategy import generate_signals
+from analysis.strategy_v4 import generate_v4_signals
 
 
 @dataclass
@@ -286,6 +287,166 @@ class MonthlySimulator:
         return result
 
 
+    def run_v4(self, df: pd.DataFrame, days: int = 30, params: dict | None = None) -> SimulationResult:
+        """執行 v4 模擬（趨勢動量 + 支撐進場 + 移動停利停損）"""
+        p = dict(STRATEGY_V4_PARAMS)
+        if params:
+            p.update(params)
+
+        signals_df = generate_v4_signals(df, params=p)
+        sim_df = signals_df.tail(days)
+
+        tp_pct = p.get("take_profit_pct", 0.10)
+        sl_pct = p.get("stop_loss_pct", 0.07)
+        trailing_pct = p.get("trailing_stop_pct", 0.02)
+        max_pos_pct = p.get("max_position_pct", 0.9)
+        min_hold = p.get("min_hold_days", 5)
+
+        cash = self.initial_capital
+        position = 0
+        entry_price = 0.0
+        tp_price = 0.0
+        sl_price = 0.0
+        highest_since_entry = 0.0
+        hold_days = 0
+        prev_equity = self.initial_capital
+
+        result = SimulationResult(initial_capital=self.initial_capital)
+        total_commission = 0.0
+        total_tax = 0.0
+
+        for date, row in sim_df.iterrows():
+            price = row["close"]
+            high = row.get("high", price)
+            low = row.get("low", price)
+            signal = row.get("v4_signal", "HOLD")
+            action = ""
+            trade_info = None
+
+            if position > 0:
+                highest_since_entry = max(highest_since_entry, high)
+                hold_days += 1
+
+                # 移動停利
+                if trailing_pct > 0:
+                    new_sl = highest_since_entry * (1 - trailing_pct)
+                    if new_sl > sl_price:
+                        sl_price = new_sl
+
+            # ===== 出場檢查（用 high/low 偵測） =====
+            force_sell = False
+            exit_reason = ""
+            exit_price = 0.0
+
+            if position > 0 and hold_days >= min_hold:
+                if tp_pct > 0 and high >= tp_price and low <= sl_price:
+                    if price >= entry_price:
+                        force_sell, exit_reason, exit_price = True, "停利", tp_price
+                    else:
+                        force_sell, exit_reason, exit_price = True, "停損", sl_price
+                elif tp_pct > 0 and high >= tp_price:
+                    force_sell, exit_reason, exit_price = True, "停利", tp_price
+                elif low <= sl_price:
+                    force_sell, exit_reason, exit_price = True, "停損", sl_price
+
+            if force_sell and position > 0:
+                revenue = position * exit_price
+                commission = revenue * self.commission_rate
+                tax = revenue * self.tax_rate
+                cash += revenue - commission - tax
+
+                pnl = (exit_price - entry_price) * position - commission - tax
+                total_commission += commission
+                total_tax += tax
+
+                action = f"賣出（{exit_reason}）"
+                trade_info = {
+                    "日期": date, "動作": action, "股數": position,
+                    "價格": exit_price, "手續費": round(commission, 0),
+                    "交易稅": round(tax, 0), "損益": round(pnl, 0),
+                }
+
+                if pnl > 0:
+                    result.winning_trades += 1
+                else:
+                    result.losing_trades += 1
+                result.total_trades += 1
+
+                position = 0
+                entry_price = 0.0
+                hold_days = 0
+
+            # ===== 進場 =====
+            elif signal == "BUY" and position == 0:
+                available = cash * max_pos_pct
+                max_shares = int(
+                    available / (price * TRADE_UNIT * (1 + self.commission_rate))
+                ) * TRADE_UNIT
+                if max_shares >= TRADE_UNIT:
+                    position = max_shares
+                    cost = position * price
+                    commission = cost * self.commission_rate
+                    cash -= cost + commission
+                    entry_price = price
+                    highest_since_entry = high
+                    hold_days = 0
+                    tp_price = price * (1 + tp_pct) if tp_pct > 0 else float("inf")
+                    sl_price = price * (1 - sl_pct)
+                    total_commission += commission
+                    action = "買入"
+                    trade_info = {
+                        "日期": date, "動作": "買入", "股數": position,
+                        "價格": price, "手續費": round(commission, 0),
+                        "金額": round(cost + commission, 0),
+                    }
+                else:
+                    action = "資金不足"
+            else:
+                action = "持有" if position > 0 else "空手觀望"
+
+            if trade_info:
+                result.trade_log.append(trade_info)
+
+            position_value = position * price
+            equity = cash + position_value
+            daily_pnl = equity - prev_equity
+            daily_return = daily_pnl / prev_equity if prev_equity > 0 else 0
+
+            score = row.get("dist_ma20", 0.0)
+            if pd.isna(score):
+                score = 0.0
+
+            result.daily_records.append(DailyRecord(
+                date=date, close=price, signal=signal,
+                action=action, shares=position,
+                cash=round(cash, 0), position_value=round(position_value, 0),
+                total_equity=round(equity, 0), daily_pnl=round(daily_pnl, 0),
+                daily_return=daily_return, composite_score=score,
+            ))
+
+            prev_equity = equity
+
+        # 計算最終績效
+        if result.daily_records:
+            result.final_equity = result.daily_records[-1].total_equity
+            result.total_return = (result.final_equity - self.initial_capital) / self.initial_capital
+            result.total_commission = total_commission
+            result.total_tax = total_tax
+
+            equities = [r.total_equity for r in result.daily_records]
+            peak = equities[0]
+            max_dd = 0
+            for eq in equities:
+                if eq > peak:
+                    peak = eq
+                dd = (eq - peak) / peak
+                if dd < max_dd:
+                    max_dd = dd
+            result.max_drawdown = max_dd
+
+        return result
+
+
 def run_simulation(
     df: pd.DataFrame,
     initial_capital: float | None = None,
@@ -303,6 +464,17 @@ def run_simulation(
     """
     sim = MonthlySimulator(initial_capital=initial_capital)
     return sim.run(df, days=days)
+
+
+def run_simulation_v4(
+    df: pd.DataFrame,
+    initial_capital: float | None = None,
+    days: int = 30,
+    params: dict | None = None,
+) -> SimulationResult:
+    """便捷函式：執行 v4 一個月模擬"""
+    sim = MonthlySimulator(initial_capital=initial_capital)
+    return sim.run_v4(df, days=days, params=params)
 
 
 def simulation_to_dataframe(result: SimulationResult) -> pd.DataFrame:

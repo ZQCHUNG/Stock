@@ -202,6 +202,67 @@ def calculate_volume_analysis(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+    """計算 ADX (Average Directional Index) 趨勢強度指標
+
+    ADX > 25 表示有明確趨勢，適合趨勢跟隨策略。
+    +DI > -DI 表示上升趨勢，反之為下降趨勢。
+
+    Returns:
+        新增 'adx', 'plus_di', 'minus_di' 欄位的 DataFrame
+    """
+    result = df.copy()
+    high = result["high"]
+    low = result["low"]
+    close = result["close"]
+
+    # +DM / -DM
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = pd.Series(np.where((up_move > down_move) & (up_move > 0), up_move, 0.0), index=result.index)
+    minus_dm = pd.Series(np.where((down_move > up_move) & (down_move > 0), down_move, 0.0), index=result.index)
+
+    # True Range
+    prev_close = close.shift(1)
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+    # Smoothed TR, +DM, -DM (Wilder's smoothing)
+    atr = tr.ewm(alpha=1/period, min_periods=period).mean()
+    smooth_plus = plus_dm.ewm(alpha=1/period, min_periods=period).mean()
+    smooth_minus = minus_dm.ewm(alpha=1/period, min_periods=period).mean()
+
+    # +DI / -DI
+    plus_di = 100 * smooth_plus / atr
+    minus_di = 100 * smooth_minus / atr
+
+    # DX → ADX
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    adx = dx.ewm(alpha=1/period, min_periods=period).mean()
+
+    result["adx"] = adx
+    result["plus_di"] = plus_di
+    result["minus_di"] = minus_di
+
+    return result
+
+
+def calculate_roc(df: pd.DataFrame, period: int = 12) -> pd.DataFrame:
+    """計算 ROC (Rate of Change) 動量指標
+
+    ROC = (今日收盤 - N日前收盤) / N日前收盤 * 100
+
+    Returns:
+        新增 'roc' 欄位的 DataFrame
+    """
+    result = df.copy()
+    result["roc"] = result["close"].pct_change(periods=period) * 100
+    return result
+
+
 def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     """計算 ATR (Average True Range) 平均真實波幅
 
@@ -250,5 +311,7 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     result = calculate_bollinger_bands(result)
     result = calculate_volume_analysis(result)
     result = calculate_atr(result)
+    result = calculate_adx(result)
+    result = calculate_roc(result)
 
     return result
