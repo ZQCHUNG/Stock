@@ -9,6 +9,7 @@ import numpy as np
 from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, INDICATOR_PARAMS
 from data.fetcher import get_stock_data
 from data.stock_list import get_all_stocks, get_stock_name
+from data.cache import get_cached_scan_results, set_cached_scan_results, get_cache_stats, flush_cache
 from analysis.indicators import calculate_all_indicators
 from analysis.strategy import generate_signals, get_latest_analysis
 from backtest.engine import run_backtest, BacktestResult
@@ -84,6 +85,19 @@ with st.sidebar:
         st.caption("策略閾值")
         buy_threshold = st.slider("買入閾值", 0.0, 1.0, STRATEGY_PARAMS["buy_threshold"], 0.05)
         sell_threshold = st.slider("賣出閾值", -1.0, 0.0, STRATEGY_PARAMS["sell_threshold"], 0.05)
+
+    # Redis 快取狀態
+    with st.expander("快取狀態 (Redis)", expanded=False):
+        stats = get_cache_stats()
+        if stats["status"] == "connected":
+            st.success(f"Redis 已連線")
+            st.caption(f"快取鍵數：{stats['keys']} | 記憶體：{stats['memory_used']}")
+            if st.button("清空快取"):
+                flush_cache()
+                st.cache_data.clear()
+                st.rerun()
+        else:
+            st.warning("Redis 未連線（系統仍可正常運作，但速度較慢）")
 
     # 顏色圖例
     with st.expander("顏色說明", expanded=False):
@@ -579,11 +593,18 @@ elif page == "推薦股票":
     st.header("推薦股票 — 技術面綜合評分 Top 3")
     st.caption("從股票池中掃描所有股票，依綜合評分排序，推薦前 3 名最具技術面買進訊號的股票。")
 
-    @st.cache_data(ttl=600)  # 快取 10 分鐘
     def scan_all_stocks():
-        """掃描所有股票池，回傳分析結果"""
+        """掃描所有股票池（優先用 Redis 快取）"""
+        # 嘗試 Redis 快取
+        cached = get_cached_scan_results()
+        if cached:
+            return cached
+
         results = []
-        for code, name in SCAN_STOCKS.items():
+        progress_bar = st.progress(0, text="掃描中...")
+        total = len(SCAN_STOCKS)
+        for i, (code, name) in enumerate(SCAN_STOCKS.items()):
+            progress_bar.progress((i + 1) / total, text=f"掃描 {code} {name}... ({i+1}/{total})")
             try:
                 df = get_stock_data(code, period_days=200)
                 analysis = get_latest_analysis(df)
@@ -592,9 +613,14 @@ elif page == "推薦股票":
                 results.append(analysis)
             except Exception:
                 continue
+        progress_bar.empty()
+
+        # 寫入 Redis 快取（10 分鐘）
+        if results:
+            set_cached_scan_results(results, ttl=600)
         return results
 
-    with st.spinner("正在掃描股票池（首次載入較慢，結果快取 10 分鐘）..."):
+    with st.spinner("正在掃描股票池..."):
         all_results = scan_all_stocks()
 
     if not all_results:

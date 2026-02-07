@@ -48,6 +48,7 @@ def get_stock_data(
     """抓取台股歷史資料
 
     自動支援上市 (.TW) 與上櫃 (.TWO) 股票。
+    優先從 Redis 快取讀取，快取未命中才打 yfinance。
 
     Args:
         stock_code: 台股代碼（純數字，如 '2330' 或 '6748'）
@@ -57,6 +58,13 @@ def get_stock_data(
     Returns:
         DataFrame with columns: open, high, low, close, volume
     """
+    from data.cache import get_cached_stock_data, set_cached_stock_data
+
+    # 嘗試 Redis 快取
+    cached = get_cached_stock_data(stock_code, period_days)
+    if cached is not None:
+        return cached
+
     ticker = get_ticker(stock_code)
     if end_date is None:
         end_date = datetime.now()
@@ -92,6 +100,9 @@ def get_stock_data(
     # 只保留需要的欄位
     df = df[["open", "high", "low", "close", "volume"]].copy()
     df.index.name = "date"
+
+    # 寫入 Redis 快取（5 分鐘）
+    set_cached_stock_data(stock_code, period_days, df, ttl=300)
 
     return df
 

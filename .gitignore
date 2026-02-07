@@ -16,3 +16,4 @@ ENV/
 .DS_Store
 Thumbs.db
 .cache/
+redis-data/
