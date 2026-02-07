@@ -73,6 +73,17 @@ STRATEGY_PARAMS = {
         "bb": 0.10,
         "volume": 0.10,
     },
+    # v2 新增
+    "confirm_days": 2,          # 訊號需連續 N 天確認才進場
+    "trend_filter": True,       # 趨勢過濾：MA20 > MA60 才做多
+    "volume_confirm": True,     # 買入當天量 > 5日均量
+}
+
+# 風控參數（v2 新增）
+RISK_PARAMS = {
+    "stop_loss": 0.07,          # 停損：跌 7% 強制出場
+    "trailing_stop": 0.05,      # 移動停利：從最高點回落 5% 出場
+    "max_position_pct": 0.5,    # 單筆最多用 50% 資金
 }
 
 # 回測參數

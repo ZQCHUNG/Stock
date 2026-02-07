@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 
-from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, INDICATOR_PARAMS
+from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, RISK_PARAMS, INDICATOR_PARAMS
 from data.fetcher import get_stock_data
 from data.stock_list import get_all_stocks, get_stock_name
 from data.cache import get_cached_scan_results, set_cached_scan_results, get_cache_stats, flush_cache
@@ -86,6 +86,16 @@ with st.sidebar:
         buy_threshold = st.slider("買入閾值", 0.0, 1.0, STRATEGY_PARAMS["buy_threshold"], 0.05)
         sell_threshold = st.slider("賣出閾值", -1.0, 0.0, STRATEGY_PARAMS["sell_threshold"], 0.05)
 
+        st.caption("v2 風控參數")
+        stop_loss = st.slider("停損 (%)", 1, 20, int(RISK_PARAMS["stop_loss"] * 100), 1)
+        trailing_stop = st.slider("移動停利 (%)", 1, 20, int(RISK_PARAMS["trailing_stop"] * 100), 1)
+        max_position_pct = st.slider("單筆最大部位 (%)", 10, 100, int(RISK_PARAMS["max_position_pct"] * 100), 10)
+
+        st.caption("v2 訊號過濾")
+        trend_filter = st.checkbox("趨勢過濾（MA20>MA60 才做多）", value=STRATEGY_PARAMS.get("trend_filter", True))
+        volume_confirm = st.checkbox("量能確認（買入量>5日均量）", value=STRATEGY_PARAMS.get("volume_confirm", True))
+        confirm_days = st.number_input("訊號確認天數", min_value=1, max_value=5, value=STRATEGY_PARAMS.get("confirm_days", 2))
+
     # Redis 快取狀態
     with st.expander("快取狀態 (Redis)", expanded=False):
         stats = get_cache_stats()
@@ -135,9 +145,15 @@ if page != "推薦股票":
         st.error(f"無法載入股票 {stock_code} 的資料：{e}")
         st.stop()
 
-# ===== 覆寫策略閾值 =====
+# ===== 覆寫策略閾值 & v2 參數 =====
 STRATEGY_PARAMS["buy_threshold"] = buy_threshold
 STRATEGY_PARAMS["sell_threshold"] = sell_threshold
+STRATEGY_PARAMS["trend_filter"] = trend_filter
+STRATEGY_PARAMS["volume_confirm"] = volume_confirm
+STRATEGY_PARAMS["confirm_days"] = confirm_days
+RISK_PARAMS["stop_loss"] = stop_loss / 100
+RISK_PARAMS["trailing_stop"] = trailing_stop / 100
+RISK_PARAMS["max_position_pct"] = max_position_pct / 100
 
 
 # ===== 輔助函式：產生訊號原因說明 =====
@@ -467,6 +483,12 @@ elif page == "回測報告":
     # 交易紀錄
     st.subheader("交易紀錄")
     if result.trades:
+        exit_reason_map = {
+            "signal": "訊號賣出",
+            "stop_loss": "停損",
+            "trailing_stop": "移動停利",
+            "end_of_period": "期末平倉",
+        }
         trade_data = []
         for t in result.trades:
             trade_data.append({
@@ -475,6 +497,7 @@ elif page == "回測報告":
                 "股數": t.shares,
                 "買入價": f"${t.price_open:.2f}",
                 "賣出價": f"${t.price_close:.2f}",
+                "出場原因": exit_reason_map.get(t.exit_reason, t.exit_reason),
                 "手續費": f"${t.commission:,.0f}",
                 "交易稅": f"${t.tax:,.0f}",
                 "損益": f"${t.pnl:,.0f}",

@@ -9,7 +9,7 @@
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
-from config import BACKTEST_PARAMS, TRADE_UNIT
+from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT
 from analysis.strategy import generate_signals
 
 
@@ -26,6 +26,7 @@ class Trade:
     tax: float = 0.0
     pnl: float = 0.0
     return_pct: float = 0.0
+    exit_reason: str = ""  # "signal" / "stop_loss" / "trailing_stop"
 
 
 @dataclass
@@ -65,7 +66,7 @@ class BacktestEngine:
         self.tax_rate = tax_rate or BACKTEST_PARAMS["tax_rate"]
 
     def run(self, df: pd.DataFrame) -> BacktestResult:
-        """執行回測
+        """執行回測（v2：含停損停利 + 部位管理）
 
         Args:
             df: 原始股價 DataFrame
@@ -75,29 +76,87 @@ class BacktestEngine:
         """
         signals_df = generate_signals(df)
 
+        # 風控參數
+        stop_loss_pct = RISK_PARAMS.get("stop_loss", 0.07)
+        trailing_stop_pct = RISK_PARAMS.get("trailing_stop", 0.05)
+        max_position_pct = RISK_PARAMS.get("max_position_pct", 0.5)
+
         cash = self.initial_capital
         position = 0  # 持有股數
         trades: list[Trade] = []
         current_trade: Trade | None = None
         equity_history = []
+        highest_since_entry = 0.0  # 進場後最高價（用於移動停利）
 
         for date, row in signals_df.iterrows():
             price = row["close"]
+            high = row.get("high", price)
             signal = row["signal"]
+
+            # 更新持倉期間最高價（用當日最高價）
+            if position > 0:
+                highest_since_entry = max(highest_since_entry, high)
+
+            # ===== v2 風控檢查（優先於訊號） =====
+            force_sell = False
+            exit_reason = ""
+
+            if position > 0 and current_trade is not None:
+                entry_price = current_trade.price_open
+
+                # 1. 停損檢查：跌破買入價 * (1 - stop_loss_pct)
+                if price <= entry_price * (1 - stop_loss_pct):
+                    force_sell = True
+                    exit_reason = "stop_loss"
+
+                # 2. 移動停利檢查：從最高點回落超過 trailing_stop_pct
+                elif highest_since_entry > entry_price and \
+                     price <= highest_since_entry * (1 - trailing_stop_pct):
+                    force_sell = True
+                    exit_reason = "trailing_stop"
+
+            # 執行強制賣出（停損/停利）
+            if force_sell and position > 0 and current_trade is not None:
+                revenue = position * price
+                commission = revenue * self.commission_rate
+                tax = revenue * self.tax_rate
+                cash += revenue - commission - tax
+
+                current_trade.date_close = date
+                current_trade.price_close = price
+                current_trade.commission += commission
+                current_trade.tax = tax
+                current_trade.pnl = (
+                    (price - current_trade.price_open) * position
+                    - current_trade.commission
+                    - current_trade.tax
+                )
+                current_trade.return_pct = (
+                    current_trade.pnl / (current_trade.price_open * position)
+                )
+                current_trade.exit_reason = exit_reason
+
+                trades.append(current_trade)
+                position = 0
+                current_trade = None
+                highest_since_entry = 0.0
 
             # 計算當前權益
             equity = cash + position * price
             equity_history.append({"date": date, "equity": equity})
 
+            # ===== 正常訊號交易 =====
             if signal == "BUY" and position == 0:
-                # 買入：用可用資金計算最多買幾張
-                max_shares = int(cash / (price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
+                # v2 部位管理：最多用 max_position_pct 的資金
+                available = cash * max_position_pct
+                max_shares = int(available / (price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
                 if max_shares >= TRADE_UNIT:
                     shares = max_shares
                     cost = shares * price
                     commission = cost * self.commission_rate
                     cash -= cost + commission
                     position = shares
+                    highest_since_entry = high
 
                     current_trade = Trade(
                         date_open=date,
@@ -126,10 +185,12 @@ class BacktestEngine:
                 current_trade.return_pct = (
                     current_trade.pnl / (current_trade.price_open * position)
                 )
+                current_trade.exit_reason = "signal"
 
                 trades.append(current_trade)
                 position = 0
                 current_trade = None
+                highest_since_entry = 0.0
 
         # 如果最後還有持倉，以最後收盤價平倉
         if position > 0 and current_trade is not None:
@@ -152,6 +213,7 @@ class BacktestEngine:
             current_trade.return_pct = (
                 current_trade.pnl / (current_trade.price_open * position)
             )
+            current_trade.exit_reason = "end_of_period"
             trades.append(current_trade)
 
         # 建立權益曲線

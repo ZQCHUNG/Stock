@@ -7,7 +7,7 @@
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
-from config import BACKTEST_PARAMS, TRADE_UNIT
+from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT
 from analysis.strategy import generate_signals
 
 
@@ -64,7 +64,7 @@ class MonthlySimulator:
         self.tax_rate = tax_rate or BACKTEST_PARAMS["tax_rate"]
 
     def run(self, df: pd.DataFrame, days: int = 30) -> SimulationResult:
-        """執行模擬
+        """執行模擬（v2：含停損停利 + 部位管理）
 
         Args:
             df: 原始股價 DataFrame（需包含足夠的歷史資料供指標計算）
@@ -77,9 +77,15 @@ class MonthlySimulator:
         signals_df = generate_signals(df)
         sim_df = signals_df.tail(days)
 
+        # 風控參數
+        stop_loss_pct = RISK_PARAMS.get("stop_loss", 0.07)
+        trailing_stop_pct = RISK_PARAMS.get("trailing_stop", 0.05)
+        max_position_pct = RISK_PARAMS.get("max_position_pct", 0.5)
+
         cash = self.initial_capital
         position = 0
         entry_price = 0.0
+        highest_since_entry = 0.0
         prev_equity = self.initial_capital
 
         result = SimulationResult(initial_capital=self.initial_capital)
@@ -88,36 +94,31 @@ class MonthlySimulator:
 
         for date, row in sim_df.iterrows():
             price = row["close"]
+            high = row.get("high", price)
             signal = row["signal"]
             action = ""
             trade_info = None
 
-            if signal == "BUY" and position == 0:
-                # 買入
-                max_shares = int(
-                    cash / (price * TRADE_UNIT * (1 + self.commission_rate))
-                ) * TRADE_UNIT
-                if max_shares >= TRADE_UNIT:
-                    position = max_shares
-                    cost = position * price
-                    commission = cost * self.commission_rate
-                    cash -= cost + commission
-                    entry_price = price
-                    total_commission += commission
-                    action = "買入"
-                    trade_info = {
-                        "日期": date,
-                        "動作": "買入",
-                        "股數": position,
-                        "價格": price,
-                        "手續費": round(commission, 0),
-                        "金額": round(cost + commission, 0),
-                    }
-                else:
-                    action = "資金不足"
+            # 更新持倉期間最高價
+            if position > 0:
+                highest_since_entry = max(highest_since_entry, high)
 
-            elif signal == "SELL" and position > 0:
-                # 賣出
+            # ===== v2 風控檢查 =====
+            force_sell = False
+            exit_reason = ""
+
+            if position > 0 and entry_price > 0:
+                # 1. 停損
+                if price <= entry_price * (1 - stop_loss_pct):
+                    force_sell = True
+                    exit_reason = "停損"
+                # 2. 移動停利
+                elif highest_since_entry > entry_price and \
+                     price <= highest_since_entry * (1 - trailing_stop_pct):
+                    force_sell = True
+                    exit_reason = "移動停利"
+
+            if force_sell and position > 0:
                 revenue = position * price
                 commission = revenue * self.commission_rate
                 tax = revenue * self.tax_rate
@@ -128,10 +129,10 @@ class MonthlySimulator:
                 total_commission += commission
                 total_tax += tax
 
-                action = "賣出"
+                action = f"賣出（{exit_reason}）"
                 trade_info = {
                     "日期": date,
-                    "動作": "賣出",
+                    "動作": action,
                     "股數": position,
                     "價格": price,
                     "手續費": round(commission, 0),
@@ -147,6 +148,67 @@ class MonthlySimulator:
 
                 position = 0
                 entry_price = 0.0
+                highest_since_entry = 0.0
+
+            # ===== 正常訊號交易 =====
+            elif signal == "BUY" and position == 0:
+                # v2 部位管理：最多用 max_position_pct 的資金
+                available = cash * max_position_pct
+                max_shares = int(
+                    available / (price * TRADE_UNIT * (1 + self.commission_rate))
+                ) * TRADE_UNIT
+                if max_shares >= TRADE_UNIT:
+                    position = max_shares
+                    cost = position * price
+                    commission = cost * self.commission_rate
+                    cash -= cost + commission
+                    entry_price = price
+                    highest_since_entry = high
+                    total_commission += commission
+                    action = "買入"
+                    trade_info = {
+                        "日期": date,
+                        "動作": "買入",
+                        "股數": position,
+                        "價格": price,
+                        "手續費": round(commission, 0),
+                        "金額": round(cost + commission, 0),
+                    }
+                else:
+                    action = "資金不足"
+
+            elif signal == "SELL" and position > 0:
+                # 訊號賣出
+                revenue = position * price
+                commission = revenue * self.commission_rate
+                tax = revenue * self.tax_rate
+                net_revenue = revenue - commission - tax
+                cash += net_revenue
+
+                pnl = (price - entry_price) * position - commission - tax
+                total_commission += commission
+                total_tax += tax
+
+                action = "賣出（訊號）"
+                trade_info = {
+                    "日期": date,
+                    "動作": action,
+                    "股數": position,
+                    "價格": price,
+                    "手續費": round(commission, 0),
+                    "交易稅": round(tax, 0),
+                    "損益": round(pnl, 0),
+                }
+
+                if pnl > 0:
+                    result.winning_trades += 1
+                else:
+                    result.losing_trades += 1
+                result.total_trades += 1
+
+                position = 0
+                entry_price = 0.0
+                highest_since_entry = 0.0
 
             else:
                 action = "持有" if position > 0 else "空手觀望"

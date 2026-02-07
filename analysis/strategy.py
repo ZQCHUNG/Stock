@@ -174,7 +174,7 @@ def _score_volume(row: pd.Series) -> float:
 
 
 def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
-    """產生交易訊號
+    """產生交易訊號（v2：含訊號確認 + 趨勢過濾 + 量能確認）
 
     Args:
         df: 原始股價 DataFrame
@@ -184,7 +184,8 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
         新增欄位：
         - score_ma, score_rsi, score_macd, score_kd, score_bb, score_volume
         - composite_score: 加權綜合分數
-        - signal: 'BUY', 'SELL', 'HOLD'
+        - raw_signal: 原始訊號（未經過濾）
+        - signal: 最終訊號（經過趨勢過濾 + 訊號確認）
     """
     result = calculate_all_indicators(df)
     weights = STRATEGY_PARAMS["weights"]
@@ -206,7 +207,7 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
         result[f"score_{name}"] * weights[name] for name in score_funcs
     )
 
-    # 產生訊號
+    # 原始訊號（v1 邏輯）
     buy_thresh = STRATEGY_PARAMS["buy_threshold"]
     sell_thresh = STRATEGY_PARAMS["sell_threshold"]
 
@@ -215,7 +216,36 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
         result["composite_score"] <= sell_thresh,
     ]
     choices = ["BUY", "SELL"]
-    result["signal"] = np.select(conditions, choices, default="HOLD")
+    result["raw_signal"] = np.select(conditions, choices, default="HOLD")
+
+    # ===== v2 過濾 =====
+    result["signal"] = result["raw_signal"].copy()
+
+    # 1. 趨勢過濾：MA20 < MA60 時不產生 BUY
+    if STRATEGY_PARAMS.get("trend_filter", False):
+        ma20 = result.get("ma20")
+        ma60 = result.get("ma60")
+        if ma20 is not None and ma60 is not None:
+            downtrend = ma20 < ma60
+            result.loc[downtrend & (result["signal"] == "BUY"), "signal"] = "HOLD"
+
+    # 2. 量能確認：買入當天量需 > 5日均量
+    if STRATEGY_PARAMS.get("volume_confirm", False):
+        vol = result.get("volume")
+        vol_ma5 = result.get("volume_ma5")
+        if vol is not None and vol_ma5 is not None:
+            low_volume = vol < vol_ma5
+            result.loc[low_volume & (result["signal"] == "BUY"), "signal"] = "HOLD"
+
+    # 3. 訊號確認：BUY 需連續 N 天 raw_signal 都是 BUY
+    confirm_days = STRATEGY_PARAMS.get("confirm_days", 1)
+    if confirm_days > 1:
+        buy_streak = (result["raw_signal"] == "BUY").astype(int)
+        # 計算連續 BUY 天數
+        rolling_sum = buy_streak.rolling(window=confirm_days, min_periods=confirm_days).sum()
+        # 只有連續 N 天都是 BUY 才確認
+        not_confirmed = rolling_sum < confirm_days
+        result.loc[not_confirmed & (result["signal"] == "BUY"), "signal"] = "HOLD"
 
     return result
 
