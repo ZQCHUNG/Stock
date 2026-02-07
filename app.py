@@ -8,6 +8,7 @@ import numpy as np
 
 from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, INDICATOR_PARAMS
 from data.fetcher import get_stock_data
+from data.stock_list import get_all_stocks, get_stock_name
 from analysis.indicators import calculate_all_indicators
 from analysis.strategy import generate_signals, get_latest_analysis
 from backtest.engine import run_backtest, BacktestResult
@@ -23,23 +24,37 @@ st.set_page_config(
 
 st.title("台股技術分析系統")
 
+# ===== 載入完整股票清單 =====
+@st.cache_data(ttl=3600)
+def load_stock_list():
+    return get_all_stocks()
+
+all_stocks = load_stock_list()
+
+# 建立 selectbox 選項：code name (market)
+stock_select_options = sorted(
+    [f"{code} {info['name']}" for code, info in all_stocks.items()],
+    key=lambda x: x.split()[0],
+)
+
 # ===== 側邊欄 =====
 with st.sidebar:
     st.header("設定")
 
-    # 股票選擇
-    stock_options = {f"{code} {name}": code for code, name in DEFAULT_STOCKS.items()}
+    st.caption(f"股票清單：共 {len(all_stocks)} 隻（上市+上櫃）")
+
+    # 搜尋式股票選擇
     selected_display = st.selectbox(
-        "選擇股票",
-        options=list(stock_options.keys()),
-        index=0,
+        "搜尋/選擇股票（輸入代碼或名稱）",
+        options=stock_select_options,
+        index=stock_select_options.index("2330 台積電") if "2330 台積電" in stock_select_options else 0,
     )
-    default_code = stock_options[selected_display]
+    default_code = selected_display.split()[0] if selected_display else "2330"
 
     custom_code = st.text_input(
-        "或輸入股票代碼（上市/上櫃皆可）",
+        "或直接輸入股票代碼",
         value="",
-        placeholder="例如: 2330 或 6748",
+        placeholder="例如: 2330、6748",
     )
     stock_code = custom_code.strip() if custom_code.strip() else default_code
 
@@ -100,7 +115,7 @@ if page != "推薦股票":
     try:
         fetch_days = max(backtest_days, 365) + 120
         raw_df = load_data(stock_code, fetch_days)
-        stock_name = DEFAULT_STOCKS.get(stock_code, stock_code)
+        stock_name = get_stock_name(stock_code, all_stocks)
         st.sidebar.success(f"已載入 {stock_code} {stock_name}")
     except Exception as e:
         st.error(f"無法載入股票 {stock_code} 的資料：{e}")

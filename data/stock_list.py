@@ -1,0 +1,221 @@
+"""台股完整股票清單模組
+
+資料來源（優先順序）：
+1. TWSE/TPEX 公開 API（線上，最即時）
+2. twstock 內建清單（離線，約 2000+ 隻）
+3. 內建熱門股清單（最小備援）
+"""
+
+import requests
+import json
+import os
+from pathlib import Path
+from datetime import datetime, timedelta
+
+# 快取檔案路徑（存在專案根目錄下）
+CACHE_DIR = Path(__file__).parent.parent / ".cache"
+CACHE_FILE = CACHE_DIR / "stock_list.json"
+CACHE_TTL_HOURS = 24  # 快取 24 小時
+
+
+def _fetch_twse_stocks() -> dict[str, dict]:
+    """從 TWSE 抓取上市股票清單"""
+    stocks = {}
+    try:
+        r = requests.get(
+            "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+            timeout=10,
+        )
+        r.raise_for_status()
+        for item in r.json():
+            code = item.get("Code", "")
+            name = item.get("Name", "")
+            if code and name:
+                stocks[code] = {"name": name, "market": "上市"}
+    except Exception:
+        pass
+    return stocks
+
+
+def _fetch_tpex_stocks() -> dict[str, dict]:
+    """從 TPEX 抓取上櫃股票清單"""
+    stocks = {}
+    try:
+        r = requests.get(
+            "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
+            timeout=10,
+        )
+        r.raise_for_status()
+        for item in r.json():
+            code = item.get("SecuritiesCompanyCode", "")
+            name = item.get("CompanyName", "")
+            if code and name:
+                stocks[code] = {"name": name, "market": "上櫃"}
+    except Exception:
+        pass
+    return stocks
+
+
+def _fetch_twstock_codes() -> dict[str, dict]:
+    """從 twstock 套件取得離線股票清單"""
+    stocks = {}
+    try:
+        import twstock
+        for code, info in twstock.codes.items():
+            # 只要股票、ETF、ETN、特別股（排除權證）
+            if hasattr(info, "type") and "權證" not in info.type:
+                # 只要 4 碼數字或 4 碼+英文（如 ETF）
+                if len(code) <= 6:
+                    market = "上市" if "上市" in str(getattr(info, "market", "")) else "上櫃"
+                    stocks[code] = {
+                        "name": getattr(info, "name", code),
+                        "market": market,
+                    }
+    except Exception:
+        pass
+    return stocks
+
+
+# 內建最小備援清單
+_BUILTIN_STOCKS = {
+    "2330": {"name": "台積電", "market": "上市"},
+    "2317": {"name": "鴻海", "market": "上市"},
+    "2454": {"name": "聯發科", "market": "上市"},
+    "2881": {"name": "富邦金", "market": "上市"},
+    "2882": {"name": "國泰金", "market": "上市"},
+    "2891": {"name": "中信金", "market": "上市"},
+    "2303": {"name": "聯電", "market": "上市"},
+    "2412": {"name": "中華電", "market": "上市"},
+    "3711": {"name": "日月光投控", "market": "上市"},
+    "2308": {"name": "台達電", "market": "上市"},
+    "1301": {"name": "台塑", "market": "上市"},
+    "2886": {"name": "兆豐金", "market": "上市"},
+    "2884": {"name": "玉山金", "market": "上市"},
+    "2603": {"name": "長榮", "market": "上市"},
+    "3008": {"name": "大立光", "market": "上市"},
+    "2357": {"name": "華碩", "market": "上市"},
+    "2382": {"name": "廣達", "market": "上市"},
+    "2395": {"name": "研華", "market": "上市"},
+    "3034": {"name": "聯詠", "market": "上市"},
+    "6505": {"name": "台塑化", "market": "上市"},
+    "0050": {"name": "元大台灣50", "market": "上市"},
+    "0056": {"name": "元大高股息", "market": "上市"},
+    "00878": {"name": "國泰永續高股息", "market": "上市"},
+    "00919": {"name": "群益台灣精選高息", "market": "上市"},
+    "6748": {"name": "亞果生醫", "market": "上櫃"},
+    "6547": {"name": "高端疫苗", "market": "上櫃"},
+    "3293": {"name": "鉅祥", "market": "上櫃"},
+    "5876": {"name": "上海商銀", "market": "上市"},
+    "2345": {"name": "智邦", "market": "上市"},
+    "3037": {"name": "欣興", "market": "上市"},
+}
+
+
+def _load_cache() -> dict[str, dict] | None:
+    """嘗試從快取讀取"""
+    try:
+        if CACHE_FILE.exists():
+            data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
+            cached_time = datetime.fromisoformat(data.get("timestamp", "2000-01-01"))
+            if datetime.now() - cached_time < timedelta(hours=CACHE_TTL_HOURS):
+                return data.get("stocks", {})
+    except Exception:
+        pass
+    return None
+
+
+def _save_cache(stocks: dict[str, dict]) -> None:
+    """儲存快取"""
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        data = {
+            "timestamp": datetime.now().isoformat(),
+            "count": len(stocks),
+            "stocks": stocks,
+        }
+        CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def get_all_stocks(force_refresh: bool = False) -> dict[str, dict]:
+    """取得完整台股清單
+
+    Returns:
+        dict: {stock_code: {"name": str, "market": "上市"|"上櫃"}}
+    """
+    # 1. 嘗試讀取快取
+    if not force_refresh:
+        cached = _load_cache()
+        if cached and len(cached) > 100:
+            return cached
+
+    # 2. 線上 API
+    stocks = {}
+    twse = _fetch_twse_stocks()
+    tpex = _fetch_tpex_stocks()
+    stocks.update(twse)
+    stocks.update(tpex)
+
+    # 3. twstock 補充
+    twstock_codes = _fetch_twstock_codes()
+    for code, info in twstock_codes.items():
+        if code not in stocks:
+            stocks[code] = info
+
+    # 4. 內建備援
+    for code, info in _BUILTIN_STOCKS.items():
+        if code not in stocks:
+            stocks[code] = info
+
+    # 儲存快取
+    if len(stocks) > 100:
+        _save_cache(stocks)
+
+    # 至少回傳內建清單
+    if not stocks:
+        return dict(_BUILTIN_STOCKS)
+
+    return stocks
+
+
+def search_stocks(query: str, all_stocks: dict[str, dict] | None = None) -> list[tuple[str, str, str]]:
+    """搜尋股票（支援代碼或名稱模糊搜尋）
+
+    Args:
+        query: 搜尋關鍵字
+        all_stocks: 完整股票清單（若為 None 會自動載入）
+
+    Returns:
+        list of (code, name, market) 排序後的搜尋結果
+    """
+    if all_stocks is None:
+        all_stocks = get_all_stocks()
+
+    query = query.strip().lower()
+    if not query:
+        return []
+
+    results = []
+    for code, info in all_stocks.items():
+        name = info.get("name", "")
+        market = info.get("market", "")
+        # 代碼完全匹配優先
+        if code.lower() == query:
+            results.insert(0, (code, name, market))
+        # 代碼前綴匹配
+        elif code.lower().startswith(query):
+            results.append((code, name, market))
+        # 名稱包含匹配
+        elif query in name.lower():
+            results.append((code, name, market))
+
+    return results[:50]  # 最多回傳 50 筆
+
+
+def get_stock_name(code: str, all_stocks: dict[str, dict] | None = None) -> str:
+    """取得股票名稱"""
+    if all_stocks is None:
+        all_stocks = get_all_stocks()
+    info = all_stocks.get(code, {})
+    return info.get("name", code)
