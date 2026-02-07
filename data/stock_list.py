@@ -108,6 +108,25 @@ _BUILTIN_STOCKS = {
     "5876": {"name": "上海商銀", "market": "上市"},
     "2345": {"name": "智邦", "market": "上市"},
     "3037": {"name": "欣興", "market": "上市"},
+    # twstock 可能缺少的較新上櫃股
+    "6618": {"name": "永虹", "market": "上櫃"},
+    "6869": {"name": "雲豹能源", "market": "上櫃"},
+    "6863": {"name": "永道-KY", "market": "上櫃"},
+    "6903": {"name": "亞信電子", "market": "上櫃"},
+    "6957": {"name": "東碩資訊", "market": "上櫃"},
+    "6873": {"name": "泓德能源", "market": "上櫃"},
+    "6916": {"name": "博晟生醫", "market": "上櫃"},
+    "4966": {"name": "譜瑞-KY", "market": "上櫃"},
+    "5347": {"name": "世界", "market": "上櫃"},
+    "6488": {"name": "環球晶", "market": "上櫃"},
+    "6533": {"name": "晶心科", "market": "上櫃"},
+    "6472": {"name": "閎康", "market": "上櫃"},
+    "3105": {"name": "穩懋", "market": "上櫃"},
+    "5269": {"name": "祥碩", "market": "上櫃"},
+    "6409": {"name": "旭隼", "market": "上櫃"},
+    "8069": {"name": "元太", "market": "上櫃"},
+    "3529": {"name": "力旺", "market": "上櫃"},
+    "6510": {"name": "精測", "market": "上櫃"},
 }
 
 
@@ -213,9 +232,71 @@ def search_stocks(query: str, all_stocks: dict[str, dict] | None = None) -> list
     return results[:50]  # 最多回傳 50 筆
 
 
+def _lookup_stock_name_online(code: str) -> tuple[str, str] | None:
+    """從 TWSE/TPEX 或 yfinance 查詢單一股票名稱
+
+    Returns:
+        (name, market) 或 None
+    """
+    # 嘗試 TWSE 查詢
+    try:
+        r = requests.get(
+            f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{code}.tw",
+            timeout=5,
+        )
+        data = r.json()
+        if data.get("msgArray"):
+            name = data["msgArray"][0].get("n", "")
+            if name:
+                return (name, "上市")
+    except Exception:
+        pass
+
+    # 嘗試 TPEX 查詢
+    try:
+        r = requests.get(
+            f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=otc_{code}.tw",
+            timeout=5,
+        )
+        data = r.json()
+        if data.get("msgArray"):
+            name = data["msgArray"][0].get("n", "")
+            if name:
+                return (name, "上櫃")
+    except Exception:
+        pass
+
+    # fallback: yfinance（可能只有英文名）
+    try:
+        from data.fetcher import get_ticker
+        import yfinance as yf
+        ticker_str = get_ticker(code)
+        ticker = yf.Ticker(ticker_str)
+        yf_info = ticker.info
+        name = yf_info.get("longName", yf_info.get("shortName", ""))
+        if name:
+            market = "上櫃" if ".TWO" in ticker_str else "上市"
+            return (name, market)
+    except Exception:
+        pass
+
+    return None
+
+
 def get_stock_name(code: str, all_stocks: dict[str, dict] | None = None) -> str:
-    """取得股票名稱"""
+    """取得股票名稱，若不在清單中會嘗試線上查詢並自動補進快取"""
     if all_stocks is None:
         all_stocks = get_all_stocks()
     info = all_stocks.get(code, {})
-    return info.get("name", code)
+    if info:
+        return info.get("name", code)
+
+    # 不在清單中，線上查詢
+    result = _lookup_stock_name_online(code)
+    if result:
+        name, market = result
+        all_stocks[code] = {"name": name, "market": market}
+        _save_cache(all_stocks)
+        return name
+
+    return code
