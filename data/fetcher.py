@@ -175,6 +175,8 @@ def get_stock_fundamentals(stock_code: str) -> dict:
         "target_high_price": info.get("targetHighPrice"),
         "target_low_price": info.get("targetLowPrice"),
         "number_of_analysts": info.get("numberOfAnalystOpinions"),
+        # 規模
+        "market_cap": info.get("marketCap"),
         # 現價（供 screener 免呼叫 get_stock_data）
         "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
     }

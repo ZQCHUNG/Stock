@@ -1428,6 +1428,8 @@ elif page == "條件選股":
             f_opm_val = st.number_input("營業利益率 >", value=10.0, step=1.0, key="f_opm_val", format="%.1f")
             f_npm = st.checkbox("淨利率 (%)", value=False, key="f_npm")
             f_npm_val = st.number_input("淨利率 >", value=5.0, step=1.0, key="f_npm_val", format="%.1f")
+            f_eps = st.checkbox("EPS (元)", value=False, key="f_eps")
+            f_eps_val = st.number_input("EPS >", value=2.0, step=0.5, key="f_eps_val", format="%.1f")
 
     if f_roe:
         filter_cfg["return_on_equity"] = (">", f_roe_val / 100)
@@ -1439,6 +1441,8 @@ elif page == "條件選股":
         filter_cfg["operating_margins"] = (">", f_opm_val / 100)
     if f_npm:
         filter_cfg["profit_margins"] = (">", f_npm_val / 100)
+    if f_eps:
+        filter_cfg["trailing_eps"] = (">", f_eps_val)
 
     with st.expander("成長力"):
         col_a, col_b = st.columns(2)
@@ -1471,8 +1475,10 @@ elif page == "條件選股":
     with st.expander("價值評估"):
         col_a, col_b = st.columns(2)
         with col_a:
-            f_pe = st.checkbox("本益比", value=False, key="f_pe")
+            f_pe = st.checkbox("本益比 (TTM)", value=False, key="f_pe")
             f_pe_val = st.number_input("本益比 <", value=20.0, step=1.0, key="f_pe_val", format="%.1f")
+            f_fpe = st.checkbox("Forward PE", value=False, key="f_fpe")
+            f_fpe_val = st.number_input("Forward PE <", value=15.0, step=1.0, key="f_fpe_val", format="%.1f")
             f_pb = st.checkbox("淨值比", value=False, key="f_pb")
             f_pb_val = st.number_input("淨值比 <", value=3.0, step=0.5, key="f_pb_val", format="%.1f")
         with col_b:
@@ -1481,10 +1487,32 @@ elif page == "條件選股":
 
     if f_pe:
         filter_cfg["trailing_pe"] = ("<", f_pe_val)
+    if f_fpe:
+        filter_cfg["forward_pe"] = ("<", f_fpe_val)
     if f_pb:
         filter_cfg["price_to_book"] = ("<", f_pb_val)
     if f_dy:
         filter_cfg["dividend_yield"] = (">", f_dy_val / 100)
+
+    with st.expander("現金流 & 規模"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            f_fcf = st.checkbox("自由現金流 > 0", value=False, key="f_fcf")
+            f_ocf = st.checkbox("營業現金流 > 0", value=False, key="f_ocf")
+        with col_b:
+            f_mcap = st.checkbox("市值 (億)", value=False, key="f_mcap")
+            f_mcap_val = st.number_input("市值 >", value=100.0, step=50.0, key="f_mcap_val", format="%.0f", help="單位：億元台幣")
+            f_beta = st.checkbox("Beta", value=False, key="f_beta")
+            f_beta_val = st.number_input("Beta <", value=1.5, step=0.1, key="f_beta_val", format="%.1f")
+
+    if f_fcf:
+        filter_cfg["free_cashflow"] = (">", 0)
+    if f_ocf:
+        filter_cfg["operating_cashflow"] = (">", 0)
+    if f_mcap:
+        filter_cfg["market_cap"] = (">", f_mcap_val * 1e8)
+    if f_beta:
+        filter_cfg["beta"] = ("<", f_beta_val)
 
     with st.expander("技術面"):
         col_a, col_b = st.columns(2)
@@ -1507,7 +1535,8 @@ elif page == "條件選股":
     use_full_scr = scan_scope_scr.startswith("全部")
     scan_pool_scr = all_stocks if use_full_scr else SCAN_STOCKS
 
-    if not filter_cfg and not f_rsi and not f_adx:
+    has_any_filter = bool(filter_cfg) or f_rsi or f_adx
+    if not has_any_filter:
         st.info("請至少勾選一項篩選條件。")
 
     def _build_conditions_hash() -> str:
@@ -1558,7 +1587,7 @@ elif page == "條件選股":
             return "N/A"
         return f"{val:{fmt}}"
 
-    if st.button("開始選股", type="primary", key="scr_start", disabled=(not filter_cfg and not f_rsi and not f_adx)):
+    if st.button("開始選股", type="primary", key="scr_start", disabled=(not has_any_filter)):
         cond_hash = _build_conditions_hash()
 
         # 嘗試快取
@@ -1631,24 +1660,33 @@ elif page == "條件選股":
             # 格式化為 DataFrame
             display_rows = []
             for r in results:
-                display_rows.append({
+                row = {
                     "代碼": r["代碼"],
                     "名稱": r["名稱"],
                     "收盤價": f"${r['收盤價']:.2f}" if r["收盤價"] else "N/A",
-                    "PE": _fmt_num(r["PE"]),
-                    "PB": _fmt_num(r["PB"]),
-                    "ROE": _fmt_pct(r["ROE"]),
-                    "毛利率": _fmt_pct(r["毛利率"]),
-                    "營利率": _fmt_pct(r["營利率"]),
-                    "淨利率": _fmt_pct(r["淨利率"]),
-                    "營收成長": _fmt_pct(r["營收成長"]),
-                    "獲利成長": _fmt_pct(r["獲利成長"]),
-                    "殖利率": _fmt_pct(r["殖利率"]),
-                    "負債比": _fmt_num(r["負債比"], ".0f"),
-                    "流動比": _fmt_num(r["流動比"]),
-                    "RSI": _fmt_num(r["RSI"]),
-                    "ADX": _fmt_num(r["ADX"]),
-                })
+                    "PE": _fmt_num(r.get("PE")),
+                    "F.PE": _fmt_num(r.get("Forward PE")),
+                    "PB": _fmt_num(r.get("PB")),
+                    "ROE": _fmt_pct(r.get("ROE")),
+                    "ROA": _fmt_pct(r.get("ROA")),
+                    "毛利率": _fmt_pct(r.get("毛利率")),
+                    "營利率": _fmt_pct(r.get("營利率")),
+                    "淨利率": _fmt_pct(r.get("淨利率")),
+                    "EPS": _fmt_num(r.get("EPS")),
+                    "營收成長": _fmt_pct(r.get("營收成長")),
+                    "獲利成長": _fmt_pct(r.get("獲利成長")),
+                    "殖利率": _fmt_pct(r.get("殖利率")),
+                    "負債比": _fmt_num(r.get("負債比"), ".0f"),
+                    "流動比": _fmt_num(r.get("流動比")),
+                    "Beta": _fmt_num(r.get("Beta")),
+                    "市值(億)": _fmt_num(r.get("市值(億)"), ".0f"),
+                    "FCF(億)": _fmt_num(r.get("自由現金流(億)")),
+                    "OCF(億)": _fmt_num(r.get("營業現金流(億)")),
+                    "目標價": _fmt_num(r.get("目標價"), ".0f"),
+                    "RSI": _fmt_num(r.get("RSI")),
+                    "ADX": _fmt_num(r.get("ADX")),
+                }
+                display_rows.append(row)
             st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
 
 
