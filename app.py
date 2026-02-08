@@ -102,7 +102,7 @@ with st.sidebar:
             with recent_cols[i]:
                 if st.button(f"{code}\n{short_name}", key=f"recent_{code}", use_container_width=True):
                     st.session_state["_pending_stock"] = code
-                    st.rerun()
+                    st.session_state["_auto_report"] = True
 
     st.divider()
 
@@ -112,6 +112,10 @@ with st.sidebar:
         options=["技術分析", "回測報告", "模擬交易", "推薦股票", "分析報告"],
         index=0,
     )
+
+    # 延遲 rerun：等 radio 渲染完（保留 page 狀態）再觸發跳轉
+    if st.session_state.get("_pending_stock"):
+        st.rerun()
 
     st.divider()
 
@@ -958,14 +962,27 @@ elif page == "分析報告":
         """Escape $ signs to prevent Streamlit LaTeX rendering"""
         return text.replace("$", "\\$") if text else text
 
-    if st.button("產生分析報告", type="primary"):
+    # 產生報告（結果快取至 session_state，避免 Streamlit 二次 rerun 時消失）
+    auto_report = st.session_state.pop("_auto_report", False)
+    if st.button("產生分析報告", type="primary") or auto_report:
         with st.spinner("正在產生專業分析報告，請稍候（約 10-30 秒）..."):
             try:
                 report = generate_report(stock_code, period_days=730)
                 _add_recent(stock_code)
+                st.session_state["_cached_report"] = report
             except Exception as e:
                 st.error(f"報告產生失敗：{e}")
+                st.session_state.pop("_cached_report", None)
                 st.stop()
+
+    # 從快取讀取報告並顯示
+    cached = st.session_state.get("_cached_report")
+    if cached is None:
+        st.info("請點擊上方按鈕產生報告，或從最近查詢快速切換股票。")
+    elif cached.stock_code != stock_code:
+        st.info(f"目前快取為 {cached.stock_code} 的報告，請點擊「產生分析報告」以產生 {stock_code} 的報告。")
+    else:
+        report = cached
 
         # ---- 綜合評等 Banner ----
         rating_colors = {
@@ -987,144 +1004,115 @@ elif page == "分析報告":
             unsafe_allow_html=True,
         )
 
-        # ---- 一、公司概況 ----
-        st.subheader("一、公司概況")
+        # ---- 一、摘要 ----
+        st.subheader("一、分析摘要")
+        st.markdown(_esc(report.summary_text))
+
+        # ---- 二、概況與績效 ----
+        st.subheader("二、概況與績效")
         info = report.company_info
-        info_cols = st.columns(4)
-        with info_cols[0]:
-            st.metric("股票代碼", report.stock_code)
-        with info_cols[1]:
-            st.metric("公司名稱", report.stock_name)
-        with info_cols[2]:
-            sector = info.get("sector") or info.get("industry") or "N/A"
-            st.metric("產業", sector)
-        with info_cols[3]:
-            mc = info.get("market_cap", 0)
-            if mc and mc > 0:
-                if mc >= 1e12:
-                    st.metric("市值", f"${mc/1e12:.1f} 兆")
-                elif mc >= 1e8:
-                    st.metric("市值", f"${mc/1e8:.1f} 億")
+        ov_col1, ov_col2 = st.columns(2)
+        with ov_col1:
+            info_cols = st.columns(2)
+            with info_cols[0]:
+                st.metric("股票代碼", report.stock_code)
+                sector = info.get("sector") or info.get("industry") or "N/A"
+                st.metric("產業", sector)
+            with info_cols[1]:
+                st.metric("公司名稱", report.stock_name)
+                mc = info.get("market_cap", 0)
+                if mc and mc > 0:
+                    if mc >= 1e12:
+                        mc_str = f"${mc/1e12:.1f} 兆"
+                    elif mc >= 1e8:
+                        mc_str = f"${mc/1e8:.1f} 億"
+                    else:
+                        mc_str = f"${mc:,.0f}"
                 else:
-                    st.metric("市值", f"${mc:,.0f}")
-            else:
-                st.metric("市值", "N/A")
+                    mc_str = "N/A"
+                st.metric("市值", mc_str)
+                shares = info.get("shares_outstanding", 0)
+                if shares and shares > 0:
+                    capital = shares * 10  # 每股面額 10 元
+                    if capital >= 1e8:
+                        cap_str = f"${capital/1e8:.1f} 億"
+                    else:
+                        cap_str = f"${capital:,.0f}"
+                else:
+                    cap_str = "N/A"
+                st.metric("股本", cap_str)
+        with ov_col2:
+            perf_data = pd.DataFrame({
+                "期間": ["1 週", "1 個月", "3 個月", "6 個月", "1 年", "距 52W 高", "距 52W 低"],
+                "漲跌幅": [
+                    f"{report.price_change_1w:+.2%}",
+                    f"{report.price_change_1m:+.2%}",
+                    f"{report.price_change_3m:+.2%}",
+                    f"{report.price_change_6m:+.2%}",
+                    f"{report.price_change_1y:+.2%}",
+                    f"{report.pct_from_52w_high:+.2%}",
+                    f"{report.pct_from_52w_low:+.2%}",
+                ],
+                "備註": [
+                    "", "", "", "",
+                    "",
+                    f"高點 ${report.high_52w:.2f}（{report.high_52w_date}）",
+                    f"低點 ${report.low_52w:.2f}（{report.low_52w_date}）",
+                ],
+            })
+            st.dataframe(perf_data, hide_index=True, use_container_width=True)
 
-        # ---- 二、價格表現 ----
-        st.subheader("二、價格表現")
-        perf_cols = st.columns(5)
-        for i, (label, val) in enumerate([
-            ("1 週", report.price_change_1w),
-            ("1 個月", report.price_change_1m),
-            ("3 個月", report.price_change_3m),
-            ("6 個月", report.price_change_6m),
-            ("1 年", report.price_change_1y),
-        ]):
-            with perf_cols[i]:
-                st.metric(label, f"{val:+.2%}")
-
-        hw_cols = st.columns(4)
-        with hw_cols[0]:
-            st.metric("52 週最高", f"${report.high_52w:.2f}")
-        with hw_cols[1]:
-            st.metric("最高日期", report.high_52w_date)
-        with hw_cols[2]:
-            st.metric("52 週最低", f"${report.low_52w:.2f}")
-        with hw_cols[3]:
-            st.metric("最低日期", report.low_52w_date)
-
-        dist_cols = st.columns(2)
-        with dist_cols[0]:
-            st.metric("距 52 週高點", f"{report.pct_from_52w_high:+.2%}")
-        with dist_cols[1]:
-            st.metric("距 52 週低點", f"{report.pct_from_52w_low:+.2%}")
-
-        # ---- 三、基本面分析 ----
-        st.subheader("三、基本面分析")
+        # ---- 三、基本面 ----
+        st.subheader("三、基本面")
         if report.fundamentals and any(v != "N/A" for v in report.fundamentals.values()):
             fm = report.fundamentals
-            # Row 1: 估值與 EPS
-            fund_r1 = st.columns(5)
-            with fund_r1[0]:
-                st.metric("本益比 (TTM)", fm.get("trailing_pe", "N/A"))
-            with fund_r1[1]:
-                st.metric("預估本益比", fm.get("forward_pe", "N/A"))
-            with fund_r1[2]:
-                st.metric("股價淨值比", fm.get("price_to_book", "N/A"))
-            with fund_r1[3]:
-                st.metric("EPS (TTM)", fm.get("trailing_eps", "N/A"))
-            with fund_r1[4]:
-                st.metric("預估 EPS", fm.get("forward_eps", "N/A"))
+            fund_col1, fund_col2 = st.columns(2)
+            with fund_col1:
+                st.markdown("**估值與獲利**")
+                val_data = pd.DataFrame({
+                    "指標": ["本益比 (TTM)", "預估本益比", "股價淨值比", "EPS (TTM)", "預估 EPS", "獲利成長率", "營收成長率"],
+                    "數值": [
+                        fm.get("trailing_pe", "N/A"), fm.get("forward_pe", "N/A"),
+                        fm.get("price_to_book", "N/A"), fm.get("trailing_eps", "N/A"),
+                        fm.get("forward_eps", "N/A"), fm.get("earnings_growth", "N/A"),
+                        fm.get("revenue_growth", "N/A"),
+                    ],
+                })
+                st.dataframe(val_data, hide_index=True, use_container_width=True)
+            with fund_col2:
+                st.markdown("**財務與股利**")
+                fin_data = pd.DataFrame({
+                    "指標": ["ROE", "ROA", "淨利率", "負債權益比", "殖利率", "Beta", "基本面評分"],
+                    "數值": [
+                        fm.get("roe", "N/A"), fm.get("roa", "N/A"),
+                        fm.get("profit_margins", "N/A"), fm.get("debt_to_equity", "N/A"),
+                        fm.get("dividend_yield", "N/A"), fm.get("beta", "N/A"),
+                        f"{'🟢' if report.fundamental_score >= 2 else '🔴' if report.fundamental_score <= -2 else '🟡'} {report.fundamental_score:+.1f}",
+                    ],
+                })
+                st.dataframe(fin_data, hide_index=True, use_container_width=True)
 
-            # Row 2: 成長 & 報酬率
-            fund_r2 = st.columns(4)
-            with fund_r2[0]:
-                st.metric("獲利成長率", fm.get("earnings_growth", "N/A"))
-            with fund_r2[1]:
-                st.metric("營收成長率", fm.get("revenue_growth", "N/A"))
-            with fund_r2[2]:
-                st.metric("ROE", fm.get("roe", "N/A"))
-            with fund_r2[3]:
-                st.metric("ROA", fm.get("roa", "N/A"))
-
-            # Row 3: 利潤率 & 財務健全
-            fund_r3 = st.columns(5)
-            with fund_r3[0]:
-                st.metric("毛利率", fm.get("gross_margins", "N/A"))
-            with fund_r3[1]:
-                st.metric("營業利益率", fm.get("operating_margins", "N/A"))
-            with fund_r3[2]:
-                st.metric("淨利率", fm.get("profit_margins", "N/A"))
-            with fund_r3[3]:
-                st.metric("負債權益比", fm.get("debt_to_equity", "N/A"))
-            with fund_r3[4]:
-                st.metric("流動比率", fm.get("current_ratio", "N/A"))
-
-            # Row 4: 股利 & 風險 & 評分
-            fund_r4 = st.columns(4)
-            with fund_r4[0]:
-                st.metric("殖利率", fm.get("dividend_yield", "N/A"))
-            with fund_r4[1]:
-                st.metric("年配息", fm.get("dividend_rate", "N/A"))
-            with fund_r4[2]:
-                st.metric("Beta", fm.get("beta", "N/A"))
-            with fund_r4[3]:
-                score_color = "🟢" if report.fundamental_score >= 2 else "🔴" if report.fundamental_score <= -2 else "🟡"
-                st.metric("基本面評分", f"{score_color} {report.fundamental_score:+.1f}")
-
-            # 法人共識
+            # 法人共識（精簡為一行）
             ad = report.analyst_data
             if ad and ad.get("target_mean"):
-                st.markdown("**法人共識**")
-                an_cols = st.columns(5)
-                with an_cols[0]:
-                    n = ad.get("num_analysts")
-                    st.metric("分析師人數", f"{int(n)}" if n else "N/A")
-                with an_cols[1]:
-                    st.metric("目標均價", f"\\${ad['target_mean']:.0f}")
-                with an_cols[2]:
-                    med = ad.get("target_median")
-                    st.metric("中位數", f"\\${med:.0f}" if med else "N/A")
-                with an_cols[3]:
-                    hi = ad.get("target_high")
-                    st.metric("最高", f"\\${hi:.0f}" if hi else "N/A")
-                with an_cols[4]:
-                    lo = ad.get("target_low")
-                    st.metric("最低", f"\\${lo:.0f}" if lo else "N/A")
+                n = ad.get("num_analysts")
+                n_str = f"{int(n)} 位分析師" if n else "分析師"
                 upside = ad.get("upside", 0)
+                target_msg = f"{n_str}目標均價 \\${ad['target_mean']:.0f}（{upside:+.0%}）"
                 if upside > 0:
-                    st.success(f"法人目標均價較現價上檔空間 {upside:.0%}")
+                    st.success(target_msg)
                 elif upside < -0.05:
-                    st.warning(f"法人目標均價較現價下檔 {abs(upside):.0%}")
+                    st.warning(target_msg)
+                else:
+                    st.info(target_msg)
 
-            # 基本面解讀
             if report.fundamental_interpretation:
                 st.markdown(_esc(report.fundamental_interpretation))
         else:
             st.info("此股票基本面數據不足，可能為小型股或上櫃股，yfinance 尚未提供完整基本面資料。")
 
-        # ---- 四、技術面總覽 ----
-        st.subheader("四、技術面總覽")
+        # ---- 四、技術面 ----
+        st.subheader("四、技術面")
         trend_cols = st.columns(4)
         with trend_cols[0]:
             st.metric("趨勢方向", report.trend_direction)
@@ -1135,8 +1123,78 @@ elif page == "分析報告":
         with trend_cols[3]:
             st.metric("動能狀態", report.momentum_status)
 
-        # ---- 五、支撐壓力分析 ----
-        st.subheader("五、支撐壓力分析")
+        with st.expander("指標明細"):
+            tech_col1, tech_col2 = st.columns(2)
+            with tech_col1:
+                tech_data = pd.DataFrame({
+                    "指標": ["ADX", "RSI", "MACD", "KD"],
+                    "數值": [
+                        f"{report.adx_value:.1f}",
+                        f"{report.rsi_value:.1f}",
+                        f"{report.macd_value:.4f}",
+                        f"K={report.k_value:.1f} / D={report.d_value:.1f}",
+                    ],
+                    "解讀": [
+                        report.adx_interpretation[:40],
+                        report.rsi_interpretation[:40],
+                        report.macd_interpretation[:40],
+                        report.kd_interpretation[:40],
+                    ],
+                })
+                st.dataframe(tech_data, hide_index=True, use_container_width=True)
+            with tech_col2:
+                vol_data = pd.DataFrame({
+                    "指標": ["量能趨勢", "量能比", "籌碼判斷"],
+                    "數值": [
+                        report.volume_trend,
+                        f"{report.volume_ratio:.1f}x",
+                        report.accumulation_distribution,
+                    ],
+                })
+                st.dataframe(vol_data, hide_index=True, use_container_width=True)
+            st.markdown(_esc(report.volume_interpretation))
+
+        # ---- 五、消息面 ----
+        st.subheader("五、消息面")
+        if report.news_items:
+            sent_cols = st.columns(3)
+            with sent_cols[0]:
+                sent_icon = {"偏多": "📈", "偏空": "📉", "中性": "➖"}.get(report.news_sentiment_label, "❓")
+                st.metric("新聞情緒", f"{sent_icon} {report.news_sentiment_label}")
+            with sent_cols[1]:
+                st.metric("相關新聞數", f"{len(report.news_items)} 則")
+            with sent_cols[2]:
+                st.metric("情緒分數", f"{report.news_sentiment_score:+.1f}")
+
+            with st.expander(f"近期新聞列表（{len(report.news_items)} 則）"):
+                for n in report.news_items:
+                    cred_icon = n.get("credibility_icon", "")
+                    s_icon = n.get("sentiment_icon", "")
+                    title = n.get("title", "")
+                    source = n.get("source", "")
+                    raw_date = n.get("date", "") or ""
+                    # 解析 RFC 2822 日期（Google News）或直接截取
+                    try:
+                        from email.utils import parsedate_to_datetime
+                        dt = parsedate_to_datetime(raw_date)
+                        date_str = dt.strftime("%Y-%m-%d")
+                    except Exception:
+                        date_str = raw_date[:10] if len(raw_date) >= 10 else raw_date
+                    url = n.get("url", "")
+                    st.markdown(
+                        f"{s_icon}{cred_icon} **{_esc(title)}**\n\n"
+                        f"來源：{source} | {date_str} | "
+                        f"可信度：{n.get('credibility', 'N/A')} | "
+                        f"情緒：{n.get('sentiment', 'N/A')}"
+                    )
+                    if url:
+                        st.markdown(f"[閱讀全文]({url})")
+                    st.divider()
+        else:
+            st.info("此股票近期無相關新聞。")
+
+        # ---- 六、關鍵價位 ----
+        st.subheader("六、關鍵價位")
         sr_col1, sr_col2 = st.columns(2)
         with sr_col1:
             st.markdown("**壓力位**")
@@ -1150,7 +1208,7 @@ elif page == "分析報告":
                         "強度": stars,
                         "距離": f"{(r.price / report.current_price - 1):+.2%}",
                     })
-                st.dataframe(pd.DataFrame(r_data), hide_index=True, width=400)
+                st.dataframe(pd.DataFrame(r_data), hide_index=True, use_container_width=True)
             else:
                 st.info("無明顯壓力位")
         with sr_col2:
@@ -1165,190 +1223,151 @@ elif page == "分析報告":
                         "強度": stars,
                         "距離": f"{(s.price / report.current_price - 1):+.2%}",
                     })
-                st.dataframe(pd.DataFrame(s_data), hide_index=True, width=400)
+                st.dataframe(pd.DataFrame(s_data), hide_index=True, use_container_width=True)
             else:
                 st.info("無明顯支撐位")
 
-        # ---- 六、費氏回檔分析 ----
-        st.subheader("六、費氏回檔分析")
-        fib = report.fibonacci
-        fib_info_cols = st.columns(3)
-        with fib_info_cols[0]:
-            st.metric("波段高點", f"${fib.swing_high:.2f}")
-        with fib_info_cols[1]:
-            st.metric("波段低點", f"${fib.swing_low:.2f}")
-        with fib_info_cols[2]:
-            st.metric("方向", "上升趨勢" if fib.direction == "uptrend" else "下降趨勢")
-
-        fib_col1, fib_col2 = st.columns(2)
-        with fib_col1:
-            st.markdown("**回檔水位**")
-            ret_data = [{"比率": f"{k:.1%}", "價位": f"${v:.2f}", "距離": f"{(v / report.current_price - 1):+.2%}"}
-                        for k, v in fib.retracement.items()]
-            st.dataframe(pd.DataFrame(ret_data), hide_index=True, width=350)
-        with fib_col2:
-            st.markdown("**延伸水位**")
-            ext_data = [{"比率": f"{k:.1%}", "價位": f"${v:.2f}", "距離": f"{(v / report.current_price - 1):+.2%}"}
-                        for k, v in fib.extension.items()]
-            st.dataframe(pd.DataFrame(ext_data), hide_index=True, width=350)
-
-        # 費氏 K 線圖
-        st.markdown("**費氏回檔 K 線圖**")
-        fib_df = report.indicators_df.tail(120) if report.indicators_df is not None else None
-        if fib_df is not None:
-            fig_fib = go.Figure()
-            fig_fib.add_trace(go.Candlestick(
-                x=list(range(len(fib_df))),
-                open=fib_df["open"], high=fib_df["high"],
-                low=fib_df["low"], close=fib_df["close"],
-                name="K線",
-                increasing_line_color="#EF5350",
-                decreasing_line_color="#26A69A",
-            ))
-            # Fibonacci 水平線
-            colors_fib = ["#FFD54F", "#FFB74D", "#FF8A65", "#E57373", "#EF5350"]
-            for i_f, (ratio, price) in enumerate(fib.retracement.items()):
-                fig_fib.add_hline(
-                    y=price, line_dash="dash",
-                    line_color=colors_fib[i_f % len(colors_fib)],
-                    opacity=0.7,
-                    annotation_text=f"Fib {ratio:.1%} (${price:.2f})",
-                    annotation_position="right",
+        # 六個月目標價
+        st.markdown("**六個月目標價**")
+        tf_targets_6m = [t for t in report.price_targets if t.timeframe == "6M"]
+        tgt_cols = st.columns(3)
+        scenario_map = {"bull": ("樂觀", "🟢"), "base": ("基本", "🟡"), "bear": ("保守", "🔴")}
+        for t in tf_targets_6m:
+            s_label, s_icon = scenario_map.get(t.scenario, (t.scenario, ""))
+            col_idx = 0 if t.scenario == "bull" else 1 if t.scenario == "base" else 2
+            with tgt_cols[col_idx]:
+                st.metric(
+                    f"{s_icon} {s_label}情境",
+                    f"${t.target_price:.2f}",
+                    delta=f"{t.upside_pct:+.2%}",
                 )
-            for ratio, price in fib.extension.items():
-                fig_fib.add_hline(
-                    y=price, line_dash="dot",
-                    line_color="#81C784", opacity=0.6,
-                    annotation_text=f"Ext {ratio:.1%} (${price:.2f})",
-                    annotation_position="left",
-                )
-            fig_fib.update_layout(
-                height=500, template="plotly_dark",
-                xaxis_rangeslider_visible=False,
-                title=f"{report.stock_name} 費氏回檔分析",
-            )
-            st.plotly_chart(fig_fib, use_container_width=True)
 
-        # ---- 七、目標價估算 ----
-        st.subheader("七、目標價估算")
-        for tf_label in ["3M", "6M", "1Y"]:
-            tf_map = {"3M": "三個月", "6M": "六個月", "1Y": "一年"}
-            st.markdown(f"**{tf_map[tf_label]}目標價**")
-            tf_targets = [t for t in report.price_targets if t.timeframe == tf_label]
-            tgt_cols = st.columns(3)
-            scenario_map = {"bull": ("樂觀", "🟢"), "base": ("基本", "🟡"), "bear": ("保守", "🔴")}
-            for t in tf_targets:
-                s_label, s_icon = scenario_map.get(t.scenario, (t.scenario, ""))
-                col_idx = 0 if t.scenario == "bull" else 1 if t.scenario == "base" else 2
-                with tgt_cols[col_idx]:
-                    st.metric(
-                        f"{s_icon} {s_label}情境",
-                        f"${t.target_price:.2f}",
-                        delta=f"{t.upside_pct:+.2%}",
+        with st.expander("3M/1Y 目標價及費氏分析"):
+            for tf_label in ["3M", "1Y"]:
+                tf_map = {"3M": "三個月", "1Y": "一年"}
+                st.markdown(f"**{tf_map[tf_label]}目標價**")
+                tf_targets = [t for t in report.price_targets if t.timeframe == tf_label]
+                ex_tgt_cols = st.columns(3)
+                for t in tf_targets:
+                    s_label, s_icon = scenario_map.get(t.scenario, (t.scenario, ""))
+                    col_idx = 0 if t.scenario == "bull" else 1 if t.scenario == "base" else 2
+                    with ex_tgt_cols[col_idx]:
+                        st.metric(
+                            f"{s_icon} {s_label}情境",
+                            f"${t.target_price:.2f}",
+                            delta=f"{t.upside_pct:+.2%}",
+                        )
+                        st.caption(f"信心度：{t.confidence}")
+
+            # 費氏 K 線圖
+            fib = report.fibonacci
+            st.markdown("**費氏回檔分析**")
+            fib_info_cols = st.columns(3)
+            with fib_info_cols[0]:
+                st.metric("波段高點", f"${fib.swing_high:.2f}")
+            with fib_info_cols[1]:
+                st.metric("波段低點", f"${fib.swing_low:.2f}")
+            with fib_info_cols[2]:
+                st.metric("方向", "上升趨勢" if fib.direction == "uptrend" else "下降趨勢")
+
+            fib_col1, fib_col2 = st.columns(2)
+            with fib_col1:
+                ret_data = [{"比率": f"{k:.1%}", "價位": f"${v:.2f}", "距離": f"{(v / report.current_price - 1):+.2%}"}
+                            for k, v in fib.retracement.items()]
+                st.dataframe(pd.DataFrame(ret_data), hide_index=True, use_container_width=True)
+            with fib_col2:
+                ext_data = [{"比率": f"{k:.1%}", "價位": f"${v:.2f}", "距離": f"{(v / report.current_price - 1):+.2%}"}
+                            for k, v in fib.extension.items()]
+                st.dataframe(pd.DataFrame(ext_data), hide_index=True, use_container_width=True)
+
+            fib_df = report.indicators_df.tail(120) if report.indicators_df is not None else None
+            if fib_df is not None:
+                fig_fib = go.Figure()
+                fig_fib.add_trace(go.Candlestick(
+                    x=list(range(len(fib_df))),
+                    open=fib_df["open"], high=fib_df["high"],
+                    low=fib_df["low"], close=fib_df["close"],
+                    name="K線",
+                    increasing_line_color="#EF5350",
+                    decreasing_line_color="#26A69A",
+                ))
+                colors_fib = ["#FFD54F", "#FFB74D", "#FF8A65", "#E57373", "#EF5350"]
+                for i_f, (ratio, price) in enumerate(fib.retracement.items()):
+                    fig_fib.add_hline(
+                        y=price, line_dash="dash",
+                        line_color=colors_fib[i_f % len(colors_fib)],
+                        opacity=0.7,
+                        annotation_text=f"Fib {ratio:.1%} (${price:.2f})",
+                        annotation_position="right",
                     )
-                    st.caption(f"信心度：{t.confidence} | {t.rationale[:30]}...")
+                for ratio, price in fib.extension.items():
+                    fig_fib.add_hline(
+                        y=price, line_dash="dot",
+                        line_color="#81C784", opacity=0.6,
+                        annotation_text=f"Ext {ratio:.1%} (${price:.2f})",
+                        annotation_position="left",
+                    )
+                fig_fib.update_layout(
+                    height=500, template="plotly_dark",
+                    xaxis_rangeslider_visible=False,
+                    title=f"{report.stock_name} 費氏回檔分析",
+                )
+                st.plotly_chart(fig_fib, use_container_width=True)
 
-        # ---- 八、動能分析 ----
-        st.subheader("八、動能分析")
-        mom_cols = st.columns(4)
-        with mom_cols[0]:
-            st.metric("ADX", f"{report.adx_value:.1f}")
-            st.caption(report.adx_interpretation)
-        with mom_cols[1]:
-            st.metric("RSI", f"{report.rsi_value:.1f}")
-            st.caption(report.rsi_interpretation)
-        with mom_cols[2]:
-            st.metric("MACD", f"{report.macd_value:.4f}")
-            st.caption(report.macd_interpretation)
-        with mom_cols[3]:
-            st.metric("KD", f"K={report.k_value:.1f} / D={report.d_value:.1f}")
-            st.caption(report.kd_interpretation)
-
-        # ---- 九、成交量分析 ----
-        st.subheader("九、成交量分析")
-        vol_cols = st.columns(3)
-        with vol_cols[0]:
-            st.metric("量能趨勢", report.volume_trend)
-        with vol_cols[1]:
-            st.metric("量能比", f"{report.volume_ratio:.1f}x")
-        with vol_cols[2]:
-            st.metric("籌碼判斷", report.accumulation_distribution)
-        st.markdown(_esc(report.volume_interpretation))
-
-        # ---- 十、波動度分析 ----
-        st.subheader("十、波動度分析")
-        vola_cols = st.columns(5)
-        with vola_cols[0]:
-            st.metric("ATR", f"${report.atr_value:.2f}")
-        with vola_cols[1]:
-            st.metric("ATR %", f"{report.atr_pct:.2%}")
-        with vola_cols[2]:
-            st.metric("20日波動率", f"{report.historical_volatility_20d:.1%}")
-        with vola_cols[3]:
-            st.metric("布林寬度", f"{report.bollinger_width:.3f}")
-        with vola_cols[4]:
-            st.metric("布林位置", f"{report.bollinger_position:.1%}")
-        st.markdown(_esc(report.volatility_interpretation))
-
-        # ---- 十一、風險評估 ----
-        st.subheader("十一、風險評估")
-        risk_cols = st.columns(4)
+        # ---- 七、風險與波動 ----
+        st.subheader("七、風險與波動")
+        risk_cols = st.columns(5)
         with risk_cols[0]:
-            st.metric("近1年最大回撤", f"{report.max_drawdown_1y:.2%}")
+            st.metric("最大回撤", f"{report.max_drawdown_1y:.2%}")
         with risk_cols[1]:
             st.metric("目前回撤", f"{report.current_drawdown:.2%}")
         with risk_cols[2]:
-            st.metric("關鍵風險價位", f"${report.key_risk_level:.2f}")
-        with risk_cols[3]:
             st.metric("風險報酬比", f"{report.risk_reward_ratio:.1f}:1")
+        with risk_cols[3]:
+            st.metric("ATR %", f"{report.atr_pct:.2%}")
+        with risk_cols[4]:
+            st.metric("20日波動率", f"{report.historical_volatility_20d:.1%}")
         st.markdown(_esc(report.risk_interpretation))
 
-        # ---- 十二、展望 ----
-        st.subheader("十二、未來展望")
-        for outlook in [report.outlook_3m, report.outlook_6m, report.outlook_1y]:
-            st.markdown(f"**{outlook.timeframe}展望**")
-            o_cols = st.columns(3)
-            with o_cols[0]:
-                st.markdown(f"🟢 **樂觀**（機率 {outlook.bull_probability}%）")
-                st.markdown(f"目標：\\${outlook.bull_target:.2f}")
-                st.markdown(_esc(outlook.bull_case))
-            with o_cols[1]:
-                st.markdown(f"🟡 **基本**（機率 {outlook.base_probability}%）")
-                st.markdown(f"目標：\\${outlook.base_target:.2f}")
-                st.markdown(_esc(outlook.base_case))
-            with o_cols[2]:
-                st.markdown(f"🔴 **保守**（機率 {outlook.bear_probability}%）")
-                st.markdown(f"目標：\\${outlook.bear_target:.2f}")
-                st.markdown(_esc(outlook.bear_case))
-            st.divider()
+        # ---- 八、展望與策略 ----
+        st.subheader("八、展望與策略")
+        # 3 個月展望
+        outlook_3m = report.outlook_3m
+        st.markdown(f"**{outlook_3m.timeframe}展望**")
+        o_cols = st.columns(3)
+        with o_cols[0]:
+            st.markdown(f"🟢 **樂觀**（機率 {outlook_3m.bull_probability}%）")
+            st.markdown(f"目標：\\${outlook_3m.bull_target:.2f}")
+            st.markdown(_esc(outlook_3m.bull_case))
+        with o_cols[1]:
+            st.markdown(f"🟡 **基本**（機率 {outlook_3m.base_probability}%）")
+            st.markdown(f"目標：\\${outlook_3m.base_target:.2f}")
+            st.markdown(_esc(outlook_3m.base_case))
+        with o_cols[2]:
+            st.markdown(f"🔴 **保守**（機率 {outlook_3m.bear_probability}%）")
+            st.markdown(f"目標：\\${outlook_3m.bear_target:.2f}")
+            st.markdown(_esc(outlook_3m.bear_case))
 
-        # ---- 十三、近期新聞 ----
-        st.subheader("十三、近期新聞")
-        if report.news_items:
-            st.caption("可信度圖例：🟢 可信 ｜ 🟡 待確認 ｜ 🔴 存疑")
-            for news in report.news_items:
-                icon = news.get("credibility_icon", "🟡")
-                cred = news.get("credibility", "待確認")
-                title = news.get("title", "")
-                with st.expander(f"{icon} {cred} | {title}"):
-                    news_meta_cols = st.columns(2)
-                    with news_meta_cols[0]:
-                        st.markdown(f"**來源：** {news.get('source', 'Unknown')}")
-                    with news_meta_cols[1]:
-                        date_str = news.get("date", "")
-                        if date_str:
-                            st.markdown(f"**日期：** {str(date_str)[:19]}")
-                    summary = news.get("summary", "")
-                    if summary:
-                        st.markdown(_esc(summary[:300]))
-                    url = news.get("url", "")
-                    if url:
-                        st.markdown(f"[原文連結]({url})")
-        else:
-            st.info("目前無法取得此股票的相關新聞。")
+        with st.expander("6 個月 / 1 年展望"):
+            for outlook in [report.outlook_6m, report.outlook_1y]:
+                st.markdown(f"**{outlook.timeframe}展望**")
+                ex_o_cols = st.columns(3)
+                with ex_o_cols[0]:
+                    st.markdown(f"🟢 **樂觀**（機率 {outlook.bull_probability}%）")
+                    st.markdown(f"目標：\\${outlook.bull_target:.2f}")
+                    st.markdown(_esc(outlook.bull_case))
+                with ex_o_cols[1]:
+                    st.markdown(f"🟡 **基本**（機率 {outlook.base_probability}%）")
+                    st.markdown(f"目標：\\${outlook.base_target:.2f}")
+                    st.markdown(_esc(outlook.base_case))
+                with ex_o_cols[2]:
+                    st.markdown(f"🔴 **保守**（機率 {outlook.bear_probability}%）")
+                    st.markdown(f"目標：\\${outlook.bear_target:.2f}")
+                    st.markdown(_esc(outlook.bear_case))
+                st.divider()
 
-        # ---- 十四、策略訊號交叉比對 ----
-        st.subheader("十四、策略訊號交叉比對")
+        # 策略訊號
+        st.markdown("**策略訊號**")
         sig_cols = st.columns(2)
         v4 = report.v4_analysis
         v2 = report.v2_analysis
@@ -1366,10 +1385,6 @@ elif page == "分析報告":
             v2_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
             st.metric("訊號", v2_map.get(v2_sig, v2_sig))
             st.metric("綜合評分", f"{v2.get('composite_score', 0):+.3f}")
-
-        # ---- 摘要 ----
-        st.subheader("分析摘要（約 500 字）")
-        st.markdown(_esc(report.summary_text))
 
         # ---- 下載 ----
         report_text = f"=== {report.stock_name}（{report.stock_code}）技術分析報告 ===\n"

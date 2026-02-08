@@ -11,7 +11,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from data.fetcher import get_stock_data, get_stock_info, get_stock_fundamentals, get_stock_news
+from data.fetcher import get_stock_data, get_stock_info, get_stock_fundamentals, get_stock_news, get_google_news
 from data.stock_list import get_stock_name, get_all_stocks
 from analysis.indicators import calculate_all_indicators
 from analysis.strategy import get_latest_analysis
@@ -147,6 +147,8 @@ class ReportResult:
 
     # 消息面
     news_items: list = field(default_factory=list)
+    news_sentiment_score: float = 0.0
+    news_sentiment_label: str = "無資料"
 
     indicators_df: pd.DataFrame = field(default=None, repr=False)
 
@@ -168,11 +170,22 @@ _TRUSTED_SOURCES = {
     "經濟日報", "工商時報", "中央社", "MoneyDJ", "鉅亨網",
     "The Wall Street Journal", "Financial Times", "Barron's",
     "AP", "AFP",
+    # Google News 常見台灣來源
+    "聯合新聞網", "自由財經", "ETtoday", "三立新聞網",
+    "TVBS新聞網", "風傳媒", "商周", "天下雜誌",
+    "Anue鉅亨", "Yahoo奇摩股市",
 }
 _QUESTIONABLE_SOURCES = {
     "Seeking Alpha", "Motley Fool", "InvestorPlace", "Benzinga",
     "GlobeNewsWire", "PR Newswire", "Business Wire",
+    # 台灣論壇/散戶討論區（非正式新聞）
+    "PTT", "Mobile01",
 }
+# 論壇帖子特徵（出現在標題中代表非正式新聞）
+_FORUM_INDICATORS = [
+    "同學會", "爆料", "｜CMoney 股市", "CMoney 股市爆料",
+    "PTT", "Dcard", "Mobile01",
+]
 _CLICKBAIT_KEYWORDS = [
     "skyrocket", "crash", "plunge", "moon", "100%", "10x", "guaranteed",
     "暴漲", "崩盤", "飆漲", "穩賺", "內線", "翻倍", "噴出", "必漲",
@@ -852,7 +865,7 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
 
 def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
                                v2_composite, rsi, rr_ratio, base_3m_upside=0,
-                               fundamental_score=0.0):
+                               fundamental_score=0.0, news_sentiment_score=0.0):
     """計算綜合評等"""
     score = 0
     trend_map = {"強勢上漲": 2, "溫和上漲": 1, "盤整": 0, "溫和下跌": -1, "強勢下跌": -2}
@@ -880,6 +893,16 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
 
     # 基本面評分（-5~+5 → 約 -2~+2）
     score += fundamental_score * 0.4
+
+    # 消息面情緒（±1.5）
+    if news_sentiment_score >= 2:
+        score += 1.5
+    elif news_sentiment_score >= 1:
+        score += 1
+    elif news_sentiment_score <= -2:
+        score -= 1.5
+    elif news_sentiment_score <= -1:
+        score -= 1
 
     # 目標價上檔空間調整：技術面再好，預期報酬低就不該強力推薦
     if base_3m_upside > 0.10:
@@ -1156,13 +1179,17 @@ def _assess_news(news_items: list) -> list:
         summary = item.get("summary", "")
         text = (title + " " + summary).lower()
 
-        # 來源基礎分
-        if source in _TRUSTED_SOURCES:
+        # 來源基礎分 — substring matching for Google News sources
+        if any(ts in source or source in ts for ts in _TRUSTED_SOURCES):
             base = 2
-        elif source in _QUESTIONABLE_SOURCES:
+        elif any(qs in source or source in qs for qs in _QUESTIONABLE_SOURCES):
             base = 0
         else:
             base = 1
+
+        # 論壇帖子偵測：標題含論壇特徵直接降為 0
+        if any(fi in title for fi in _FORUM_INDICATORS):
+            base = 0
 
         # 聳動詞扣分
         penalty = 0
@@ -1195,6 +1222,95 @@ def _assess_news(news_items: list) -> list:
         })
 
     return results
+
+
+# 情緒分析關鍵字（英文，因為 yfinance 新聞為英文）
+_POSITIVE_KEYWORDS = [
+    # English
+    "upgrade", "buy", "beat", "record", "growth", "profit", "launch",
+    "partnership", "deal", "surge", "rally", "boost", "strong", "rise",
+    "gain", "revenue", "expand", "approve", "breakthrough", "award",
+    "outperform", "dividend", "bullish", "recovery", "exceed",
+    # Chinese
+    "營收成長", "獲利", "專利", "合作", "得獎", "突破", "上漲",
+    "利多", "看好", "買進", "目標價", "新高", "擴產", "訂單",
+    "法說會", "轉盈", "認證", "通過", "上調", "強勁",
+    "獲獎", "勇奪", "榮獲", "授權", "簽約", "雙增", "轉機",
+]
+_NEGATIVE_KEYWORDS = [
+    # English
+    "downgrade", "sell", "miss", "loss", "cut", "risk", "decline",
+    "fall", "drop", "warning", "lawsuit", "debt", "weak", "delay",
+    "recall", "penalty", "bearish", "layoff", "default", "fraud",
+    "investigation", "concern", "slowdown", "underperform", "suspend",
+    # Chinese
+    "虧損", "下跌", "衰退", "利空", "看壞", "賣出", "下調",
+    "減資", "裁員", "違約", "訴訟", "調查", "警示", "跌停",
+    "下修", "疲弱", "風險", "負債", "停工", "召回",
+]
+
+
+def _analyze_news_sentiment(scored_news: list) -> dict:
+    """分析新聞情緒，回傳整體情緒分數與標籤，並在每篇新聞加上 sentiment 欄位"""
+    if not scored_news:
+        return {"score": 0.0, "label": "無資料", "positive_count": 0,
+                "negative_count": 0, "total": 0}
+
+    total_score = 0.0
+    pos_count = 0
+    neg_count = 0
+
+    for item in scored_news:
+        text = (item.get("title", "") + " " + item.get("summary", "")).lower()
+
+        pos_hits = sum(1 for kw in _POSITIVE_KEYWORDS if kw in text)
+        neg_hits = sum(1 for kw in _NEGATIVE_KEYWORDS if kw in text)
+
+        if pos_hits > neg_hits:
+            sentiment = 1
+            label = "正面"
+            icon = "📈"
+        elif neg_hits > pos_hits:
+            sentiment = -1
+            label = "負面"
+            icon = "📉"
+        else:
+            sentiment = 0
+            label = "中性"
+            icon = "➖"
+
+        # 可信來源權重較高
+        cred = item.get("credibility_score", 1)
+        if cred >= 2:
+            weight = 1.5
+        elif cred <= 0:
+            weight = 0.5
+        else:
+            weight = 1.0
+
+        total_score += sentiment * weight
+        if sentiment > 0:
+            pos_count += 1
+        elif sentiment < 0:
+            neg_count += 1
+
+        item["sentiment"] = label
+        item["sentiment_icon"] = icon
+
+    if total_score >= 1.5:
+        overall_label = "偏多"
+    elif total_score <= -1.5:
+        overall_label = "偏空"
+    else:
+        overall_label = "中性"
+
+    return {
+        "score": round(total_score, 2),
+        "label": overall_label,
+        "positive_count": pos_count,
+        "negative_count": neg_count,
+        "total": len(scored_news),
+    }
 
 
 def _generate_summary(data: dict) -> str:
@@ -1308,9 +1424,22 @@ def _generate_summary(data: dict) -> str:
             n_str = f"（{int(n)} 位分析師）" if n else ""
             p6 += f"法人共識目標均價為 {analyst['target_mean']:.0f} 元{n_str}，上檔空間 {analyst.get('upside', 0):.0%}。"
 
+    # 第七段：消息面摘要（如有資料）
+    news_label = data.get("news_sentiment_label", "無資料")
+    news_items = data.get("news_items", [])
+    p_news = ""
+    if news_items and news_label != "無資料":
+        p_news = f"消息面方面，近期共有 {len(news_items)} 則相關新聞，整體情緒{news_label}。"
+        credible = [n for n in news_items if n.get("credibility") == "可信"][:2]
+        if credible:
+            titles = "、".join([f"「{n['title'][:40]}」" for n in credible])
+            p_news += f"主要消息包括：{titles}。"
+
     result = p1 + "\n\n" + p2 + "\n\n" + p3 + "\n\n" + p4 + "\n\n" + p5
     if p6:
         result += "\n\n" + p6
+    if p_news:
+        result += "\n\n" + p_news
     return result
 
 
@@ -1352,13 +1481,42 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         fundamentals_raw = get_stock_fundamentals(stock_code)
     except Exception:
         fundamentals_raw = {}
+    # 中文名稱（用於報告標題、Google News 搜尋）
+    cn_name = get_stock_name(stock_code, get_all_stocks())
+    # 優先使用中文名；若 stock_list 無此股則用 yfinance 英文名
+    display_name = cn_name if cn_name and cn_name != stock_code else company_info["name"]
+
+    # 多來源新聞：Google News 中文 + Google News 英文 + yfinance
+    raw_news = []
     try:
-        raw_news = get_stock_news(stock_code)
+        google_news = get_google_news(stock_code, cn_name)
+        raw_news.extend(google_news)
     except Exception:
-        raw_news = []
+        pass
+    # 英文 Google News（用 yfinance 英文名搜尋，適合跨國合作消息）
+    en_name = company_info.get("name", "")
+    if en_name and en_name != stock_code:
+        try:
+            google_news_en = get_google_news(stock_code, en_name, lang="en")
+            existing_titles = {n["title"].lower() for n in raw_news}
+            for n in google_news_en:
+                if n["title"].lower() not in existing_titles:
+                    raw_news.append(n)
+        except Exception:
+            pass
+    try:
+        yf_news = get_stock_news(stock_code)
+        # 去重：如果已有同標題則跳過
+        existing_titles = {n["title"].lower() for n in raw_news}
+        for n in yf_news:
+            if n["title"].lower() not in existing_titles:
+                raw_news.append(n)
+    except Exception:
+        pass
 
     fund_result = _assess_fundamentals(fundamentals_raw, current_price)
     scored_news = _assess_news(raw_news)
+    news_sentiment = _analyze_news_sentiment(scored_news)
 
     # 4. 計算各 section
     perf = _calculate_price_performance(df)
@@ -1389,6 +1547,7 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         momentum["rsi_value"], risk["risk_reward_ratio"],
         base_3m_upside=base_3m_upside,
         fundamental_score=fund_result["fundamental_score"],
+        news_sentiment_score=news_sentiment["score"],
     )
 
     outlook_3m, outlook_6m, outlook_1y = _generate_outlook(
@@ -1400,7 +1559,7 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
     # 5. 摘要
     summary_data = {
         "stock_code": stock_code,
-        "stock_name": company_info["name"],
+        "stock_name": display_name,
         "current_price": current_price,
         "performance": perf,
         "trend": trend,
@@ -1417,13 +1576,15 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         "fundamentals": fund_result.get("metrics", {}),
         "fundamental_interpretation": fund_result["fundamental_interpretation"],
         "analyst_data": fund_result["analyst_data"],
+        "news_sentiment_label": news_sentiment["label"],
+        "news_items": scored_news,
     }
     summary = _generate_summary(summary_data)
 
     # 6. 組裝
     return ReportResult(
         stock_code=stock_code,
-        stock_name=company_info["name"],
+        stock_name=display_name,
         report_date=datetime.now(),
         data_period_days=period_days,
         company_info=company_info,
@@ -1487,5 +1648,7 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         fundamental_score=fund_result["fundamental_score"],
         analyst_data=fund_result["analyst_data"],
         news_items=scored_news,
+        news_sentiment_score=news_sentiment["score"],
+        news_sentiment_label=news_sentiment["label"],
         indicators_df=df,
     )

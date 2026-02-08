@@ -124,6 +124,7 @@ def get_stock_info(stock_code: str) -> dict:
         "sector": info.get("sector", "N/A"),
         "industry": info.get("industry", "N/A"),
         "market_cap": info.get("marketCap", 0),
+        "shares_outstanding": info.get("sharesOutstanding", 0),
         "currency": info.get("currency", "TWD"),
     }
 
@@ -215,6 +216,52 @@ def get_stock_news(stock_code: str) -> list:
                 "source": source,
                 "url": url,
             })
+    return results
+
+
+def get_google_news(stock_code: str, stock_name: str = "", lang: str = "zh-TW") -> list:
+    """從 Google News RSS 取得新聞
+
+    Args:
+        stock_code: 股票代碼（如 "6748"）
+        stock_name: 股票名稱（如 "亞果生醫"），提升搜尋精確度
+        lang: 語系，"zh-TW"（預設）或 "en"
+
+    Returns:
+        list of dict，每項含 title, summary, date, source, url
+    """
+    import feedparser
+    from html import unescape
+    from urllib.parse import quote
+    import re
+
+    keyword = f"{stock_name} {stock_code}" if stock_name else stock_code
+    if lang == "en":
+        locale_params = "hl=en&gl=US&ceid=US:en"
+    else:
+        locale_params = "hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+    url = (
+        f"https://news.google.com/rss/search?"
+        f"q={quote(keyword)}&{locale_params}"
+    )
+
+    feed = feedparser.parse(url)
+    results = []
+    for entry in feed.entries[:20]:  # 最多 20 則
+        # summary 是 HTML，需清理
+        raw_summary = entry.get("summary", "")
+        clean_summary = re.sub(r"<[^>]+>", "", unescape(raw_summary)).strip()
+
+        source_obj = entry.get("source", {})
+        source_name = source_obj.get("title", "Unknown") if isinstance(source_obj, dict) else str(source_obj)
+
+        results.append({
+            "title": entry.get("title", ""),
+            "summary": clean_summary,
+            "date": entry.get("published", ""),
+            "source": source_name,
+            "url": entry.get("link", ""),
+        })
     return results
 
 
