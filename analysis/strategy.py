@@ -136,7 +136,7 @@ def _score_bb(row: pd.Series) -> float:
         return 0.0
 
     band_width = upper - lower
-    if band_width == 0:
+    if abs(band_width) < 1e-10:
         return 0.0
 
     # 位置百分比：0 = 下軌, 1 = 上軌
@@ -222,7 +222,7 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
     result["signal"] = result["raw_signal"].copy()
 
     # 1. 趨勢過濾：MA20 < MA60 時不產生 BUY
-    if STRATEGY_PARAMS.get("trend_filter", False):
+    if STRATEGY_PARAMS.get("trend_filter", True):
         ma20 = result.get("ma20")
         ma60 = result.get("ma60")
         if ma20 is not None and ma60 is not None:
@@ -230,7 +230,7 @@ def generate_signals(df: pd.DataFrame) -> pd.DataFrame:
             result.loc[downtrend & (result["signal"] == "BUY"), "signal"] = "HOLD"
 
     # 2. 量能確認：買入當天量需 > 5日均量
-    if STRATEGY_PARAMS.get("volume_confirm", False):
+    if STRATEGY_PARAMS.get("volume_confirm", True):
         vol = result.get("volume")
         vol_ma5 = result.get("volume_ma5")
         if vol is not None and vol_ma5 is not None:

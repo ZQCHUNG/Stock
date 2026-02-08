@@ -775,12 +775,22 @@ def _assess_risk(df, support_levels):
 
 
 def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_levels,
-                              support_levels, trend_direction, adx_value):
-    """估算目標價"""
+                              support_levels, trend_direction, adx_value,
+                              analyst_data=None):
+    """估算目標價（技術面 + 法人共識）"""
     targets = []
     is_strong_uptrend = "上漲" in trend_direction and adx_value > 25
     is_uptrend = "上漲" in trend_direction
     is_downtrend = "下跌" in trend_direction
+
+    # 法人目標價（如有）
+    analyst_target = None
+    analyst_high = None
+    analyst_low = None
+    if analyst_data:
+        analyst_target = analyst_data.get("target_mean")
+        analyst_high = analyst_data.get("target_high")
+        analyst_low = analyst_data.get("target_low")
 
     for tf, tf_label, trading_days in [("3M", "三個月", 63), ("6M", "六個月", 126), ("1Y", "一年", 252)]:
         # ATR 投射 (按時間比例根號縮放)
@@ -811,6 +821,11 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
         # 上限：不超過 +100%
         bull_target = min(bull_target, current_price * 2.0)
 
+        # 法人目標高價融合（6M, 1Y）
+        if analyst_high and analyst_high > current_price and tf in ("6M", "1Y"):
+            blend = 0.2 if tf == "6M" else 0.3
+            bull_target = bull_target * (1 - blend) + analyst_high * blend
+
         # Bear case
         fib_ret = list(fibonacci.retracement.values())
         if fibonacci.direction == "uptrend" and fib_ret:
@@ -823,6 +838,11 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
         # 下限：不低於 -50%
         bear_target = max(bear_target, current_price * 0.5)
 
+        # 法人目標低價融合（6M, 1Y）
+        if analyst_low and analyst_low > 0 and tf in ("6M", "1Y"):
+            blend = 0.2 if tf == "6M" else 0.3
+            bear_target = bear_target * (1 - blend) + analyst_low * blend
+
         # Base case：依趨勢方向加權，而非簡單取中點
         if is_strong_uptrend:
             base_target = bull_target * 0.6 + bear_target * 0.4
@@ -833,6 +853,11 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
         else:
             base_target = (bull_target + bear_target) / 2
 
+        # 法人共識均價融合 base case（6M, 1Y）
+        if analyst_target and analyst_target > 0 and tf in ("6M", "1Y"):
+            blend = 0.25 if tf == "6M" else 0.35
+            base_target = base_target * (1 - blend) + analyst_target * blend
+
         # 信心度
         if adx_value > 25:
             base_conf = "高"
@@ -841,22 +866,25 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
         else:
             base_conf = "低"
 
+        # rationale 標注是否有法人數據
+        analyst_note = "（含法人共識）" if analyst_target and tf in ("6M", "1Y") else ""
+
         targets.append(PriceTarget(
             scenario="bull", target_price=round(bull_target, 2),
             upside_pct=(bull_target / current_price - 1),
-            rationale=f"依費氏延伸、ATR 波動推估及壓力位綜合計算之{tf_label}樂觀目標",
+            rationale=f"依費氏延伸、ATR 波動推估及壓力位綜合計算之{tf_label}樂觀目標{analyst_note}",
             timeframe=tf, confidence="中",
         ))
         targets.append(PriceTarget(
             scenario="base", target_price=round(base_target, 2),
             upside_pct=(base_target / current_price - 1),
-            rationale=f"綜合趨勢投射與支撐壓力中位數推估之{tf_label}基本目標",
+            rationale=f"綜合趨勢投射與支撐壓力中位數推估之{tf_label}基本目標{analyst_note}",
             timeframe=tf, confidence=base_conf,
         ))
         targets.append(PriceTarget(
             scenario="bear", target_price=round(bear_target, 2),
             upside_pct=(bear_target / current_price - 1),
-            rationale=f"依費氏回檔、ATR 下行推估及支撐位綜合計算之{tf_label}保守目標",
+            rationale=f"依費氏回檔、ATR 下行推估及支撐位綜合計算之{tf_label}保守目標{analyst_note}",
             timeframe=tf, confidence="中",
         ))
 
@@ -891,18 +919,22 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     elif rr_ratio < 0.5:
         score -= 1
 
-    # 基本面評分（-5~+5 → 約 -2~+2）
-    score += fundamental_score * 0.4
+    # 基本面評分（-5~+5 → 約 -3~+3）
+    score += fundamental_score * 0.6
 
-    # 消息面情緒（±1.5）
-    if news_sentiment_score >= 2:
+    # 消息面情緒（±2）
+    if news_sentiment_score >= 3:
+        score += 2
+    elif news_sentiment_score >= 1.5:
         score += 1.5
-    elif news_sentiment_score >= 1:
-        score += 1
-    elif news_sentiment_score <= -2:
+    elif news_sentiment_score >= 0.5:
+        score += 0.5
+    elif news_sentiment_score <= -3:
+        score -= 2
+    elif news_sentiment_score <= -1.5:
         score -= 1.5
-    elif news_sentiment_score <= -1:
-        score -= 1
+    elif news_sentiment_score <= -0.5:
+        score -= 0.5
 
     # 目標價上檔空間調整：技術面再好，預期報酬低就不該強力推薦
     if base_3m_upside > 0.10:
@@ -927,26 +959,74 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
 
 
 def _generate_outlook(trend_direction, momentum_status, price_targets,
-                       volatility_level, current_price, adx, rsi):
-    """產生展望"""
-    # 基礎機率
+                       volatility_level, current_price, adx, rsi,
+                       fundamental_score=0.0, news_sentiment_score=0.0,
+                       fund_interpretation="", news_label="無資料",
+                       analyst_data=None):
+    """產生展望（技術面 + 基本面 + 消息面綜合）"""
+    # 基礎機率（技術面）
     if trend_direction in ("強勢上漲", "溫和上漲"):
-        probs = {"3M": (40, 40, 20), "6M": (35, 35, 30), "1Y": (30, 35, 35)}
+        probs = {"3M": [40, 40, 20], "6M": [35, 35, 30], "1Y": [30, 35, 35]}
     elif trend_direction == "盤整":
-        probs = {"3M": (25, 50, 25), "6M": (30, 40, 30), "1Y": (30, 35, 35)}
+        probs = {"3M": [25, 50, 25], "6M": [30, 40, 30], "1Y": [30, 35, 35]}
     else:
-        probs = {"3M": (15, 35, 50), "6M": (25, 35, 40), "1Y": (30, 35, 35)}
+        probs = {"3M": [15, 35, 50], "6M": [25, 35, 40], "1Y": [30, 35, 35]}
 
     # RSI 調整
     for tf in probs:
         b, m, e = probs[tf]
         if rsi > 70:
-            b -= 5
-            e += 5
+            b -= 5; e += 5
         elif rsi < 30:
-            b += 5
-            e -= 5
-        probs[tf] = (max(b, 5), m, max(e, 5))
+            b += 5; e -= 5
+        probs[tf] = [b, m, e]
+
+    # 基本面調整（影響中長期較大）
+    if fundamental_score >= 2.5:
+        for tf, (short_adj, long_adj) in [("3M", (3, 3)), ("6M", (5, 5)), ("1Y", (7, 7))]:
+            probs[tf][0] += long_adj; probs[tf][2] -= long_adj
+    elif fundamental_score >= 1.0:
+        for tf, adj in [("3M", 2), ("6M", 3), ("1Y", 4)]:
+            probs[tf][0] += adj; probs[tf][2] -= adj
+    elif fundamental_score <= -2.5:
+        for tf, adj in [("3M", 3), ("6M", 5), ("1Y", 7)]:
+            probs[tf][0] -= adj; probs[tf][2] += adj
+    elif fundamental_score <= -1.0:
+        for tf, adj in [("3M", 2), ("6M", 3), ("1Y", 4)]:
+            probs[tf][0] -= adj; probs[tf][2] += adj
+
+    # 消息面調整（影響短期較大）
+    if news_sentiment_score >= 2.0:
+        for tf, adj in [("3M", 5), ("6M", 3), ("1Y", 1)]:
+            probs[tf][0] += adj; probs[tf][2] -= adj
+    elif news_sentiment_score >= 1.0:
+        for tf, adj in [("3M", 3), ("6M", 2), ("1Y", 0)]:
+            probs[tf][0] += adj; probs[tf][2] -= adj
+    elif news_sentiment_score <= -2.0:
+        for tf, adj in [("3M", 5), ("6M", 3), ("1Y", 1)]:
+            probs[tf][0] -= adj; probs[tf][2] += adj
+    elif news_sentiment_score <= -1.0:
+        for tf, adj in [("3M", 3), ("6M", 2), ("1Y", 0)]:
+            probs[tf][0] -= adj; probs[tf][2] += adj
+
+    # 法人目標價調整
+    if analyst_data and analyst_data.get("upside") is not None:
+        analyst_upside = analyst_data["upside"]
+        if analyst_upside > 0.20:
+            for tf, adj in [("3M", 2), ("6M", 4), ("1Y", 5)]:
+                probs[tf][0] += adj; probs[tf][2] -= adj
+        elif analyst_upside < -0.10:
+            for tf, adj in [("3M", 2), ("6M", 4), ("1Y", 5)]:
+                probs[tf][0] -= adj; probs[tf][2] += adj
+
+    # 正規化：確保機率 ≥5% 且總和 = 100%
+    for tf in probs:
+        probs[tf] = [max(p, 5) for p in probs[tf]]
+        total = sum(probs[tf])
+        probs[tf] = [round(p / total * 100) for p in probs[tf]]
+        # 修正進位誤差
+        diff = 100 - sum(probs[tf])
+        probs[tf][1] += diff  # 調整 base case
 
     def get_target(tf, scenario):
         for t in price_targets:
@@ -954,24 +1034,57 @@ def _generate_outlook(trend_direction, momentum_status, price_targets,
                 return t.target_price
         return current_price
 
+    # 構建基本面/消息面附加描述
+    def _fund_context(tf):
+        """根據時間框架產生基本面附注"""
+        parts = []
+        if tf in ("6M", "1Y"):
+            if fundamental_score >= 2.5:
+                parts.append("基本面表現優異提供額外支撐")
+            elif fundamental_score >= 1.0:
+                parts.append("基本面穩健有利中長期表現")
+            elif fundamental_score <= -2.5:
+                parts.append("基本面偏弱構成下行壓力")
+            elif fundamental_score <= -1.0:
+                parts.append("基本面欠佳限制反彈空間")
+        if tf == "3M":
+            if news_label == "偏多":
+                parts.append("近期消息面偏多")
+            elif news_label == "偏空":
+                parts.append("近期消息面偏空")
+        if analyst_data and analyst_data.get("upside") is not None and tf in ("6M", "1Y"):
+            upside = analyst_data["upside"]
+            if upside > 0.20:
+                parts.append(f"法人目標均價上檔空間 {upside:.0%}")
+            elif upside < -0.10:
+                parts.append(f"目前股價已高於法人目標均價")
+        return "，" + "、".join(parts) if parts else ""
+
     def make_outlook(tf, tf_label):
         b, m, e = probs[tf]
         bt = get_target(tf, "bull")
         mt = get_target(tf, "base")
         et = get_target(tf, "bear")
+        ctx = _fund_context(tf)
 
         if "上漲" in trend_direction:
-            bull_desc = f"延續現有上升趨勢，突破近期壓力後持續走高，目標挑戰 ${bt:.2f} 價位"
+            bull_desc = f"延續現有上升趨勢，突破近期壓力後持續走高，目標挑戰 ${bt:.2f} 價位{ctx}"
             base_desc = f"維持目前格局，於支撐壓力區間內震盪整理，預期在 ${et:.2f}～${bt:.2f} 之間波動"
             bear_desc = f"若趨勢反轉跌破關鍵支撐，可能回落至 ${et:.2f} 附近，主要風險來自獲利回吐及市場系統性風險"
         elif "下跌" in trend_direction:
-            bull_desc = f"若出現技術面反轉訊號，有望反彈至 ${bt:.2f}，但需確認量能配合"
+            bull_desc = f"若出現技術面反轉訊號，有望反彈至 ${bt:.2f}，但需確認量能配合{ctx}"
             base_desc = f"延續弱勢整理格局，預期在 ${et:.2f}～${mt:.2f} 之間波動"
             bear_desc = f"空方趨勢延續，可能進一步下探 ${et:.2f}，須留意支撐失守的連鎖效應"
         else:
-            bull_desc = f"若突破盤整區間上緣，有望啟動新一輪上漲至 ${bt:.2f}"
+            bull_desc = f"若突破盤整區間上緣，有望啟動新一輪上漲至 ${bt:.2f}{ctx}"
             base_desc = f"維持區間盤整格局，預期在 ${et:.2f}～${bt:.2f} 之間來回震盪"
             bear_desc = f"若跌破盤整區間下緣，可能轉為空方走勢，下探 ${et:.2f}"
+
+        # 技術面與基本面矛盾時，在 base_desc 附注
+        if "下跌" in trend_direction and fundamental_score >= 2.0 and tf in ("6M", "1Y"):
+            base_desc += "；惟基本面仍具支撐力，中長期不宜過度悲觀"
+        elif "上漲" in trend_direction and fundamental_score <= -2.0 and tf in ("6M", "1Y"):
+            base_desc += "；惟基本面偏弱，漲勢持續性存疑"
 
         return OutlookScenario(
             timeframe=tf_label,
@@ -1401,7 +1514,7 @@ def _generate_summary(data: dict) -> str:
         f"{o3.base_case[:30]}。"
         f"近一年最大回撤為 {risk['max_drawdown_1y']:.1%}，"
         f"關鍵風險價位在 ${risk['key_risk_level']:.2f}，若有效跌破恐引發進一步修正。"
-        f"綜合以上技術面分析，建議投資人"
+        f"綜合技術面、基本面與消息面分析，建議投資人"
     )
 
     if rating in ("強力買進", "買進"):
@@ -1535,6 +1648,7 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         resistances, supports,
         trend["trend_direction"],
         _safe(df["adx"].iloc[-1]),
+        analyst_data=fund_result.get("analyst_data"),
     )
 
     # 取得 3M base case 上檔空間供評等參考
@@ -1554,6 +1668,11 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         trend["trend_direction"], momentum["momentum_status"],
         targets, volatility["volatility_level"],
         current_price, momentum["adx_value"], momentum["rsi_value"],
+        fundamental_score=fund_result["fundamental_score"],
+        news_sentiment_score=news_sentiment["score"],
+        fund_interpretation=fund_result["fundamental_interpretation"],
+        news_label=news_sentiment["label"],
+        analyst_data=fund_result.get("analyst_data"),
     )
 
     # 5. 摘要

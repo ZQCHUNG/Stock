@@ -62,7 +62,7 @@ def calculate_rsi(df: pd.DataFrame, period: int | None = None) -> pd.DataFrame:
     avg_gain = gain.ewm(alpha=1 / period, min_periods=period).mean()
     avg_loss = loss.ewm(alpha=1 / period, min_periods=period).mean()
 
-    rs = avg_gain / avg_loss
+    rs = avg_gain / avg_loss.replace(0, 1e-10)
     result["rsi"] = 100 - (100 / (1 + rs))
 
     return result
@@ -126,7 +126,9 @@ def calculate_kd(df: pd.DataFrame, period: int | None = None) -> pd.DataFrame:
     high_max = result["high"].rolling(window=period).max()
 
     # RSV = (今日收盤 - 最近N日最低) / (最近N日最高 - 最近N日最低) * 100
-    rsv = (result["close"] - low_min) / (high_max - low_min) * 100
+    denom = high_max - low_min
+    denom = denom.replace(0, 1e-10)
+    rsv = (result["close"] - low_min) / denom * 100
 
     # K, D 使用遞迴平滑：K = 2/3 * 前日K + 1/3 * RSV
     k_values = []
@@ -197,7 +199,7 @@ def calculate_volume_analysis(df: pd.DataFrame) -> pd.DataFrame:
 
     result["volume_ma5"] = result["volume"].rolling(window=5).mean()
     result["volume_ma20"] = result["volume"].rolling(window=20).mean()
-    result["volume_ratio"] = result["volume"] / result["volume_ma5"]
+    result["volume_ratio"] = result["volume"] / result["volume_ma5"].replace(0, np.nan)
 
     return result
 
@@ -240,7 +242,9 @@ def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     minus_di = 100 * smooth_minus / atr
 
     # DX → ADX
-    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+    di_sum = plus_di + minus_di
+    di_sum = di_sum.replace(0, 1e-10)
+    dx = 100 * (plus_di - minus_di).abs() / di_sum
     adx = dx.ewm(alpha=1/period, min_periods=period).mean()
 
     result["adx"] = adx
@@ -289,7 +293,7 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
 
     result["atr"] = tr.ewm(span=period, adjust=False).mean()
     # ATR 百分比（相對收盤價）
-    result["atr_pct"] = result["atr"] / result["close"]
+    result["atr_pct"] = result["atr"] / result["close"].replace(0, 1e-10)
 
     return result
 

@@ -4,12 +4,19 @@
 追蹤持倉、現金、總資產變化，輸出每日交易明細與績效報告。
 """
 
+import math
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
 from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT, STRATEGY_V4_PARAMS
 from analysis.strategy import generate_signals
 from analysis.strategy_v4 import generate_v4_signals
+
+
+def _safe(val, default=0.0):
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return default
+    return float(val)
 
 
 @dataclass
@@ -416,9 +423,7 @@ class MonthlySimulator:
             daily_pnl = equity - prev_equity
             daily_return = daily_pnl / prev_equity if prev_equity > 0 else 0
 
-            score = row.get("dist_ma20", 0.0)
-            if pd.isna(score):
-                score = 0.0
+            score = _safe(row.get("adx", 0.0))
 
             result.daily_records.append(DailyRecord(
                 date=date, close=price, signal=signal,
