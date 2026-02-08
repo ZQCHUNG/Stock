@@ -1,5 +1,8 @@
 """台股技術分析系統 - Streamlit Web 介面"""
 
+import json
+from pathlib import Path
+
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -16,6 +19,18 @@ from analysis.strategy_v4 import generate_v4_signals, get_v4_analysis
 from analysis.report import generate_report
 from backtest.engine import run_backtest, run_backtest_v4, BacktestResult
 from simulation.simulator import run_simulation, run_simulation_v4, simulation_to_dataframe, SimulationResult
+
+# ===== 最近查詢持久化 =====
+_RECENT_FILE = Path(__file__).parent / "data" / "recent_stocks.json"
+
+def _load_recent_stocks() -> list:
+    try:
+        return json.loads(_RECENT_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+def _save_recent_stocks(stocks: list):
+    _RECENT_FILE.write_text(json.dumps(stocks, ensure_ascii=False), encoding="utf-8")
 
 # ===== 頁面設定 =====
 st.set_page_config(
@@ -54,9 +69,9 @@ with st.sidebar:
     )
     default_code = selected_display.split()[0] if selected_display else "2330"
 
-    # 最近搜尋紀錄（初始化）
+    # 最近搜尋紀錄（從 JSON 檔案載入）
     if "recent_stocks" not in st.session_state:
-        st.session_state.recent_stocks = []
+        st.session_state.recent_stocks = _load_recent_stocks()
 
     def _add_recent(code):
         recents = st.session_state.recent_stocks
@@ -64,6 +79,7 @@ with st.sidebar:
             recents.remove(code)
         recents.insert(0, code)
         st.session_state.recent_stocks = recents[:5]
+        _save_recent_stocks(recents[:5])
 
     # 處理快捷按鈕跳轉（必須在 text_input 渲染之前設定）
     if st.session_state.get("_pending_stock"):
