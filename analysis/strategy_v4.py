@@ -31,7 +31,7 @@ def generate_v4_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
         新增欄位：
         - dist_ma20: 價格與 MA20 的距離（百分比）
         - uptrend_days: MA20 > MA60 的連續天數
-        - v4_signal: "BUY" / "HOLD"（v4 不產生 SELL，由 engine 的 TP/SL 處理）
+        - v4_signal: "BUY" / "HOLD" / "SELL"
         - v4_entry_type: "support" / "momentum" / ""
     """
     p = dict(STRATEGY_V4_PARAMS)
@@ -94,6 +94,12 @@ def generate_v4_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
         # 基本過濾
         if any(pd.isna([ma20, ma60, adx, rsi])):
             signals.append("HOLD")
+            entry_types.append("")
+            continue
+
+        # 賣出訊號：明確空頭趨勢
+        if ma20 < ma60 and not pd.isna(plus_di) and not pd.isna(minus_di) and minus_di > plus_di:
+            signals.append("SELL")
             entry_types.append("")
             continue
 

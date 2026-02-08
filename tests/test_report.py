@@ -213,14 +213,14 @@ class TestOverallRating:
     def test_strong_buy(self):
         rating = _calculate_overall_rating(
             "強勢上漲", "強勁多頭", "BUY", 0.5, 45, 3.0,
-            base_3m_upside=0.15, fundamental_score=3.0, news_sentiment_score=2.0,
+            base_3m_upside=0.15, fundamental_score=3.0,
         )
         assert rating in ("強力買進", "買進")
 
     def test_strong_sell(self):
         rating = _calculate_overall_rating(
             "強勢下跌", "強勁空頭", "HOLD", -0.5, 80, 0.3,
-            base_3m_upside=-0.10, fundamental_score=-3.0, news_sentiment_score=-2.0,
+            base_3m_upside=-0.10, fundamental_score=-3.0,
         )
         assert rating in ("賣出", "強力賣出")
 
@@ -270,7 +270,7 @@ class TestGenerateOutlook:
         targets = self._make_targets()
         o3, o6, o1 = _generate_outlook(
             "強勢下跌", "強勁空頭", targets, "高", 100, 35, 25,
-            fundamental_score=-4.0, news_sentiment_score=-3.0,
+            fundamental_score=-4.0,
         )
         for o in [o3, o6, o1]:
             assert o.bull_probability >= 5

@@ -354,7 +354,7 @@ if page == "技術分析":
         with col1:
             st.metric("收盤價", f"${analysis['close']:.2f}")
         with col2:
-            signal_map = {"BUY": "🟢 買入", "HOLD": "🟡 持有"}
+            signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 觀望"}
             st.metric("v4 訊號", signal_map.get(analysis["signal"], analysis["signal"]))
         with col3:
             entry_type = analysis["entry_type"] or "—"
@@ -389,6 +389,11 @@ if page == "技術分析":
         st.subheader("v4 訊號分析")
         if analysis["signal"] == "BUY":
             st.success(f"**建議買入**（{analysis['entry_type']}模式）— 趨勢確認 {ut} 天，ADX={ind.get('ADX', 0):.1f}，RSI={ind.get('RSI', 0):.1f}")
+        elif analysis["signal"] == "SELL":
+            reasons = ["MA20 < MA60（下降趨勢）", "-DI > +DI（空方主導）"]
+            if rsi_val and not pd.isna(rsi_val) and rsi_val > 70:
+                reasons.append(f"RSI 過熱（{rsi_val:.1f}）")
+            st.error("**建議賣出** — " + "；".join(reasons))
         else:
             reasons = []
             if ut < STRATEGY_V4_PARAMS["min_uptrend_days"]:
@@ -1374,7 +1379,8 @@ elif page == "分析報告":
         with sig_cols[0]:
             st.markdown("**v4 趨勢動量策略**")
             v4_sig = v4.get("signal", "HOLD")
-            v4_icon = "🟢 買入" if v4_sig == "BUY" else "🟡 觀望"
+            v4_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 觀望"}
+            v4_icon = v4_map.get(v4_sig, "🟡 觀望")
             st.metric("訊號", v4_icon)
             if v4.get("entry_type"):
                 st.metric("進場類型", v4["entry_type"])

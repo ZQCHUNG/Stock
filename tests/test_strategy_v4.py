@@ -16,7 +16,7 @@ class TestGenerateV4Signals:
 
     def test_signal_values(self, sample_ohlcv):
         result = generate_v4_signals(sample_ohlcv)
-        assert set(result["v4_signal"].unique()).issubset({"BUY", "HOLD"})
+        assert set(result["v4_signal"].unique()).issubset({"BUY", "HOLD", "SELL"})
 
     def test_entry_type_values(self, sample_ohlcv):
         result = generate_v4_signals(sample_ohlcv)
@@ -31,11 +31,18 @@ class TestGenerateV4Signals:
         if not buy_rows.empty:
             assert (buy_rows["uptrend_days"] >= 10).all()
 
+    def test_sell_in_downtrend(self, downtrend_df):
+        """下降趨勢中應有 SELL 訊號（MA20<MA60 且 -DI>+DI）"""
+        result = generate_v4_signals(downtrend_df)
+        sell_rows = result[result["v4_signal"] == "SELL"]
+        # 持續下跌趨勢中，應有一些 SELL 訊號
+        assert len(sell_rows) > 0
+
     def test_uptrend_may_generate_buy(self, uptrend_df):
         """上升趨勢中可能有 BUY 訊號"""
         result = generate_v4_signals(uptrend_df)
         # 上升趨勢中至少應該有一些 BUY 訊號（不保證，但常見）
-        assert result["v4_signal"].isin(["BUY", "HOLD"]).all()
+        assert result["v4_signal"].isin(["BUY", "HOLD", "SELL"]).all()
 
     def test_uptrend_days_counter(self, uptrend_df):
         """上升趨勢中 uptrend_days 應遞增"""
@@ -48,7 +55,7 @@ class TestGenerateV4Signals:
         """自訂參數應覆蓋預設值"""
         result = generate_v4_signals(sample_ohlcv, params={"adx_min": 100})
         # ADX 門檻設很高，不應有 BUY
-        assert (result["v4_signal"] == "HOLD").all()
+        assert "BUY" not in result["v4_signal"].values
 
     def test_flat_price_no_crash(self, flat_price_df):
         result = generate_v4_signals(flat_price_df)

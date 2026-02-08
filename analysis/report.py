@@ -893,7 +893,7 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
 
 def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
                                v2_composite, rsi, rr_ratio, base_3m_upside=0,
-                               fundamental_score=0.0, news_sentiment_score=0.0):
+                               fundamental_score=0.0):
     """計算綜合評等"""
     score = 0
     trend_map = {"強勢上漲": 2, "溫和上漲": 1, "盤整": 0, "溫和下跌": -1, "強勢下跌": -2}
@@ -901,6 +901,8 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
 
     if v4_signal == "BUY":
         score += 2
+    elif v4_signal == "SELL":
+        score -= 2
     if v2_composite > 0.3:
         score += 1
     elif v2_composite < -0.3:
@@ -919,22 +921,8 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     elif rr_ratio < 0.5:
         score -= 1
 
-    # 基本面評分（-5~+5 → 約 -3~+3）
-    score += fundamental_score * 0.6
-
-    # 消息面情緒（±2）
-    if news_sentiment_score >= 3:
-        score += 2
-    elif news_sentiment_score >= 1.5:
-        score += 1.5
-    elif news_sentiment_score >= 0.5:
-        score += 0.5
-    elif news_sentiment_score <= -3:
-        score -= 2
-    elif news_sentiment_score <= -1.5:
-        score -= 1.5
-    elif news_sentiment_score <= -0.5:
-        score -= 0.5
+    # 基本面評分（-5~+5 → 約 -2~+2）
+    score += fundamental_score * 0.4
 
     # 目標價上檔空間調整：技術面再好，預期報酬低就不該強力推薦
     if base_3m_upside > 0.10:
@@ -960,10 +948,10 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
 
 def _generate_outlook(trend_direction, momentum_status, price_targets,
                        volatility_level, current_price, adx, rsi,
-                       fundamental_score=0.0, news_sentiment_score=0.0,
-                       fund_interpretation="", news_label="無資料",
+                       fundamental_score=0.0,
+                       fund_interpretation="",
                        analyst_data=None):
-    """產生展望（技術面 + 基本面 + 消息面綜合）"""
+    """產生展望（技術面 + 基本面綜合）"""
     # 基礎機率（技術面）
     if trend_direction in ("強勢上漲", "溫和上漲"):
         probs = {"3M": [40, 40, 20], "6M": [35, 35, 30], "1Y": [30, 35, 35]}
@@ -995,20 +983,6 @@ def _generate_outlook(trend_direction, momentum_status, price_targets,
         for tf, adj in [("3M", 2), ("6M", 3), ("1Y", 4)]:
             probs[tf][0] -= adj; probs[tf][2] += adj
 
-    # 消息面調整（影響短期較大）
-    if news_sentiment_score >= 2.0:
-        for tf, adj in [("3M", 5), ("6M", 3), ("1Y", 1)]:
-            probs[tf][0] += adj; probs[tf][2] -= adj
-    elif news_sentiment_score >= 1.0:
-        for tf, adj in [("3M", 3), ("6M", 2), ("1Y", 0)]:
-            probs[tf][0] += adj; probs[tf][2] -= adj
-    elif news_sentiment_score <= -2.0:
-        for tf, adj in [("3M", 5), ("6M", 3), ("1Y", 1)]:
-            probs[tf][0] -= adj; probs[tf][2] += adj
-    elif news_sentiment_score <= -1.0:
-        for tf, adj in [("3M", 3), ("6M", 2), ("1Y", 0)]:
-            probs[tf][0] -= adj; probs[tf][2] += adj
-
     # 法人目標價調整
     if analyst_data and analyst_data.get("upside") is not None:
         analyst_upside = analyst_data["upside"]
@@ -1034,7 +1008,7 @@ def _generate_outlook(trend_direction, momentum_status, price_targets,
                 return t.target_price
         return current_price
 
-    # 構建基本面/消息面附加描述
+    # 構建基本面附加描述
     def _fund_context(tf):
         """根據時間框架產生基本面附注"""
         parts = []
@@ -1047,11 +1021,6 @@ def _generate_outlook(trend_direction, momentum_status, price_targets,
                 parts.append("基本面偏弱構成下行壓力")
             elif fundamental_score <= -1.0:
                 parts.append("基本面欠佳限制反彈空間")
-        if tf == "3M":
-            if news_label == "偏多":
-                parts.append("近期消息面偏多")
-            elif news_label == "偏空":
-                parts.append("近期消息面偏空")
         if analyst_data and analyst_data.get("upside") is not None and tf in ("6M", "1Y"):
             upside = analyst_data["upside"]
             if upside > 0.20:
@@ -1514,7 +1483,7 @@ def _generate_summary(data: dict) -> str:
         f"{o3.base_case[:30]}。"
         f"近一年最大回撤為 {risk['max_drawdown_1y']:.1%}，"
         f"關鍵風險價位在 ${risk['key_risk_level']:.2f}，若有效跌破恐引發進一步修正。"
-        f"綜合技術面、基本面與消息面分析，建議投資人"
+        f"綜合技術面與基本面分析，建議投資人"
     )
 
     if rating in ("強力買進", "買進"):
@@ -1661,7 +1630,6 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         momentum["rsi_value"], risk["risk_reward_ratio"],
         base_3m_upside=base_3m_upside,
         fundamental_score=fund_result["fundamental_score"],
-        news_sentiment_score=news_sentiment["score"],
     )
 
     outlook_3m, outlook_6m, outlook_1y = _generate_outlook(
@@ -1669,9 +1637,7 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         targets, volatility["volatility_level"],
         current_price, momentum["adx_value"], momentum["rsi_value"],
         fundamental_score=fund_result["fundamental_score"],
-        news_sentiment_score=news_sentiment["score"],
         fund_interpretation=fund_result["fundamental_interpretation"],
-        news_label=news_sentiment["label"],
         analyst_data=fund_result.get("analyst_data"),
     )
 
