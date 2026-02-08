@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 
 from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, RISK_PARAMS, INDICATOR_PARAMS, STRATEGY_V4_PARAMS
-from data.fetcher import get_stock_data, get_stock_fundamentals_safe
+from data.fetcher import get_stock_data
 from data.stock_list import get_all_stocks, get_stock_name
 from data.cache import get_cached_scan_results, set_cached_scan_results, get_cached_screener_results, set_cached_screener_results, get_cache_stats, flush_cache
 from analysis.indicators import calculate_all_indicators
@@ -1567,67 +1567,57 @@ elif page == "條件選股":
             st.info("使用快取結果（30 分鐘內相同條件）")
             results = cached_results
         else:
-            results = []
-            progress = st.progress(0, text="掃描中...")
-            total = len(scan_pool_scr)
-            need_tech = f_rsi or f_adx
+            import subprocess, tempfile, os
 
-            for i, (code, name_info) in enumerate(scan_pool_scr.items()):
-                display_name = name_info.get("name", name_info) if isinstance(name_info, dict) else name_info
-                progress.progress((i + 1) / total, text=f"掃描 {code} {display_name}... ({i+1}/{total})")
-
-                # 基本面
-                fund = get_stock_fundamentals_safe(code)
-                if fund is None:
-                    continue
-
-                # 技術面（只在需要時計算）
-                tech = None
-                close_price = None
-                if need_tech:
-                    try:
-                        df = get_stock_data(code, period_days=120)
-                        if df is not None and len(df) >= 60:
-                            indicators_df = calculate_all_indicators(df)
-                            last = indicators_df.iloc[-1]
-                            tech = {"RSI": last.get("rsi"), "ADX": last.get("adx")}
-                            close_price = last["close"]
-                    except Exception:
-                        pass
+            # 組裝 scan_pool（確保有 market 資訊供 worker 預填 ticker）
+            pool_with_market = {}
+            for code, info in scan_pool_scr.items():
+                if isinstance(info, dict):
+                    pool_with_market[code] = info
                 else:
-                    # 取收盤價
-                    try:
-                        df = get_stock_data(code, period_days=10)
-                        if df is not None and len(df) > 0:
-                            close_price = df["close"].iloc[-1]
-                    except Exception:
-                        pass
+                    # SCAN_STOCKS 只有 name 字串，從 all_stocks 補 market
+                    full = all_stocks.get(code, {})
+                    pool_with_market[code] = {
+                        "name": info if isinstance(info, str) else full.get("name", code),
+                        "market": full.get("market", "上市"),
+                    }
 
-                if not _passes_filters(fund, tech):
-                    continue
+            worker_input = {
+                "scan_pool": pool_with_market,
+                "filter_cfg": {k: list(v) for k, v in filter_cfg.items()},
+                "need_rsi": f_rsi,
+                "rsi_lo": f_rsi_lo if f_rsi else 30,
+                "rsi_hi": f_rsi_hi if f_rsi else 70,
+                "need_adx": f_adx,
+                "adx_val": f_adx_val if f_adx else 20,
+            }
 
-                # 通過篩選
-                row = {
-                    "代碼": code,
-                    "名稱": display_name,
-                    "收盤價": close_price,
-                    "PE": fund.get("trailing_pe"),
-                    "PB": fund.get("price_to_book"),
-                    "ROE": fund.get("return_on_equity"),
-                    "毛利率": fund.get("gross_margins"),
-                    "營利率": fund.get("operating_margins"),
-                    "淨利率": fund.get("profit_margins"),
-                    "營收成長": fund.get("revenue_growth"),
-                    "獲利成長": fund.get("earnings_growth"),
-                    "殖利率": fund.get("dividend_yield"),
-                    "負債比": fund.get("debt_to_equity"),
-                    "流動比": fund.get("current_ratio"),
-                    "RSI": tech.get("RSI") if tech else None,
-                    "ADX": tech.get("ADX") if tech else None,
-                }
-                results.append(row)
+            tmp_dir = tempfile.mkdtemp()
+            in_file = os.path.join(tmp_dir, "screener_in.json")
+            out_file = os.path.join(tmp_dir, "screener_out.json")
+            with open(in_file, "w", encoding="utf-8") as f:
+                json.dump(worker_input, f, ensure_ascii=False)
 
-            progress.empty()
+            with st.spinner(f"並行掃描 {len(scan_pool_scr)} 檔中，請稍候（約 10-30 秒）..."):
+                proc = subprocess.run(
+                    ["python", "screener_worker.py", in_file, out_file],
+                    capture_output=True, text=True, timeout=300,
+                )
+
+            if proc.returncode != 0:
+                st.error(f"掃描失敗：{proc.stderr[:500]}")
+                results = []
+            else:
+                with open(out_file, "r", encoding="utf-8") as f:
+                    results = json.load(f)
+
+            # 清理暫存
+            try:
+                os.remove(in_file)
+                os.remove(out_file)
+                os.rmdir(tmp_dir)
+            except Exception:
+                pass
 
             if results:
                 set_cached_screener_results(cond_hash, results)

@@ -175,6 +175,8 @@ def get_stock_fundamentals(stock_code: str) -> dict:
         "target_high_price": info.get("targetHighPrice"),
         "target_low_price": info.get("targetLowPrice"),
         "number_of_analysts": info.get("numberOfAnalystOpinions"),
+        # 現價（供 screener 免呼叫 get_stock_data）
+        "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
     }
 
 
@@ -263,6 +265,23 @@ def get_google_news(stock_code: str, stock_name: str = "", lang: str = "zh-TW") 
             "url": entry.get("link", ""),
         })
     return results
+
+
+def populate_ticker_cache(stock_dict: dict[str, dict]) -> None:
+    """從股票清單預填 ticker 快取，避免逐一 resolve
+
+    Args:
+        stock_dict: {code: {"name": ..., "market": "上市"|"上櫃"}}
+    """
+    for code, info in stock_dict.items():
+        if code in _ticker_cache:
+            continue
+        if isinstance(info, dict):
+            market = info.get("market", "")
+            suffix = ".TWO" if market == "上櫃" else ".TW"
+        else:
+            suffix = ".TW"
+        _ticker_cache[code] = f"{code}{suffix}"
 
 
 def get_stock_fundamentals_safe(stock_code: str) -> dict | None:
