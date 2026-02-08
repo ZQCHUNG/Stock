@@ -54,12 +54,39 @@ with st.sidebar:
     )
     default_code = selected_display.split()[0] if selected_display else "2330"
 
+    # 最近搜尋紀錄（初始化）
+    if "recent_stocks" not in st.session_state:
+        st.session_state.recent_stocks = []
+
+    def _add_recent(code):
+        recents = st.session_state.recent_stocks
+        if code in recents:
+            recents.remove(code)
+        recents.insert(0, code)
+        st.session_state.recent_stocks = recents[:5]
+
+    # 處理快捷按鈕跳轉（必須在 text_input 渲染之前設定）
+    if st.session_state.get("_pending_stock"):
+        st.session_state.custom_code_input = st.session_state.pop("_pending_stock")
+
     custom_code = st.text_input(
         "或直接輸入股票代碼",
-        value="",
         placeholder="例如: 2330、6748",
+        key="custom_code_input",
     )
     stock_code = custom_code.strip() if custom_code.strip() else default_code
+
+    if st.session_state.recent_stocks:
+        st.caption("最近查詢")
+        cols_count = min(len(st.session_state.recent_stocks), 5)
+        recent_cols = st.columns(cols_count)
+        for i, code in enumerate(st.session_state.recent_stocks):
+            name = get_stock_name(code, all_stocks)
+            short_name = name[:4] if len(name) > 4 else name
+            with recent_cols[i]:
+                if st.button(f"{code}\n{short_name}", key=f"recent_{code}", use_container_width=True):
+                    st.session_state["_pending_stock"] = code
+                    st.rerun()
 
     st.divider()
 
@@ -168,6 +195,7 @@ if page not in ("推薦股票", "分析報告"):
         fetch_days = max(backtest_days, 365) + 120
         raw_df = load_data(stock_code, fetch_days)
         stock_name = get_stock_name(stock_code, all_stocks)
+        _add_recent(stock_code)
         st.sidebar.success(f"已載入 {stock_code} {stock_name}")
     except Exception as e:
         st.error(f"無法載入股票 {stock_code} 的資料：{e}")
@@ -918,6 +946,7 @@ elif page == "分析報告":
         with st.spinner("正在產生專業分析報告，請稍候（約 10-30 秒）..."):
             try:
                 report = generate_report(stock_code, period_days=730)
+                _add_recent(stock_code)
             except Exception as e:
                 st.error(f"報告產生失敗：{e}")
                 st.stop()
