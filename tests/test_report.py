@@ -179,7 +179,7 @@ class TestPriceTargets:
 
     def test_analyst_data_blending(self):
         fib = self._make_fib()
-        analyst = {"target_mean": 115.0, "target_high": 130.0, "target_low": 85.0, "upside": 0.15}
+        analyst = {"target_mean": 115.0, "target_high": 130.0, "target_low": 85.0, "upside": 0.15, "num_analysts": 5}
         targets = _calculate_price_targets(
             100.0, fib, 0.02,
             [SupportResistanceLevel(110.0, "resistance", "test", 2)],

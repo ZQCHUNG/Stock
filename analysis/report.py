@@ -801,13 +801,23 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
     is_downtrend = "下跌" in trend_direction
 
     # 法人目標價（如有）
+    # 過濾條件：分析師 >= 2 人且目標價偏離現價 < 200%，否則視為不可靠
     analyst_target = None
     analyst_high = None
     analyst_low = None
     if analyst_data:
-        analyst_target = analyst_data.get("target_mean")
-        analyst_high = analyst_data.get("target_high")
-        analyst_low = analyst_data.get("target_low")
+        num_analysts = analyst_data.get("num_analysts", 0) or 0
+        _at = analyst_data.get("target_mean")
+        _ah = analyst_data.get("target_high")
+        _al = analyst_data.get("target_low")
+        if num_analysts >= 2:
+            # 只採用偏離 < 200% 的法人目標
+            if _at and _at > 0 and abs(_at / current_price - 1) < 2.0:
+                analyst_target = _at
+            if _ah and _ah > 0 and abs(_ah / current_price - 1) < 2.0:
+                analyst_high = _ah
+            if _al and _al > 0 and abs(_al / current_price - 1) < 2.0:
+                analyst_low = _al
 
     for tf, tf_label, trading_days in [("3M", "三個月", 63), ("6M", "六個月", 126), ("1Y", "一年", 252)]:
         # ATR 投射 (按時間比例根號縮放)
@@ -872,12 +882,7 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
 
         # 法人共識均價融合 base case（6M, 1Y）
         if analyst_target and analyst_target > 0 and tf in ("6M", "1Y"):
-            # 極端法人目標（與現價差距 > 100%）降低融合權重，避免 base 超過 bull
-            analyst_upside = abs(analyst_target / current_price - 1)
-            if analyst_upside > 1.0:
-                blend = 0.10 if tf == "6M" else 0.15
-            else:
-                blend = 0.25 if tf == "6M" else 0.35
+            blend = 0.25 if tf == "6M" else 0.35
             base_target = base_target * (1 - blend) + analyst_target * blend
 
         # 強制保持 bull >= base >= bear 排序
@@ -1212,6 +1217,7 @@ def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
 
     # --- 法人目標價 ---
     target_mean = _val("target_mean_price")
+    num_analysts = _val("number_of_analysts") or 0
     analyst_data = {}
     if target_mean is not None and current_price > 0:
         available += 1
@@ -1221,18 +1227,20 @@ def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
             "target_median": _val("target_median_price"),
             "target_high": _val("target_high_price"),
             "target_low": _val("target_low_price"),
-            "num_analysts": _val("number_of_analysts"),
+            "num_analysts": num_analysts,
             "rating": fundamentals.get("analyst_rating", "N/A"),
             "upside": upside,
         }
-        if upside > 0.20:
-            score += 1.0
-            parts.append(f"法人目標均價 {target_mean:.0f} 元，上檔空間 {upside:.0%}")
-        elif upside > 0.05:
-            score += 0.3
-        elif upside < -0.10:
-            score -= 0.5
-            parts.append(f"法人目標均價 {target_mean:.0f} 元，低於現價 {abs(upside):.0%}")
+        # 只有 >= 2 位分析師且偏離 < 200% 才納入評分
+        if num_analysts >= 2 and abs(upside) < 2.0:
+            if upside > 0.20:
+                score += 1.0
+                parts.append(f"法人目標均價 {target_mean:.0f} 元，上檔空間 {upside:.0%}")
+            elif upside > 0.05:
+                score += 0.3
+            elif upside < -0.10:
+                score -= 0.5
+                parts.append(f"法人目標均價 {target_mean:.0f} 元，低於現價 {abs(upside):.0%}")
 
     # Clamp
     score = max(-5.0, min(5.0, score))
