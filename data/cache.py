@@ -168,6 +168,37 @@ def set_cached_scan_results(results: list[dict], ttl: int = 600) -> None:
         pass
 
 
+# ===== 條件選股快取 =====
+
+def get_cached_screener_results(conditions_hash: str) -> list[dict] | None:
+    """從快取讀取條件選股結果"""
+    r = get_redis()
+    if r is None:
+        return None
+
+    key = f"screener:{conditions_hash}"
+    try:
+        cached = r.get(key)
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+    return None
+
+
+def set_cached_screener_results(conditions_hash: str, results: list[dict], ttl: int = 1800) -> None:
+    """寫入條件選股結果快取（預設 30 分鐘）"""
+    r = get_redis()
+    if r is None:
+        return
+
+    try:
+        serializable = [_make_serializable(item) for item in results]
+        r.setex(key=f"screener:{conditions_hash}", time=ttl, value=json.dumps(serializable, ensure_ascii=False))
+    except Exception:
+        pass
+
+
 # ===== 股票清單快取 =====
 
 def get_cached_stock_list() -> dict[str, dict] | None:

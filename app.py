@@ -10,9 +10,9 @@ import pandas as pd
 import numpy as np
 
 from config import DEFAULT_STOCKS, SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, RISK_PARAMS, INDICATOR_PARAMS, STRATEGY_V4_PARAMS
-from data.fetcher import get_stock_data
+from data.fetcher import get_stock_data, get_stock_fundamentals_safe
 from data.stock_list import get_all_stocks, get_stock_name
-from data.cache import get_cached_scan_results, set_cached_scan_results, get_cache_stats, flush_cache
+from data.cache import get_cached_scan_results, set_cached_scan_results, get_cached_screener_results, set_cached_screener_results, get_cache_stats, flush_cache
 from analysis.indicators import calculate_all_indicators
 from analysis.strategy import generate_signals, get_latest_analysis
 from analysis.strategy_v4 import generate_v4_signals, get_v4_analysis
@@ -109,7 +109,7 @@ with st.sidebar:
     # 頁面選擇
     page = st.radio(
         "功能",
-        options=["技術分析", "回測報告", "模擬交易", "推薦股票", "分析報告"],
+        options=["技術分析", "回測報告", "模擬交易", "推薦股票", "分析報告", "條件選股"],
         index=0,
     )
 
@@ -209,8 +209,8 @@ def load_data(code: str, days: int):
     return get_stock_data(code, period_days=days)
 
 
-# 推薦股票/分析報告頁面不需要預先載入單一股票
-if page not in ("推薦股票", "分析報告"):
+# 推薦股票/分析報告/條件選股頁面不需要預先載入單一股票
+if page not in ("推薦股票", "分析報告", "條件選股"):
     try:
         fetch_days = max(backtest_days, 365) + 120
         raw_df = load_data(stock_code, fetch_days)
@@ -1404,6 +1404,262 @@ elif page == "分析報告":
             file_name=f"report_{report.stock_code}_{report.report_date.strftime('%Y%m%d')}.txt",
             mime="text/plain",
         )
+
+
+# ===== 頁面 6：條件選股 =====
+elif page == "條件選股":
+    st.header("條件選股")
+    st.caption("依基本面 / 技術面條件篩選股票（類似財報狗）。勾選想要的條件、設定閾值，再按「開始選股」。")
+
+    # ----- 篩選條件 UI -----
+    filter_cfg = {}  # {field: (enabled, operator, value)}
+
+    with st.expander("獲利能力", expanded=True):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            f_roe = st.checkbox("ROE (%)", value=True, key="f_roe")
+            f_roe_val = st.number_input("ROE >", value=15.0, step=1.0, key="f_roe_val", format="%.1f")
+            f_roa = st.checkbox("ROA (%)", value=False, key="f_roa")
+            f_roa_val = st.number_input("ROA >", value=5.0, step=1.0, key="f_roa_val", format="%.1f")
+            f_gross = st.checkbox("毛利率 (%)", value=False, key="f_gross")
+            f_gross_val = st.number_input("毛利率 >", value=20.0, step=1.0, key="f_gross_val", format="%.1f")
+        with col_b:
+            f_opm = st.checkbox("營業利益率 (%)", value=False, key="f_opm")
+            f_opm_val = st.number_input("營業利益率 >", value=10.0, step=1.0, key="f_opm_val", format="%.1f")
+            f_npm = st.checkbox("淨利率 (%)", value=False, key="f_npm")
+            f_npm_val = st.number_input("淨利率 >", value=5.0, step=1.0, key="f_npm_val", format="%.1f")
+
+    if f_roe:
+        filter_cfg["return_on_equity"] = (">", f_roe_val / 100)
+    if f_roa:
+        filter_cfg["return_on_assets"] = (">", f_roa_val / 100)
+    if f_gross:
+        filter_cfg["gross_margins"] = (">", f_gross_val / 100)
+    if f_opm:
+        filter_cfg["operating_margins"] = (">", f_opm_val / 100)
+    if f_npm:
+        filter_cfg["profit_margins"] = (">", f_npm_val / 100)
+
+    with st.expander("成長力"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            f_revg = st.checkbox("營收成長率 (%)", value=False, key="f_revg")
+            f_revg_val = st.number_input("營收成長 >", value=10.0, step=1.0, key="f_revg_val", format="%.1f")
+        with col_b:
+            f_earng = st.checkbox("獲利成長率 (%)", value=False, key="f_earng")
+            f_earng_val = st.number_input("獲利成長 >", value=10.0, step=1.0, key="f_earng_val", format="%.1f")
+
+    if f_revg:
+        filter_cfg["revenue_growth"] = (">", f_revg_val / 100)
+    if f_earng:
+        filter_cfg["earnings_growth"] = (">", f_earng_val / 100)
+
+    with st.expander("安全性"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            f_de = st.checkbox("負債權益比 (%)", value=False, key="f_de")
+            f_de_val = st.number_input("負債權益比 <", value=100.0, step=10.0, key="f_de_val", format="%.0f")
+        with col_b:
+            f_cr = st.checkbox("流動比率", value=False, key="f_cr")
+            f_cr_val = st.number_input("流動比率 >", value=1.5, step=0.1, key="f_cr_val", format="%.1f")
+
+    if f_de:
+        filter_cfg["debt_to_equity"] = ("<", f_de_val)
+    if f_cr:
+        filter_cfg["current_ratio"] = (">", f_cr_val)
+
+    with st.expander("價值評估"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            f_pe = st.checkbox("本益比", value=False, key="f_pe")
+            f_pe_val = st.number_input("本益比 <", value=20.0, step=1.0, key="f_pe_val", format="%.1f")
+            f_pb = st.checkbox("淨值比", value=False, key="f_pb")
+            f_pb_val = st.number_input("淨值比 <", value=3.0, step=0.5, key="f_pb_val", format="%.1f")
+        with col_b:
+            f_dy = st.checkbox("殖利率 (%)", value=False, key="f_dy")
+            f_dy_val = st.number_input("殖利率 >", value=3.0, step=0.5, key="f_dy_val", format="%.1f")
+
+    if f_pe:
+        filter_cfg["trailing_pe"] = ("<", f_pe_val)
+    if f_pb:
+        filter_cfg["price_to_book"] = ("<", f_pb_val)
+    if f_dy:
+        filter_cfg["dividend_yield"] = (">", f_dy_val / 100)
+
+    with st.expander("技術面"):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            f_rsi = st.checkbox("RSI 區間", value=False, key="f_rsi")
+            f_rsi_lo = st.number_input("RSI 下限", value=30.0, step=5.0, key="f_rsi_lo", format="%.0f")
+            f_rsi_hi = st.number_input("RSI 上限", value=70.0, step=5.0, key="f_rsi_hi", format="%.0f")
+        with col_b:
+            f_adx = st.checkbox("ADX", value=False, key="f_adx")
+            f_adx_val = st.number_input("ADX >", value=20.0, step=1.0, key="f_adx_val", format="%.0f")
+
+    # ----- 掃描範圍 & 執行 -----
+    st.divider()
+    scan_scope_scr = st.radio(
+        "掃描範圍",
+        ["精選 25 檔（快速）", "全部股票（較慢）"],
+        horizontal=True,
+        key="scr_scope",
+    )
+    use_full_scr = scan_scope_scr.startswith("全部")
+    scan_pool_scr = all_stocks if use_full_scr else SCAN_STOCKS
+
+    if not filter_cfg and not f_rsi and not f_adx:
+        st.info("請至少勾選一項篩選條件。")
+
+    def _build_conditions_hash() -> str:
+        """產生條件組合的 hash，用於快取 key"""
+        import hashlib
+        parts = sorted(filter_cfg.items())
+        if f_rsi:
+            parts.append(("rsi", (f_rsi_lo, f_rsi_hi)))
+        if f_adx:
+            parts.append(("adx", f_adx_val))
+        parts.append(("scope", "full" if use_full_scr else "select"))
+        return hashlib.md5(str(parts).encode()).hexdigest()[:12]
+
+    def _passes_filters(fund: dict, tech: dict | None) -> bool:
+        """檢查單支股票是否通過所有啟用的篩選條件"""
+        for field, (op, threshold) in filter_cfg.items():
+            val = fund.get(field)
+            if val is None:
+                return False
+            if op == ">" and val <= threshold:
+                return False
+            if op == "<" and val >= threshold:
+                return False
+        # 技術面
+        if f_rsi:
+            rsi = tech.get("RSI") if tech else None
+            if rsi is None or pd.isna(rsi):
+                return False
+            if rsi < f_rsi_lo or rsi > f_rsi_hi:
+                return False
+        if f_adx:
+            adx = tech.get("ADX") if tech else None
+            if adx is None or pd.isna(adx):
+                return False
+            if adx <= f_adx_val:
+                return False
+        return True
+
+    def _fmt_pct(val, mult=100):
+        """格式化百分比值"""
+        if val is None:
+            return "N/A"
+        return f"{val * mult:.1f}%"
+
+    def _fmt_num(val, fmt=".1f"):
+        """格式化數值"""
+        if val is None:
+            return "N/A"
+        return f"{val:{fmt}}"
+
+    if st.button("開始選股", type="primary", key="scr_start", disabled=(not filter_cfg and not f_rsi and not f_adx)):
+        cond_hash = _build_conditions_hash()
+
+        # 嘗試快取
+        cached_results = get_cached_screener_results(cond_hash)
+        if cached_results:
+            st.info("使用快取結果（30 分鐘內相同條件）")
+            results = cached_results
+        else:
+            results = []
+            progress = st.progress(0, text="掃描中...")
+            total = len(scan_pool_scr)
+            need_tech = f_rsi or f_adx
+
+            for i, (code, name_info) in enumerate(scan_pool_scr.items()):
+                display_name = name_info.get("name", name_info) if isinstance(name_info, dict) else name_info
+                progress.progress((i + 1) / total, text=f"掃描 {code} {display_name}... ({i+1}/{total})")
+
+                # 基本面
+                fund = get_stock_fundamentals_safe(code)
+                if fund is None:
+                    continue
+
+                # 技術面（只在需要時計算）
+                tech = None
+                close_price = None
+                if need_tech:
+                    try:
+                        df = get_stock_data(code, period_days=120)
+                        if df is not None and len(df) >= 60:
+                            indicators_df = calculate_all_indicators(df)
+                            last = indicators_df.iloc[-1]
+                            tech = {"RSI": last.get("rsi"), "ADX": last.get("adx")}
+                            close_price = last["close"]
+                    except Exception:
+                        pass
+                else:
+                    # 取收盤價
+                    try:
+                        df = get_stock_data(code, period_days=10)
+                        if df is not None and len(df) > 0:
+                            close_price = df["close"].iloc[-1]
+                    except Exception:
+                        pass
+
+                if not _passes_filters(fund, tech):
+                    continue
+
+                # 通過篩選
+                row = {
+                    "代碼": code,
+                    "名稱": display_name,
+                    "收盤價": close_price,
+                    "PE": fund.get("trailing_pe"),
+                    "PB": fund.get("price_to_book"),
+                    "ROE": fund.get("return_on_equity"),
+                    "毛利率": fund.get("gross_margins"),
+                    "營利率": fund.get("operating_margins"),
+                    "淨利率": fund.get("profit_margins"),
+                    "營收成長": fund.get("revenue_growth"),
+                    "獲利成長": fund.get("earnings_growth"),
+                    "殖利率": fund.get("dividend_yield"),
+                    "負債比": fund.get("debt_to_equity"),
+                    "流動比": fund.get("current_ratio"),
+                    "RSI": tech.get("RSI") if tech else None,
+                    "ADX": tech.get("ADX") if tech else None,
+                }
+                results.append(row)
+
+            progress.empty()
+
+            if results:
+                set_cached_screener_results(cond_hash, results)
+
+        # ----- 顯示結果 -----
+        if not results:
+            st.warning(f"掃描完成（共 {len(scan_pool_scr)} 檔），無股票符合所有條件。試著放寬條件再搜尋。")
+        else:
+            st.success(f"掃描完成（共 {len(scan_pool_scr)} 檔），找到 **{len(results)}** 檔符合條件！")
+
+            # 格式化為 DataFrame
+            display_rows = []
+            for r in results:
+                display_rows.append({
+                    "代碼": r["代碼"],
+                    "名稱": r["名稱"],
+                    "收盤價": f"${r['收盤價']:.2f}" if r["收盤價"] else "N/A",
+                    "PE": _fmt_num(r["PE"]),
+                    "PB": _fmt_num(r["PB"]),
+                    "ROE": _fmt_pct(r["ROE"]),
+                    "毛利率": _fmt_pct(r["毛利率"]),
+                    "營利率": _fmt_pct(r["營利率"]),
+                    "淨利率": _fmt_pct(r["淨利率"]),
+                    "營收成長": _fmt_pct(r["營收成長"]),
+                    "獲利成長": _fmt_pct(r["獲利成長"]),
+                    "殖利率": _fmt_pct(r["殖利率"]),
+                    "負債比": _fmt_num(r["負債比"], ".0f"),
+                    "流動比": _fmt_num(r["流動比"]),
+                    "RSI": _fmt_num(r["RSI"]),
+                    "ADX": _fmt_num(r["ADX"]),
+                })
+            st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
 
 
 # ===== Footer =====

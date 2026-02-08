@@ -265,6 +265,17 @@ def get_google_news(stock_code: str, stock_name: str = "", lang: str = "zh-TW") 
     return results
 
 
+def get_stock_fundamentals_safe(stock_code: str) -> dict | None:
+    """取得股票基本面數據（安全版本）
+
+    批次掃描用，失敗時回傳 None 而非拋出例外。
+    """
+    try:
+        return get_stock_fundamentals(stock_code)
+    except Exception:
+        return None
+
+
 def validate_stock_code(stock_code: str) -> bool:
     """驗證台股代碼是否有效"""
     try:
