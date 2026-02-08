@@ -128,6 +128,96 @@ def get_stock_info(stock_code: str) -> dict:
     }
 
 
+def get_stock_fundamentals(stock_code: str) -> dict:
+    """取得股票基本面數據
+
+    Returns:
+        包含估值、獲利、成長、股利、財務健全等指標的 dict，缺值為 None
+    """
+    ticker_str = get_ticker(stock_code)
+    ticker = yf.Ticker(ticker_str)
+    info = ticker.info
+    return {
+        # 估值
+        "trailing_pe": info.get("trailingPE"),
+        "forward_pe": info.get("forwardPE"),
+        "price_to_book": info.get("priceToBook"),
+        # 獲利
+        "trailing_eps": info.get("trailingEps"),
+        "forward_eps": info.get("forwardEps"),
+        "earnings_growth": info.get("earningsGrowth"),
+        # 營收
+        "total_revenue": info.get("totalRevenue"),
+        "revenue_growth": info.get("revenueGrowth"),
+        # 利潤率
+        "profit_margins": info.get("profitMargins"),
+        "gross_margins": info.get("grossMargins"),
+        "operating_margins": info.get("operatingMargins"),
+        # 股利
+        "dividend_yield": info.get("dividendYield"),
+        "dividend_rate": info.get("dividendRate"),
+        # 財務健全
+        "debt_to_equity": info.get("debtToEquity"),
+        "current_ratio": info.get("currentRatio"),
+        # 報酬率
+        "return_on_equity": info.get("returnOnEquity"),
+        "return_on_assets": info.get("returnOnAssets"),
+        # 風險
+        "beta": info.get("beta"),
+        # 現金流
+        "free_cashflow": info.get("freeCashflow"),
+        "operating_cashflow": info.get("operatingCashflow"),
+        # 法人
+        "analyst_rating": info.get("averageAnalystRating"),
+        "target_mean_price": info.get("targetMeanPrice"),
+        "target_median_price": info.get("targetMedianPrice"),
+        "target_high_price": info.get("targetHighPrice"),
+        "target_low_price": info.get("targetLowPrice"),
+        "number_of_analysts": info.get("numberOfAnalystOpinions"),
+    }
+
+
+def get_stock_news(stock_code: str) -> list:
+    """取得股票近期新聞
+
+    Returns:
+        list of dict，每項含 title, summary, date, source, url
+    """
+    ticker_str = get_ticker(stock_code)
+    ticker = yf.Ticker(ticker_str)
+    raw_news = ticker.news or []
+
+    results = []
+    for item in raw_news:
+        # yfinance news 結構可能是巢狀 content 或扁平
+        content = item.get("content", item)
+        title = content.get("title", item.get("title", ""))
+        summary = content.get("summary", item.get("summary", ""))
+        pub_date = content.get("pubDate", item.get("pubDate", ""))
+
+        provider = content.get("provider", item.get("provider", {}))
+        if isinstance(provider, dict):
+            source = provider.get("displayName", "Unknown")
+        else:
+            source = str(provider) if provider else "Unknown"
+
+        canon = content.get("canonicalUrl", item.get("canonicalUrl", {}))
+        if isinstance(canon, dict):
+            url = canon.get("url", "")
+        else:
+            url = str(canon) if canon else ""
+
+        if title:
+            results.append({
+                "title": title,
+                "summary": summary,
+                "date": pub_date,
+                "source": source,
+                "url": url,
+            })
+    return results
+
+
 def validate_stock_code(stock_code: str) -> bool:
     """驗證台股代碼是否有效"""
     try:

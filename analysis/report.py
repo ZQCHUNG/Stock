@@ -11,7 +11,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from data.fetcher import get_stock_data, get_stock_info
+from data.fetcher import get_stock_data, get_stock_info, get_stock_fundamentals, get_stock_news
 from data.stock_list import get_stock_name, get_all_stocks
 from analysis.indicators import calculate_all_indicators
 from analysis.strategy import get_latest_analysis
@@ -139,6 +139,15 @@ class ReportResult:
     v4_analysis: dict
     v2_analysis: dict
 
+    # 基本面
+    fundamentals: dict = field(default_factory=dict)
+    fundamental_interpretation: str = ""
+    fundamental_score: float = 0.0
+    analyst_data: dict = field(default_factory=dict)
+
+    # 消息面
+    news_items: list = field(default_factory=list)
+
     indicators_df: pd.DataFrame = field(default=None, repr=False)
 
 
@@ -151,6 +160,27 @@ def _safe(val, default=0.0):
     if val is None or (isinstance(val, float) and math.isnan(val)):
         return default
     return float(val)
+
+
+# 新聞可信度常數
+_TRUSTED_SOURCES = {
+    "Reuters", "Bloomberg", "WSJ", "CNBC", "Yahoo Finance",
+    "經濟日報", "工商時報", "中央社", "MoneyDJ", "鉅亨網",
+    "The Wall Street Journal", "Financial Times", "Barron's",
+    "AP", "AFP",
+}
+_QUESTIONABLE_SOURCES = {
+    "Seeking Alpha", "Motley Fool", "InvestorPlace", "Benzinga",
+    "GlobeNewsWire", "PR Newswire", "Business Wire",
+}
+_CLICKBAIT_KEYWORDS = [
+    "skyrocket", "crash", "plunge", "moon", "100%", "10x", "guaranteed",
+    "暴漲", "崩盤", "飆漲", "穩賺", "內線", "翻倍", "噴出", "必漲",
+]
+_UNCERTAIN_KEYWORDS = [
+    "could", "might", "rumor", "rumour", "speculate", "unconfirmed",
+    "傳言", "據傳", "可能", "消息指出", "市場傳聞", "未經證實",
+]
 
 
 def _calculate_price_performance(df: pd.DataFrame) -> dict:
@@ -821,7 +851,8 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
 
 
 def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
-                               v2_composite, rsi, rr_ratio, base_3m_upside=0):
+                               v2_composite, rsi, rr_ratio, base_3m_upside=0,
+                               fundamental_score=0.0):
     """計算綜合評等"""
     score = 0
     trend_map = {"強勢上漲": 2, "溫和上漲": 1, "盤整": 0, "溫和下跌": -1, "強勢下跌": -2}
@@ -846,6 +877,9 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
         score += 1
     elif rr_ratio < 0.5:
         score -= 1
+
+    # 基本面評分（-5~+5 → 約 -2~+2）
+    score += fundamental_score * 0.4
 
     # 目標價上檔空間調整：技術面再好，預期報酬低就不該強力推薦
     if base_3m_upside > 0.10:
@@ -928,6 +962,239 @@ def _generate_outlook(trend_direction, momentum_status, price_targets,
         make_outlook("6M", "6 個月"),
         make_outlook("1Y", "1 年"),
     )
+
+
+def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
+    """評估基本面，回傳分數與解讀"""
+    score = 0.0
+    parts = []
+    available = 0
+
+    def _val(key):
+        v = fundamentals.get(key)
+        if v is not None:
+            return v
+        return None
+
+    # --- 估值 ---
+    pe = _val("trailing_pe")
+    fwd_pe = _val("forward_pe")
+    if pe is not None:
+        available += 1
+        if pe < 10:
+            score += 1.0
+            parts.append(f"本益比 {pe:.1f} 倍，估值偏低")
+        elif pe < 15:
+            score += 0.5
+            parts.append(f"本益比 {pe:.1f} 倍，估值合理")
+        elif pe > 40:
+            score -= 1.0
+            parts.append(f"本益比 {pe:.1f} 倍，估值偏高")
+        else:
+            parts.append(f"本益比 {pe:.1f} 倍")
+
+    if pe is not None and fwd_pe is not None and pe > 0:
+        available += 1
+        if fwd_pe < pe * 0.8:
+            score += 0.5
+            parts.append(f"預估本益比 {fwd_pe:.1f} 倍，獲利預期成長")
+
+    # --- 獲利成長 ---
+    eg = _val("earnings_growth")
+    if eg is not None:
+        available += 1
+        if eg > 0.30:
+            score += 1.5
+            parts.append(f"獲利成長率 {eg:.0%}，成長強勁")
+        elif eg > 0.10:
+            score += 0.5
+            parts.append(f"獲利成長率 {eg:.0%}，穩健成長")
+        elif eg < -0.10:
+            score -= 1.0
+            parts.append(f"獲利成長率 {eg:.0%}，獲利衰退")
+        elif eg < 0:
+            score -= 0.5
+            parts.append(f"獲利成長率 {eg:.0%}，小幅衰退")
+
+    # --- 營收成長 ---
+    rg = _val("revenue_growth")
+    if rg is not None:
+        available += 1
+        if rg > 0.20:
+            score += 1.0
+            parts.append(f"營收成長率 {rg:.0%}，營收動能強")
+        elif rg > 0.05:
+            score += 0.3
+        elif rg < -0.05:
+            score -= 0.5
+            parts.append(f"營收成長率 {rg:.0%}，營收下滑")
+
+    # --- ROE ---
+    roe = _val("return_on_equity")
+    if roe is not None:
+        available += 1
+        if roe > 0.25:
+            score += 1.0
+            parts.append(f"ROE {roe:.0%}，股東權益報酬率優秀")
+        elif roe > 0.15:
+            score += 0.5
+        elif roe < 0.08:
+            score -= 0.5
+            parts.append(f"ROE {roe:.0%}，獲利效率偏低")
+
+    # --- 淨利率 ---
+    pm = _val("profit_margins")
+    if pm is not None:
+        available += 1
+        if pm > 0.30:
+            score += 0.5
+        elif pm < 0.05:
+            score -= 0.5
+            parts.append(f"淨利率 {pm:.0%}，利潤率偏低")
+
+    # --- 負債 ---
+    de = _val("debt_to_equity")
+    if de is not None:
+        available += 1
+        if de < 30:
+            score += 0.3
+        elif de > 100:
+            score -= 0.5
+            parts.append(f"負債權益比 {de:.0f}%，財務槓桿偏高")
+
+    # --- 殖利率 ---
+    dy = _val("dividend_yield")
+    if dy is not None:
+        # yfinance 台股有時回傳百分比形式 (e.g. 1.15 表示 1.15%)，需正規化為小數
+        if dy > 1:
+            dy = dy / 100
+        available += 1
+        if dy > 0.05:
+            score += 0.5
+            parts.append(f"殖利率 {dy:.1%}，配息豐厚")
+        elif dy > 0.03:
+            score += 0.2
+
+    # --- 法人目標價 ---
+    target_mean = _val("target_mean_price")
+    analyst_data = {}
+    if target_mean is not None and current_price > 0:
+        available += 1
+        upside = (target_mean / current_price - 1)
+        analyst_data = {
+            "target_mean": target_mean,
+            "target_median": _val("target_median_price"),
+            "target_high": _val("target_high_price"),
+            "target_low": _val("target_low_price"),
+            "num_analysts": _val("number_of_analysts"),
+            "rating": fundamentals.get("analyst_rating", "N/A"),
+            "upside": upside,
+        }
+        if upside > 0.20:
+            score += 1.0
+            parts.append(f"法人目標均價 {target_mean:.0f} 元，上檔空間 {upside:.0%}")
+        elif upside > 0.05:
+            score += 0.3
+        elif upside < -0.10:
+            score -= 0.5
+            parts.append(f"法人目標均價 {target_mean:.0f} 元，低於現價 {abs(upside):.0%}")
+
+    # Clamp
+    score = max(-5.0, min(5.0, score))
+
+    # 格式化指標
+    def _fmt(val, fmt_str, suffix=""):
+        if val is None:
+            return "N/A"
+        return f"{val:{fmt_str}}{suffix}"
+
+    metrics = {
+        "trailing_pe": _fmt(pe, ".1f", " 倍"),
+        "forward_pe": _fmt(fwd_pe, ".1f", " 倍"),
+        "price_to_book": _fmt(_val("price_to_book"), ".2f", " 倍"),
+        "trailing_eps": _fmt(_val("trailing_eps"), ".2f", " 元"),
+        "forward_eps": _fmt(_val("forward_eps"), ".2f", " 元"),
+        "earnings_growth": _fmt(eg, ".1%") if eg is not None else "N/A",
+        "revenue_growth": _fmt(rg, ".1%") if rg is not None else "N/A",
+        "roe": _fmt(roe, ".1%") if roe is not None else "N/A",
+        "roa": _fmt(_val("return_on_assets"), ".1%") if _val("return_on_assets") is not None else "N/A",
+        "gross_margins": _fmt(_val("gross_margins"), ".1%") if _val("gross_margins") is not None else "N/A",
+        "operating_margins": _fmt(_val("operating_margins"), ".1%") if _val("operating_margins") is not None else "N/A",
+        "profit_margins": _fmt(pm, ".1%") if pm is not None else "N/A",
+        "debt_to_equity": _fmt(de, ".0f", "%") if de is not None else "N/A",
+        "current_ratio": _fmt(_val("current_ratio"), ".2f") if _val("current_ratio") is not None else "N/A",
+        "dividend_yield": _fmt(dy, ".2%") if dy is not None else "N/A",
+        "dividend_rate": _fmt(_val("dividend_rate"), ".2f", " 元") if _val("dividend_rate") is not None else "N/A",
+        "beta": _fmt(_val("beta"), ".2f") if _val("beta") is not None else "N/A",
+    }
+
+    # 綜合解讀
+    if score >= 3:
+        interpretation = "基本面表現優異。" + "；".join(parts[:4]) + "。"
+    elif score >= 1:
+        interpretation = "基本面表現穩健。" + "；".join(parts[:4]) + "。"
+    elif score >= -1:
+        interpretation = "基本面表現中性。" + ("；".join(parts[:4]) + "。" if parts else "")
+    else:
+        interpretation = "基本面表現偏弱。" + "；".join(parts[:4]) + "。"
+
+    return {
+        "fundamental_score": score,
+        "fundamental_interpretation": interpretation,
+        "metrics": metrics,
+        "analyst_data": analyst_data,
+        "available_count": available,
+    }
+
+
+def _assess_news(news_items: list) -> list:
+    """評估新聞可信度，回傳帶 credibility 欄位的新聞列表"""
+    results = []
+    for item in news_items:
+        source = item.get("source", "Unknown")
+        title = item.get("title", "")
+        summary = item.get("summary", "")
+        text = (title + " " + summary).lower()
+
+        # 來源基礎分
+        if source in _TRUSTED_SOURCES:
+            base = 2
+        elif source in _QUESTIONABLE_SOURCES:
+            base = 0
+        else:
+            base = 1
+
+        # 聳動詞扣分
+        penalty = 0
+        for kw in _CLICKBAIT_KEYWORDS:
+            if kw.lower() in text:
+                penalty += 2
+                break
+        for kw in _UNCERTAIN_KEYWORDS:
+            if kw.lower() in text:
+                penalty += 1
+                break
+
+        credibility_score = base - penalty
+
+        if credibility_score >= 2:
+            credibility = "可信"
+            icon = "🟢"
+        elif credibility_score >= 1:
+            credibility = "待確認"
+            icon = "🟡"
+        else:
+            credibility = "存疑"
+            icon = "🔴"
+
+        results.append({
+            **item,
+            "credibility": credibility,
+            "credibility_icon": icon,
+            "credibility_score": credibility_score,
+        })
+
+    return results
 
 
 def _generate_summary(data: dict) -> str:
@@ -1027,9 +1294,24 @@ def _generate_summary(data: dict) -> str:
         p5 += "保持觀望，待明確方向訊號出現後再行操作。"
     else:
         p5 += "宜降低持股比重或暫時觀望，等待技術面轉強。"
-    p5 += "（以上分析僅供技術面參考，不構成投資建議。）"
+    p5 += "（以上分析僅供參考，不構成投資建議。）"
 
-    return p1 + "\n\n" + p2 + "\n\n" + p3 + "\n\n" + p4 + "\n\n" + p5
+    # 第六段：基本面摘要（如有資料）
+    fund = data.get("fundamentals", {})
+    fund_interp = data.get("fundamental_interpretation", "")
+    analyst = data.get("analyst_data", {})
+    p6 = ""
+    if fund_interp:
+        p6 = f"基本面方面，{fund_interp}"
+        if analyst.get("target_mean"):
+            n = analyst.get("num_analysts")
+            n_str = f"（{int(n)} 位分析師）" if n else ""
+            p6 += f"法人共識目標均價為 {analyst['target_mean']:.0f} 元{n_str}，上檔空間 {analyst.get('upside', 0):.0%}。"
+
+    result = p1 + "\n\n" + p2 + "\n\n" + p3 + "\n\n" + p4 + "\n\n" + p5
+    if p6:
+        result += "\n\n" + p6
+    return result
 
 
 # ============================================================
@@ -1065,6 +1347,19 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
 
     current_price = float(df["close"].iloc[-1])
 
+    # 3b. 基本面與消息面
+    try:
+        fundamentals_raw = get_stock_fundamentals(stock_code)
+    except Exception:
+        fundamentals_raw = {}
+    try:
+        raw_news = get_stock_news(stock_code)
+    except Exception:
+        raw_news = []
+
+    fund_result = _assess_fundamentals(fundamentals_raw, current_price)
+    scored_news = _assess_news(raw_news)
+
     # 4. 計算各 section
     perf = _calculate_price_performance(df)
     swings = _detect_swing_points(df)
@@ -1093,6 +1388,7 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         v4["signal"], v2.get("composite_score", 0),
         momentum["rsi_value"], risk["risk_reward_ratio"],
         base_3m_upside=base_3m_upside,
+        fundamental_score=fund_result["fundamental_score"],
     )
 
     outlook_3m, outlook_6m, outlook_1y = _generate_outlook(
@@ -1118,6 +1414,9 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         "supports": supports,
         "resistances": resistances,
         "overall_rating": overall_rating,
+        "fundamentals": fund_result.get("metrics", {}),
+        "fundamental_interpretation": fund_result["fundamental_interpretation"],
+        "analyst_data": fund_result["analyst_data"],
     }
     summary = _generate_summary(summary_data)
 
@@ -1183,5 +1482,10 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         summary_text=summary,
         v4_analysis=v4,
         v2_analysis=v2,
+        fundamentals=fund_result.get("metrics", {}),
+        fundamental_interpretation=fund_result["fundamental_interpretation"],
+        fundamental_score=fund_result["fundamental_score"],
+        analyst_data=fund_result["analyst_data"],
+        news_items=scored_news,
         indicators_df=df,
     )
