@@ -13,6 +13,7 @@ from data.cache import get_cached_scan_results, set_cached_scan_results, get_cac
 from analysis.indicators import calculate_all_indicators
 from analysis.strategy import generate_signals, get_latest_analysis
 from analysis.strategy_v4 import generate_v4_signals, get_v4_analysis
+from analysis.report import generate_report
 from backtest.engine import run_backtest, run_backtest_v4, BacktestResult
 from simulation.simulator import run_simulation, run_simulation_v4, simulation_to_dataframe, SimulationResult
 
@@ -65,7 +66,7 @@ with st.sidebar:
     # 頁面選擇
     page = st.radio(
         "功能",
-        options=["技術分析", "回測報告", "模擬交易", "推薦股票"],
+        options=["技術分析", "回測報告", "模擬交易", "推薦股票", "分析報告"],
         index=0,
     )
 
@@ -161,8 +162,8 @@ def load_data(code: str, days: int):
     return get_stock_data(code, period_days=days)
 
 
-# 推薦股票頁面不需要預先載入單一股票
-if page != "推薦股票":
+# 推薦股票/分析報告頁面不需要預先載入單一股票
+if page not in ("推薦股票", "分析報告"):
     try:
         fetch_days = max(backtest_days, 365) + 120
         raw_df = load_data(stock_code, fetch_days)
@@ -903,6 +904,331 @@ elif page == "推薦股票":
                         "綜合評分": f"{s['composite_score']:+.3f}",
                     })
                 st.dataframe(pd.DataFrame(ranking_data), use_container_width=True, hide_index=True)
+
+
+# ===== 頁面 5：分析報告 =====
+elif page == "分析報告":
+    st.header(f"分析報告 — {stock_code}")
+
+    def _esc(text: str) -> str:
+        """Escape $ signs to prevent Streamlit LaTeX rendering"""
+        return text.replace("$", "\\$") if text else text
+
+    if st.button("產生分析報告", type="primary"):
+        with st.spinner("正在產生專業分析報告，請稍候（約 10-30 秒）..."):
+            try:
+                report = generate_report(stock_code, period_days=730)
+            except Exception as e:
+                st.error(f"報告產生失敗：{e}")
+                st.stop()
+
+        # ---- 綜合評等 Banner ----
+        rating_colors = {
+            "強力買進": ("#1B5E20", "#C8E6C9"),
+            "買進": ("#2E7D32", "#E8F5E9"),
+            "中性": ("#F57F17", "#FFF9C4"),
+            "賣出": ("#C62828", "#FFCDD2"),
+            "強力賣出": ("#B71C1C", "#FFCDD2"),
+        }
+        bg, fg = rating_colors.get(report.overall_rating, ("#424242", "#EEEEEE"))
+        st.markdown(
+            f'<div style="background-color:{bg};color:{fg};padding:20px;border-radius:12px;'
+            f'text-align:center;margin-bottom:20px">'
+            f'<h1 style="margin:0;color:{fg}">{report.stock_name}（{report.stock_code}）</h1>'
+            f'<h2 style="margin:8px 0;color:{fg}">綜合評等：{report.overall_rating}</h2>'
+            f'<p style="margin:0;font-size:1.1em;color:{fg}">收盤價 ${report.current_price:.2f} '
+            f'| 趨勢 {report.trend_direction} | 動能 {report.momentum_status}</p>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ---- 一、公司概況 ----
+        st.subheader("一、公司概況")
+        info = report.company_info
+        info_cols = st.columns(4)
+        with info_cols[0]:
+            st.metric("股票代碼", report.stock_code)
+        with info_cols[1]:
+            st.metric("公司名稱", report.stock_name)
+        with info_cols[2]:
+            sector = info.get("sector") or info.get("industry") or "N/A"
+            st.metric("產業", sector)
+        with info_cols[3]:
+            mc = info.get("market_cap", 0)
+            if mc and mc > 0:
+                if mc >= 1e12:
+                    st.metric("市值", f"${mc/1e12:.1f} 兆")
+                elif mc >= 1e8:
+                    st.metric("市值", f"${mc/1e8:.1f} 億")
+                else:
+                    st.metric("市值", f"${mc:,.0f}")
+            else:
+                st.metric("市值", "N/A")
+
+        # ---- 二、價格表現 ----
+        st.subheader("二、價格表現")
+        perf_cols = st.columns(5)
+        for i, (label, val) in enumerate([
+            ("1 週", report.price_change_1w),
+            ("1 個月", report.price_change_1m),
+            ("3 個月", report.price_change_3m),
+            ("6 個月", report.price_change_6m),
+            ("1 年", report.price_change_1y),
+        ]):
+            with perf_cols[i]:
+                st.metric(label, f"{val:+.2%}")
+
+        hw_cols = st.columns(4)
+        with hw_cols[0]:
+            st.metric("52 週最高", f"${report.high_52w:.2f}")
+        with hw_cols[1]:
+            st.metric("最高日期", report.high_52w_date)
+        with hw_cols[2]:
+            st.metric("52 週最低", f"${report.low_52w:.2f}")
+        with hw_cols[3]:
+            st.metric("最低日期", report.low_52w_date)
+
+        dist_cols = st.columns(2)
+        with dist_cols[0]:
+            st.metric("距 52 週高點", f"{report.pct_from_52w_high:+.2%}")
+        with dist_cols[1]:
+            st.metric("距 52 週低點", f"{report.pct_from_52w_low:+.2%}")
+
+        # ---- 三、技術面總覽 ----
+        st.subheader("三、技術面總覽")
+        trend_cols = st.columns(4)
+        with trend_cols[0]:
+            st.metric("趨勢方向", report.trend_direction)
+        with trend_cols[1]:
+            st.metric("趨勢強度", report.trend_strength)
+        with trend_cols[2]:
+            st.metric("均線排列", report.ma_alignment)
+        with trend_cols[3]:
+            st.metric("動能狀態", report.momentum_status)
+
+        # ---- 四、支撐壓力分析 ----
+        st.subheader("四、支撐壓力分析")
+        sr_col1, sr_col2 = st.columns(2)
+        with sr_col1:
+            st.markdown("**壓力位**")
+            if report.resistance_levels:
+                r_data = []
+                for r in report.resistance_levels:
+                    stars = "★" * r.strength + "☆" * (3 - r.strength)
+                    r_data.append({
+                        "價位": f"${r.price:.2f}",
+                        "來源": r.source,
+                        "強度": stars,
+                        "距離": f"{(r.price / report.current_price - 1):+.2%}",
+                    })
+                st.dataframe(pd.DataFrame(r_data), hide_index=True, width=400)
+            else:
+                st.info("無明顯壓力位")
+        with sr_col2:
+            st.markdown("**支撐位**")
+            if report.support_levels:
+                s_data = []
+                for s in report.support_levels:
+                    stars = "★" * s.strength + "☆" * (3 - s.strength)
+                    s_data.append({
+                        "價位": f"${s.price:.2f}",
+                        "來源": s.source,
+                        "強度": stars,
+                        "距離": f"{(s.price / report.current_price - 1):+.2%}",
+                    })
+                st.dataframe(pd.DataFrame(s_data), hide_index=True, width=400)
+            else:
+                st.info("無明顯支撐位")
+
+        # ---- 五、費氏回檔分析 ----
+        st.subheader("五、費氏回檔分析")
+        fib = report.fibonacci
+        fib_info_cols = st.columns(3)
+        with fib_info_cols[0]:
+            st.metric("波段高點", f"${fib.swing_high:.2f}")
+        with fib_info_cols[1]:
+            st.metric("波段低點", f"${fib.swing_low:.2f}")
+        with fib_info_cols[2]:
+            st.metric("方向", "上升趨勢" if fib.direction == "uptrend" else "下降趨勢")
+
+        fib_col1, fib_col2 = st.columns(2)
+        with fib_col1:
+            st.markdown("**回檔水位**")
+            ret_data = [{"比率": f"{k:.1%}", "價位": f"${v:.2f}", "距離": f"{(v / report.current_price - 1):+.2%}"}
+                        for k, v in fib.retracement.items()]
+            st.dataframe(pd.DataFrame(ret_data), hide_index=True, width=350)
+        with fib_col2:
+            st.markdown("**延伸水位**")
+            ext_data = [{"比率": f"{k:.1%}", "價位": f"${v:.2f}", "距離": f"{(v / report.current_price - 1):+.2%}"}
+                        for k, v in fib.extension.items()]
+            st.dataframe(pd.DataFrame(ext_data), hide_index=True, width=350)
+
+        # 費氏 K 線圖
+        st.markdown("**費氏回檔 K 線圖**")
+        fib_df = report.indicators_df.tail(120) if report.indicators_df is not None else None
+        if fib_df is not None:
+            fig_fib = go.Figure()
+            fig_fib.add_trace(go.Candlestick(
+                x=list(range(len(fib_df))),
+                open=fib_df["open"], high=fib_df["high"],
+                low=fib_df["low"], close=fib_df["close"],
+                name="K線",
+                increasing_line_color="#EF5350",
+                decreasing_line_color="#26A69A",
+            ))
+            # Fibonacci 水平線
+            colors_fib = ["#FFD54F", "#FFB74D", "#FF8A65", "#E57373", "#EF5350"]
+            for i_f, (ratio, price) in enumerate(fib.retracement.items()):
+                fig_fib.add_hline(
+                    y=price, line_dash="dash",
+                    line_color=colors_fib[i_f % len(colors_fib)],
+                    opacity=0.7,
+                    annotation_text=f"Fib {ratio:.1%} (${price:.2f})",
+                    annotation_position="right",
+                )
+            for ratio, price in fib.extension.items():
+                fig_fib.add_hline(
+                    y=price, line_dash="dot",
+                    line_color="#81C784", opacity=0.6,
+                    annotation_text=f"Ext {ratio:.1%} (${price:.2f})",
+                    annotation_position="left",
+                )
+            fig_fib.update_layout(
+                height=500, template="plotly_dark",
+                xaxis_rangeslider_visible=False,
+                title=f"{report.stock_name} 費氏回檔分析",
+            )
+            st.plotly_chart(fig_fib, use_container_width=True)
+
+        # ---- 六、目標價估算 ----
+        st.subheader("六、目標價估算")
+        for tf_label in ["3M", "6M", "1Y"]:
+            tf_map = {"3M": "三個月", "6M": "六個月", "1Y": "一年"}
+            st.markdown(f"**{tf_map[tf_label]}目標價**")
+            tf_targets = [t for t in report.price_targets if t.timeframe == tf_label]
+            tgt_cols = st.columns(3)
+            scenario_map = {"bull": ("樂觀", "🟢"), "base": ("基本", "🟡"), "bear": ("保守", "🔴")}
+            for t in tf_targets:
+                s_label, s_icon = scenario_map.get(t.scenario, (t.scenario, ""))
+                col_idx = 0 if t.scenario == "bull" else 1 if t.scenario == "base" else 2
+                with tgt_cols[col_idx]:
+                    st.metric(
+                        f"{s_icon} {s_label}情境",
+                        f"${t.target_price:.2f}",
+                        delta=f"{t.upside_pct:+.2%}",
+                    )
+                    st.caption(f"信心度：{t.confidence} | {t.rationale[:30]}...")
+
+        # ---- 七、動能分析 ----
+        st.subheader("七、動能分析")
+        mom_cols = st.columns(4)
+        with mom_cols[0]:
+            st.metric("ADX", f"{report.adx_value:.1f}")
+            st.caption(report.adx_interpretation)
+        with mom_cols[1]:
+            st.metric("RSI", f"{report.rsi_value:.1f}")
+            st.caption(report.rsi_interpretation)
+        with mom_cols[2]:
+            st.metric("MACD", f"{report.macd_value:.4f}")
+            st.caption(report.macd_interpretation)
+        with mom_cols[3]:
+            st.metric("KD", f"K={report.k_value:.1f} / D={report.d_value:.1f}")
+            st.caption(report.kd_interpretation)
+
+        # ---- 八、成交量分析 ----
+        st.subheader("八、成交量分析")
+        vol_cols = st.columns(3)
+        with vol_cols[0]:
+            st.metric("量能趨勢", report.volume_trend)
+        with vol_cols[1]:
+            st.metric("量能比", f"{report.volume_ratio:.1f}x")
+        with vol_cols[2]:
+            st.metric("籌碼判斷", report.accumulation_distribution)
+        st.markdown(_esc(report.volume_interpretation))
+
+        # ---- 九、波動度分析 ----
+        st.subheader("九、波動度分析")
+        vola_cols = st.columns(5)
+        with vola_cols[0]:
+            st.metric("ATR", f"${report.atr_value:.2f}")
+        with vola_cols[1]:
+            st.metric("ATR %", f"{report.atr_pct:.2%}")
+        with vola_cols[2]:
+            st.metric("20日波動率", f"{report.historical_volatility_20d:.1%}")
+        with vola_cols[3]:
+            st.metric("布林寬度", f"{report.bollinger_width:.3f}")
+        with vola_cols[4]:
+            st.metric("布林位置", f"{report.bollinger_position:.1%}")
+        st.markdown(_esc(report.volatility_interpretation))
+
+        # ---- 十、風險評估 ----
+        st.subheader("十、風險評估")
+        risk_cols = st.columns(4)
+        with risk_cols[0]:
+            st.metric("近1年最大回撤", f"{report.max_drawdown_1y:.2%}")
+        with risk_cols[1]:
+            st.metric("目前回撤", f"{report.current_drawdown:.2%}")
+        with risk_cols[2]:
+            st.metric("關鍵風險價位", f"${report.key_risk_level:.2f}")
+        with risk_cols[3]:
+            st.metric("風險報酬比", f"{report.risk_reward_ratio:.1f}:1")
+        st.markdown(_esc(report.risk_interpretation))
+
+        # ---- 十一、展望 ----
+        st.subheader("十一、未來展望")
+        for outlook in [report.outlook_3m, report.outlook_6m, report.outlook_1y]:
+            st.markdown(f"**{outlook.timeframe}展望**")
+            o_cols = st.columns(3)
+            with o_cols[0]:
+                st.markdown(f"🟢 **樂觀**（機率 {outlook.bull_probability}%）")
+                st.markdown(f"目標：\\${outlook.bull_target:.2f}")
+                st.markdown(_esc(outlook.bull_case))
+            with o_cols[1]:
+                st.markdown(f"🟡 **基本**（機率 {outlook.base_probability}%）")
+                st.markdown(f"目標：\\${outlook.base_target:.2f}")
+                st.markdown(_esc(outlook.base_case))
+            with o_cols[2]:
+                st.markdown(f"🔴 **保守**（機率 {outlook.bear_probability}%）")
+                st.markdown(f"目標：\\${outlook.bear_target:.2f}")
+                st.markdown(_esc(outlook.bear_case))
+            st.divider()
+
+        # ---- 十二、策略訊號交叉比對 ----
+        st.subheader("十二、策略訊號交叉比對")
+        sig_cols = st.columns(2)
+        v4 = report.v4_analysis
+        v2 = report.v2_analysis
+        with sig_cols[0]:
+            st.markdown("**v4 趨勢動量策略**")
+            v4_sig = v4.get("signal", "HOLD")
+            v4_icon = "🟢 買入" if v4_sig == "BUY" else "🟡 觀望"
+            st.metric("訊號", v4_icon)
+            if v4.get("entry_type"):
+                st.metric("進場類型", v4["entry_type"])
+            st.metric("上升趨勢天數", f"{v4.get('uptrend_days', 0)} 天")
+        with sig_cols[1]:
+            st.markdown("**v2 綜合評分策略**")
+            v2_sig = v2.get("signal", "HOLD")
+            v2_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
+            st.metric("訊號", v2_map.get(v2_sig, v2_sig))
+            st.metric("綜合評分", f"{v2.get('composite_score', 0):+.3f}")
+
+        # ---- 摘要 ----
+        st.subheader("分析摘要（約 500 字）")
+        st.markdown(_esc(report.summary_text))
+
+        # ---- 下載 ----
+        report_text = f"=== {report.stock_name}（{report.stock_code}）技術分析報告 ===\n"
+        report_text += f"報告日期：{report.report_date.strftime('%Y-%m-%d %H:%M')}\n"
+        report_text += f"綜合評等：{report.overall_rating}\n"
+        report_text += f"收盤價：${report.current_price:.2f}\n\n"
+        report_text += report.summary_text
+        st.download_button(
+            label="下載報告文字檔",
+            data=report_text.encode("utf-8"),
+            file_name=f"report_{report.stock_code}_{report.report_date.strftime('%Y%m%d')}.txt",
+            mime="text/plain",
+        )
 
 
 # ===== Footer =====

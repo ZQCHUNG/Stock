@@ -1,0 +1,1148 @@
+"""專業股票分析報告模組
+
+產生證券研究等級的技術分析報告，包含：
+公司概況、價格績效、技術面評估、支撐壓力、費氏回檔、
+目標價、動能分析、成交量分析、波動度、風險評估、展望、500字摘要
+"""
+
+import math
+import pandas as pd
+import numpy as np
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from data.fetcher import get_stock_data, get_stock_info
+from data.stock_list import get_stock_name, get_all_stocks
+from analysis.indicators import calculate_all_indicators
+from analysis.strategy import get_latest_analysis
+from analysis.strategy_v4 import get_v4_analysis
+
+
+# ============================================================
+# Data Structures
+# ============================================================
+
+@dataclass
+class SupportResistanceLevel:
+    price: float
+    level_type: str   # "support" or "resistance"
+    source: str       # "swing", "ma20", "ma60", "ma120", "ma240", "bb", "round"
+    strength: int     # 1-3
+
+
+@dataclass
+class FibonacciLevels:
+    swing_high: float
+    swing_low: float
+    direction: str           # "uptrend" or "downtrend"
+    retracement: dict        # {0.236: price, ...}
+    extension: dict          # {1.272: price, ...}
+
+
+@dataclass
+class PriceTarget:
+    scenario: str            # "bull", "base", "bear"
+    target_price: float
+    upside_pct: float
+    rationale: str
+    timeframe: str           # "3M", "6M", "1Y"
+    confidence: str          # "高", "中", "低"
+
+
+@dataclass
+class OutlookScenario:
+    timeframe: str
+    bull_case: str
+    bull_target: float
+    bull_probability: int
+    base_case: str
+    base_target: float
+    base_probability: int
+    bear_case: str
+    bear_target: float
+    bear_probability: int
+
+
+@dataclass
+class ReportResult:
+    stock_code: str
+    stock_name: str
+    report_date: datetime
+    data_period_days: int
+
+    company_info: dict
+
+    current_price: float
+    price_change_1w: float
+    price_change_1m: float
+    price_change_3m: float
+    price_change_6m: float
+    price_change_1y: float
+    high_52w: float
+    low_52w: float
+    high_52w_date: str
+    low_52w_date: str
+    pct_from_52w_high: float
+    pct_from_52w_low: float
+
+    trend_direction: str
+    trend_strength: str
+    momentum_status: str
+    volatility_level: str
+    overall_rating: str
+    ma_alignment: str
+
+    support_levels: list
+    resistance_levels: list
+
+    fibonacci: FibonacciLevels
+
+    price_targets: list
+
+    adx_value: float
+    adx_interpretation: str
+    rsi_value: float
+    rsi_interpretation: str
+    macd_value: float
+    macd_signal_value: float
+    macd_histogram: float
+    macd_interpretation: str
+    k_value: float
+    d_value: float
+    kd_interpretation: str
+
+    volume_trend: str
+    volume_ratio: float
+    accumulation_distribution: str
+    volume_interpretation: str
+
+    atr_value: float
+    atr_pct: float
+    historical_volatility_20d: float
+    historical_volatility_60d: float
+    bollinger_width: float
+    bollinger_position: float
+    volatility_interpretation: str
+
+    max_drawdown_1y: float
+    current_drawdown: float
+    key_risk_level: float
+    risk_reward_ratio: float
+    risk_interpretation: str
+
+    outlook_3m: OutlookScenario
+    outlook_6m: OutlookScenario
+    outlook_1y: OutlookScenario
+
+    summary_text: str
+
+    v4_analysis: dict
+    v2_analysis: dict
+
+    indicators_df: pd.DataFrame = field(default=None, repr=False)
+
+
+# ============================================================
+# Helper Functions
+# ============================================================
+
+def _safe(val, default=0.0):
+    """安全取值，處理 NaN"""
+    if val is None or (isinstance(val, float) and math.isnan(val)):
+        return default
+    return float(val)
+
+
+def _calculate_price_performance(df: pd.DataFrame) -> dict:
+    """計算多期間報酬率與 52 週高低點"""
+    close = df["close"]
+    n = len(close)
+    current = close.iloc[-1]
+
+    def pct(days):
+        if n > days:
+            return (current / close.iloc[-days - 1] - 1)
+        return 0.0
+
+    last_252 = df.tail(252)
+    h52 = last_252["high"].max()
+    l52 = last_252["low"].min()
+    h52_date = last_252["high"].idxmax()
+    l52_date = last_252["low"].idxmin()
+
+    return {
+        "price_change_1w": pct(5),
+        "price_change_1m": pct(21),
+        "price_change_3m": pct(63),
+        "price_change_6m": pct(126),
+        "price_change_1y": pct(252),
+        "high_52w": h52,
+        "low_52w": l52,
+        "high_52w_date": h52_date.strftime("%Y-%m-%d") if hasattr(h52_date, "strftime") else str(h52_date)[:10],
+        "low_52w_date": l52_date.strftime("%Y-%m-%d") if hasattr(l52_date, "strftime") else str(l52_date)[:10],
+        "pct_from_52w_high": (current / h52 - 1) if h52 > 0 else 0,
+        "pct_from_52w_low": (current / l52 - 1) if l52 > 0 else 0,
+    }
+
+
+def _detect_swing_points(df: pd.DataFrame, window: int = 15) -> dict:
+    """偵測波段高低點"""
+    highs = df["high"].values
+    lows = df["low"].values
+    n = len(df)
+
+    swing_highs = []
+    swing_lows = []
+
+    for i in range(window, n - window):
+        # swing high
+        if highs[i] == max(highs[i - window:i + window + 1]):
+            swing_highs.append((df.index[i], float(highs[i])))
+        # swing low
+        if lows[i] == min(lows[i - window:i + window + 1]):
+            swing_lows.append((df.index[i], float(lows[i])))
+
+    # 過濾太近的點（保留更極端的）
+    def filter_nearby(points, min_bars=10):
+        if not points:
+            return points
+        filtered = [points[0]]
+        for p in points[1:]:
+            idx_diff = abs(df.index.get_loc(p[0]) - df.index.get_loc(filtered[-1][0]))
+            if idx_diff < min_bars:
+                # 保留更極端的
+                if "high" in str(type(p)):
+                    if p[1] > filtered[-1][1]:
+                        filtered[-1] = p
+                else:
+                    if p[1] < filtered[-1][1]:
+                        filtered[-1] = p
+            else:
+                filtered.append(p)
+        return filtered
+
+    swing_highs = filter_nearby(swing_highs)
+    swing_lows = filter_nearby(swing_lows)
+
+    recent_high = max([p[1] for p in swing_highs[-5:]]) if swing_highs else df["high"].max()
+    recent_low = min([p[1] for p in swing_lows[-5:]]) if swing_lows else df["low"].min()
+
+    return {
+        "swing_highs": swing_highs,
+        "swing_lows": swing_lows,
+        "recent_swing_high": recent_high,
+        "recent_swing_low": recent_low,
+    }
+
+
+def _get_round_numbers(current_price: float) -> list:
+    """取得附近的整數關卡"""
+    if current_price < 50:
+        step = 5
+    elif current_price < 200:
+        step = 10
+    elif current_price < 500:
+        step = 25
+    elif current_price < 2000:
+        step = 50
+    else:
+        step = 100
+
+    base = int(current_price / step) * step
+    return [base + i * step for i in range(-3, 4) if base + i * step > 0]
+
+
+def _calculate_support_resistance(df, swing_points, current_price):
+    """計算支撐與壓力價位"""
+    candidates = []
+
+    # Swing highs / lows
+    for _, price in swing_points["swing_highs"][-10:]:
+        candidates.append((price, "swing"))
+    for _, price in swing_points["swing_lows"][-10:]:
+        candidates.append((price, "swing"))
+
+    # MA levels
+    latest = df.iloc[-1]
+    for ma_name in ["ma20", "ma60", "ma120", "ma240"]:
+        val = latest.get(ma_name)
+        if val is not None and not (isinstance(val, float) and math.isnan(val)):
+            candidates.append((float(val), ma_name))
+
+    # Bollinger
+    for bb_name in ["bb_upper", "bb_lower"]:
+        val = latest.get(bb_name)
+        if val is not None and not (isinstance(val, float) and math.isnan(val)):
+            candidates.append((float(val), "bb"))
+
+    # Round numbers
+    for rn in _get_round_numbers(current_price):
+        candidates.append((rn, "round"))
+
+    # 計算強度：歷史上股價在此價位附近反轉的次數
+    close_arr = df["close"].tail(250).values
+    low_arr = df["low"].tail(250).values
+    high_arr = df["high"].tail(250).values
+
+    def count_reactions(level, tolerance=0.015):
+        count = 0
+        for i in range(1, len(close_arr) - 1):
+            near_low = abs(low_arr[i] - level) / level < tolerance
+            near_high = abs(high_arr[i] - level) / level < tolerance
+            if near_low and close_arr[i] > close_arr[i - 1]:
+                count += 1
+            elif near_high and close_arr[i] < close_arr[i - 1]:
+                count += 1
+        return min(count, 3)
+
+    # 合併相近的價位
+    candidates.sort(key=lambda x: x[0])
+    merged = []
+    for price, source in candidates:
+        if price <= 0:
+            continue
+        found = False
+        for m in merged:
+            if abs(m["price"] - price) / price < 0.015:
+                m["strength"] = max(m["strength"], count_reactions(price))
+                if source not in m["source"]:
+                    m["source"] += "+" + source
+                found = True
+                break
+        if not found:
+            merged.append({
+                "price": price,
+                "source": source,
+                "strength": max(1, count_reactions(price)),
+            })
+
+    supports = []
+    resistances = []
+    for m in merged:
+        if m["price"] < current_price * 0.998:
+            supports.append(SupportResistanceLevel(
+                price=m["price"], level_type="support",
+                source=m["source"], strength=m["strength"],
+            ))
+        elif m["price"] > current_price * 1.002:
+            resistances.append(SupportResistanceLevel(
+                price=m["price"], level_type="resistance",
+                source=m["source"], strength=m["strength"],
+            ))
+
+    supports.sort(key=lambda x: x.price, reverse=True)
+    resistances.sort(key=lambda x: x.price)
+
+    return supports[:5], resistances[:5]
+
+
+def _calculate_fibonacci(df, swing_points):
+    """計算費氏回檔與延伸"""
+    sh = swing_points["recent_swing_high"]
+    sl = swing_points["recent_swing_low"]
+
+    if sh <= sl:
+        sh = df["high"].max()
+        sl = df["low"].min()
+
+    # 判斷方向：最近的收盤價離哪個更近
+    current = df["close"].iloc[-1]
+    diff = sh - sl
+
+    # 如果目前價格偏高端 -> uptrend (回檔從高點往下算)
+    # 如果偏低端 -> downtrend
+    direction = "uptrend" if (current - sl) > diff * 0.5 else "downtrend"
+
+    ratios = [0.236, 0.382, 0.5, 0.618, 0.786]
+    ext_ratios = [1.0, 1.272, 1.618, 2.0]
+
+    retracement = {}
+    extension = {}
+
+    if direction == "uptrend":
+        for r in ratios:
+            retracement[r] = sh - diff * r
+        for r in ext_ratios:
+            extension[r] = sl + diff * r
+    else:
+        for r in ratios:
+            retracement[r] = sl + diff * r
+        for r in ext_ratios:
+            extension[r] = sh - diff * r
+
+    return FibonacciLevels(
+        swing_high=sh, swing_low=sl,
+        direction=direction,
+        retracement=retracement,
+        extension=extension,
+    )
+
+
+def _assess_trend(df):
+    """評估趨勢"""
+    latest = df.iloc[-1]
+    ma5 = _safe(latest.get("ma5"))
+    ma20 = _safe(latest.get("ma20"))
+    ma60 = _safe(latest.get("ma60"))
+    ma120 = _safe(latest.get("ma120"))
+    adx = _safe(latest.get("adx"))
+
+    # 均線排列
+    if ma5 > ma20 > ma60:
+        ma_alignment = "多頭排列"
+    elif ma5 < ma20 < ma60:
+        ma_alignment = "空頭排列"
+    else:
+        ma_alignment = "糾結"
+
+    # MA20 斜率
+    ma20_series = df["ma20"].dropna()
+    if len(ma20_series) >= 10:
+        slope = (ma20_series.iloc[-1] - ma20_series.iloc[-10]) / ma20_series.iloc[-10]
+    else:
+        slope = 0
+
+    # 趨勢方向
+    if slope > 0.01 and adx > 25:
+        trend_direction = "強勢上漲"
+    elif slope > 0.003:
+        trend_direction = "溫和上漲"
+    elif slope < -0.01 and adx > 25:
+        trend_direction = "強勢下跌"
+    elif slope < -0.003:
+        trend_direction = "溫和下跌"
+    else:
+        trend_direction = "盤整"
+
+    # 趨勢強度
+    if adx > 30:
+        trend_strength = "強"
+    elif adx > 18:
+        trend_strength = "中"
+    else:
+        trend_strength = "弱"
+
+    return {
+        "trend_direction": trend_direction,
+        "trend_strength": trend_strength,
+        "ma_alignment": ma_alignment,
+    }
+
+
+def _assess_momentum(df):
+    """評估動能"""
+    latest = df.iloc[-1]
+    adx = _safe(latest.get("adx"))
+    plus_di = _safe(latest.get("plus_di"))
+    minus_di = _safe(latest.get("minus_di"))
+    rsi = _safe(latest.get("rsi"))
+    macd = _safe(latest.get("macd"))
+    macd_sig = _safe(latest.get("macd_signal"))
+    macd_hist = _safe(latest.get("macd_hist"))
+    k = _safe(latest.get("k"))
+    d = _safe(latest.get("d"))
+
+    # ADX
+    if adx > 40:
+        adx_interp = "趨勢極強，方向明確"
+    elif adx > 25:
+        adx_interp = "趨勢明確，可順勢操作"
+    elif adx > 18:
+        adx_interp = "趨勢偏弱，宜謹慎"
+    else:
+        adx_interp = "無明顯趨勢，盤整格局"
+
+    if plus_di > minus_di:
+        adx_interp += f"（+DI={plus_di:.1f} > -DI={minus_di:.1f}，方向偏多）"
+    else:
+        adx_interp += f"（+DI={plus_di:.1f} < -DI={minus_di:.1f}，方向偏空）"
+
+    # RSI
+    if rsi > 80:
+        rsi_interp = "嚴重超買，短線回檔風險極高"
+    elif rsi > 70:
+        rsi_interp = "超買區域，注意回檔壓力"
+    elif rsi > 50:
+        rsi_interp = "偏多格局，動能尚可"
+    elif rsi > 30:
+        rsi_interp = "偏空格局，動能偏弱"
+    elif rsi > 20:
+        rsi_interp = "超賣區域，具反彈空間"
+    else:
+        rsi_interp = "嚴重超賣，反彈機率高"
+
+    # MACD
+    if macd > macd_sig and macd_hist > 0:
+        if macd > 0:
+            macd_interp = "多頭格局，MACD 在零軸之上且持續擴張"
+        else:
+            macd_interp = "由空轉多中，MACD 已金叉但尚未突破零軸"
+    elif macd < macd_sig and macd_hist < 0:
+        if macd < 0:
+            macd_interp = "空頭格局，MACD 在零軸之下且持續擴張"
+        else:
+            macd_interp = "由多轉空中，MACD 已死叉但尚在零軸之上"
+    else:
+        macd_interp = "MACD 訊號不明確，多空力道拉鋸"
+
+    # 柱狀圖趨勢
+    hist_series = df["macd_hist"].dropna().tail(5)
+    if len(hist_series) >= 3:
+        if hist_series.iloc[-1] > hist_series.iloc[-3]:
+            macd_interp += "，柱狀圖趨勢轉強"
+        elif hist_series.iloc[-1] < hist_series.iloc[-3]:
+            macd_interp += "，柱狀圖趨勢轉弱"
+
+    # KD
+    if k > d and k < 20:
+        kd_interp = "低檔黃金交叉，強烈反彈訊號"
+    elif k > d and k < 50:
+        kd_interp = "黃金交叉，偏多格局"
+    elif k > d and k > 80:
+        kd_interp = "高檔黃金交叉，注意超買鈍化"
+    elif k < d and k > 80:
+        kd_interp = "高檔死亡交叉，短線回檔壓力"
+    elif k < d and k > 50:
+        kd_interp = "死亡交叉，偏空格局"
+    elif k < d:
+        kd_interp = "低檔死亡交叉，空方主導"
+    else:
+        kd_interp = "KD 糾結，方向不明"
+
+    # 綜合動能
+    score = 0
+    if plus_di > minus_di:
+        score += 1
+    else:
+        score -= 1
+    if rsi > 50:
+        score += 1
+    else:
+        score -= 1
+    if macd > macd_sig:
+        score += 1
+    else:
+        score -= 1
+    if k > d:
+        score += 1
+    else:
+        score -= 1
+
+    if score >= 3:
+        momentum_status = "強勁多頭"
+    elif score >= 1:
+        momentum_status = "偏多"
+    elif score >= -1:
+        momentum_status = "中性"
+    elif score >= -3:
+        momentum_status = "偏空"
+    else:
+        momentum_status = "強勁空頭"
+
+    return {
+        "momentum_status": momentum_status,
+        "adx_value": adx,
+        "adx_interpretation": adx_interp,
+        "rsi_value": rsi,
+        "rsi_interpretation": rsi_interp,
+        "macd_value": macd,
+        "macd_signal_value": macd_sig,
+        "macd_histogram": macd_hist,
+        "macd_interpretation": macd_interp,
+        "k_value": k,
+        "d_value": d,
+        "kd_interpretation": kd_interp,
+    }
+
+
+def _assess_volume(df):
+    """評估成交量"""
+    latest = df.iloc[-1]
+    vol = _safe(latest.get("volume"))
+    vol_ma5 = _safe(latest.get("volume_ma5"))
+    vol_ma20 = _safe(latest.get("volume_ma20"))
+    vol_ratio = _safe(latest.get("volume_ratio"), 1.0)
+
+    # 量能趨勢
+    if vol_ma5 > 0 and vol_ma20 > 0:
+        ratio_5_20 = vol_ma5 / vol_ma20
+    else:
+        ratio_5_20 = 1.0
+
+    if ratio_5_20 > 1.3:
+        volume_trend = "放量"
+    elif ratio_5_20 < 0.7:
+        volume_trend = "縮量"
+    else:
+        volume_trend = "平穩"
+
+    # 吸籌/出貨：看近 20 天的量價關係
+    tail20 = df.tail(20)
+    up_vol = 0  # 收紅且量大
+    down_vol = 0  # 收黑且量大
+    for _, row in tail20.iterrows():
+        v = _safe(row.get("volume"))
+        vma = _safe(row.get("volume_ma5"), 1)
+        if vma == 0:
+            vma = 1
+        c = _safe(row.get("close"))
+        o = _safe(row.get("open"))
+        if c > o and v > vma:
+            up_vol += 1
+        elif c < o and v > vma:
+            down_vol += 1
+
+    if up_vol > down_vol + 3:
+        accum = "吸籌"
+    elif down_vol > up_vol + 3:
+        accum = "出貨"
+    else:
+        accum = "中性"
+
+    # 解讀
+    parts = [f"近期量能{volume_trend}"]
+    if volume_trend == "放量":
+        parts.append("短期資金關注度提升")
+    elif volume_trend == "縮量":
+        parts.append("市場觀望氣氛濃厚")
+
+    if accum == "吸籌":
+        parts.append("量價結構偏多，疑似有主力吸籌跡象")
+    elif accum == "出貨":
+        parts.append("量價結構偏空，須留意主力出貨可能")
+    else:
+        parts.append("量價結構中性，尚無明顯籌碼方向")
+
+    return {
+        "volume_trend": volume_trend,
+        "volume_ratio": vol_ratio,
+        "accumulation_distribution": accum,
+        "volume_interpretation": "。".join(parts) + "。",
+    }
+
+
+def _assess_volatility(df):
+    """評估波動度"""
+    latest = df.iloc[-1]
+    atr_val = _safe(latest.get("atr"))
+    atr_pct = _safe(latest.get("atr_pct"))
+    bb_upper = _safe(latest.get("bb_upper"))
+    bb_lower = _safe(latest.get("bb_lower"))
+    bb_middle = _safe(latest.get("bb_middle"), 1)
+    close = _safe(latest.get("close"))
+
+    # 歷史波動率
+    pct_changes = df["close"].pct_change().dropna()
+    hvol_20 = float(pct_changes.tail(20).std() * np.sqrt(252)) if len(pct_changes) >= 20 else 0
+    hvol_60 = float(pct_changes.tail(60).std() * np.sqrt(252)) if len(pct_changes) >= 60 else 0
+
+    # 布林寬度
+    bb_width = (bb_upper - bb_lower) / bb_middle if bb_middle > 0 else 0
+    bb_pos = (close - bb_lower) / (bb_upper - bb_lower) if (bb_upper - bb_lower) > 0 else 0.5
+
+    # 波動度級別
+    if atr_pct > 0.04:
+        vol_level = "高"
+    elif atr_pct > 0.02:
+        vol_level = "中"
+    else:
+        vol_level = "低"
+
+    # 解讀
+    parts = []
+    parts.append(f"14 日 ATR 為 {atr_val:.2f} 元（佔股價 {atr_pct:.1%}），波動度{vol_level}")
+    if bb_width > 0.15:
+        parts.append("布林通道大幅張開，顯示近期波動劇烈")
+    elif bb_width < 0.06:
+        parts.append("布林通道收斂，可能醞釀方向性突破")
+    else:
+        parts.append("布林通道寬度正常")
+
+    if bb_pos > 0.8:
+        parts.append("股價位於通道上緣，短線偏強但須留意拉回")
+    elif bb_pos < 0.2:
+        parts.append("股價位於通道下緣，短線偏弱但具反彈條件")
+    else:
+        parts.append("股價位於通道中段")
+
+    return {
+        "atr_value": atr_val,
+        "atr_pct": atr_pct,
+        "historical_volatility_20d": hvol_20,
+        "historical_volatility_60d": hvol_60,
+        "bollinger_width": bb_width,
+        "bollinger_position": bb_pos,
+        "volatility_level": vol_level,
+        "volatility_interpretation": "。".join(parts) + "。",
+    }
+
+
+def _assess_risk(df, support_levels):
+    """評估風險"""
+    close_series = df["close"]
+    current = close_series.iloc[-1]
+
+    # 最大回撤 (1Y)
+    tail252 = close_series.tail(252)
+    running_max = tail252.cummax()
+    drawdowns = (tail252 - running_max) / running_max
+    max_dd = float(drawdowns.min())
+
+    # 目前回撤
+    peak = close_series.max()
+    current_dd = (current - peak) / peak
+
+    # 關鍵風險價位（第一個強支撐）
+    if support_levels:
+        key_risk = support_levels[0].price
+    else:
+        key_risk = current * 0.93
+
+    # 風險報酬比
+    nearest_resistance = current * 1.10
+    rr = (nearest_resistance - current) / (current - key_risk) if current > key_risk else 0
+
+    # 解讀
+    parts = []
+    parts.append(f"近一年最大回撤為 {max_dd:.1%}，目前距歷史高點 {current_dd:.1%}")
+    if max_dd < -0.20:
+        parts.append("歷史回撤幅度偏大，須注意下檔風險")
+    if rr > 2:
+        parts.append(f"風險報酬比 {rr:.1f}:1，以技術面而言進場條件有利")
+    elif rr > 1:
+        parts.append(f"風險報酬比 {rr:.1f}:1，風險與報酬尚稱平衡")
+    else:
+        parts.append(f"風險報酬比 {rr:.1f}:1，下檔風險大於潛在報酬，宜謹慎")
+
+    return {
+        "max_drawdown_1y": max_dd,
+        "current_drawdown": current_dd,
+        "key_risk_level": key_risk,
+        "risk_reward_ratio": max(rr, 0),
+        "risk_interpretation": "。".join(parts) + "。",
+    }
+
+
+def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_levels,
+                              support_levels, trend_direction, adx_value):
+    """估算目標價"""
+    targets = []
+
+    for tf, tf_label, trading_days in [("3M", "三個月", 63), ("6M", "六個月", 126), ("1Y", "一年", 252)]:
+        # ATR 投射 (按時間比例根號縮放)
+        scale = math.sqrt(trading_days / 14)
+        atr_up = current_price * (1 + atr_pct * 2 * scale)
+        atr_down = current_price * (1 - atr_pct * 2 * scale)
+
+        # Bull case
+        fib_ext = fibonacci.extension.get(1.272, current_price * 1.15)
+        if tf == "1Y":
+            fib_ext = fibonacci.extension.get(1.618, current_price * 1.25)
+        elif tf == "6M":
+            fib_ext = fibonacci.extension.get(1.272, current_price * 1.15)
+
+        nearest_res = resistance_levels[0].price if resistance_levels else current_price * 1.05
+        bull_target = (fib_ext * 0.4 + atr_up * 0.3 + nearest_res * 0.3)
+        # 上限：不超過 +100%
+        bull_target = min(bull_target, current_price * 2.0)
+
+        # Bear case
+        fib_ret = list(fibonacci.retracement.values())
+        if fibonacci.direction == "uptrend" and fib_ret:
+            bear_fib = fib_ret[-1] if tf == "1Y" else fib_ret[2] if len(fib_ret) > 2 else fib_ret[-1]
+        else:
+            bear_fib = current_price * 0.85
+
+        nearest_sup = support_levels[0].price if support_levels else current_price * 0.93
+        bear_target = (bear_fib * 0.4 + atr_down * 0.3 + nearest_sup * 0.3)
+        # 下限：不低於 -50%
+        bear_target = max(bear_target, current_price * 0.5)
+
+        # Base case
+        base_target = (bull_target + bear_target) / 2
+        # 趨勢調整
+        if "上漲" in trend_direction:
+            base_target = base_target * 1.02
+        elif "下跌" in trend_direction:
+            base_target = base_target * 0.98
+
+        # 信心度
+        if adx_value > 25:
+            base_conf = "高"
+        elif adx_value > 18:
+            base_conf = "中"
+        else:
+            base_conf = "低"
+
+        targets.append(PriceTarget(
+            scenario="bull", target_price=round(bull_target, 2),
+            upside_pct=(bull_target / current_price - 1),
+            rationale=f"依費氏延伸、ATR 波動推估及壓力位綜合計算之{tf_label}樂觀目標",
+            timeframe=tf, confidence="中",
+        ))
+        targets.append(PriceTarget(
+            scenario="base", target_price=round(base_target, 2),
+            upside_pct=(base_target / current_price - 1),
+            rationale=f"綜合趨勢投射與支撐壓力中位數推估之{tf_label}基本目標",
+            timeframe=tf, confidence=base_conf,
+        ))
+        targets.append(PriceTarget(
+            scenario="bear", target_price=round(bear_target, 2),
+            upside_pct=(bear_target / current_price - 1),
+            rationale=f"依費氏回檔、ATR 下行推估及支撐位綜合計算之{tf_label}保守目標",
+            timeframe=tf, confidence="中",
+        ))
+
+    return targets
+
+
+def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
+                               v2_composite, rsi, rr_ratio):
+    """計算綜合評等"""
+    score = 0
+    trend_map = {"強勢上漲": 2, "溫和上漲": 1, "盤整": 0, "溫和下跌": -1, "強勢下跌": -2}
+    score += trend_map.get(trend_direction, 0)
+
+    if v4_signal == "BUY":
+        score += 2
+    if v2_composite > 0.3:
+        score += 1
+    elif v2_composite < -0.3:
+        score -= 1
+
+    mom_map = {"強勁多頭": 2, "偏多": 1, "中性": 0, "偏空": -1, "強勁空頭": -2}
+    score += mom_map.get(momentum_status, 0)
+
+    if rsi < 30:
+        score += 1
+    elif rsi > 70:
+        score -= 1
+
+    if rr_ratio > 2:
+        score += 1
+    elif rr_ratio < 0.5:
+        score -= 1
+
+    if score >= 5:
+        return "強力買進"
+    elif score >= 2:
+        return "買進"
+    elif score >= -1:
+        return "中性"
+    elif score >= -4:
+        return "賣出"
+    else:
+        return "強力賣出"
+
+
+def _generate_outlook(trend_direction, momentum_status, price_targets,
+                       volatility_level, current_price, adx, rsi):
+    """產生展望"""
+    # 基礎機率
+    if trend_direction in ("強勢上漲", "溫和上漲"):
+        probs = {"3M": (40, 40, 20), "6M": (35, 35, 30), "1Y": (30, 35, 35)}
+    elif trend_direction == "盤整":
+        probs = {"3M": (25, 50, 25), "6M": (30, 40, 30), "1Y": (30, 35, 35)}
+    else:
+        probs = {"3M": (15, 35, 50), "6M": (25, 35, 40), "1Y": (30, 35, 35)}
+
+    # RSI 調整
+    for tf in probs:
+        b, m, e = probs[tf]
+        if rsi > 70:
+            b -= 5
+            e += 5
+        elif rsi < 30:
+            b += 5
+            e -= 5
+        probs[tf] = (max(b, 5), m, max(e, 5))
+
+    def get_target(tf, scenario):
+        for t in price_targets:
+            if t.timeframe == tf and t.scenario == scenario:
+                return t.target_price
+        return current_price
+
+    def make_outlook(tf, tf_label):
+        b, m, e = probs[tf]
+        bt = get_target(tf, "bull")
+        mt = get_target(tf, "base")
+        et = get_target(tf, "bear")
+
+        if "上漲" in trend_direction:
+            bull_desc = f"延續現有上升趨勢，突破近期壓力後持續走高，目標挑戰 ${bt:.2f} 價位"
+            base_desc = f"維持目前格局，於支撐壓力區間內震盪整理，預期在 ${et:.2f}～${bt:.2f} 之間波動"
+            bear_desc = f"若趨勢反轉跌破關鍵支撐，可能回落至 ${et:.2f} 附近，主要風險來自獲利回吐及市場系統性風險"
+        elif "下跌" in trend_direction:
+            bull_desc = f"若出現技術面反轉訊號，有望反彈至 ${bt:.2f}，但需確認量能配合"
+            base_desc = f"延續弱勢整理格局，預期在 ${et:.2f}～${mt:.2f} 之間波動"
+            bear_desc = f"空方趨勢延續，可能進一步下探 ${et:.2f}，須留意支撐失守的連鎖效應"
+        else:
+            bull_desc = f"若突破盤整區間上緣，有望啟動新一輪上漲至 ${bt:.2f}"
+            base_desc = f"維持區間盤整格局，預期在 ${et:.2f}～${bt:.2f} 之間來回震盪"
+            bear_desc = f"若跌破盤整區間下緣，可能轉為空方走勢，下探 ${et:.2f}"
+
+        return OutlookScenario(
+            timeframe=tf_label,
+            bull_case=bull_desc, bull_target=bt, bull_probability=b,
+            base_case=base_desc, base_target=mt, base_probability=m,
+            bear_case=bear_desc, bear_target=et, bear_probability=e,
+        )
+
+    return (
+        make_outlook("3M", "3 個月"),
+        make_outlook("6M", "6 個月"),
+        make_outlook("1Y", "1 年"),
+    )
+
+
+def _generate_summary(data: dict) -> str:
+    """產生 500 字專業中文摘要"""
+    code = data["stock_code"]
+    name = data["stock_name"]
+    price = data["current_price"]
+    perf = data["performance"]
+    trend = data["trend"]
+    mom = data["momentum"]
+    vol = data["volume"]
+    volatility = data["volatility"]
+    risk = data["risk"]
+    targets = data["targets"]
+    outlook_3m = data["outlook_3m"]
+    fib = data["fibonacci"]
+    supports = data["supports"]
+    resistances = data["resistances"]
+    rating = data["overall_rating"]
+
+    # 績效描述
+    perf_parts = []
+    for label, key in [("一週", "price_change_1w"), ("一個月", "price_change_1m"),
+                       ("三個月", "price_change_3m")]:
+        val = perf[key]
+        perf_parts.append(f"{label}{val:+.1%}")
+    perf_str = "、".join(perf_parts)
+
+    # 支撐壓力
+    r_str = "、".join([f"${r.price:.2f}" for r in resistances[:2]]) if resistances else "暫無明顯壓力"
+    s_str = "、".join([f"${s.price:.2f}" for s in supports[:2]]) if supports else "暫無明顯支撐"
+
+    # 目標價 (6M)
+    bull_6m = [t for t in targets if t.timeframe == "6M" and t.scenario == "bull"]
+    base_6m = [t for t in targets if t.timeframe == "6M" and t.scenario == "base"]
+    bear_6m = [t for t in targets if t.timeframe == "6M" and t.scenario == "bear"]
+
+    bull_p = f"${bull_6m[0].target_price:.2f}" if bull_6m else "N/A"
+    base_p = f"${base_6m[0].target_price:.2f}" if base_6m else "N/A"
+    bear_p = f"${bear_6m[0].target_price:.2f}" if bear_6m else "N/A"
+
+    # 第一段：概況
+    p1 = (
+        f"{name}（{code}）截至報告日收盤價為 ${price:.2f} 元，"
+        f"近期表現方面，{perf_str}。"
+        f"52 週最高 ${perf['high_52w']:.2f}（{perf['high_52w_date']}），"
+        f"最低 ${perf['low_52w']:.2f}（{perf['low_52w_date']}），"
+        f"目前距 52 週高點 {perf['pct_from_52w_high']:.1%}。"
+        f"從技術面綜合評估，本報告給予「{rating}」評等。"
+    )
+
+    # 第二段：趨勢與動能
+    p2 = (
+        f"趨勢面觀察，該股目前處於{trend['trend_direction']}格局，"
+        f"均線呈{trend['ma_alignment']}，趨勢強度{trend['trend_strength']}。"
+        f"動能指標方面，ADX 報 {mom['adx_value']:.1f}，{mom['adx_interpretation'][:15]}；"
+        f"RSI 為 {mom['rsi_value']:.1f}，{mom['rsi_interpretation'][:10]}；"
+        f"MACD {mom['macd_interpretation'][:20]}；"
+        f"KD 指標 {mom['kd_interpretation'][:15]}。"
+        f"整體動能評估為「{mom['momentum_status']}」。"
+    )
+
+    # 第三段：量能與波動
+    p3 = (
+        f"成交量方面，近期量能{vol['volume_trend']}，"
+        f"量能比為 {vol['volume_ratio']:.1f} 倍，"
+        f"籌碼面評估為{vol['accumulation_distribution']}。"
+        f"波動度方面，14 日 ATR 佔股價 {volatility['atr_pct']:.1%}，"
+        f"波動度{volatility['volatility_level']}；"
+        f"20 日歷史波動率為 {volatility['historical_volatility_20d']:.1%}。"
+    )
+
+    # 第四段：關鍵價位與目標價
+    p4 = (
+        f"關鍵價位分析，上方主要壓力位於 {r_str}，"
+        f"下方支撐位於 {s_str}。"
+        f"費氏分析顯示波段高點 ${fib.swing_high:.2f}、低點 ${fib.swing_low:.2f}，"
+        f"方向為{fib.direction}。"
+        f"綜合目標價估算（六個月），樂觀情境 {bull_p}、"
+        f"基本情境 {base_p}、保守情境 {bear_p}。"
+        f"風險報酬比為 {risk['risk_reward_ratio']:.1f}:1。"
+    )
+
+    # 第五段：展望與結論
+    o3 = outlook_3m
+    p5 = (
+        f"展望未來三個月，基本情境（機率 {o3.base_probability}%）預期"
+        f"{o3.base_case[:30]}。"
+        f"近一年最大回撤為 {risk['max_drawdown_1y']:.1%}，"
+        f"關鍵風險價位在 ${risk['key_risk_level']:.2f}，若有效跌破恐引發進一步修正。"
+        f"綜合以上技術面分析，建議投資人"
+    )
+
+    if rating in ("強力買進", "買進"):
+        p5 += "可於支撐附近分批佈局，並嚴設停損控制風險。"
+    elif rating == "中性":
+        p5 += "保持觀望，待明確方向訊號出現後再行操作。"
+    else:
+        p5 += "宜降低持股比重或暫時觀望，等待技術面轉強。"
+    p5 += "（以上分析僅供技術面參考，不構成投資建議。）"
+
+    return p1 + "\n\n" + p2 + "\n\n" + p3 + "\n\n" + p4 + "\n\n" + p5
+
+
+# ============================================================
+# Main Function
+# ============================================================
+
+def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
+    """產生完整專業分析報告"""
+    # 1. 取得資料
+    raw_df = get_stock_data(stock_code, period_days=period_days)
+    try:
+        company_info = get_stock_info(stock_code)
+    except Exception:
+        name = get_stock_name(stock_code, get_all_stocks())
+        company_info = {"name": name, "sector": "N/A", "industry": "N/A",
+                        "market_cap": 0, "currency": "TWD"}
+
+    # 2. 計算指標
+    df = calculate_all_indicators(raw_df)
+    df["ma120"] = df["close"].rolling(120).mean()
+    df["ma240"] = df["close"].rolling(240).mean()
+
+    # 3. 策略訊號
+    try:
+        v4 = get_v4_analysis(raw_df)
+    except Exception:
+        v4 = {"signal": "HOLD", "entry_type": "", "uptrend_days": 0,
+              "dist_ma20": 0, "indicators": {}}
+    try:
+        v2 = get_latest_analysis(raw_df)
+    except Exception:
+        v2 = {"signal": "HOLD", "composite_score": 0, "scores": {}, "indicators": {}}
+
+    current_price = float(df["close"].iloc[-1])
+
+    # 4. 計算各 section
+    perf = _calculate_price_performance(df)
+    swings = _detect_swing_points(df)
+    trend = _assess_trend(df)
+    momentum = _assess_momentum(df)
+    volume = _assess_volume(df)
+    volatility = _assess_volatility(df)
+    supports, resistances = _calculate_support_resistance(df, swings, current_price)
+    fib = _calculate_fibonacci(df, swings)
+    risk = _assess_risk(df, supports)
+
+    targets = _calculate_price_targets(
+        current_price, fib,
+        _safe(df["atr_pct"].iloc[-1]),
+        resistances, supports,
+        trend["trend_direction"],
+        _safe(df["adx"].iloc[-1]),
+    )
+
+    overall_rating = _calculate_overall_rating(
+        trend["trend_direction"], momentum["momentum_status"],
+        v4["signal"], v2.get("composite_score", 0),
+        momentum["rsi_value"], risk["risk_reward_ratio"],
+    )
+
+    outlook_3m, outlook_6m, outlook_1y = _generate_outlook(
+        trend["trend_direction"], momentum["momentum_status"],
+        targets, volatility["volatility_level"],
+        current_price, momentum["adx_value"], momentum["rsi_value"],
+    )
+
+    # 5. 摘要
+    summary_data = {
+        "stock_code": stock_code,
+        "stock_name": company_info["name"],
+        "current_price": current_price,
+        "performance": perf,
+        "trend": trend,
+        "momentum": momentum,
+        "volume": volume,
+        "volatility": volatility,
+        "risk": risk,
+        "targets": targets,
+        "outlook_3m": outlook_3m,
+        "fibonacci": fib,
+        "supports": supports,
+        "resistances": resistances,
+        "overall_rating": overall_rating,
+    }
+    summary = _generate_summary(summary_data)
+
+    # 6. 組裝
+    return ReportResult(
+        stock_code=stock_code,
+        stock_name=company_info["name"],
+        report_date=datetime.now(),
+        data_period_days=period_days,
+        company_info=company_info,
+        current_price=current_price,
+        price_change_1w=perf["price_change_1w"],
+        price_change_1m=perf["price_change_1m"],
+        price_change_3m=perf["price_change_3m"],
+        price_change_6m=perf["price_change_6m"],
+        price_change_1y=perf["price_change_1y"],
+        high_52w=perf["high_52w"],
+        low_52w=perf["low_52w"],
+        high_52w_date=perf["high_52w_date"],
+        low_52w_date=perf["low_52w_date"],
+        pct_from_52w_high=perf["pct_from_52w_high"],
+        pct_from_52w_low=perf["pct_from_52w_low"],
+        trend_direction=trend["trend_direction"],
+        trend_strength=trend["trend_strength"],
+        momentum_status=momentum["momentum_status"],
+        volatility_level=volatility["volatility_level"],
+        overall_rating=overall_rating,
+        ma_alignment=trend["ma_alignment"],
+        support_levels=supports,
+        resistance_levels=resistances,
+        fibonacci=fib,
+        price_targets=targets,
+        adx_value=momentum["adx_value"],
+        adx_interpretation=momentum["adx_interpretation"],
+        rsi_value=momentum["rsi_value"],
+        rsi_interpretation=momentum["rsi_interpretation"],
+        macd_value=momentum["macd_value"],
+        macd_signal_value=momentum["macd_signal_value"],
+        macd_histogram=momentum["macd_histogram"],
+        macd_interpretation=momentum["macd_interpretation"],
+        k_value=momentum["k_value"],
+        d_value=momentum["d_value"],
+        kd_interpretation=momentum["kd_interpretation"],
+        volume_trend=volume["volume_trend"],
+        volume_ratio=volume["volume_ratio"],
+        accumulation_distribution=volume["accumulation_distribution"],
+        volume_interpretation=volume["volume_interpretation"],
+        atr_value=volatility["atr_value"],
+        atr_pct=volatility["atr_pct"],
+        historical_volatility_20d=volatility["historical_volatility_20d"],
+        historical_volatility_60d=volatility["historical_volatility_60d"],
+        bollinger_width=volatility["bollinger_width"],
+        bollinger_position=volatility["bollinger_position"],
+        volatility_interpretation=volatility["volatility_interpretation"],
+        max_drawdown_1y=risk["max_drawdown_1y"],
+        current_drawdown=risk["current_drawdown"],
+        key_risk_level=risk["key_risk_level"],
+        risk_reward_ratio=risk["risk_reward_ratio"],
+        risk_interpretation=risk["risk_interpretation"],
+        outlook_3m=outlook_3m,
+        outlook_6m=outlook_6m,
+        outlook_1y=outlook_1y,
+        summary_text=summary,
+        v4_analysis=v4,
+        v2_analysis=v2,
+        indicators_df=df,
+    )
