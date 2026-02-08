@@ -17,6 +17,8 @@ from analysis.report import (
     _calculate_overall_rating,
     _generate_outlook,
     _assess_fundamentals,
+    _get_sector_profile,
+    _SECTOR_PROFILES,
     _assess_news,
     _analyze_news_sentiment,
     _generate_summary,
@@ -353,6 +355,97 @@ class TestAssessFundamentals:
         assert "analyst_data" in result
         assert result["analyst_data"]["target_mean"] == 120.0
         assert result["analyst_data"]["upside"] == pytest.approx(0.20)
+
+    def test_biotech_skips_pe_roe_margin(self):
+        """生技股：PE/ROE/淨利率負值不扣分"""
+        data = {
+            "trailing_pe": 50.0,   # 高 PE → default 會扣 1.0
+            "return_on_equity": -0.10,  # 負 ROE → default 會扣 0.5
+            "profit_margins": -2.0,     # 負淨利率 → default 會扣 0.5
+        }
+        result_default = _assess_fundamentals(data, 100.0)
+        result_biotech = _assess_fundamentals(data, 100.0, sector="Healthcare", industry="Biotechnology")
+        # 生技版分數應該更高（因為不扣分）
+        assert result_biotech["fundamental_score"] > result_default["fundamental_score"]
+        assert "生技新藥業" in result_biotech["fundamental_interpretation"]
+
+    def test_biotech_still_rewards_high_roe(self):
+        """生技股：ROE 高仍加分"""
+        data = {"return_on_equity": 0.30}
+        result = _assess_fundamentals(data, 100.0, sector="Healthcare", industry="Biotechnology")
+        assert result["fundamental_score"] > 0
+
+    def test_financial_skips_debt(self):
+        """金融業：高負債不扣分"""
+        data = {"debt_to_equity": 200}
+        result_default = _assess_fundamentals(data, 100.0)
+        result_financial = _assess_fundamentals(data, 100.0, sector="Financial Services")
+        assert result_financial["fundamental_score"] > result_default["fundamental_score"]
+        assert "金融/營建業" in result_financial["fundamental_interpretation"]
+
+    def test_real_estate_skips_debt(self):
+        """營建業：也走 financial profile"""
+        data = {"debt_to_equity": 150}
+        result = _assess_fundamentals(data, 100.0, sector="Real Estate")
+        # 不應扣負債分
+        assert result["fundamental_score"] >= 0
+
+    def test_traditional_dividend_boost(self):
+        """傳產/公用事業：殖利率加權提高"""
+        data = {"dividend_yield": 0.04}
+        result_default = _assess_fundamentals(data, 100.0)
+        result_trad = _assess_fundamentals(data, 100.0, sector="Utilities")
+        assert result_trad["fundamental_score"] > result_default["fundamental_score"]
+
+    def test_technology_uses_default(self):
+        """科技業走 default，分數與不帶 sector 時相同"""
+        data = {
+            "trailing_pe": 15.0,
+            "return_on_equity": 0.20,
+            "profit_margins": 0.10,
+            "debt_to_equity": 50,
+        }
+        result_no_sector = _assess_fundamentals(data, 100.0)
+        result_tech = _assess_fundamentals(data, 100.0, sector="Technology")
+        assert result_tech["fundamental_score"] == result_no_sector["fundamental_score"]
+
+    def test_healthcare_non_biotech_uses_default(self):
+        """Healthcare 但非 biotech industry → default"""
+        data = {"trailing_pe": 50.0, "return_on_equity": 0.05}
+        result = _assess_fundamentals(data, 100.0, sector="Healthcare", industry="Medical Devices")
+        # Should still penalize high PE (default profile)
+        assert result["fundamental_score"] < 0
+
+
+class TestGetSectorProfile:
+    def test_biotech(self):
+        profile = _get_sector_profile("Healthcare", "Biotechnology")
+        assert profile["skip_pe"] is True
+        assert profile["skip_roe"] is True
+
+    def test_healthcare_non_biotech(self):
+        profile = _get_sector_profile("Healthcare", "Medical Devices")
+        assert profile["skip_pe"] is False  # falls to default
+
+    def test_financial(self):
+        profile = _get_sector_profile("Financial Services", "Banks")
+        assert profile["skip_de"] is True
+
+    def test_real_estate(self):
+        profile = _get_sector_profile("Real Estate", "REIT")
+        assert profile["skip_de"] is True
+
+    def test_utilities(self):
+        profile = _get_sector_profile("Utilities", "Electric Utilities")
+        assert profile == _SECTOR_PROFILES["traditional"]
+
+    def test_technology_default(self):
+        profile = _get_sector_profile("Technology", "Semiconductors")
+        assert profile == _SECTOR_PROFILES["default"]
+
+    def test_empty_strings(self):
+        profile = _get_sector_profile("", "")
+        assert profile == _SECTOR_PROFILES["default"]
 
 
 class TestAssessNews:

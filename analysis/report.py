@@ -1104,8 +1104,67 @@ def _generate_outlook(trend_direction, momentum_status, price_targets,
     )
 
 
-def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
-    """評估基本面，回傳分數與解讀"""
+# ============================================================
+# Sector Profiles — 產業別基本面評分調整
+# ============================================================
+
+_SECTOR_PROFILES = {
+    "biotech": {
+        "sectors": {"Healthcare"},
+        "industries": {"Biotechnology", "Drug Manufacturers", "Diagnostics & Research"},
+        "skip_pe": True,
+        "skip_roe": True,
+        "skip_margin": True,
+        "skip_de": False,
+        "label": "生技新藥業，獲利指標適用性較低",
+    },
+    "financial": {
+        "sectors": {"Financial Services", "Real Estate"},
+        "industries": set(),
+        "skip_pe": False,
+        "skip_roe": False,
+        "skip_margin": False,
+        "skip_de": True,
+        "label": "金融/營建業，高槓桿為常態",
+    },
+    "traditional": {
+        "sectors": {"Utilities", "Consumer Defensive", "Basic Materials"},
+        "industries": set(),
+        "skip_pe": False,
+        "skip_roe": False,
+        "skip_margin": False,
+        "skip_de": False,
+        "label": "",
+    },
+    "default": {
+        "skip_pe": False,
+        "skip_roe": False,
+        "skip_margin": False,
+        "skip_de": False,
+        "label": "",
+    },
+}
+
+
+def _get_sector_profile(sector: str, industry: str) -> dict:
+    """根據 yfinance sector/industry 判斷產業類別"""
+    for profile_name, profile in _SECTOR_PROFILES.items():
+        if profile_name == "default":
+            continue
+        if sector in profile.get("sectors", set()):
+            # Healthcare 需要再看 industry 才決定是不是 biotech
+            if profile_name == "biotech":
+                if industry in profile["industries"]:
+                    return profile
+                continue  # Healthcare 但不是 biotech → 繼續找或 default
+            return profile
+    return _SECTOR_PROFILES["default"]
+
+
+def _assess_fundamentals(fundamentals: dict, current_price: float,
+                         sector: str = "", industry: str = "") -> dict:
+    """評估基本面，回傳分數與解讀（依產業調整評分邏輯）"""
+    profile = _get_sector_profile(sector, industry)
     score = 0.0
     parts = []
     available = 0
@@ -1119,7 +1178,7 @@ def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
     # --- 估值 ---
     pe = _val("trailing_pe")
     fwd_pe = _val("forward_pe")
-    if pe is not None:
+    if pe is not None and not profile["skip_pe"]:
         available += 1
         if pe < 10:
             score += 1.0
@@ -1133,7 +1192,7 @@ def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
         else:
             parts.append(f"本益比 {pe:.1f} 倍")
 
-    if pe is not None and fwd_pe is not None and pe > 0:
+    if pe is not None and fwd_pe is not None and pe > 0 and not profile["skip_pe"]:
         available += 1
         if fwd_pe < pe * 0.8:
             score += 0.5
@@ -1178,7 +1237,7 @@ def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
             parts.append(f"ROE {roe:.0%}，股東權益報酬率優秀")
         elif roe > 0.15:
             score += 0.5
-        elif roe < 0.08:
+        elif roe < 0.08 and not profile["skip_roe"]:
             score -= 0.5
             parts.append(f"ROE {roe:.0%}，獲利效率偏低")
 
@@ -1188,7 +1247,7 @@ def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
         available += 1
         if pm > 0.30:
             score += 0.5
-        elif pm < 0.05:
+        elif pm < 0.05 and not profile["skip_margin"]:
             score -= 0.5
             parts.append(f"淨利率 {pm:.0%}，利潤率偏低")
 
@@ -1198,22 +1257,25 @@ def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
         available += 1
         if de < 30:
             score += 0.3
-        elif de > 100:
+        elif de > 100 and not profile["skip_de"]:
             score -= 0.5
             parts.append(f"負債權益比 {de:.0f}%，財務槓桿偏高")
 
     # --- 殖利率 ---
     dy = _val("dividend_yield")
+    is_traditional = (sector in _SECTOR_PROFILES["traditional"].get("sectors", set()))
     if dy is not None:
         # yfinance 台股有時回傳百分比形式 (e.g. 1.15 表示 1.15%)，需正規化為小數
         if dy > 1:
             dy = dy / 100
         available += 1
+        # 傳產/公用事業殖利率加權提高
+        dy_bonus = 0.3 if is_traditional else 0.0
         if dy > 0.05:
-            score += 0.5
+            score += 0.5 + dy_bonus
             parts.append(f"殖利率 {dy:.1%}，配息豐厚")
         elif dy > 0.03:
-            score += 0.2
+            score += 0.2 + dy_bonus
 
     # --- 法人目標價 ---
     target_mean = _val("target_mean_price")
@@ -1272,14 +1334,16 @@ def _assess_fundamentals(fundamentals: dict, current_price: float) -> dict:
     }
 
     # 綜合解讀
+    sector_label = profile.get("label", "")
+    sector_note = f"（{sector_label}）" if sector_label else ""
     if score >= 3:
-        interpretation = "基本面表現優異。" + "；".join(parts[:4]) + "。"
+        interpretation = f"基本面表現優異{sector_note}。" + "；".join(parts[:4]) + "。"
     elif score >= 1:
-        interpretation = "基本面表現穩健。" + "；".join(parts[:4]) + "。"
+        interpretation = f"基本面表現穩健{sector_note}。" + "；".join(parts[:4]) + "。"
     elif score >= -1:
-        interpretation = "基本面表現中性。" + ("；".join(parts[:4]) + "。" if parts else "")
+        interpretation = f"基本面表現中性{sector_note}。" + ("；".join(parts[:4]) + "。" if parts else "")
     else:
-        interpretation = "基本面表現偏弱。" + "；".join(parts[:4]) + "。"
+        interpretation = f"基本面表現偏弱{sector_note}。" + "；".join(parts[:4]) + "。"
 
     return {
         "fundamental_score": score,
@@ -1642,7 +1706,9 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
     except Exception:
         pass
 
-    fund_result = _assess_fundamentals(fundamentals_raw, current_price)
+    sector = company_info.get("sector", "")
+    industry = company_info.get("industry", "")
+    fund_result = _assess_fundamentals(fundamentals_raw, current_price, sector=sector, industry=industry)
     scored_news = _assess_news(raw_news)
     news_sentiment = _analyze_news_sentiment(scored_news)
 
