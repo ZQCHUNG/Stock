@@ -340,13 +340,21 @@ def _calculate_fibonacci(df, swing_points):
     """計算費氏回檔與延伸"""
     sh = swing_points["recent_swing_high"]
     sl = swing_points["recent_swing_low"]
+    current = df["close"].iloc[-1]
 
     if sh <= sl:
         sh = df["high"].max()
         sl = df["low"].min()
 
-    # 判斷方向：最近的收盤價離哪個更近
-    current = df["close"].iloc[-1]
+    # 當現價已超過偵測到的 swing high，代表偵測的波段已過時
+    # 改用實際近期高點與近半年低點重新計算
+    if current > sh * 1.02:
+        sh = df["high"].max()
+        recent_bars = min(120, len(df))
+        sl = df["low"].iloc[-recent_bars:].min()
+        if sh <= sl:
+            sl = df["low"].min()
+
     diff = sh - sl
 
     # 如果目前價格偏高端 -> uptrend (回檔從高點往下算)
@@ -727,6 +735,9 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
                               support_levels, trend_direction, adx_value):
     """估算目標價"""
     targets = []
+    is_strong_uptrend = "上漲" in trend_direction and adx_value > 25
+    is_uptrend = "上漲" in trend_direction
+    is_downtrend = "下跌" in trend_direction
 
     for tf, tf_label, trading_days in [("3M", "三個月", 63), ("6M", "六個月", 126), ("1Y", "一年", 252)]:
         # ATR 投射 (按時間比例根號縮放)
@@ -741,7 +752,18 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
         elif tf == "6M":
             fib_ext = fibonacci.extension.get(1.272, current_price * 1.15)
 
-        nearest_res = resistance_levels[0].price if resistance_levels else current_price * 1.05
+        # 當 Fibonacci 延伸低於現價（波段已過時），改用 ATR 推估
+        if fib_ext < current_price * 1.01:
+            trend_mult = 1.5 if is_strong_uptrend else 1.0
+            fib_ext = current_price * (1 + atr_pct * trend_mult * scale)
+
+        # 壓力位：跳過太靠近的（<2%），取有意義的壓力
+        nearest_res = current_price * 1.05  # fallback
+        for r in resistance_levels:
+            if r.price >= current_price * 1.02:
+                nearest_res = r.price
+                break
+
         bull_target = (fib_ext * 0.4 + atr_up * 0.3 + nearest_res * 0.3)
         # 上限：不超過 +100%
         bull_target = min(bull_target, current_price * 2.0)
@@ -758,13 +780,15 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
         # 下限：不低於 -50%
         bear_target = max(bear_target, current_price * 0.5)
 
-        # Base case
-        base_target = (bull_target + bear_target) / 2
-        # 趨勢調整
-        if "上漲" in trend_direction:
-            base_target = base_target * 1.02
-        elif "下跌" in trend_direction:
-            base_target = base_target * 0.98
+        # Base case：依趨勢方向加權，而非簡單取中點
+        if is_strong_uptrend:
+            base_target = bull_target * 0.6 + bear_target * 0.4
+        elif is_uptrend:
+            base_target = bull_target * 0.55 + bear_target * 0.45
+        elif is_downtrend:
+            base_target = bull_target * 0.4 + bear_target * 0.6
+        else:
+            base_target = (bull_target + bear_target) / 2
 
         # 信心度
         if adx_value > 25:
@@ -797,7 +821,7 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
 
 
 def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
-                               v2_composite, rsi, rr_ratio):
+                               v2_composite, rsi, rr_ratio, base_3m_upside=0):
     """計算綜合評等"""
     score = 0
     trend_map = {"強勢上漲": 2, "溫和上漲": 1, "盤整": 0, "溫和下跌": -1, "強勢下跌": -2}
@@ -823,9 +847,19 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     elif rr_ratio < 0.5:
         score -= 1
 
-    if score >= 5:
+    # 目標價上檔空間調整：技術面再好，預期報酬低就不該強力推薦
+    if base_3m_upside > 0.10:
+        score += 2
+    elif base_3m_upside > 0.05:
+        score += 1
+    elif base_3m_upside < -0.05:
+        score -= 2
+    elif base_3m_upside < 0:
+        score -= 1
+
+    if score >= 6:
         return "強力買進"
-    elif score >= 2:
+    elif score >= 3:
         return "買進"
     elif score >= -1:
         return "中性"
@@ -1050,10 +1084,15 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         _safe(df["adx"].iloc[-1]),
     )
 
+    # 取得 3M base case 上檔空間供評等參考
+    base_3m = next((t for t in targets if t.timeframe == "3M" and t.scenario == "base"), None)
+    base_3m_upside = base_3m.upside_pct if base_3m else 0
+
     overall_rating = _calculate_overall_rating(
         trend["trend_direction"], momentum["momentum_status"],
         v4["signal"], v2.get("composite_score", 0),
         momentum["rsi_value"], risk["risk_reward_ratio"],
+        base_3m_upside=base_3m_upside,
     )
 
     outlook_3m, outlook_6m, outlook_1y = _generate_outlook(
