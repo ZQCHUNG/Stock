@@ -453,7 +453,14 @@ def _assess_trend(df):
     else:
         slope = 0
 
-    # 趨勢方向
+    # 短期價格變動（5 日），用來修正 MA 斜率滯後
+    close_series = df["close"].dropna()
+    if len(close_series) >= 5:
+        short_chg = (close_series.iloc[-1] - close_series.iloc[-5]) / close_series.iloc[-5]
+    else:
+        short_chg = 0
+
+    # 趨勢方向（MA 斜率 + 短期價格修正）
     if slope > 0.01 and adx > 25:
         trend_direction = "強勢上漲"
     elif slope > 0.003:
@@ -463,6 +470,13 @@ def _assess_trend(df):
     elif slope < -0.003:
         trend_direction = "溫和下跌"
     else:
+        trend_direction = "盤整"
+
+    # 修正：MA 斜率滯後導致趨勢與短期走勢矛盾
+    # 當 MA 說上漲但近 5 日跌 > 5%，降級趨勢判定
+    if trend_direction in ("強勢上漲", "溫和上漲") and short_chg < -0.05:
+        trend_direction = "盤整"
+    elif trend_direction in ("強勢下跌", "溫和下跌") and short_chg > 0.05:
         trend_direction = "盤整"
 
     # 趨勢強度
@@ -762,7 +776,7 @@ def _assess_risk(df, support_levels, resistance_levels=None):
     if max_dd < -0.20:
         parts.append("歷史回撤幅度偏大，須注意下檔風險")
     if rr > 2:
-        parts.append(f"風險報酬比 {rr:.1f}:1，以技術面而言進場條件有利")
+        parts.append(f"風險報酬比 {rr:.1f}:1，上檔空間相對充裕")
     elif rr > 1:
         parts.append(f"風險報酬比 {rr:.1f}:1，風險與報酬尚稱平衡")
     else:
@@ -858,8 +872,21 @@ def _calculate_price_targets(current_price, fibonacci, atr_pct, resistance_level
 
         # 法人共識均價融合 base case（6M, 1Y）
         if analyst_target and analyst_target > 0 and tf in ("6M", "1Y"):
-            blend = 0.25 if tf == "6M" else 0.35
+            # 極端法人目標（與現價差距 > 100%）降低融合權重，避免 base 超過 bull
+            analyst_upside = abs(analyst_target / current_price - 1)
+            if analyst_upside > 1.0:
+                blend = 0.10 if tf == "6M" else 0.15
+            else:
+                blend = 0.25 if tf == "6M" else 0.35
             base_target = base_target * (1 - blend) + analyst_target * blend
+
+        # 強制保持 bull >= base >= bear 排序
+        if bull_target < bear_target:
+            bull_target, bear_target = bear_target, bull_target
+        if base_target > bull_target:
+            base_target = bull_target * 0.95
+        if base_target < bear_target:
+            base_target = bear_target * 1.05
 
         # 信心度
         if adx_value > 25:
