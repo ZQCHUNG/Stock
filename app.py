@@ -1140,10 +1140,10 @@ elif page == "分析報告":
                         f"K={report.k_value:.1f} / D={report.d_value:.1f}",
                     ],
                     "解讀": [
-                        report.adx_interpretation[:40],
-                        report.rsi_interpretation[:40],
-                        report.macd_interpretation[:40],
-                        report.kd_interpretation[:40],
+                        report.adx_interpretation.split("（")[0],
+                        report.rsi_interpretation,
+                        report.macd_interpretation.split("，")[0],
+                        report.kd_interpretation,
                     ],
                 })
                 st.dataframe(tech_data, hide_index=True, use_container_width=True)

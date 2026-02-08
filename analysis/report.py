@@ -246,7 +246,7 @@ def _detect_swing_points(df: pd.DataFrame, window: int = 15) -> dict:
             swing_lows.append((df.index[i], float(lows[i])))
 
     # 過濾太近的點（保留更極端的）
-    def filter_nearby(points, min_bars=10):
+    def filter_nearby(points, keep_higher=True, min_bars=10):
         if not points:
             return points
         filtered = [points[0]]
@@ -254,7 +254,7 @@ def _detect_swing_points(df: pd.DataFrame, window: int = 15) -> dict:
             idx_diff = abs(df.index.get_loc(p[0]) - df.index.get_loc(filtered[-1][0]))
             if idx_diff < min_bars:
                 # 保留更極端的
-                if "high" in str(type(p)):
+                if keep_higher:
                     if p[1] > filtered[-1][1]:
                         filtered[-1] = p
                 else:
@@ -264,8 +264,8 @@ def _detect_swing_points(df: pd.DataFrame, window: int = 15) -> dict:
                 filtered.append(p)
         return filtered
 
-    swing_highs = filter_nearby(swing_highs)
-    swing_lows = filter_nearby(swing_lows)
+    swing_highs = filter_nearby(swing_highs, keep_higher=True)
+    swing_lows = filter_nearby(swing_lows, keep_higher=False)
 
     recent_high = max([p[1] for p in swing_highs[-5:]]) if swing_highs else df["high"].max()
     recent_low = min([p[1] for p in swing_lows[-5:]]) if swing_lows else df["low"].min()
@@ -728,7 +728,7 @@ def _assess_volatility(df):
     }
 
 
-def _assess_risk(df, support_levels):
+def _assess_risk(df, support_levels, resistance_levels=None):
     """評估風險"""
     close_series = df["close"]
     current = close_series.iloc[-1]
@@ -749,8 +749,11 @@ def _assess_risk(df, support_levels):
     else:
         key_risk = current * 0.93
 
-    # 風險報酬比
-    nearest_resistance = current * 1.10
+    # 風險報酬比：用實際最近壓力位當報酬目標
+    if resistance_levels:
+        nearest_resistance = resistance_levels[0].price
+    else:
+        nearest_resistance = current * 1.05
     rr = (nearest_resistance - current) / (current - key_risk) if current > key_risk else 0
 
     # 解讀
@@ -1445,13 +1448,21 @@ def _generate_summary(data: dict) -> str:
     )
 
     # 第二段：趨勢與動能
+    def _first_clause(text):
+        """取第一個分句（到第一個逗號或句號）"""
+        for sep in ("，", "。", "；", "（", ","):
+            idx = text.find(sep)
+            if idx > 0:
+                return text[:idx]
+        return text
+
     p2 = (
         f"趨勢面觀察，該股目前處於{trend['trend_direction']}格局，"
         f"均線呈{trend['ma_alignment']}，趨勢強度{trend['trend_strength']}。"
-        f"動能指標方面，ADX 報 {mom['adx_value']:.1f}，{mom['adx_interpretation'][:15]}；"
-        f"RSI 為 {mom['rsi_value']:.1f}，{mom['rsi_interpretation'][:10]}；"
-        f"MACD {mom['macd_interpretation'][:20]}；"
-        f"KD 指標 {mom['kd_interpretation'][:15]}。"
+        f"動能指標方面，ADX 報 {mom['adx_value']:.1f}，{_first_clause(mom['adx_interpretation'])}；"
+        f"RSI 為 {mom['rsi_value']:.1f}，{_first_clause(mom['rsi_interpretation'])}；"
+        f"MACD {_first_clause(mom['macd_interpretation'])}；"
+        f"KD 指標 {_first_clause(mom['kd_interpretation'])}。"
         f"整體動能評估為「{mom['momentum_status']}」。"
     )
 
@@ -1609,7 +1620,7 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
     volatility = _assess_volatility(df)
     supports, resistances = _calculate_support_resistance(df, swings, current_price)
     fib = _calculate_fibonacci(df, swings)
-    risk = _assess_risk(df, supports)
+    risk = _assess_risk(df, supports, resistances)
 
     targets = _calculate_price_targets(
         current_price, fib,
