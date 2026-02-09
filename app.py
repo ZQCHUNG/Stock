@@ -586,6 +586,47 @@ if page == "技術分析":
             marker=dict(symbol="triangle-down", size=12, color="#26A69A"),
         ), row=1, col=1)
 
+    # 支撐/壓力線 (from recent pivot points)
+    _sr_highs = signals_df["high"].values
+    _sr_lows = signals_df["low"].values
+    _sr_window = 5
+    _sr_levels = []
+    for i in range(_sr_window, len(_sr_highs) - _sr_window):
+        # Local peak → resistance
+        if _sr_highs[i] == max(_sr_highs[i - _sr_window:i + _sr_window + 1]):
+            _sr_levels.append(("resistance", _sr_highs[i]))
+        # Local trough → support
+        if _sr_lows[i] == min(_sr_lows[i - _sr_window:i + _sr_window + 1]):
+            _sr_levels.append(("support", _sr_lows[i]))
+    # Cluster nearby levels (within 1.5%)
+    _sr_clustered = []
+    _sr_used = set()
+    for idx, (kind, level) in enumerate(sorted(_sr_levels, key=lambda x: x[1])):
+        if idx in _sr_used:
+            continue
+        cluster = [level]
+        for jdx, (_, other) in enumerate(sorted(_sr_levels, key=lambda x: x[1])):
+            if jdx != idx and jdx not in _sr_used and abs(other - level) / level < 0.015:
+                cluster.append(other)
+                _sr_used.add(jdx)
+        _sr_used.add(idx)
+        avg_level = np.mean(cluster)
+        _sr_clustered.append((kind, avg_level, len(cluster)))
+    # Show top levels by touch count, near current price
+    _cur_price = signals_df["close"].iloc[-1]
+    _sr_filtered = [(k, lvl, cnt) for k, lvl, cnt in _sr_clustered
+                     if abs(lvl - _cur_price) / _cur_price < 0.15]
+    _sr_filtered.sort(key=lambda x: x[2], reverse=True)
+    for _sr_kind, _sr_lvl, _sr_cnt in _sr_filtered[:6]:
+        _sr_color = "rgba(255,23,68,0.4)" if _sr_kind == "resistance" else "rgba(0,200,83,0.4)"
+        _sr_label = f"{'壓力' if _sr_kind == 'resistance' else '支撐'} ${_sr_lvl:.1f}"
+        fig.add_hline(
+            y=_sr_lvl, line_dash="dot", line_color=_sr_color, opacity=0.6,
+            annotation_text=_sr_label, annotation_position="right",
+            annotation_font_size=10, annotation_font_color=_sr_color,
+            row=1, col=1,
+        )
+
     # MACD
     colors = ["#EF5350" if v >= 0 else "#26A69A" for v in signals_df["macd_hist"]]
     fig.add_trace(go.Bar(
@@ -638,6 +679,18 @@ if page == "技術分析":
     fig.update_xaxes(type="category", row=4, col=1)
 
     st.plotly_chart(fig, use_container_width=True)
+
+    # 支撐壓力摘要
+    if _sr_filtered:
+        _supports = sorted([lvl for k, lvl, _ in _sr_filtered if k == "support"], reverse=True)
+        _resistances = sorted([lvl for k, lvl, _ in _sr_filtered if k == "resistance"])
+        _sr_parts = []
+        if _supports:
+            _sr_parts.append("支撐：" + " / ".join([f"\\${s:.1f}" for s in _supports[:3]]))
+        if _resistances:
+            _sr_parts.append("壓力：" + " / ".join([f"\\${r:.1f}" for r in _resistances[:3]]))
+        if _sr_parts:
+            st.caption("關鍵價位 — " + "　|　".join(_sr_parts))
 
     # --- 股價比較 ---
     st.divider()
@@ -1311,7 +1364,17 @@ elif page == "推薦股票":
             set_cached_scan_results(results, ttl=600)
         return results
 
-    if st.button("開始掃描", type="primary"):
+    _rec_btn_cols = st.columns([1, 1, 4])
+    with _rec_btn_cols[0]:
+        _do_scan = st.button("開始掃描", type="primary")
+    with _rec_btn_cols[1]:
+        if st.session_state.get("_rec_results") is not None:
+            if st.button("清除結果"):
+                st.session_state.pop("_rec_results", None)
+                st.session_state.pop("_rec_mode", None)
+                st.rerun()
+
+    if _do_scan:
         if use_v4:
             buy_results = scan_stocks_v4(scan_pool)
             st.session_state["_rec_results"] = buy_results
