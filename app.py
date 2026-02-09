@@ -32,6 +32,18 @@ def _load_recent_stocks() -> list:
 def _save_recent_stocks(stocks: list):
     _RECENT_FILE.write_text(json.dumps(stocks, ensure_ascii=False), encoding="utf-8")
 
+# ===== 自選股清單持久化 =====
+_WATCHLIST_FILE = Path(__file__).parent / "data" / "watchlist.json"
+
+def _load_watchlist() -> list:
+    try:
+        return json.loads(_WATCHLIST_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+def _save_watchlist(stocks: list):
+    _WATCHLIST_FILE.write_text(json.dumps(stocks, ensure_ascii=False), encoding="utf-8")
+
 # ===== 頁面設定 =====
 st.set_page_config(
     page_title="台股技術分析系統",
@@ -91,6 +103,40 @@ with st.sidebar:
         key="custom_code_input",
     )
     stock_code = custom_code.strip() if custom_code.strip() else default_code
+
+    # 自選股（加入/移除）
+    if "watchlist" not in st.session_state:
+        st.session_state.watchlist = _load_watchlist()
+    _in_watchlist = stock_code in st.session_state.watchlist
+    wl_col1, wl_col2 = st.columns([3, 1])
+    with wl_col1:
+        stock_name_display = get_stock_name(stock_code, all_stocks)
+        st.caption(f"目前：{stock_code} {stock_name_display}")
+    with wl_col2:
+        if _in_watchlist:
+            if st.button("★", key="wl_remove", help="從自選股移除", use_container_width=True):
+                st.session_state.watchlist.remove(stock_code)
+                _save_watchlist(st.session_state.watchlist)
+                st.rerun()
+        else:
+            if st.button("☆", key="wl_add", help="加入自選股", use_container_width=True):
+                st.session_state.watchlist.insert(0, stock_code)
+                _save_watchlist(st.session_state.watchlist)
+                st.rerun()
+
+    # 自選股清單
+    if st.session_state.watchlist:
+        with st.expander(f"自選股（{len(st.session_state.watchlist)} 檔）"):
+            wl_cols_per_row = 3
+            for row_start in range(0, len(st.session_state.watchlist), wl_cols_per_row):
+                row_items = st.session_state.watchlist[row_start:row_start + wl_cols_per_row]
+                wl_cols = st.columns(wl_cols_per_row)
+                for j, wl_code in enumerate(row_items):
+                    wl_name = get_stock_name(wl_code, all_stocks)
+                    short_wl = wl_name[:4] if len(wl_name) > 4 else wl_name
+                    with wl_cols[j]:
+                        if st.button(f"{wl_code}\n{short_wl}", key=f"wl_{wl_code}", use_container_width=True):
+                            st.session_state["_pending_stock"] = wl_code
 
     if st.session_state.recent_stocks:
         st.caption("最近查詢")
@@ -580,21 +626,30 @@ elif page == "回測報告":
     st.subheader("績效摘要")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("總報酬率", f"{result.total_return:.2%}")
+        st.metric("總報酬率", f"{result.total_return:.2%}",
+                   delta=f"{result.total_return:.2%}", delta_color="normal")
     with col2:
-        st.metric("年化報酬率", f"{result.annual_return:.2%}")
+        st.metric("年化報酬率", f"{result.annual_return:.2%}",
+                   delta=f"{result.annual_return:.2%}", delta_color="normal")
     with col3:
-        st.metric("最大回撤", f"{result.max_drawdown:.2%}")
+        st.metric("最大回撤", f"{result.max_drawdown:.2%}",
+                   delta=f"{result.max_drawdown:.2%}", delta_color="inverse")
     with col4:
-        st.metric("Sharpe Ratio", f"{result.sharpe_ratio:.2f}")
+        _sharpe_label = "佳" if result.sharpe_ratio > 1 else ("普通" if result.sharpe_ratio > 0 else "差")
+        st.metric("Sharpe Ratio", f"{result.sharpe_ratio:.2f}",
+                   delta=_sharpe_label, delta_color="normal" if result.sharpe_ratio > 0 else "inverse")
 
     col5, col6, col7, col8 = st.columns(4)
     with col5:
         st.metric("總交易次數", f"{result.total_trades}")
     with col6:
-        st.metric("勝率", f"{result.win_rate:.2%}")
+        _wr_delta = "佳" if result.win_rate > 0.5 else "偏低"
+        st.metric("勝率", f"{result.win_rate:.2%}",
+                   delta=_wr_delta, delta_color="normal" if result.win_rate > 0.5 else "inverse")
     with col7:
-        st.metric("盈虧比", f"{result.profit_factor:.2f}")
+        _pf_delta = "佳" if result.profit_factor > 1.5 else ("中" if result.profit_factor > 1 else "差")
+        st.metric("盈虧比", f"{result.profit_factor:.2f}",
+                   delta=_pf_delta, delta_color="normal" if result.profit_factor > 1 else "inverse")
     with col8:
         st.metric("平均持有天數", f"{result.avg_holding_days:.1f}")
 
@@ -782,7 +837,8 @@ elif page == "模擬交易":
             delta=f"{sim_result.total_return:+.2%}",
         )
     with col2:
-        st.metric("最大回撤", f"{sim_result.max_drawdown:.2%}")
+        st.metric("最大回撤", f"{sim_result.max_drawdown:.2%}",
+                   delta=f"{sim_result.max_drawdown:.2%}", delta_color="inverse")
     with col3:
         st.metric("交易次數", f"{sim_result.total_trades}")
     with col4:
@@ -791,14 +847,17 @@ elif page == "模擬交易":
             if sim_result.total_trades > 0
             else 0
         )
-        st.metric("勝率", f"{win_rate:.0%}")
+        _sim_wr_delta = "佳" if win_rate > 0.5 else "偏低"
+        st.metric("勝率", f"{win_rate:.0%}",
+                   delta=_sim_wr_delta, delta_color="normal" if win_rate > 0.5 else "inverse")
 
     col5, col6, col7, col8 = st.columns(4)
     with col5:
         st.metric("初始資金", f"${sim_result.initial_capital:,.0f}")
     with col6:
         pnl = sim_result.final_equity - sim_result.initial_capital
-        st.metric("總損益", f"${pnl:,.0f}")
+        st.metric("總損益", f"${pnl:,.0f}",
+                   delta=f"{pnl:+,.0f}", delta_color="normal")
     with col7:
         st.metric("總手續費", f"${sim_result.total_commission:,.0f}")
     with col8:
@@ -2001,7 +2060,85 @@ elif page == "條件選股":
             elif "revenue_growth" in _scr_filter_cfg:
                 df_result = df_result.sort_values("營收成長%", ascending=False)
 
-            st.dataframe(df_result, use_container_width=True, hide_index=True)
+            # 色彩標記：正面綠、負面紅
+            def _color_positive(val):
+                """正數綠色、負數紅色"""
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if isinstance(val, (int, float)):
+                    if val > 0:
+                        return "color: #00C853"
+                    elif val < 0:
+                        return "color: #FF1744"
+                return ""
+
+            def _color_roe(val):
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if val >= 15:
+                    return "color: #00C853; font-weight: bold"
+                elif val >= 10:
+                    return "color: #00C853"
+                elif val < 0:
+                    return "color: #FF1744"
+                return ""
+
+            def _color_pe(val):
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if val < 0:
+                    return "color: #FF1744"
+                elif val <= 15:
+                    return "color: #00C853; font-weight: bold"
+                elif val <= 20:
+                    return "color: #00C853"
+                elif val > 40:
+                    return "color: #FF1744"
+                return ""
+
+            def _color_yield(val):
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if val >= 5:
+                    return "color: #00C853; font-weight: bold"
+                elif val >= 3:
+                    return "color: #00C853"
+                return ""
+
+            def _color_rsi(val):
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if val >= 70:
+                    return "color: #FF1744"
+                elif val <= 30:
+                    return "color: #00C853"
+                return ""
+
+            styled_df = df_result.style
+            # 獲利指標：越高越好
+            for col in ["ROE%", "ROA%", "毛利%", "營利%", "淨利%"]:
+                if col in df_result.columns:
+                    styled_df = styled_df.map(_color_roe, subset=[col])
+            # 成長指標
+            for col in ["營收成長%", "獲利成長%"]:
+                if col in df_result.columns:
+                    styled_df = styled_df.map(_color_positive, subset=[col])
+            # PE：越低越好
+            for col in ["PE", "F.PE"]:
+                if col in df_result.columns:
+                    styled_df = styled_df.map(_color_pe, subset=[col])
+            # 殖利率
+            if "殖利率%" in df_result.columns:
+                styled_df = styled_df.map(_color_yield, subset=["殖利率%"])
+            # EPS、FCF、OCF
+            for col in ["EPS", "FCF億", "OCF億"]:
+                if col in df_result.columns:
+                    styled_df = styled_df.map(_color_positive, subset=[col])
+            # RSI
+            if "RSI" in df_result.columns:
+                styled_df = styled_df.map(_color_rsi, subset=["RSI"])
+
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
             # CSV 下載
             csv_data = df_result.to_csv(index=False).encode("utf-8-sig")
