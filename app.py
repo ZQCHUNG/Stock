@@ -108,13 +108,17 @@ with st.sidebar:
 
     # 頁面選擇
     _PAGES = ["技術分析", "回測報告", "模擬交易", "推薦股票", "分析報告", "條件選股"]
-    if "_nav_page" not in st.session_state:
-        st.session_state["_nav_page"] = _PAGES[0]
+    # 處理跨頁導航請求（從條件選股快速分析 → 其他頁面）
+    _pending_nav = st.session_state.pop("_pending_nav", None)
+    _nav_ver = st.session_state.get("_nav_ver", 0)
+    if _pending_nav and _pending_nav in _PAGES:
+        _nav_ver += 1
+        st.session_state["_nav_ver"] = _nav_ver
+        st.session_state[f"_nav_page_{_nav_ver}"] = _pending_nav
     page = st.radio(
         "功能",
         options=_PAGES,
-        index=_PAGES.index(st.session_state["_nav_page"]) if st.session_state["_nav_page"] in _PAGES else 0,
-        key="_nav_page",
+        key=f"_nav_page_{_nav_ver}",
     )
 
     # 延遲 rerun：等 radio 渲染完（保留 page 狀態）再觸發跳轉
@@ -1896,6 +1900,21 @@ elif page == "條件選股":
             if results:
                 set_cached_screener_results(cond_hash, results)
 
+        # 將結果存入 session_state，使其跨 rerun 持久化
+        st.session_state["_screener_results"] = results
+        st.session_state["_screener_filter_cfg"] = dict(filter_cfg)
+        st.session_state["_screener_pool_size"] = len(scan_pool_scr)
+        st.session_state["_screener_rsi"] = (f_rsi, f_rsi_lo, f_rsi_hi)
+        st.session_state["_screener_adx"] = (f_adx, f_adx_val)
+
+    # ----- 從 session_state 讀取結果並顯示 -----
+    _scr_results = st.session_state.get("_screener_results")
+    _scr_filter_cfg = st.session_state.get("_screener_filter_cfg", {})
+    _scr_pool_size = st.session_state.get("_screener_pool_size", 0)
+    _scr_rsi = st.session_state.get("_screener_rsi", (False, 30, 70))
+    _scr_adx = st.session_state.get("_screener_adx", (False, 20))
+
+    if _scr_results is not None:
         # ----- 顯示篩選條件摘要 -----
         _FIELD_LABELS = {
             "return_on_equity": "ROE", "return_on_assets": "ROA",
@@ -1909,7 +1928,7 @@ elif page == "條件選股":
             "market_cap": "市值", "beta": "Beta",
         }
         cond_parts = []
-        for field, (op, val) in filter_cfg.items():
+        for field, (op, val) in _scr_filter_cfg.items():
             label = _FIELD_LABELS.get(field, field)
             if field in ("return_on_equity", "return_on_assets", "gross_margins",
                          "operating_margins", "profit_margins", "revenue_growth",
@@ -1921,23 +1940,23 @@ elif page == "條件選股":
                 cond_parts.append(f"{label} {op} 0")
             else:
                 cond_parts.append(f"{label} {op} {val}")
-        if f_rsi:
-            cond_parts.append(f"RSI {f_rsi_lo:.0f}~{f_rsi_hi:.0f}")
-        if f_adx:
-            cond_parts.append(f"ADX > {f_adx_val:.0f}")
+        if _scr_rsi[0]:
+            cond_parts.append(f"RSI {_scr_rsi[1]:.0f}~{_scr_rsi[2]:.0f}")
+        if _scr_adx[0]:
+            cond_parts.append(f"ADX > {_scr_adx[1]:.0f}")
 
         cond_summary = " + ".join(cond_parts) if cond_parts else "（無條件）"
         st.caption(f"篩選條件：{cond_summary}")
 
         # ----- 顯示結果 -----
-        if not results:
-            st.warning(f"掃描完成（共 {len(scan_pool_scr)} 檔），無股票符合所有條件。試著放寬條件再搜尋。")
+        if not _scr_results:
+            st.warning(f"掃描完成（共 {_scr_pool_size} 檔），無股票符合所有條件。試著放寬條件再搜尋。")
         else:
-            st.success(f"掃描完成（共 {len(scan_pool_scr)} 檔），找到 **{len(results)}** 檔符合條件！")
+            st.success(f"掃描完成（共 {_scr_pool_size} 檔），找到 **{len(_scr_results)}** 檔符合條件！")
 
             # 格式化為 DataFrame（數值型，供排序）
             display_rows = []
-            for r in results:
+            for r in _scr_results:
                 def _safe_round(v, d=1):
                     return round(v, d) if v is not None else None
                 def _pct_val(v):
@@ -1973,13 +1992,13 @@ elif page == "條件選股":
             df_result = pd.DataFrame(display_rows)
 
             # 依最相關欄位排序
-            if "return_on_equity" in filter_cfg:
+            if "return_on_equity" in _scr_filter_cfg:
                 df_result = df_result.sort_values("ROE%", ascending=False)
-            elif "trailing_pe" in filter_cfg:
+            elif "trailing_pe" in _scr_filter_cfg:
                 df_result = df_result.sort_values("PE", ascending=True)
-            elif "dividend_yield" in filter_cfg:
+            elif "dividend_yield" in _scr_filter_cfg:
                 df_result = df_result.sort_values("殖利率%", ascending=False)
-            elif "revenue_growth" in filter_cfg:
+            elif "revenue_growth" in _scr_filter_cfg:
                 df_result = df_result.sort_values("營收成長%", ascending=False)
 
             st.dataframe(df_result, use_container_width=True, hide_index=True)
@@ -1997,30 +2016,30 @@ elif page == "條件選股":
             st.divider()
             st.subheader("快速分析")
             st.caption("選取上方結果中的股票，快速跳轉到其他分析頁面。")
-            scr_stock_options = [f"{r['代碼']} {r['名稱']}" for r in results]
+            scr_stock_options = [f"{r['代碼']} {r['名稱']}" for r in _scr_results]
             scr_selected = st.selectbox("選擇股票", scr_stock_options, key="scr_jump_stock")
             scr_jump_code = scr_selected.split()[0] if scr_selected else ""
             jump_cols = st.columns(4)
             with jump_cols[0]:
                 if st.button("技術分析", key="scr_to_tech", use_container_width=True):
-                    st.session_state["custom_code_input"] = scr_jump_code
-                    st.session_state["_nav_page"] = "技術分析"
+                    st.session_state["_pending_stock"] = scr_jump_code
+                    st.session_state["_pending_nav"] = "技術分析"
                     st.rerun()
             with jump_cols[1]:
                 if st.button("回測報告", key="scr_to_bt", use_container_width=True):
-                    st.session_state["custom_code_input"] = scr_jump_code
-                    st.session_state["_nav_page"] = "回測報告"
+                    st.session_state["_pending_stock"] = scr_jump_code
+                    st.session_state["_pending_nav"] = "回測報告"
                     st.rerun()
             with jump_cols[2]:
                 if st.button("模擬交易", key="scr_to_sim", use_container_width=True):
-                    st.session_state["custom_code_input"] = scr_jump_code
-                    st.session_state["_nav_page"] = "模擬交易"
+                    st.session_state["_pending_stock"] = scr_jump_code
+                    st.session_state["_pending_nav"] = "模擬交易"
                     st.rerun()
             with jump_cols[3]:
                 if st.button("分析報告", key="scr_to_rpt", use_container_width=True):
-                    st.session_state["custom_code_input"] = scr_jump_code
+                    st.session_state["_pending_stock"] = scr_jump_code
                     st.session_state["_auto_report"] = True
-                    st.session_state["_nav_page"] = "分析報告"
+                    st.session_state["_pending_nav"] = "分析報告"
                     st.rerun()
 
 
