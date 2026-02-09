@@ -107,10 +107,14 @@ with st.sidebar:
     st.divider()
 
     # 頁面選擇
+    _PAGES = ["技術分析", "回測報告", "模擬交易", "推薦股票", "分析報告", "條件選股"]
+    if "_nav_page" not in st.session_state:
+        st.session_state["_nav_page"] = _PAGES[0]
     page = st.radio(
         "功能",
-        options=["技術分析", "回測報告", "模擬交易", "推薦股票", "分析報告", "條件選股"],
-        index=0,
+        options=_PAGES,
+        index=_PAGES.index(st.session_state["_nav_page"]) if st.session_state["_nav_page"] in _PAGES else 0,
+        key="_nav_page",
     )
 
     # 延遲 rerun：等 radio 渲染完（保留 page 狀態）再觸發跳轉
@@ -617,6 +621,90 @@ elif page == "回測報告":
         )
         st.plotly_chart(fig_equity, use_container_width=True)
 
+    # K 線圖 + 交易標記
+    if result.trades:
+        st.subheader("交易標記圖")
+        bt_df = backtest_df.tail(backtest_days).copy()
+        fig_trades = make_subplots(
+            rows=2, cols=1, shared_xaxes=True,
+            row_heights=[0.75, 0.25],
+            vertical_spacing=0.03,
+        )
+        # K 線
+        fig_trades.add_trace(go.Candlestick(
+            x=bt_df.index, open=bt_df["open"], high=bt_df["high"],
+            low=bt_df["low"], close=bt_df["close"],
+            name="K線",
+            increasing_line_color="#EF5350", decreasing_line_color="#26A69A",
+        ), row=1, col=1)
+        # 成交量
+        vol_colors = ["#EF5350" if c >= o else "#26A69A"
+                      for c, o in zip(bt_df["close"], bt_df["open"])]
+        fig_trades.add_trace(go.Bar(
+            x=bt_df.index, y=bt_df["volume"], name="成交量",
+            marker_color=vol_colors, opacity=0.5,
+        ), row=2, col=1)
+        # 買入標記
+        buy_dates = [t.date_open for t in result.trades if t.date_open is not None]
+        buy_prices = [t.price_open for t in result.trades if t.date_open is not None]
+        if buy_dates:
+            fig_trades.add_trace(go.Scatter(
+                x=buy_dates, y=buy_prices, mode="markers",
+                marker=dict(symbol="triangle-up", size=14, color="#00E676",
+                            line=dict(width=1, color="white")),
+                name="買入", text=[f"買入 ${p:.2f}" for p in buy_prices],
+                hoverinfo="text+x",
+            ), row=1, col=1)
+        # 賣出標記
+        exit_reason_map_chart = {
+            "signal": "訊號", "stop_loss": "停損", "trailing_stop": "移動停利",
+            "take_profit": "停利", "end_of_period": "期末",
+        }
+        sell_dates = [t.date_close for t in result.trades if t.date_close is not None]
+        sell_prices = [t.price_close for t in result.trades if t.date_close is not None]
+        sell_reasons = [exit_reason_map_chart.get(t.exit_reason, t.exit_reason)
+                        for t in result.trades if t.date_close is not None]
+        sell_colors = []
+        for t in result.trades:
+            if t.date_close is None:
+                continue
+            if t.exit_reason == "take_profit":
+                sell_colors.append("#FFD600")
+            elif t.exit_reason == "stop_loss":
+                sell_colors.append("#FF1744")
+            elif t.exit_reason == "trailing_stop":
+                sell_colors.append("#FF9100")
+            else:
+                sell_colors.append("#E040FB")
+        if sell_dates:
+            fig_trades.add_trace(go.Scatter(
+                x=sell_dates, y=sell_prices, mode="markers",
+                marker=dict(symbol="triangle-down", size=14, color=sell_colors,
+                            line=dict(width=1, color="white")),
+                name="賣出",
+                text=[f"{r} ${p:.2f}" for p, r in zip(sell_prices, sell_reasons)],
+                hoverinfo="text+x",
+            ), row=1, col=1)
+        # 持倉區間（綠色半透明矩形）
+        for t in result.trades:
+            if t.date_open and t.date_close:
+                color = "rgba(0,230,118,0.08)" if t.pnl >= 0 else "rgba(255,23,68,0.08)"
+                fig_trades.add_vrect(
+                    x0=t.date_open, x1=t.date_close,
+                    fillcolor=color, layer="below", line_width=0,
+                    row=1, col=1,
+                )
+        fig_trades.update_layout(
+            height=550, template="plotly_dark",
+            xaxis_rangeslider_visible=False,
+            xaxis2_title="日期",
+            yaxis_title="股價",
+            yaxis2_title="成交量",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            margin=dict(t=40),
+        )
+        st.plotly_chart(fig_trades, use_container_width=True)
+
     # 每日報酬分布
     st.subheader("每日報酬分布")
     if not result.daily_returns.empty:
@@ -739,6 +827,59 @@ elif page == "模擬交易":
             yaxis_title="權益 (TWD)",
         )
         st.plotly_chart(fig_sim, use_container_width=True)
+
+    # K 線圖 + 交易標記（模擬）
+    if sim_result.trade_log:
+        st.subheader("交易標記圖")
+        sim_ohlc = raw_df.tail(sim_days + 10).copy()
+        fig_sim_trades = make_subplots(
+            rows=2, cols=1, shared_xaxes=True,
+            row_heights=[0.75, 0.25], vertical_spacing=0.03,
+        )
+        fig_sim_trades.add_trace(go.Candlestick(
+            x=sim_ohlc.index, open=sim_ohlc["open"], high=sim_ohlc["high"],
+            low=sim_ohlc["low"], close=sim_ohlc["close"], name="K線",
+            increasing_line_color="#EF5350", decreasing_line_color="#26A69A",
+        ), row=1, col=1)
+        sim_vol_colors = ["#EF5350" if c >= o else "#26A69A"
+                          for c, o in zip(sim_ohlc["close"], sim_ohlc["open"])]
+        fig_sim_trades.add_trace(go.Bar(
+            x=sim_ohlc.index, y=sim_ohlc["volume"], name="成交量",
+            marker_color=sim_vol_colors, opacity=0.5,
+        ), row=2, col=1)
+        # 買入
+        sim_buys = [t for t in sim_result.trade_log if "買入" in t.get("動作", "")]
+        sim_sells = [t for t in sim_result.trade_log if "賣出" in t.get("動作", "")]
+        if sim_buys:
+            fig_sim_trades.add_trace(go.Scatter(
+                x=[t["日期"] for t in sim_buys],
+                y=[t["價格"] for t in sim_buys],
+                mode="markers",
+                marker=dict(symbol="triangle-up", size=14, color="#00E676",
+                            line=dict(width=1, color="white")),
+                name="買入",
+                text=[f"買入 ${t['價格']:.2f}" for t in sim_buys],
+                hoverinfo="text+x",
+            ), row=1, col=1)
+        if sim_sells:
+            fig_sim_trades.add_trace(go.Scatter(
+                x=[t["日期"] for t in sim_sells],
+                y=[t["價格"] for t in sim_sells],
+                mode="markers",
+                marker=dict(symbol="triangle-down", size=14, color="#FF1744",
+                            line=dict(width=1, color="white")),
+                name="賣出",
+                text=[f"{t['動作']} ${t['價格']:.2f}" for t in sim_sells],
+                hoverinfo="text+x",
+            ), row=1, col=1)
+        fig_sim_trades.update_layout(
+            height=500, template="plotly_dark",
+            xaxis_rangeslider_visible=False,
+            xaxis2_title="日期", yaxis_title="股價", yaxis2_title="成交量",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+            margin=dict(t=40),
+        )
+        st.plotly_chart(fig_sim_trades, use_container_width=True)
 
     # 每日損益柱狀圖
     st.subheader("每日損益")
@@ -981,7 +1122,18 @@ elif page == "分析報告":
 
     # 產生報告（結果快取至 session_state，避免 Streamlit 二次 rerun 時消失）
     auto_report = st.session_state.pop("_auto_report", False)
-    if st.button("產生分析報告", type="primary") or auto_report:
+    # 自動觸發：首次進入或股票變更
+    cached = st.session_state.get("_cached_report")
+    need_generate = auto_report or cached is None or (cached is not None and cached.stock_code != stock_code)
+
+    col_btn, col_hint = st.columns([1, 3])
+    with col_btn:
+        manual_click = st.button("重新產生報告", type="primary")
+    with col_hint:
+        if cached and cached.stock_code == stock_code:
+            st.caption(f"已載入 {stock_code} 報告，可直接查看。點左方按鈕可重新產生。")
+
+    if need_generate or manual_click:
         with st.spinner("正在產生專業分析報告，請稍候（約 10-30 秒）..."):
             try:
                 report = generate_report(stock_code, period_days=730)
@@ -995,9 +1147,7 @@ elif page == "分析報告":
     # 從快取讀取報告並顯示
     cached = st.session_state.get("_cached_report")
     if cached is None:
-        st.info("請點擊上方按鈕產生報告，或從最近查詢快速切換股票。")
-    elif cached.stock_code != stock_code:
-        st.info(f"目前快取為 {cached.stock_code} 的報告，請點擊「產生分析報告」以產生 {stock_code} 的報告。")
+        st.info("報告產生中...")
     else:
         report = cached
 
@@ -1833,6 +1983,45 @@ elif page == "條件選股":
                 df_result = df_result.sort_values("營收成長%", ascending=False)
 
             st.dataframe(df_result, use_container_width=True, hide_index=True)
+
+            # CSV 下載
+            csv_data = df_result.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                label="下載 CSV",
+                data=csv_data,
+                file_name="screener_results.csv",
+                mime="text/csv",
+            )
+
+            # 快速跳轉：選取股票 → 切換到其他頁面分析
+            st.divider()
+            st.subheader("快速分析")
+            st.caption("選取上方結果中的股票，快速跳轉到其他分析頁面。")
+            scr_stock_options = [f"{r['代碼']} {r['名稱']}" for r in results]
+            scr_selected = st.selectbox("選擇股票", scr_stock_options, key="scr_jump_stock")
+            scr_jump_code = scr_selected.split()[0] if scr_selected else ""
+            jump_cols = st.columns(4)
+            with jump_cols[0]:
+                if st.button("技術分析", key="scr_to_tech", use_container_width=True):
+                    st.session_state["custom_code_input"] = scr_jump_code
+                    st.session_state["_nav_page"] = "技術分析"
+                    st.rerun()
+            with jump_cols[1]:
+                if st.button("回測報告", key="scr_to_bt", use_container_width=True):
+                    st.session_state["custom_code_input"] = scr_jump_code
+                    st.session_state["_nav_page"] = "回測報告"
+                    st.rerun()
+            with jump_cols[2]:
+                if st.button("模擬交易", key="scr_to_sim", use_container_width=True):
+                    st.session_state["custom_code_input"] = scr_jump_code
+                    st.session_state["_nav_page"] = "模擬交易"
+                    st.rerun()
+            with jump_cols[3]:
+                if st.button("分析報告", key="scr_to_rpt", use_container_width=True):
+                    st.session_state["custom_code_input"] = scr_jump_code
+                    st.session_state["_auto_report"] = True
+                    st.session_state["_nav_page"] = "分析報告"
+                    st.rerun()
 
 
 # ===== Footer =====
