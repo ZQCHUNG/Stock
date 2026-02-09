@@ -153,7 +153,7 @@ with st.sidebar:
     st.divider()
 
     # 頁面選擇
-    _PAGES = ["技術分析", "回測報告", "模擬交易", "推薦股票", "分析報告", "條件選股"]
+    _PAGES = ["技術分析", "自選股總覽", "回測報告", "模擬交易", "推薦股票", "分析報告", "條件選股"]
     # 處理跨頁導航請求（從條件選股快速分析 → 其他頁面）
     _pending_nav = st.session_state.pop("_pending_nav", None)
     _nav_ver = st.session_state.get("_nav_ver", 0)
@@ -264,7 +264,7 @@ def load_data(code: str, days: int):
 
 
 # 推薦股票/分析報告/條件選股頁面不需要預先載入單一股票
-if page not in ("推薦股票", "分析報告", "條件選股"):
+if page not in ("推薦股票", "分析報告", "條件選股", "自選股總覽"):
     try:
         fetch_days = max(backtest_days, 365) + 120
         raw_df = load_data(stock_code, fetch_days)
@@ -2178,6 +2178,293 @@ elif page == "條件選股":
                     st.session_state["_auto_report"] = True
                     st.session_state["_pending_nav"] = "分析報告"
                     st.rerun()
+
+
+# ===== 頁面 7：自選股總覽 =====
+elif page == "自選股總覽":
+    st.header("自選股總覽")
+
+    wl = st.session_state.get("watchlist", [])
+    if not wl:
+        st.info("尚未加入自選股。在任何頁面的側邊欄點擊「☆」即可加入股票。")
+        st.caption("提示：前往「技術分析」或「條件選股」頁面，找到感興趣的股票後加入自選股。")
+    else:
+        st.caption(f"共 {len(wl)} 檔自選股")
+
+        # --- 載入所有自選股資料 ---
+        dashboard_rows = []
+        _wl_data = {}  # code -> DataFrame, reused by comparison chart
+        _prog = st.progress(0, text="載入自選股資料...")
+
+        for i, code in enumerate(wl):
+            _prog.progress((i + 1) / len(wl), text=f"載入 {code} ({i+1}/{len(wl)})...")
+            try:
+                _df = load_data(code, 180)
+                if _df is None or _df.empty or len(_df) < 5:
+                    continue
+                _wl_data[code] = _df
+                _name = get_stock_name(code, all_stocks)
+                _ana = get_v4_analysis(_df)
+
+                _close = _ana["close"]
+                _prev = _df["close"].iloc[-2]
+                _chg_pct = (_close - _prev) / _prev * 100
+                _chg_amt = _close - _prev
+
+                _ind = _ana["indicators"]
+                _rsi = _ind.get("RSI")
+                _adx = _ind.get("ADX")
+
+                _vol = _df["volume"].iloc[-1]
+                _vol_ma5 = _df["volume"].tail(5).mean()
+                _vol_ratio = _vol / _vol_ma5 if _vol_ma5 > 0 else 0
+
+                dashboard_rows.append({
+                    "代碼": code,
+                    "名稱": _name,
+                    "收盤價": round(_close, 2),
+                    "漲跌%": round(_chg_pct, 2),
+                    "漲跌": round(_chg_amt, 2),
+                    "RSI": round(_rsi, 1) if _rsi and not pd.isna(_rsi) else None,
+                    "ADX": round(_adx, 1) if _adx and not pd.isna(_adx) else None,
+                    "訊號": _ana["signal"],
+                    "進場": _ana["entry_type"] or "—",
+                    "趨勢天數": _ana["uptrend_days"],
+                    "量比": round(_vol_ratio, 2),
+                    "MA20距離%": round(_ana["dist_ma20"] * 100, 2) if not pd.isna(_ana["dist_ma20"]) else None,
+                })
+            except Exception:
+                continue
+
+        _prog.empty()
+
+        if not dashboard_rows:
+            st.warning("無法載入自選股資料，請稍後重試。")
+        else:
+            # --- 摘要指標 ---
+            _buy_n = sum(1 for r in dashboard_rows if r["訊號"] == "BUY")
+            _sell_n = sum(1 for r in dashboard_rows if r["訊號"] == "SELL")
+            _hold_n = sum(1 for r in dashboard_rows if r["訊號"] == "HOLD")
+            _up_n = sum(1 for r in dashboard_rows if r["漲跌%"] > 0)
+            _dn_n = sum(1 for r in dashboard_rows if r["漲跌%"] < 0)
+            _flat_n = len(dashboard_rows) - _up_n - _dn_n
+            _avg_chg = np.mean([r["漲跌%"] for r in dashboard_rows])
+
+            sum_cols = st.columns(4)
+            with sum_cols[0]:
+                st.metric("自選股數", len(dashboard_rows))
+            with sum_cols[1]:
+                st.metric("漲 / 平 / 跌", f"{_up_n} / {_flat_n} / {_dn_n}")
+            with sum_cols[2]:
+                st.metric("平均漲跌", f"{_avg_chg:+.2f}%",
+                          delta=f"{_avg_chg:+.2f}%", delta_color="normal" if _avg_chg >= 0 else "inverse")
+            with sum_cols[3]:
+                st.metric("訊號分布", f"買{_buy_n} 賣{_sell_n} 觀{_hold_n}")
+
+            # --- 總覽表格 ---
+            df_dash = pd.DataFrame(dashboard_rows)
+
+            _sig_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 觀望"}
+            df_dash["訊號"] = df_dash["訊號"].map(lambda x: _sig_map.get(x, x))
+
+            def _color_change_tw(val):
+                """Taiwan convention: red=up, green=down"""
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if val > 0:
+                    return "color: #FF1744"
+                elif val < 0:
+                    return "color: #00C853"
+                return ""
+
+            def _color_rsi_hl(val):
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if val >= 70:
+                    return "color: #FF1744; font-weight: bold"
+                elif val <= 30:
+                    return "color: #00C853; font-weight: bold"
+                return ""
+
+            def _color_adx_hl(val):
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if val >= 25:
+                    return "color: #2196F3; font-weight: bold"
+                return ""
+
+            def _color_vol(val):
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    return ""
+                if val >= 2.0:
+                    return "color: #FF9800; font-weight: bold"
+                elif val >= 1.5:
+                    return "color: #FF9800"
+                return ""
+
+            styled = df_dash.style
+            for col in ["漲跌%", "漲跌"]:
+                if col in df_dash.columns:
+                    styled = styled.map(_color_change_tw, subset=[col])
+            if "RSI" in df_dash.columns:
+                styled = styled.map(_color_rsi_hl, subset=["RSI"])
+            if "ADX" in df_dash.columns:
+                styled = styled.map(_color_adx_hl, subset=["ADX"])
+            if "量比" in df_dash.columns:
+                styled = styled.map(_color_vol, subset=["量比"])
+
+            st.dataframe(styled, use_container_width=True, hide_index=True)
+
+            # --- 績效比較圖 ---
+            st.divider()
+            st.subheader("績效比較圖")
+            _comp_days = st.slider("比較天數", 30, 365, 90, key="wl_comp_days")
+
+            fig_comp = go.Figure()
+            for code in wl:
+                try:
+                    _comp_df = _wl_data.get(code)
+                    if _comp_df is None or _comp_df.empty:
+                        continue
+                    _comp_close = _comp_df["close"].tail(_comp_days)
+                    if len(_comp_close) < 2:
+                        continue
+                    _base = _comp_close.iloc[0]
+                    _normalized = (_comp_close / _base - 1) * 100
+                    _cname = get_stock_name(code, all_stocks)
+                    fig_comp.add_trace(go.Scatter(
+                        x=_comp_close.index,
+                        y=_normalized,
+                        mode="lines",
+                        name=f"{code} {_cname}",
+                    ))
+                except Exception:
+                    continue
+
+            fig_comp.add_hline(y=0, line_dash="dash", line_color="white", opacity=0.3)
+            fig_comp.update_layout(
+                yaxis_title="報酬率 (%)",
+                xaxis_title="日期",
+                hovermode="x unified",
+                template="plotly_dark",
+                height=500,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_comp, use_container_width=True)
+
+            # --- 快速分析 ---
+            st.divider()
+            st.subheader("快速分析")
+            _wl_opts = [f"{r['代碼']} {r['名稱']}" for r in dashboard_rows]
+            _wl_sel = st.selectbox("選擇股票", _wl_opts, key="wl_dash_jump")
+            _wl_code = _wl_sel.split()[0] if _wl_sel else ""
+
+            _wl_jcols = st.columns(4)
+            with _wl_jcols[0]:
+                if st.button("技術分析", key="wl_to_tech", use_container_width=True):
+                    st.session_state["_pending_stock"] = _wl_code
+                    st.session_state["_pending_nav"] = "技術分析"
+                    st.rerun()
+            with _wl_jcols[1]:
+                if st.button("回測報告", key="wl_to_bt", use_container_width=True):
+                    st.session_state["_pending_stock"] = _wl_code
+                    st.session_state["_pending_nav"] = "回測報告"
+                    st.rerun()
+            with _wl_jcols[2]:
+                if st.button("模擬交易", key="wl_to_sim", use_container_width=True):
+                    st.session_state["_pending_stock"] = _wl_code
+                    st.session_state["_pending_nav"] = "模擬交易"
+                    st.rerun()
+            with _wl_jcols[3]:
+                if st.button("分析報告", key="wl_to_rpt", use_container_width=True):
+                    st.session_state["_pending_stock"] = _wl_code
+                    st.session_state["_auto_report"] = True
+                    st.session_state["_pending_nav"] = "分析報告"
+                    st.rerun()
+
+            # --- 批次回測 ---
+            st.divider()
+            st.subheader("批次回測")
+            st.caption("對所有自選股執行 v4 策略回測，比較歷史績效。")
+            _bt_days = st.slider("回測天數", 180, 1095, 730, key="wl_bt_days")
+
+            if st.button("開始批次回測", key="wl_batch_bt", type="primary"):
+                bt_rows = []
+                _bt_prog = st.progress(0, text="批次回測中...")
+                for i, code in enumerate(wl):
+                    _bt_prog.progress((i + 1) / len(wl), text=f"回測 {code} ({i+1}/{len(wl)})...")
+                    try:
+                        _bt_df = load_data(code, _bt_days + 120)
+                        if _bt_df is None or _bt_df.empty:
+                            continue
+                        _bt_result = run_backtest_v4(_bt_df.tail(_bt_days + 60), initial_capital=initial_capital)
+                        bt_rows.append({
+                            "代碼": code,
+                            "名稱": get_stock_name(code, all_stocks),
+                            "總報酬率%": round(_bt_result.total_return * 100, 2),
+                            "年化報酬%": round(_bt_result.annual_return * 100, 2),
+                            "最大回撤%": round(_bt_result.max_drawdown * 100, 2),
+                            "Sharpe": round(_bt_result.sharpe_ratio, 2),
+                            "勝率%": round(_bt_result.win_rate * 100, 1),
+                            "交易次數": _bt_result.total_trades,
+                            "盈虧比": round(_bt_result.profit_factor, 2),
+                        })
+                    except Exception:
+                        continue
+                _bt_prog.empty()
+                st.session_state["_wl_bt_results"] = bt_rows
+                st.session_state["_wl_bt_days_used"] = _bt_days
+
+            # 顯示批次回測結果（從 session_state）
+            _wl_bt = st.session_state.get("_wl_bt_results")
+            if _wl_bt:
+                _bt_days_used = st.session_state.get("_wl_bt_days_used", 730)
+                st.caption(f"回測期間：{_bt_days_used} 天")
+                df_bt = pd.DataFrame(_wl_bt).sort_values("總報酬率%", ascending=False)
+
+                def _color_return(val):
+                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                        return ""
+                    if val > 0:
+                        return "color: #00C853"
+                    elif val < 0:
+                        return "color: #FF1744"
+                    return ""
+
+                def _color_dd(val):
+                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                        return ""
+                    if val > -10:
+                        return "color: #00C853"
+                    elif val < -20:
+                        return "color: #FF1744"
+                    return ""
+
+                def _color_wr(val):
+                    if val is None or (isinstance(val, float) and np.isnan(val)):
+                        return ""
+                    if val >= 55:
+                        return "color: #00C853; font-weight: bold"
+                    elif val >= 50:
+                        return "color: #00C853"
+                    elif val < 40:
+                        return "color: #FF1744"
+                    return ""
+
+                bt_styled = df_bt.style
+                for col in ["總報酬率%", "年化報酬%"]:
+                    if col in df_bt.columns:
+                        bt_styled = bt_styled.map(_color_return, subset=[col])
+                if "最大回撤%" in df_bt.columns:
+                    bt_styled = bt_styled.map(_color_dd, subset=["最大回撤%"])
+                if "勝率%" in df_bt.columns:
+                    bt_styled = bt_styled.map(_color_wr, subset=["勝率%"])
+
+                st.dataframe(bt_styled, use_container_width=True, hide_index=True)
+
+                _avg_ret = np.mean([r["總報酬率%"] for r in _wl_bt])
+                _pos_n = sum(1 for r in _wl_bt if r["總報酬率%"] > 0)
+                st.caption(f"平均報酬率：{_avg_ret:+.2f}% | 獲利：{_pos_n}/{len(_wl_bt)} 檔")
 
 
 # ===== Footer =====
