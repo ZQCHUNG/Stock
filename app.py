@@ -752,6 +752,29 @@ if page == "技術分析":
         )
         st.plotly_chart(fig_cmp, use_container_width=True)
 
+    # --- 快速回測摘要 ---
+    st.divider()
+    with st.expander("快速回測摘要（730 天）", expanded=False):
+        _qbt_df = raw_df.tail(730 + 60)
+        if use_v4:
+            _qbt = run_backtest_v4(_qbt_df, initial_capital=initial_capital)
+        else:
+            _qbt = run_backtest(_qbt_df, initial_capital=initial_capital)
+        _qbt_cols = st.columns(6)
+        with _qbt_cols[0]:
+            st.metric("總報酬", f"{_qbt.total_return:.2%}")
+        with _qbt_cols[1]:
+            st.metric("年化報酬", f"{_qbt.annual_return:.2%}")
+        with _qbt_cols[2]:
+            st.metric("最大回撤", f"{_qbt.max_drawdown:.2%}")
+        with _qbt_cols[3]:
+            st.metric("勝率", f"{_qbt.win_rate:.0%}")
+        with _qbt_cols[4]:
+            st.metric("交易次數", f"{_qbt.total_trades}")
+        with _qbt_cols[5]:
+            st.metric("Sharpe", f"{_qbt.sharpe_ratio:.2f}")
+        st.caption("展開「回測報告」頁面查看完整分析")
+
 
 # ===== 頁面 2：回測報告 =====
 elif page == "回測報告":
@@ -2867,9 +2890,13 @@ elif page == "自選股總覽":
                             "年化報酬%": round(_bt_result.annual_return * 100, 2),
                             "最大回撤%": round(_bt_result.max_drawdown * 100, 2),
                             "Sharpe": round(_bt_result.sharpe_ratio, 2),
+                            "Sortino": round(_bt_result.sortino_ratio, 2),
+                            "Calmar": round(_bt_result.calmar_ratio, 2),
                             "勝率%": round(_bt_result.win_rate * 100, 1),
                             "交易次數": _bt_result.total_trades,
                             "盈虧比": round(_bt_result.profit_factor, 2),
+                            "平均獲利%": round(_bt_result.avg_win * 100, 2),
+                            "平均虧損%": round(_bt_result.avg_loss * 100, 2),
                         })
                     except Exception:
                         continue
@@ -2933,5 +2960,5 @@ elif page == "自選股總覽":
 st.divider()
 st.caption(
     "⚠️ 本系統僅供技術分析參考，不構成投資建議。投資有風險，請自行判斷。"
-    " | 資料來源：Yahoo Finance"
+    " | 資料來源：Yahoo Finance | v2.0"
 )
