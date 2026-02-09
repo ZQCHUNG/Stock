@@ -1481,24 +1481,50 @@ elif page == "條件選股":
     st.divider()
 
     # ----- 篩選條件 UI -----
-    filter_cfg = {}  # {field: (enabled, operator, value)}
+    # 初始化 session_state 預設值（避免 preset 與 widget value= 衝突）
+    _FILTER_DEFAULTS = {
+        "f_roe": True, "f_roe_val": 15.0,
+        "f_roa": False, "f_roa_val": 5.0,
+        "f_gross": False, "f_gross_val": 20.0,
+        "f_opm": False, "f_opm_val": 10.0,
+        "f_npm": False, "f_npm_val": 5.0,
+        "f_eps": False, "f_eps_val": 2.0,
+        "f_revg": False, "f_revg_val": 10.0,
+        "f_earng": False, "f_earng_val": 10.0,
+        "f_de": False, "f_de_val": 100.0,
+        "f_cr": False, "f_cr_val": 1.5,
+        "f_pe": False, "f_pe_val": 20.0,
+        "f_fpe": False, "f_fpe_val": 15.0,
+        "f_pb": False, "f_pb_val": 3.0,
+        "f_dy": False, "f_dy_val": 3.0,
+        "f_fcf": False, "f_ocf": False,
+        "f_mcap": False, "f_mcap_val": 100.0,
+        "f_beta": False, "f_beta_val": 1.5,
+        "f_rsi": False, "f_rsi_lo": 30.0, "f_rsi_hi": 70.0,
+        "f_adx": False, "f_adx_val": 20.0,
+    }
+    for _k, _v in _FILTER_DEFAULTS.items():
+        if _k not in st.session_state:
+            st.session_state[_k] = _v
+
+    filter_cfg = {}  # {field: (operator, value)}
 
     with st.expander("獲利能力", expanded=True):
         col_a, col_b = st.columns(2)
         with col_a:
-            f_roe = st.checkbox("ROE (%)", value=True, key="f_roe")
-            f_roe_val = st.number_input("ROE >", value=15.0, step=1.0, key="f_roe_val", format="%.1f")
-            f_roa = st.checkbox("ROA (%)", value=False, key="f_roa")
-            f_roa_val = st.number_input("ROA >", value=5.0, step=1.0, key="f_roa_val", format="%.1f")
-            f_gross = st.checkbox("毛利率 (%)", value=False, key="f_gross")
-            f_gross_val = st.number_input("毛利率 >", value=20.0, step=1.0, key="f_gross_val", format="%.1f")
+            f_roe = st.checkbox("ROE (%)", key="f_roe")
+            f_roe_val = st.number_input("ROE >", step=1.0, key="f_roe_val", format="%.1f")
+            f_roa = st.checkbox("ROA (%)", key="f_roa")
+            f_roa_val = st.number_input("ROA >", step=1.0, key="f_roa_val", format="%.1f")
+            f_gross = st.checkbox("毛利率 (%)", key="f_gross")
+            f_gross_val = st.number_input("毛利率 >", step=1.0, key="f_gross_val", format="%.1f")
         with col_b:
-            f_opm = st.checkbox("營業利益率 (%)", value=False, key="f_opm")
-            f_opm_val = st.number_input("營業利益率 >", value=10.0, step=1.0, key="f_opm_val", format="%.1f")
-            f_npm = st.checkbox("淨利率 (%)", value=False, key="f_npm")
-            f_npm_val = st.number_input("淨利率 >", value=5.0, step=1.0, key="f_npm_val", format="%.1f")
-            f_eps = st.checkbox("EPS (元)", value=False, key="f_eps")
-            f_eps_val = st.number_input("EPS >", value=2.0, step=0.5, key="f_eps_val", format="%.1f")
+            f_opm = st.checkbox("營業利益率 (%)", key="f_opm")
+            f_opm_val = st.number_input("營業利益率 >", step=1.0, key="f_opm_val", format="%.1f")
+            f_npm = st.checkbox("淨利率 (%)", key="f_npm")
+            f_npm_val = st.number_input("淨利率 >", step=1.0, key="f_npm_val", format="%.1f")
+            f_eps = st.checkbox("EPS (元)", key="f_eps")
+            f_eps_val = st.number_input("EPS >", step=0.5, key="f_eps_val", format="%.1f")
 
     if f_roe:
         filter_cfg["return_on_equity"] = (">", f_roe_val / 100)
@@ -1516,11 +1542,11 @@ elif page == "條件選股":
     with st.expander("成長力"):
         col_a, col_b = st.columns(2)
         with col_a:
-            f_revg = st.checkbox("營收成長率 (%)", value=False, key="f_revg")
-            f_revg_val = st.number_input("營收成長 >", value=10.0, step=1.0, key="f_revg_val", format="%.1f")
+            f_revg = st.checkbox("營收成長率 (%)", key="f_revg")
+            f_revg_val = st.number_input("營收成長 >", step=1.0, key="f_revg_val", format="%.1f")
         with col_b:
-            f_earng = st.checkbox("獲利成長率 (%)", value=False, key="f_earng")
-            f_earng_val = st.number_input("獲利成長 >", value=10.0, step=1.0, key="f_earng_val", format="%.1f")
+            f_earng = st.checkbox("獲利成長率 (%)", key="f_earng")
+            f_earng_val = st.number_input("獲利成長 >", step=1.0, key="f_earng_val", format="%.1f")
 
     if f_revg:
         filter_cfg["revenue_growth"] = (">", f_revg_val / 100)
@@ -1530,11 +1556,11 @@ elif page == "條件選股":
     with st.expander("安全性"):
         col_a, col_b = st.columns(2)
         with col_a:
-            f_de = st.checkbox("負債權益比 (%)", value=False, key="f_de")
-            f_de_val = st.number_input("負債權益比 <", value=100.0, step=10.0, key="f_de_val", format="%.0f")
+            f_de = st.checkbox("負債權益比 (%)", key="f_de")
+            f_de_val = st.number_input("負債權益比 <", step=10.0, key="f_de_val", format="%.0f")
         with col_b:
-            f_cr = st.checkbox("流動比率", value=False, key="f_cr")
-            f_cr_val = st.number_input("流動比率 >", value=1.5, step=0.1, key="f_cr_val", format="%.1f")
+            f_cr = st.checkbox("流動比率", key="f_cr")
+            f_cr_val = st.number_input("流動比率 >", step=0.1, key="f_cr_val", format="%.1f")
 
     if f_de:
         filter_cfg["debt_to_equity"] = ("<", f_de_val)
@@ -1544,15 +1570,15 @@ elif page == "條件選股":
     with st.expander("價值評估"):
         col_a, col_b = st.columns(2)
         with col_a:
-            f_pe = st.checkbox("本益比 (TTM)", value=False, key="f_pe")
-            f_pe_val = st.number_input("本益比 <", value=20.0, step=1.0, key="f_pe_val", format="%.1f")
-            f_fpe = st.checkbox("Forward PE", value=False, key="f_fpe")
-            f_fpe_val = st.number_input("Forward PE <", value=15.0, step=1.0, key="f_fpe_val", format="%.1f")
-            f_pb = st.checkbox("淨值比", value=False, key="f_pb")
-            f_pb_val = st.number_input("淨值比 <", value=3.0, step=0.5, key="f_pb_val", format="%.1f")
+            f_pe = st.checkbox("本益比 (TTM)", key="f_pe")
+            f_pe_val = st.number_input("本益比 <", step=1.0, key="f_pe_val", format="%.1f")
+            f_fpe = st.checkbox("Forward PE", key="f_fpe")
+            f_fpe_val = st.number_input("Forward PE <", step=1.0, key="f_fpe_val", format="%.1f")
+            f_pb = st.checkbox("淨值比", key="f_pb")
+            f_pb_val = st.number_input("淨值比 <", step=0.5, key="f_pb_val", format="%.1f")
         with col_b:
-            f_dy = st.checkbox("殖利率 (%)", value=False, key="f_dy")
-            f_dy_val = st.number_input("殖利率 >", value=3.0, step=0.5, key="f_dy_val", format="%.1f")
+            f_dy = st.checkbox("殖利率 (%)", key="f_dy")
+            f_dy_val = st.number_input("殖利率 >", step=0.5, key="f_dy_val", format="%.1f")
 
     if f_pe:
         filter_cfg["trailing_pe"] = ("<", f_pe_val)
@@ -1566,13 +1592,13 @@ elif page == "條件選股":
     with st.expander("現金流 & 規模"):
         col_a, col_b = st.columns(2)
         with col_a:
-            f_fcf = st.checkbox("自由現金流 > 0", value=False, key="f_fcf")
-            f_ocf = st.checkbox("營業現金流 > 0", value=False, key="f_ocf")
+            f_fcf = st.checkbox("自由現金流 > 0", key="f_fcf")
+            f_ocf = st.checkbox("營業現金流 > 0", key="f_ocf")
         with col_b:
-            f_mcap = st.checkbox("市值 (億)", value=False, key="f_mcap")
-            f_mcap_val = st.number_input("市值 >", value=100.0, step=50.0, key="f_mcap_val", format="%.0f", help="單位：億元台幣")
-            f_beta = st.checkbox("Beta", value=False, key="f_beta")
-            f_beta_val = st.number_input("Beta <", value=1.5, step=0.1, key="f_beta_val", format="%.1f")
+            f_mcap = st.checkbox("市值 (億)", key="f_mcap")
+            f_mcap_val = st.number_input("市值 >", step=50.0, key="f_mcap_val", format="%.0f", help="單位：億元台幣")
+            f_beta = st.checkbox("Beta", key="f_beta")
+            f_beta_val = st.number_input("Beta <", step=0.1, key="f_beta_val", format="%.1f")
 
     if f_fcf:
         filter_cfg["free_cashflow"] = (">", 0)
@@ -1586,12 +1612,12 @@ elif page == "條件選股":
     with st.expander("技術面"):
         col_a, col_b = st.columns(2)
         with col_a:
-            f_rsi = st.checkbox("RSI 區間", value=False, key="f_rsi")
-            f_rsi_lo = st.number_input("RSI 下限", value=30.0, step=5.0, key="f_rsi_lo", format="%.0f")
-            f_rsi_hi = st.number_input("RSI 上限", value=70.0, step=5.0, key="f_rsi_hi", format="%.0f")
+            f_rsi = st.checkbox("RSI 區間", key="f_rsi")
+            f_rsi_lo = st.number_input("RSI 下限", step=5.0, key="f_rsi_lo", format="%.0f")
+            f_rsi_hi = st.number_input("RSI 上限", step=5.0, key="f_rsi_hi", format="%.0f")
         with col_b:
-            f_adx = st.checkbox("ADX", value=False, key="f_adx")
-            f_adx_val = st.number_input("ADX >", value=20.0, step=1.0, key="f_adx_val", format="%.0f")
+            f_adx = st.checkbox("ADX", key="f_adx")
+            f_adx_val = st.number_input("ADX >", step=1.0, key="f_adx_val", format="%.0f")
 
     # ----- 掃描範圍 & 執行 -----
     st.divider()
