@@ -610,6 +610,66 @@ if page == "技術分析":
 
     st.plotly_chart(fig, use_container_width=True)
 
+    # --- 股價比較 ---
+    st.divider()
+    st.subheader("股價比較")
+    _benchmarks = ["0050"]
+    _wl_codes = [c for c in st.session_state.get("watchlist", []) if c != stock_code]
+    _compare_pool = _benchmarks + _wl_codes
+    _compare_options = [f"{c} {get_stock_name(c, all_stocks)}" for c in _compare_pool if c != stock_code]
+    _comp_selected = st.multiselect(
+        "選擇比較標的（可多選）",
+        _compare_options,
+        key="tech_compare",
+        help="選擇後會疊加正規化報酬率折線圖",
+    )
+
+    if _comp_selected:
+        _comp_days_tech = st.slider("比較天數", 30, 365, 90, key="tech_comp_days")
+        fig_cmp = go.Figure()
+
+        # Current stock
+        _cur_close = raw_df["close"].tail(_comp_days_tech)
+        if len(_cur_close) >= 2:
+            _cur_base = _cur_close.iloc[0]
+            _cur_norm = (_cur_close / _cur_base - 1) * 100
+            fig_cmp.add_trace(go.Scatter(
+                x=_cur_close.index, y=_cur_norm,
+                mode="lines", name=f"{stock_code} {stock_name}",
+                line=dict(width=2.5),
+            ))
+
+        # Comparison stocks
+        for _cmp_item in _comp_selected:
+            _cmp_code = _cmp_item.split()[0]
+            try:
+                _cmp_df = load_data(_cmp_code, _comp_days_tech + 30)
+                if _cmp_df is None or _cmp_df.empty:
+                    continue
+                _cmp_close = _cmp_df["close"].tail(_comp_days_tech)
+                if len(_cmp_close) < 2:
+                    continue
+                _cmp_base = _cmp_close.iloc[0]
+                _cmp_norm = (_cmp_close / _cmp_base - 1) * 100
+                _cmp_name = get_stock_name(_cmp_code, all_stocks)
+                fig_cmp.add_trace(go.Scatter(
+                    x=_cmp_close.index, y=_cmp_norm,
+                    mode="lines", name=f"{_cmp_code} {_cmp_name}",
+                ))
+            except Exception:
+                continue
+
+        fig_cmp.add_hline(y=0, line_dash="dash", line_color="white", opacity=0.3)
+        fig_cmp.update_layout(
+            yaxis_title="報酬率 (%)",
+            xaxis_title="日期",
+            hovermode="x unified",
+            template="plotly_dark",
+            height=400,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        st.plotly_chart(fig_cmp, use_container_width=True)
+
 
 # ===== 頁面 2：回測報告 =====
 elif page == "回測報告":
@@ -781,6 +841,44 @@ elif page == "回測報告":
             yaxis_title="次數",
         )
         st.plotly_chart(fig_dist, use_container_width=True)
+
+    # 月度報酬熱力圖
+    if not result.daily_returns.empty and len(result.daily_returns) > 30:
+        st.subheader("月度報酬熱力圖")
+        _monthly = result.daily_returns.resample("ME").apply(lambda x: (1 + x).prod() - 1) * 100
+        if len(_monthly) > 1:
+            _monthly_df = pd.DataFrame({
+                "年": _monthly.index.year,
+                "月": _monthly.index.month,
+                "報酬%": _monthly.values,
+            })
+            _pivot = _monthly_df.pivot_table(index="年", columns="月", values="報酬%", aggfunc="sum")
+            _pivot.columns = [f"{m}月" for m in _pivot.columns]
+
+            fig_heatmap = go.Figure(data=go.Heatmap(
+                z=_pivot.values,
+                x=_pivot.columns,
+                y=[str(y) for y in _pivot.index],
+                colorscale=[[0, "#FF1744"], [0.5, "#212121"], [1, "#00C853"]],
+                zmid=0,
+                text=[[f"{v:.1f}%" if not np.isnan(v) else "" for v in row] for row in _pivot.values],
+                texttemplate="%{text}",
+                textfont=dict(size=12),
+                hovertemplate="年: %{y}<br>月: %{x}<br>報酬: %{z:.2f}%<extra></extra>",
+            ))
+            fig_heatmap.update_layout(
+                height=max(200, len(_pivot) * 50 + 80),
+                template="plotly_dark",
+                yaxis=dict(dtick=1),
+                margin=dict(t=20, b=20),
+            )
+            st.plotly_chart(fig_heatmap, use_container_width=True)
+
+            # 年度彙總
+            _yearly = result.daily_returns.resample("YE").apply(lambda x: (1 + x).prod() - 1) * 100
+            if len(_yearly) > 0:
+                _yr_data = [{"年度": str(d.year), "報酬率": f"{v:+.2f}%"} for d, v in _yearly.items()]
+                st.caption("年度報酬：" + " | ".join([f"{r['年度']}: {r['報酬率']}" for r in _yr_data]))
 
     # 交易紀錄
     st.subheader("交易紀錄")
@@ -1618,17 +1716,116 @@ elif page == "分析報告":
             st.metric("綜合評分", f"{v2.get('composite_score', 0):+.3f}")
 
         # ---- 下載 ----
-        report_text = f"=== {report.stock_name}（{report.stock_code}）技術分析報告 ===\n"
-        report_text += f"報告日期：{report.report_date.strftime('%Y-%m-%d %H:%M')}\n"
-        report_text += f"綜合評等：{report.overall_rating}\n"
-        report_text += f"收盤價：${report.current_price:.2f}\n\n"
-        report_text += report.summary_text
-        st.download_button(
-            label="下載報告文字檔",
-            data=report_text.encode("utf-8"),
-            file_name=f"report_{report.stock_code}_{report.report_date.strftime('%Y%m%d')}.txt",
-            mime="text/plain",
-        )
+        st.divider()
+        st.subheader("下載報告")
+
+        # HTML 報告
+        _rating_html_colors = {
+            "強力買進": "#1B5E20", "買進": "#2E7D32", "中性": "#F57F17",
+            "賣出": "#C62828", "強力賣出": "#B71C1C",
+        }
+        _r_color = _rating_html_colors.get(report.overall_rating, "#424242")
+
+        _fund = report.fundamentals
+        _fund_rows = ""
+        for _fk, _fl in [("trailing_pe", "本益比"), ("price_to_book", "淨值比"),
+                         ("return_on_equity", "ROE"), ("dividend_yield", "殖利率"),
+                         ("revenue_growth", "營收成長"), ("profit_margins", "淨利率")]:
+            _fv = _fund.get(_fk)
+            if _fv is not None and not (isinstance(_fv, float) and np.isnan(_fv)):
+                if _fk in ("return_on_equity", "dividend_yield", "revenue_growth", "profit_margins"):
+                    _fund_rows += f"<tr><td>{_fl}</td><td>{_fv*100:.1f}%</td></tr>"
+                else:
+                    _fund_rows += f"<tr><td>{_fl}</td><td>{_fv:.2f}</td></tr>"
+
+        _news_rows = ""
+        for _ni in report.news_items[:5]:
+            _nt = _ni.get("title", "")
+            _ns = _ni.get("source", "")
+            _news_rows += f"<li>{_nt}（{_ns}）</li>"
+
+        report_html = f"""<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8">
+<title>{report.stock_name}({report.stock_code}) 分析報告</title>
+<style>
+body{{font-family:-apple-system,sans-serif;max-width:800px;margin:0 auto;padding:20px;background:#1a1a2e;color:#e0e0e0}}
+h1,h2,h3{{color:#e0e0e0}} table{{border-collapse:collapse;width:100%;margin:10px 0}}
+td,th{{border:1px solid #444;padding:8px;text-align:left}} th{{background:#2a2a4a}}
+.banner{{background:{_r_color};color:white;padding:20px;border-radius:12px;text-align:center;margin:20px 0}}
+.section{{background:#16213e;padding:15px;border-radius:8px;margin:15px 0}}
+.metric{{display:inline-block;background:#1a1a2e;padding:10px 15px;border-radius:8px;margin:5px;text-align:center}}
+.metric .label{{font-size:0.85em;color:#888}} .metric .value{{font-size:1.3em;font-weight:bold}}
+</style></head><body>
+<div class="banner"><h1>{report.stock_name}（{report.stock_code}）</h1>
+<h2>綜合評等：{report.overall_rating}</h2>
+<p>收盤價 ${report.current_price:.2f} | 趨勢 {report.trend_direction} | 動能 {report.momentum_status}</p>
+<p style="font-size:0.85em">報告日期：{report.report_date.strftime('%Y-%m-%d %H:%M')}</p></div>
+
+<div class="section"><h2>分析摘要</h2><p>{report.summary_text}</p></div>
+
+<div class="section"><h2>價格績效</h2>
+<div class="metric"><div class="label">1 週</div><div class="value">{report.price_change_1w:+.2f}%</div></div>
+<div class="metric"><div class="label">1 月</div><div class="value">{report.price_change_1m:+.2f}%</div></div>
+<div class="metric"><div class="label">3 月</div><div class="value">{report.price_change_3m:+.2f}%</div></div>
+<div class="metric"><div class="label">6 月</div><div class="value">{report.price_change_6m:+.2f}%</div></div>
+<div class="metric"><div class="label">1 年</div><div class="value">{report.price_change_1y:+.2f}%</div></div>
+<div class="metric"><div class="label">52 週高</div><div class="value">${report.high_52w:.2f}</div></div>
+<div class="metric"><div class="label">52 週低</div><div class="value">${report.low_52w:.2f}</div></div>
+</div>
+
+<div class="section"><h2>技術指標</h2><table>
+<tr><th>指標</th><th>數值</th><th>解讀</th></tr>
+<tr><td>RSI(14)</td><td>{report.rsi_value:.1f}</td><td>{report.rsi_interpretation}</td></tr>
+<tr><td>ADX(14)</td><td>{report.adx_value:.1f}</td><td>{report.adx_interpretation}</td></tr>
+<tr><td>MACD</td><td>{report.macd_value:.2f}</td><td>{report.macd_interpretation}</td></tr>
+<tr><td>KD</td><td>K={report.k_value:.1f} D={report.d_value:.1f}</td><td>{report.kd_interpretation}</td></tr>
+</table></div>
+
+<div class="section"><h2>基本面</h2>
+<p>{report.fundamental_interpretation}</p>
+<table><tr><th>指標</th><th>數值</th></tr>{_fund_rows}</table></div>
+
+<div class="section"><h2>消息面</h2>
+<p>情緒：{report.news_sentiment_label}（分數 {report.news_sentiment_score:+.1f}）</p>
+<ul>{_news_rows if _news_rows else '<li>暫無新聞</li>'}</ul></div>
+
+<div class="section"><h2>3 個月展望</h2><table>
+<tr><th>情境</th><th>機率</th><th>目標價</th><th>說明</th></tr>
+<tr><td>樂觀</td><td>{report.outlook_3m.bull_probability}%</td><td>${report.outlook_3m.bull_target:.2f}</td><td>{report.outlook_3m.bull_case}</td></tr>
+<tr><td>基本</td><td>{report.outlook_3m.base_probability}%</td><td>${report.outlook_3m.base_target:.2f}</td><td>{report.outlook_3m.base_case}</td></tr>
+<tr><td>保守</td><td>{report.outlook_3m.bear_probability}%</td><td>${report.outlook_3m.bear_target:.2f}</td><td>{report.outlook_3m.bear_case}</td></tr>
+</table></div>
+
+<div class="section"><h2>風險評估</h2>
+<p>{report.risk_interpretation}</p>
+<div class="metric"><div class="label">最大回撤(1Y)</div><div class="value">{report.max_drawdown_1y:.1f}%</div></div>
+<div class="metric"><div class="label">波動率(20D)</div><div class="value">{report.historical_volatility_20d:.1f}%</div></div>
+<div class="metric"><div class="label">ATR</div><div class="value">{report.atr_value:.2f}({report.atr_pct:.1f}%)</div></div>
+</div>
+
+<p style="text-align:center;color:#666;margin-top:30px">本報告由台股技術分析系統自動產生，僅供參考，不構成投資建議。</p>
+</body></html>"""
+
+        dl_cols = st.columns(2)
+        with dl_cols[0]:
+            st.download_button(
+                label="下載 HTML 報告",
+                data=report_html.encode("utf-8"),
+                file_name=f"report_{report.stock_code}_{report.report_date.strftime('%Y%m%d')}.html",
+                mime="text/html",
+            )
+        with dl_cols[1]:
+            report_text = f"=== {report.stock_name}（{report.stock_code}）技術分析報告 ===\n"
+            report_text += f"報告日期：{report.report_date.strftime('%Y-%m-%d %H:%M')}\n"
+            report_text += f"綜合評等：{report.overall_rating}\n"
+            report_text += f"收盤價：${report.current_price:.2f}\n\n"
+            report_text += report.summary_text
+            st.download_button(
+                label="下載文字檔",
+                data=report_text.encode("utf-8"),
+                file_name=f"report_{report.stock_code}_{report.report_date.strftime('%Y%m%d')}.txt",
+                mime="text/plain",
+            )
 
 
 # ===== 頁面 6：條件選股 =====

@@ -17,3 +17,11 @@ ENV/
 Thumbs.db
 .cache/
 redis-data/
+*.png
+*.jpg
+*.jpeg
+_*.json
+nul
+.claude/
+.playwright-mcp/
+Images/
