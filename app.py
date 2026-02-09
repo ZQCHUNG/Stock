@@ -270,7 +270,17 @@ if page not in ("推薦股票", "分析報告", "條件選股", "自選股總覽
         raw_df = load_data(stock_code, fetch_days)
         stock_name = get_stock_name(stock_code, all_stocks)
         _add_recent(stock_code)
-        st.sidebar.success(f"已載入 {stock_code} {stock_name}")
+        # 顯示即時價格與漲跌
+        if len(raw_df) >= 2:
+            _last_close = raw_df["close"].iloc[-1]
+            _prev_close = raw_df["close"].iloc[-2]
+            _chg = _last_close - _prev_close
+            _chg_pct = _chg / _prev_close * 100
+            _chg_icon = "🔴" if _chg > 0 else ("🟢" if _chg < 0 else "⚪")
+            st.sidebar.success(f"已載入 {stock_code} {stock_name}")
+            st.sidebar.markdown(f"**{_chg_icon} \\${_last_close:.2f}** ({_chg:+.2f}, {_chg_pct:+.2f}%)")
+        else:
+            st.sidebar.success(f"已載入 {stock_code} {stock_name}")
     except Exception as e:
         st.error(f"無法載入股票 {stock_code} 的資料：{e}")
         st.stop()
@@ -400,6 +410,25 @@ def explain_signal(analysis: dict) -> str:
 # ===== 頁面 1：技術分析 =====
 if page == "技術分析":
     st.header(f"{stock_code} {stock_name} - 技術分析")
+
+    # 自選股快捷按鈕
+    _wl = st.session_state.get("watchlist", [])
+    _in_wl = stock_code in _wl
+    _wl_col1, _wl_col2 = st.columns([1, 5])
+    with _wl_col1:
+        if _in_wl:
+            if st.button("從自選股移除", key="tech_wl_remove", type="secondary"):
+                st.session_state.watchlist.remove(stock_code)
+                _save_watchlist(st.session_state.watchlist)
+                st.rerun()
+        else:
+            if st.button("加入自選股", key="tech_wl_add", type="primary"):
+                st.session_state.watchlist.append(stock_code)
+                _save_watchlist(st.session_state.watchlist)
+                st.rerun()
+    with _wl_col2:
+        if _in_wl:
+            st.caption("已在自選股清單中")
 
     if use_v4:
         # v4 分析
@@ -713,6 +742,24 @@ elif page == "回測報告":
     with col8:
         st.metric("平均持有天數", f"{result.avg_holding_days:.1f}")
 
+    # 第三行指標：風險與交易品質
+    col9, col10, col11, col12 = st.columns(4)
+    with col9:
+        _sortino_label = "佳" if result.sortino_ratio > 1.5 else ("普通" if result.sortino_ratio > 0 else "差")
+        st.metric("Sortino Ratio", f"{result.sortino_ratio:.2f}",
+                   delta=_sortino_label, delta_color="normal" if result.sortino_ratio > 0 else "inverse")
+    with col10:
+        _calmar_label = "佳" if result.calmar_ratio > 1 else ("普通" if result.calmar_ratio > 0 else "差")
+        st.metric("Calmar Ratio", f"{result.calmar_ratio:.2f}",
+                   delta=_calmar_label, delta_color="normal" if result.calmar_ratio > 0 else "inverse")
+    with col11:
+        st.metric("平均獲利", f"{result.avg_win:.2%}" if result.avg_win else "—",
+                   delta=f"連勝 {result.max_consecutive_wins}" if result.max_consecutive_wins else None)
+    with col12:
+        st.metric("平均虧損", f"{result.avg_loss:.2%}" if result.avg_loss else "—",
+                   delta=f"連敗 {result.max_consecutive_losses}" if result.max_consecutive_losses else None,
+                   delta_color="inverse")
+
     # 權益曲線
     st.subheader("權益曲線")
     if not result.equity_curve.empty:
@@ -725,6 +772,26 @@ elif page == "回測報告":
             fill="tozeroy",
             line=dict(color="#2196F3"),
         ))
+        # 買入持有基準線
+        _bt_close = backtest_df.tail(backtest_days)["close"]
+        if len(_bt_close) > 1:
+            _bh_equity = initial_capital * (_bt_close / _bt_close.iloc[0])
+            _bh_aligned = _bh_equity.reindex(result.equity_curve.index, method="ffill")
+            if not _bh_aligned.empty:
+                fig_equity.add_trace(go.Scatter(
+                    x=_bh_aligned.index, y=_bh_aligned.values,
+                    mode="lines", name="買入持有",
+                    line=dict(color="#FF9100", width=1, dash="dot"),
+                    opacity=0.7,
+                ))
+                _bh_return = (_bt_close.iloc[-1] / _bt_close.iloc[0]) - 1
+                _strategy_beats = result.total_return > _bh_return
+                _diff = result.total_return - _bh_return
+                if _strategy_beats:
+                    st.caption(f"策略 vs 買入持有：策略勝出 **{_diff:+.2%}**（策略 {result.total_return:+.2%} vs 持有 {_bh_return:+.2%}）")
+                else:
+                    st.caption(f"策略 vs 買入持有：持有勝出 **{-_diff:+.2%}**（策略 {result.total_return:+.2%} vs 持有 {_bh_return:+.2%}）")
+
         fig_equity.add_hline(
             y=initial_capital,
             line_dash="dash",
@@ -737,8 +804,27 @@ elif page == "回測報告":
             template="plotly_dark",
             yaxis_title="權益 (TWD)",
             xaxis_title="日期",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         st.plotly_chart(fig_equity, use_container_width=True)
+
+        # 回撤圖
+        _peak = result.equity_curve.cummax()
+        _drawdown = (result.equity_curve - _peak) / _peak * 100
+        if _drawdown.min() < 0:
+            fig_dd = go.Figure()
+            fig_dd.add_trace(go.Scatter(
+                x=_drawdown.index, y=_drawdown.values,
+                mode="lines", fill="tozeroy",
+                name="回撤 (%)",
+                line=dict(color="#FF1744", width=1),
+                fillcolor="rgba(255,23,68,0.2)",
+            ))
+            fig_dd.update_layout(
+                height=200, template="plotly_dark",
+                yaxis_title="回撤 (%)", margin=dict(t=10, b=30),
+            )
+            st.plotly_chart(fig_dd, use_container_width=True)
 
     # K 線圖 + 交易標記
     if result.trades:
@@ -824,6 +910,51 @@ elif page == "回測報告":
         )
         st.plotly_chart(fig_trades, use_container_width=True)
 
+    # 出場原因分布 + 單筆交易報酬
+    if result.trades and len(result.trades) > 1:
+        _exit_cols = st.columns(2)
+        exit_reason_map_pie = {
+            "signal": "訊號賣出", "stop_loss": "停損", "trailing_stop": "移動停利",
+            "take_profit": "停利", "end_of_period": "期末平倉",
+        }
+        exit_color_map = {
+            "訊號賣出": "#E040FB", "停損": "#FF1744", "移動停利": "#FF9100",
+            "停利": "#FFD600", "期末平倉": "#78909C",
+        }
+        with _exit_cols[0]:
+            st.subheader("出場原因分布")
+            _exit_counts = {}
+            for t in result.trades:
+                _reason = exit_reason_map_pie.get(t.exit_reason, t.exit_reason)
+                _exit_counts[_reason] = _exit_counts.get(_reason, 0) + 1
+            fig_pie = go.Figure(data=go.Pie(
+                labels=list(_exit_counts.keys()),
+                values=list(_exit_counts.values()),
+                marker=dict(colors=[exit_color_map.get(k, "#888") for k in _exit_counts.keys()]),
+                hole=0.4,
+                textinfo="label+percent+value",
+            ))
+            fig_pie.update_layout(height=350, template="plotly_dark", margin=dict(t=20, b=20))
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        with _exit_cols[1]:
+            st.subheader("單筆交易報酬")
+            _trade_returns = [t.return_pct * 100 for t in result.trades]
+            _trade_colors = ["#00C853" if r >= 0 else "#FF1744" for r in _trade_returns]
+            _trade_labels = [f"#{i+1}" for i in range(len(result.trades))]
+            fig_bar = go.Figure(data=go.Bar(
+                x=_trade_labels, y=_trade_returns,
+                marker_color=_trade_colors,
+                hovertemplate="交易 %{x}<br>報酬: %{y:.2f}%<extra></extra>",
+            ))
+            fig_bar.add_hline(y=0, line_dash="dash", line_color="white", opacity=0.3)
+            fig_bar.update_layout(
+                height=350, template="plotly_dark",
+                xaxis_title="交易序號", yaxis_title="報酬率 (%)",
+                margin=dict(t=20, b=20),
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
     # 每日報酬分布
     st.subheader("每日報酬分布")
     if not result.daily_returns.empty:
@@ -904,7 +1035,17 @@ elif page == "回測報告":
                 "損益": f"${t.pnl:,.0f}",
                 "報酬率": f"{t.return_pct:.2%}",
             })
-        st.dataframe(pd.DataFrame(trade_data), use_container_width=True)
+        _trade_df = pd.DataFrame(trade_data)
+        st.dataframe(_trade_df, use_container_width=True)
+
+        # CSV 下載
+        _csv_data = _trade_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            label="下載交易紀錄 (CSV)",
+            data=_csv_data,
+            file_name=f"backtest_{stock_code}_{backtest_days}d.csv",
+            mime="text/csv",
+        )
     else:
         st.warning("回測期間沒有產生交易")
         if use_v4:
@@ -1068,6 +1209,14 @@ elif page == "模擬交易":
         trade_df = pd.DataFrame(sim_result.trade_log)
         trade_df["日期"] = trade_df["日期"].dt.strftime("%Y-%m-%d")
         st.dataframe(trade_df, use_container_width=True)
+
+        _sim_csv = trade_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            label="下載交易明細 (CSV)",
+            data=_sim_csv,
+            file_name=f"simulation_{stock_code}_{sim_days}d.csv",
+            mime="text/csv",
+        )
     else:
         st.warning("模擬期間沒有產生交易")
         if use_v4:
@@ -1164,113 +1313,166 @@ elif page == "推薦股票":
 
     if st.button("開始掃描", type="primary"):
         if use_v4:
-            # ===== v4 掃描 =====
             buy_results = scan_stocks_v4(scan_pool)
+            st.session_state["_rec_results"] = buy_results
+            st.session_state["_rec_mode"] = "v4"
+            st.session_state["_rec_pool_size"] = len(scan_pool)
+        else:
+            all_scan = scan_stocks_v2(scan_pool)
+            st.session_state["_rec_results"] = all_scan
+            st.session_state["_rec_mode"] = "v2"
+            st.session_state["_rec_pool_size"] = len(scan_pool)
 
-            if not buy_results:
+    # ===== 從 session_state 讀取結果並顯示（不受 button rerun 影響） =====
+    _rec_results = st.session_state.get("_rec_results")
+    _rec_mode = st.session_state.get("_rec_mode")
+    _rec_pool_size = st.session_state.get("_rec_pool_size", 0)
+
+    if _rec_results is not None and _rec_mode == "v4":
+        buy_results = _rec_results
+        if not buy_results:
+            st.warning(
+                f"掃描完成（共 {_rec_pool_size} 檔），目前沒有任何股票符合 v4 買入條件。\n\n"
+                "v4 進場條件較嚴格（ADX≥18 + MA20>MA60 連續10天 + 支撐反彈或動量突破），"
+                "代表目前市場可能缺乏明確趨勢機會，建議耐心等待。"
+            )
+        else:
+            st.success(f"掃描完成（共 {_rec_pool_size} 檔），找到 **{len(buy_results)}** 檔符合 v4 買入條件！")
+
+            buy_results.sort(key=lambda x: x.get("uptrend_days", 0), reverse=True)
+            entry_type_map = {"support": "支撐反彈", "momentum": "動量突破"}
+
+            for rank, stock in enumerate(buy_results[:10], 1):
+                st.subheader(f"第 {rank} 名：{stock['code']} {stock['name']}")
+
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("收盤價", f"${stock['close']:.2f}")
+                with col2:
+                    st.metric("進場類型", entry_type_map.get(stock.get("entry_type", ""), "—"))
+                with col3:
+                    st.metric("上升趨勢天數", f"{stock.get('uptrend_days', 0)} 天")
+                with col4:
+                    st.metric("距離 MA20", f"{stock.get('dist_ma20', 0):.1%}")
+
+                ind = stock.get("indicators", {})
+                ind_cols = st.columns(5)
+                for j, label in enumerate(["ADX", "RSI", "+DI", "-DI", "ROC"]):
+                    with ind_cols[j]:
+                        val = ind.get(label)
+                        st.metric(label, f"{val:.1f}" if val is not None and not pd.isna(val) else "—")
+                st.divider()
+
+            # 批次加入自選股
+            _rec_codes = [s["code"] for s in buy_results]
+            _rec_not_in_wl = [c for c in _rec_codes if c not in st.session_state.get("watchlist", [])]
+            if _rec_not_in_wl:
+                if st.button(f"全部加入自選股（{len(_rec_not_in_wl)} 檔）", key="rec_add_all_wl"):
+                    for c in _rec_not_in_wl:
+                        if c not in st.session_state.watchlist:
+                            st.session_state.watchlist.append(c)
+                    _save_watchlist(st.session_state.watchlist)
+                    st.rerun()
+
+            # 全部列表
+            st.subheader("全部買入訊號股票")
+            table_data = []
+            for i, s in enumerate(buy_results, 1):
+                ind = s.get("indicators", {})
+                table_data.append({
+                    "排名": i,
+                    "代碼": s["code"],
+                    "名稱": s["name"],
+                    "收盤價": f"${s['close']:.2f}",
+                    "進場類型": entry_type_map.get(s.get("entry_type", ""), "—"),
+                    "趨勢天數": s.get("uptrend_days", 0),
+                    "距離MA20": f"{s.get('dist_ma20', 0):.1%}",
+                    "ADX": f"{ind.get('ADX', 0):.1f}" if ind.get("ADX") else "—",
+                    "RSI": f"{ind.get('RSI', 0):.1f}" if ind.get("RSI") else "—",
+                })
+            st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+
+            # 快速跳轉
+            st.divider()
+            st.subheader("快速分析")
+            _rec_opts = [f"{s['code']} {s['name']}" for s in buy_results]
+            _rec_sel = st.selectbox("選擇股票", _rec_opts, key="rec_jump_stock")
+            _rec_code = _rec_sel.split()[0] if _rec_sel else ""
+            _rec_jcols = st.columns(4)
+            with _rec_jcols[0]:
+                if st.button("技術分析", key="rec_to_tech", use_container_width=True):
+                    st.session_state["_pending_stock"] = _rec_code
+                    st.session_state["_pending_nav"] = "技術分析"
+                    st.rerun()
+            with _rec_jcols[1]:
+                if st.button("回測報告", key="rec_to_bt", use_container_width=True):
+                    st.session_state["_pending_stock"] = _rec_code
+                    st.session_state["_pending_nav"] = "回測報告"
+                    st.rerun()
+            with _rec_jcols[2]:
+                if st.button("模擬交易", key="rec_to_sim", use_container_width=True):
+                    st.session_state["_pending_stock"] = _rec_code
+                    st.session_state["_pending_nav"] = "模擬交易"
+                    st.rerun()
+            with _rec_jcols[3]:
+                if st.button("分析報告", key="rec_to_rpt", use_container_width=True):
+                    st.session_state["_pending_stock"] = _rec_code
+                    st.session_state["_auto_report"] = True
+                    st.session_state["_pending_nav"] = "分析報告"
+                    st.rerun()
+
+    elif _rec_results is not None and _rec_mode == "v2":
+        all_scan = _rec_results
+
+        if not all_scan:
+            st.error("無法取得任何股票資料")
+        else:
+            buy_only = [s for s in all_scan if s["signal"] == "BUY"]
+
+            if not buy_only:
                 st.warning(
-                    f"掃描完成（共 {len(scan_pool)} 檔），目前沒有任何股票符合 v4 買入條件。\n\n"
-                    "v4 進場條件較嚴格（ADX≥18 + MA20>MA60 連續10天 + 支撐反彈或動量突破），"
-                    "代表目前市場可能缺乏明確趨勢機會，建議耐心等待。"
+                    f"掃描完成（共 {_rec_pool_size} 檔），目前沒有股票綜合評分達到買入閾值（≥ {STRATEGY_PARAMS['buy_threshold']}）。\n\n"
+                    "建議耐心等待更好的進場時機。以下為全部股票評分排行僅供參考。"
                 )
+                sorted_results = sorted(all_scan, key=lambda x: x["composite_score"], reverse=True)
             else:
-                st.success(f"掃描完成（共 {len(scan_pool)} 檔），找到 **{len(buy_results)}** 檔符合 v4 買入條件！")
+                st.success(f"掃描完成（共 {_rec_pool_size} 檔），找到 **{len(buy_only)}** 檔發出買入訊號！")
+                sorted_results = sorted(buy_only, key=lambda x: x["composite_score"], reverse=True)
 
-                buy_results.sort(key=lambda x: x.get("uptrend_days", 0), reverse=True)
-                entry_type_map = {"support": "支撐反彈", "momentum": "動量突破"}
-
-                for rank, stock in enumerate(buy_results[:10], 1):
+                for rank, stock in enumerate(sorted_results[:10], 1):
                     st.subheader(f"第 {rank} 名：{stock['code']} {stock['name']}")
-
-                    col1, col2, col3, col4 = st.columns(4)
+                    col1, col2, col3 = st.columns(3)
                     with col1:
                         st.metric("收盤價", f"${stock['close']:.2f}")
                     with col2:
-                        st.metric("進場類型", entry_type_map.get(stock.get("entry_type", ""), "—"))
+                        st.metric("訊號", "🟢 買入")
                     with col3:
-                        st.metric("上升趨勢天數", f"{stock.get('uptrend_days', 0)} 天")
-                    with col4:
-                        st.metric("距離 MA20", f"{stock.get('dist_ma20', 0):.1%}")
-
-                    ind = stock.get("indicators", {})
-                    ind_cols = st.columns(5)
-                    for j, label in enumerate(["ADX", "RSI", "+DI", "-DI", "ROC"]):
-                        with ind_cols[j]:
-                            val = ind.get(label)
-                            st.metric(label, f"{val:.1f}" if val is not None and not pd.isna(val) else "—")
+                        st.metric("綜合評分", f"{stock['composite_score']:+.3f}")
+                    explanation = explain_signal(stock)
+                    st.markdown(explanation)
+                    score_cols = st.columns(6)
+                    for j, (sname, score) in enumerate(stock["scores"].items()):
+                        with score_cols[j]:
+                            icon = "🟢" if score > 0 else "🔴" if score < 0 else "⚪"
+                            st.metric(sname, f"{icon} {score:+.2f}")
                     st.divider()
 
-                # 全部列表
-                st.subheader("全部買入訊號股票")
-                table_data = []
-                for i, s in enumerate(buy_results, 1):
-                    ind = s.get("indicators", {})
-                    table_data.append({
-                        "排名": i,
-                        "代碼": s["code"],
-                        "名稱": s["name"],
-                        "收盤價": f"${s['close']:.2f}",
-                        "進場類型": entry_type_map.get(s.get("entry_type", ""), "—"),
-                        "趨勢天數": s.get("uptrend_days", 0),
-                        "距離MA20": f"{s.get('dist_ma20', 0):.1%}",
-                        "ADX": f"{ind.get('ADX', 0):.1f}" if ind.get("ADX") else "—",
-                        "RSI": f"{ind.get('RSI', 0):.1f}" if ind.get("RSI") else "—",
-                    })
-                st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
-
-        else:
-            # ===== v2 掃描 =====
-            all_scan = scan_stocks_v2(scan_pool)
-
-            if not all_scan:
-                st.error("無法取得任何股票資料")
-            else:
-                buy_only = [s for s in all_scan if s["signal"] == "BUY"]
-
-                if not buy_only:
-                    st.warning(
-                        f"掃描完成（共 {len(scan_pool)} 檔），目前沒有股票綜合評分達到買入閾值（≥ {STRATEGY_PARAMS['buy_threshold']}）。\n\n"
-                        "建議耐心等待更好的進場時機。以下為全部股票評分排行僅供參考。"
-                    )
-                    sorted_results = sorted(all_scan, key=lambda x: x["composite_score"], reverse=True)
-                else:
-                    st.success(f"掃描完成（共 {len(scan_pool)} 檔），找到 **{len(buy_only)}** 檔發出買入訊號！")
-                    sorted_results = sorted(buy_only, key=lambda x: x["composite_score"], reverse=True)
-
-                    for rank, stock in enumerate(sorted_results[:10], 1):
-                        st.subheader(f"第 {rank} 名：{stock['code']} {stock['name']}")
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
-                            st.metric("收盤價", f"${stock['close']:.2f}")
-                        with col2:
-                            st.metric("訊號", "🟢 買入")
-                        with col3:
-                            st.metric("綜合評分", f"{stock['composite_score']:+.3f}")
-                        explanation = explain_signal(stock)
-                        st.markdown(explanation)
-                        score_cols = st.columns(6)
-                        for j, (sname, score) in enumerate(stock["scores"].items()):
-                            with score_cols[j]:
-                                icon = "🟢" if score > 0 else "🔴" if score < 0 else "⚪"
-                                st.metric(sname, f"{icon} {score:+.2f}")
-                        st.divider()
-
-                # 全部排行表
-                if not buy_only:
-                    sorted_results = sorted(all_scan, key=lambda x: x["composite_score"], reverse=True)
-                st.subheader("全部股票評分排行")
-                ranking_data = []
-                for i, s in enumerate(sorted_results, 1):
-                    signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
-                    ranking_data.append({
-                        "排名": i,
-                        "代碼": s["code"],
-                        "名稱": s["name"],
-                        "收盤價": f"${s['close']:.2f}",
-                        "訊號": signal_map.get(s["signal"], s["signal"]),
-                        "綜合評分": f"{s['composite_score']:+.3f}",
-                    })
-                st.dataframe(pd.DataFrame(ranking_data), use_container_width=True, hide_index=True)
+            # 全部排行表
+            if not buy_only:
+                sorted_results = sorted(all_scan, key=lambda x: x["composite_score"], reverse=True)
+            st.subheader("全部股票評分排行")
+            ranking_data = []
+            for i, s in enumerate(sorted_results, 1):
+                signal_map = {"BUY": "🟢 買入", "SELL": "🔴 賣出", "HOLD": "🟡 持有"}
+                ranking_data.append({
+                    "排名": i,
+                    "代碼": s["code"],
+                    "名稱": s["name"],
+                    "收盤價": f"${s['close']:.2f}",
+                    "訊號": signal_map.get(s["signal"], s["signal"]),
+                    "綜合評分": f"{s['composite_score']:+.3f}",
+                })
+            st.dataframe(pd.DataFrame(ranking_data), use_container_width=True, hide_index=True)
 
 
 # ===== 頁面 5：分析報告 =====

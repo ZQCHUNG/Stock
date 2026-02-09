@@ -44,8 +44,14 @@ class BacktestResult:
     win_rate: float = 0.0
     profit_factor: float = 0.0
     sharpe_ratio: float = 0.0
+    sortino_ratio: float = 0.0
+    calmar_ratio: float = 0.0
     total_trades: int = 0
     avg_holding_days: float = 0.0
+    avg_win: float = 0.0
+    avg_loss: float = 0.0
+    max_consecutive_wins: int = 0
+    max_consecutive_losses: int = 0
 
 
 class BacktestEngine:
@@ -474,6 +480,24 @@ class BacktestEngine:
                     holding_days.append(days)
             result.avg_holding_days = np.mean(holding_days) if holding_days else 0
 
+            # 平均獲利 / 平均虧損
+            result.avg_win = np.mean([t.return_pct for t in winning_trades]) if winning_trades else 0
+            result.avg_loss = np.mean([t.return_pct for t in losing_trades]) if losing_trades else 0
+
+            # 最大連勝 / 連敗
+            streak_w = streak_l = max_w = max_l = 0
+            for t in result.trades:
+                if t.pnl > 0:
+                    streak_w += 1
+                    streak_l = 0
+                    max_w = max(max_w, streak_w)
+                else:
+                    streak_l += 1
+                    streak_w = 0
+                    max_l = max(max_l, streak_l)
+            result.max_consecutive_wins = max_w
+            result.max_consecutive_losses = max_l
+
         # Sharpe Ratio (假設無風險利率 1.5%)
         if len(result.daily_returns) > 1 and result.daily_returns.std() > 0:
             risk_free_daily = 0.015 / 252
@@ -481,6 +505,17 @@ class BacktestEngine:
             result.sharpe_ratio = (
                 excess_returns.mean() / excess_returns.std() * np.sqrt(252)
             )
+
+            # Sortino Ratio (只計算下行風險)
+            downside = excess_returns[excess_returns < 0]
+            if len(downside) > 0 and downside.std() > 0:
+                result.sortino_ratio = (
+                    excess_returns.mean() / downside.std() * np.sqrt(252)
+                )
+
+        # Calmar Ratio (年化報酬 / 最大回撤)
+        if result.max_drawdown < 0:
+            result.calmar_ratio = result.annual_return / abs(result.max_drawdown)
 
 
 def run_backtest(
