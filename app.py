@@ -139,7 +139,7 @@ with st.sidebar:
             value=BACKTEST_PARAMS["initial_capital"],
             step=100_000,
         )
-        backtest_days = st.slider("回測天數", 90, 730, 365)
+        backtest_days = st.slider("回測天數", 90, 1095, 730, help="v4 策略建議 730 天以上效果最佳")
         sim_days = st.slider("模擬交易天數", 10, 60, 30)
 
         st.caption("策略閾值")
@@ -661,7 +661,13 @@ elif page == "回測報告":
             })
         st.dataframe(pd.DataFrame(trade_data), use_container_width=True)
     else:
-        st.info("回測期間沒有產生交易")
+        st.warning("回測期間沒有產生交易")
+        if use_v4:
+            st.info(
+                "💡 **v4 策略進場條件較嚴格**（需 ADX≥18 + 上升趨勢 ≥10 天 + 支撐/動量觸發），"
+                "部分股票在短期回測中可能不會觸發交易。\n\n"
+                "**建議**：將左側「回測天數」調高至 **730～1095 天**，讓策略有更多進出場機會。"
+            )
 
 
 # ===== 頁面 3：模擬交易 =====
@@ -761,7 +767,13 @@ elif page == "模擬交易":
         trade_df["日期"] = trade_df["日期"].dt.strftime("%Y-%m-%d")
         st.dataframe(trade_df, use_container_width=True)
     else:
-        st.info("模擬期間沒有產生交易")
+        st.warning("模擬期間沒有產生交易")
+        if use_v4:
+            st.info(
+                "💡 v4 策略在短期模擬中不一定會觸發進場。"
+                "模擬僅回放最近 {0} 個交易日，若期間沒有支撐反彈或動量進場訊號就不會交易。"
+                "這是正常現象，代表策略在等待更好的時機。".format(sim_days)
+            )
 
     # 每日紀錄
     st.subheader("每日模擬紀錄")
@@ -1411,6 +1423,63 @@ elif page == "條件選股":
     st.header("條件選股")
     st.caption("依基本面 / 技術面條件篩選股票（類似財報狗）。勾選想要的條件、設定閾值，再按「開始選股」。")
 
+    # ----- 快速選股策略 -----
+    SCREENER_PRESETS = {
+        "高殖利率": {
+            "f_roe": True, "f_roe_val": 10.0,
+            "f_dy": True, "f_dy_val": 4.0,
+            "f_de": True, "f_de_val": 150.0,
+            "f_fcf": True,
+        },
+        "價值低估": {
+            "f_pe": True, "f_pe_val": 15.0,
+            "f_pb": True, "f_pb_val": 2.0,
+            "f_roe": True, "f_roe_val": 12.0,
+            "f_dy": True, "f_dy_val": 2.0,
+        },
+        "高速成長": {
+            "f_revg": True, "f_revg_val": 15.0,
+            "f_earng": True, "f_earng_val": 15.0,
+            "f_roe": True, "f_roe_val": 15.0,
+            "f_eps": True, "f_eps_val": 2.0,
+        },
+        "穩健龍頭": {
+            "f_mcap": True, "f_mcap_val": 500.0,
+            "f_roe": True, "f_roe_val": 10.0,
+            "f_beta": True, "f_beta_val": 1.2,
+            "f_fcf": True,
+        },
+        "高獲利": {
+            "f_roe": True, "f_roe_val": 20.0,
+            "f_gross": True, "f_gross_val": 30.0,
+            "f_eps": True, "f_eps_val": 3.0,
+            "f_opm": True, "f_opm_val": 15.0,
+        },
+    }
+
+    # 所有 filter 的 checkbox key 清單（用於 reset）
+    _ALL_FILTER_KEYS = [
+        "f_roe", "f_roa", "f_gross", "f_opm", "f_npm", "f_eps",
+        "f_revg", "f_earng", "f_de", "f_cr",
+        "f_pe", "f_fpe", "f_pb", "f_dy",
+        "f_fcf", "f_ocf", "f_mcap", "f_beta",
+        "f_rsi", "f_adx",
+    ]
+
+    preset_cols = st.columns(len(SCREENER_PRESETS))
+    for i, (preset_name, preset_cfg) in enumerate(SCREENER_PRESETS.items()):
+        with preset_cols[i]:
+            if st.button(preset_name, key=f"preset_{i}", use_container_width=True):
+                # 先全部關閉
+                for k in _ALL_FILTER_KEYS:
+                    st.session_state[k] = False
+                # 套用 preset 值
+                for k, v in preset_cfg.items():
+                    st.session_state[k] = v
+                st.rerun()
+
+    st.divider()
+
     # ----- 篩選條件 UI -----
     filter_cfg = {}  # {field: (enabled, operator, value)}
 
@@ -1651,43 +1720,93 @@ elif page == "條件選股":
             if results:
                 set_cached_screener_results(cond_hash, results)
 
+        # ----- 顯示篩選條件摘要 -----
+        _FIELD_LABELS = {
+            "return_on_equity": "ROE", "return_on_assets": "ROA",
+            "gross_margins": "毛利率", "operating_margins": "營利率",
+            "profit_margins": "淨利率", "trailing_eps": "EPS",
+            "revenue_growth": "營收成長", "earnings_growth": "獲利成長",
+            "debt_to_equity": "負債比", "current_ratio": "流動比",
+            "trailing_pe": "PE", "forward_pe": "F.PE",
+            "price_to_book": "PB", "dividend_yield": "殖利率",
+            "free_cashflow": "FCF", "operating_cashflow": "OCF",
+            "market_cap": "市值", "beta": "Beta",
+        }
+        cond_parts = []
+        for field, (op, val) in filter_cfg.items():
+            label = _FIELD_LABELS.get(field, field)
+            if field in ("return_on_equity", "return_on_assets", "gross_margins",
+                         "operating_margins", "profit_margins", "revenue_growth",
+                         "earnings_growth", "dividend_yield"):
+                cond_parts.append(f"{label} {op} {val*100:.0f}%")
+            elif field == "market_cap":
+                cond_parts.append(f"{label} {op} {val/1e8:.0f}億")
+            elif field in ("free_cashflow", "operating_cashflow"):
+                cond_parts.append(f"{label} {op} 0")
+            else:
+                cond_parts.append(f"{label} {op} {val}")
+        if f_rsi:
+            cond_parts.append(f"RSI {f_rsi_lo:.0f}~{f_rsi_hi:.0f}")
+        if f_adx:
+            cond_parts.append(f"ADX > {f_adx_val:.0f}")
+
+        cond_summary = " + ".join(cond_parts) if cond_parts else "（無條件）"
+        st.caption(f"篩選條件：{cond_summary}")
+
         # ----- 顯示結果 -----
         if not results:
             st.warning(f"掃描完成（共 {len(scan_pool_scr)} 檔），無股票符合所有條件。試著放寬條件再搜尋。")
         else:
             st.success(f"掃描完成（共 {len(scan_pool_scr)} 檔），找到 **{len(results)}** 檔符合條件！")
 
-            # 格式化為 DataFrame
+            # 格式化為 DataFrame（數值型，供排序）
             display_rows = []
             for r in results:
+                def _safe_round(v, d=1):
+                    return round(v, d) if v is not None else None
+                def _pct_val(v):
+                    return round(v * 100, 1) if v is not None else None
                 row = {
                     "代碼": r["代碼"],
                     "名稱": r["名稱"],
-                    "收盤價": f"${r['收盤價']:.2f}" if r["收盤價"] else "N/A",
-                    "PE": _fmt_num(r.get("PE")),
-                    "F.PE": _fmt_num(r.get("Forward PE")),
-                    "PB": _fmt_num(r.get("PB")),
-                    "ROE": _fmt_pct(r.get("ROE")),
-                    "ROA": _fmt_pct(r.get("ROA")),
-                    "毛利率": _fmt_pct(r.get("毛利率")),
-                    "營利率": _fmt_pct(r.get("營利率")),
-                    "淨利率": _fmt_pct(r.get("淨利率")),
-                    "EPS": _fmt_num(r.get("EPS")),
-                    "營收成長": _fmt_pct(r.get("營收成長")),
-                    "獲利成長": _fmt_pct(r.get("獲利成長")),
-                    "殖利率": _fmt_pct(r.get("殖利率")),
-                    "負債比": _fmt_num(r.get("負債比"), ".0f"),
-                    "流動比": _fmt_num(r.get("流動比")),
-                    "Beta": _fmt_num(r.get("Beta")),
-                    "市值(億)": _fmt_num(r.get("市值(億)"), ".0f"),
-                    "FCF(億)": _fmt_num(r.get("自由現金流(億)")),
-                    "OCF(億)": _fmt_num(r.get("營業現金流(億)")),
-                    "目標價": _fmt_num(r.get("目標價"), ".0f"),
-                    "RSI": _fmt_num(r.get("RSI")),
-                    "ADX": _fmt_num(r.get("ADX")),
+                    "收盤價": _safe_round(r.get("收盤價"), 2),
+                    "PE": _safe_round(r.get("PE")),
+                    "F.PE": _safe_round(r.get("Forward PE")),
+                    "PB": _safe_round(r.get("PB")),
+                    "ROE%": _pct_val(r.get("ROE")),
+                    "ROA%": _pct_val(r.get("ROA")),
+                    "毛利%": _pct_val(r.get("毛利率")),
+                    "營利%": _pct_val(r.get("營利率")),
+                    "淨利%": _pct_val(r.get("淨利率")),
+                    "EPS": _safe_round(r.get("EPS")),
+                    "營收成長%": _pct_val(r.get("營收成長")),
+                    "獲利成長%": _pct_val(r.get("獲利成長")),
+                    "殖利率%": _pct_val(r.get("殖利率")),
+                    "負債比": _safe_round(r.get("負債比"), 0),
+                    "流動比": _safe_round(r.get("流動比")),
+                    "Beta": _safe_round(r.get("Beta"), 2),
+                    "市值億": _safe_round(r.get("市值(億)"), 0),
+                    "FCF億": _safe_round(r.get("自由現金流(億)")),
+                    "OCF億": _safe_round(r.get("營業現金流(億)")),
+                    "目標價": _safe_round(r.get("目標價"), 0),
+                    "RSI": _safe_round(r.get("RSI")),
+                    "ADX": _safe_round(r.get("ADX")),
                 }
                 display_rows.append(row)
-            st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
+
+            df_result = pd.DataFrame(display_rows)
+
+            # 依最相關欄位排序
+            if "return_on_equity" in filter_cfg:
+                df_result = df_result.sort_values("ROE%", ascending=False)
+            elif "trailing_pe" in filter_cfg:
+                df_result = df_result.sort_values("PE", ascending=True)
+            elif "dividend_yield" in filter_cfg:
+                df_result = df_result.sort_values("殖利率%", ascending=False)
+            elif "revenue_growth" in filter_cfg:
+                df_result = df_result.sort_values("營收成長%", ascending=False)
+
+            st.dataframe(df_result, use_container_width=True, hide_index=True)
 
 
 # ===== Footer =====
