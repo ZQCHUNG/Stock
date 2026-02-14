@@ -441,6 +441,79 @@ def get_analytics():
     })
 
 
+@router.get("/correlation")
+def get_portfolio_correlation():
+    """持倉統計相關性矩陣 — Pearson 60 天日報酬率（Gemini R33）
+
+    Returns correlation matrix + high-correlation pairs for portfolio positions.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from data.fetcher import get_stock_data
+    from backend.dependencies import make_serializable
+    import numpy as np
+    import pandas as pd
+
+    positions = db.get_open_positions()
+    if len(positions) < 2:
+        return make_serializable({"has_data": False})
+
+    codes = [p["code"] for p in positions]
+    code_name_map = {p["code"]: p.get("name", "") for p in positions}
+
+    def _get_returns(code):
+        try:
+            df = get_stock_data(code, period_days=90)
+            if len(df) < 30:
+                return code, None
+            returns = df["close"].pct_change().dropna().tail(60)
+            return code, returns
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        results = list(ex.map(_get_returns, codes))
+
+    # Filter out failed fetches
+    valid = [(code, ret) for code, ret in results if ret is not None and len(ret) >= 20]
+    if len(valid) < 2:
+        return make_serializable({"has_data": False})
+
+    # Align returns to common dates
+    ret_df = pd.DataFrame({code: ret for code, ret in valid})
+    ret_df = ret_df.dropna()
+
+    if len(ret_df) < 20:
+        return make_serializable({"has_data": False})
+
+    corr_matrix = ret_df.corr().values
+    valid_codes = list(ret_df.columns)
+    valid_names = [code_name_map.get(c, "") for c in valid_codes]
+
+    # Find high correlation pairs (|ρ| > 0.7)
+    high_corr_pairs = []
+    n = len(valid_codes)
+    for i in range(n):
+        for j in range(i + 1, n):
+            rho = float(corr_matrix[i][j])
+            if abs(rho) > 0.7:
+                high_corr_pairs.append({
+                    "code_a": valid_codes[i],
+                    "name_a": valid_names[i],
+                    "code_b": valid_codes[j],
+                    "name_b": valid_names[j],
+                    "correlation": round(rho, 3),
+                })
+
+    return make_serializable({
+        "has_data": True,
+        "codes": valid_codes,
+        "names": valid_names,
+        "matrix": [[round(float(v), 3) for v in row] for row in corr_matrix],
+        "high_corr_pairs": sorted(high_corr_pairs, key=lambda x: -abs(x["correlation"])),
+        "data_points": len(ret_df),
+    })
+
+
 @router.get("/stress-test")
 def get_stress_test():
     """組合壓力測試 — 3 情境模擬（Gemini R32）
@@ -712,7 +785,21 @@ def get_briefing():
                     "message": f"超越影子組合：你的操作 {user_ret:+.1f}% 優於 AI 推薦 {shadow_ret:+.1f}%，主觀判斷加值 {delta:.1f}%",
                 })
 
-    # 9. Rotation suggestions: held cooling → new surge leader (Gemini R32)
+    # 9. Strategy drift monitor: check shadow trade win rate (Gemini R33)
+    shadow_stats = db.get_shadow_stats_recent(days=30)
+    if shadow_stats["total"] >= 5 and shadow_stats["win_rate"] < 0.40:
+        insights.append({
+            "type": "strategy_drift",
+            "severity": "high",
+            "icon": "⚠️",
+            "message": (
+                f"策略適應性下降：過去 30 天影子組合勝率僅 {shadow_stats['win_rate']:.0%}"
+                f"（{shadow_stats['wins']}/{shadow_stats['total']} 筆），"
+                f"目前市場可能不適合趨勢追蹤，建議縮減信心乘數 (C) 至 0.7x"
+            ),
+        })
+
+    # 10. Rotation suggestions: held cooling → new surge leader (Gemini R32)
     if positions and heat:
         sector_lookup = {s["sector"]: s for s in heat.get("sectors", [])}
         for p in positions:
@@ -739,7 +826,7 @@ def get_briefing():
                 if len(insights) >= 5:
                     break
 
-    # 10. If no insights, add a neutral one
+    # 11. If no insights, add a neutral one
     if not insights:
         insights.append({
             "type": "neutral",
@@ -748,10 +835,61 @@ def get_briefing():
             "message": "目前無重大警報，市場穩定運行中",
         })
 
-    # Keep top 5
+    # --- Action Hub: Top 3 Priority Actions (Gemini R33) ---
+    # Assign weights for priority sorting
+    _ACTION_WEIGHTS = {
+        "exit_alert": 100,
+        "strategy_drift": 95,
+        "post_mortem": 90,
+        "hidden_exposure": 85,
+        "concentration": 80,
+        "market_regime": 75,
+        "shadow_comparison": 70,
+        "self_correction": 65,
+        "sector_surge": 55,
+        "rotation": 50,
+        "sector_heating": 40,
+        "transition": 30,
+        "neutral": 0,
+    }
+
+    # Map insight types to action verbs
+    _ACTION_LABELS = {
+        "exit_alert": "緊急平倉",
+        "strategy_drift": "策略調整",
+        "post_mortem": "交易紀律",
+        "hidden_exposure": "曝險警告",
+        "concentration": "組合優化",
+        "market_regime": "風險防禦",
+        "shadow_comparison": "績效檢視",
+        "self_correction": "自我修正",
+        "sector_surge": "進場機會",
+        "rotation": "換股建議",
+        "sector_heating": "關注板塊",
+        "transition": "成熟度變化",
+        "neutral": "持續觀察",
+    }
+
+    # Sort all insights by weight, pick top 3
+    sorted_insights = sorted(insights, key=lambda x: -_ACTION_WEIGHTS.get(x["type"], 0))
+    priority_actions = []
+    for ins in sorted_insights[:3]:
+        priority_actions.append({
+            "label": _ACTION_LABELS.get(ins["type"], "注意"),
+            "icon": ins["icon"],
+            "severity": ins["severity"],
+            "message": ins["message"],
+            "type": ins["type"],
+        })
+
+    # Keep top 5 for regular insights
     insights = insights[:5]
 
-    return make_serializable({"insights": insights, "generated_at": datetime.now().isoformat()})
+    return make_serializable({
+        "insights": insights,
+        "priority_actions": priority_actions,
+        "generated_at": datetime.now().isoformat(),
+    })
 
 
 def _calculate_summary(positions: list, closed: list) -> dict:

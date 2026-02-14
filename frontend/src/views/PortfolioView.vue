@@ -12,6 +12,7 @@ import { fmtNum, fmtPct, priceColor } from '../utils/format'
 import MetricCard from '../components/MetricCard.vue'
 import EquityCurveChart from '../components/EquityCurveChart.vue'
 import ExposureTreemap from '../components/ExposureTreemap.vue'
+import CorrelationHeatmap from '../components/CorrelationHeatmap.vue'
 
 const app = useAppStore()
 const pf = usePortfolioStore()
@@ -26,6 +27,7 @@ onMounted(() => {
   pf.loadPerformance()
   pf.loadBriefing()
   pf.loadStressTest()
+  pf.loadCorrelation()
 })
 
 function analyzeStock(code: string) {
@@ -188,6 +190,14 @@ const perfData = computed(() => pf.performance)
 
 // Stress test data (Gemini R32)
 const stressData = computed(() => pf.stressTest)
+
+// Correlation matrix (Gemini R33)
+const corrData = computed(() => pf.correlation)
+
+// Priority actions — Action Hub (Gemini R33)
+const priorityActions = computed(() => pf.briefing?.priority_actions || [])
+
+const actionSeverityType = (s: string) => s === 'high' ? 'error' : s === 'medium' ? 'warning' : 'info'
 </script>
 
 <template>
@@ -216,6 +226,34 @@ const stressData = computed(() => pf.stressTest)
     </NSpace>
 
     <NSpin :show="pf.isLoading">
+      <!-- Action Hub: Top 3 Priority Actions (Gemini R33) -->
+      <NCard v-if="priorityActions.length" size="small" style="margin-bottom: 12px; border-left: 4px solid #e53e3e">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">三大核心決策</span>
+            <NTag size="small" type="error" :bordered="false">Action Hub</NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="3" :x-gap="12" :y-gap="12">
+          <NGi v-for="(action, i) in priorityActions" :key="i">
+            <div
+              :style="{
+                border: `1px solid ${action.severity === 'high' ? '#e53e3e' : action.severity === 'medium' ? '#f0a020' : '#ccc'}`,
+                borderRadius: '6px',
+                padding: '10px 12px',
+                background: action.severity === 'high' ? 'rgba(229,62,62,0.04)' : 'transparent',
+              }"
+            >
+              <NSpace align="center" :size="6" style="margin-bottom: 4px">
+                <span style="font-size: 16px">{{ action.icon }}</span>
+                <NTag :type="actionSeverityType(action.severity)" size="small">{{ action.label }}</NTag>
+              </NSpace>
+              <div style="font-size: 12px; line-height: 1.5">{{ action.message }}</div>
+            </div>
+          </NGi>
+        </NGrid>
+      </NCard>
+
       <!-- AI Strategic Briefing (Gemini R26) -->
       <NCard v-if="briefingInsights.length" size="small" style="margin-bottom: 12px">
         <template #header>
@@ -383,6 +421,38 @@ const stressData = computed(() => pf.stressTest)
             </div>
           </NGi>
         </NGrid>
+      </NCard>
+
+      <!-- Correlation Heatmap (Gemini R33) -->
+      <NCard v-if="corrData?.has_data" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">相關性矩陣</span>
+            <NTag size="small" :bordered="false">Correlation Matrix</NTag>
+            <NTag size="small">{{ corrData.data_points }} 日數據</NTag>
+            <NTag v-if="corrData.high_corr_pairs?.length" type="error" size="small">
+              {{ corrData.high_corr_pairs.length }} 組高相關 (ρ>0.7)
+            </NTag>
+          </NSpace>
+        </template>
+        <CorrelationHeatmap
+          :codes="corrData.codes"
+          :names="corrData.names"
+          :matrix="corrData.matrix"
+        />
+        <div v-if="corrData.high_corr_pairs?.length" style="margin-top: 8px; font-size: 12px">
+          <div style="font-weight: 600; margin-bottom: 4px; color: #e53e3e">高相關配對 (|ρ| > 0.7):</div>
+          <NSpace :size="6" style="flex-wrap: wrap">
+            <NTag
+              v-for="(pair, i) in corrData.high_corr_pairs"
+              :key="i"
+              :type="pair.correlation > 0.85 ? 'error' : 'warning'"
+              size="small"
+            >
+              {{ pair.code_a }} × {{ pair.code_b }} = {{ pair.correlation.toFixed(3) }}
+            </NTag>
+          </NSpace>
+        </div>
       </NCard>
 
       <!-- Active Positions -->

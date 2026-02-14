@@ -33,4 +33,5 @@ export const portfolioApi = {
   performance: () => client.get<any, any>('/portfolio/performance'),
   briefing: () => client.get<any, any>('/portfolio/briefing'),
   stressTest: () => client.get<any, any>('/portfolio/stress-test'),
+  correlation: () => client.get<any, any>('/portfolio/correlation'),
 }

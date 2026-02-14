@@ -724,6 +724,30 @@ def get_shadow_snapshots(limit: int = 365) -> list[dict]:
     return list(reversed(_rows_to_list(rows)))
 
 
+def get_shadow_stats_recent(days: int = 30) -> dict:
+    """Get shadow trade stats for the past N days (Gemini R33: Strategy Drift Monitor)."""
+    from datetime import timedelta
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM shadow_trades WHERE status='closed' AND exit_date >= ?",
+            (cutoff,),
+        ).fetchall()
+
+    trades = _rows_to_list(rows)
+    if not trades:
+        return {"total": 0, "wins": 0, "win_rate": 0, "avg_return": 0}
+
+    wins = sum(1 for t in trades if (t.get("net_pnl") or 0) > 0)
+    avg_ret = sum(t.get("return_pct", 0) for t in trades) / len(trades)
+    return {
+        "total": len(trades),
+        "wins": wins,
+        "win_rate": round(wins / len(trades), 4) if trades else 0,
+        "avg_return": round(avg_ret, 4),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Startup initialization
 # ---------------------------------------------------------------------------

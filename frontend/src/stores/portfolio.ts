@@ -14,6 +14,7 @@ export const usePortfolioStore = defineStore('portfolio', () => {
   const performance = ref<any>(null)
   const briefing = ref<any>(null)
   const stressTest = ref<any>(null)
+  const correlation = ref<any>(null)
   const isLoading = ref(false)
 
   async function load() {
@@ -121,9 +122,17 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     }
   }
 
+  async function loadCorrelation() {
+    try {
+      correlation.value = await portfolioApi.correlation()
+    } catch {
+      correlation.value = null
+    }
+  }
+
   return {
-    positions, closed, summary, health, exitAlerts, equityLedger, analytics, performance, briefing, stressTest, isLoading,
+    positions, closed, summary, health, exitAlerts, equityLedger, analytics, performance, briefing, stressTest, correlation, isLoading,
     load, openPosition, closePosition, updatePosition, deletePosition,
-    loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadPerformance, loadBriefing, loadStressTest,
+    loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadPerformance, loadBriefing, loadStressTest, loadCorrelation,
   }
 })
