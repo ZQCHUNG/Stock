@@ -79,11 +79,24 @@ class _MemoryCache:
 _memory_cache = _MemoryCache()
 
 
-# ===== Redis 連線（lazy init + cooldown） =====
+# ===== Redis 連線（lazy init + cooldown + fast probe） =====
 
 _redis_client: redis.Redis | None = None
 _redis_last_fail: float = 0
-_REDIS_COOLDOWN = 30  # 連線失敗後 30 秒內不重試
+_REDIS_COOLDOWN = 60  # 連線失敗後 60 秒內不重試
+
+
+def _redis_port_open(host: str = "127.0.0.1", port: int = 6379, timeout: float = 0.1) -> bool:
+    """快速探測 Redis port 是否可達（避免 Windows TCP 10 秒超時）"""
+    import socket
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
 
 
 def get_redis() -> redis.Redis | None:
@@ -91,9 +104,8 @@ def get_redis() -> redis.Redis | None:
     global _redis_client, _redis_last_fail
 
     # 冷卻期：避免 Redis 不在線時每次呼叫都等 timeout
-    import time
     if _redis_client is None and _redis_last_fail > 0:
-        if time.time() - _redis_last_fail < _REDIS_COOLDOWN:
+        if _time.time() - _redis_last_fail < _REDIS_COOLDOWN:
             return None
 
     if _redis_client is not None:
@@ -102,6 +114,11 @@ def get_redis() -> redis.Redis | None:
             return _redis_client
         except Exception:
             _redis_client = None
+
+    # 快速探測 port：避免 Windows 上 socket_connect_timeout 無效（10-20 秒）
+    if not _redis_port_open():
+        _redis_last_fail = _time.time()
+        return None
 
     try:
         _redis_client = redis.Redis(
@@ -117,7 +134,7 @@ def get_redis() -> redis.Redis | None:
         return _redis_client
     except Exception:
         _redis_client = None
-        _redis_last_fail = time.time()
+        _redis_last_fail = _time.time()
         return None
 
 
