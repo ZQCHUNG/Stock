@@ -17,6 +17,9 @@ export const usePortfolioStore = defineStore('portfolio', () => {
   const correlation = ref<any>(null)
   const optimalExposure = ref<any>(null)
   const rebalanceSim = ref<any>(null)
+  const marketRegime = ref<any>(null)
+  const efficientFrontier = ref<any>(null)
+  const behavioralAudit = ref<any>(null)
   const isLoading = ref(false)
 
   async function load() {
@@ -148,11 +151,37 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     }
   }
 
+  async function loadMarketRegime() {
+    try {
+      marketRegime.value = await portfolioApi.marketRegime()
+    } catch {
+      marketRegime.value = null
+    }
+  }
+
+  async function loadEfficientFrontier() {
+    try {
+      efficientFrontier.value = await portfolioApi.efficientFrontier()
+    } catch {
+      efficientFrontier.value = null
+    }
+  }
+
+  async function loadBehavioralAudit() {
+    try {
+      behavioralAudit.value = await portfolioApi.behavioralAudit()
+    } catch {
+      behavioralAudit.value = null
+    }
+  }
+
   return {
     positions, closed, summary, health, exitAlerts, equityLedger, analytics, performance,
-    briefing, stressTest, correlation, optimalExposure, rebalanceSim, isLoading,
+    briefing, stressTest, correlation, optimalExposure, rebalanceSim,
+    marketRegime, efficientFrontier, behavioralAudit, isLoading,
     load, openPosition, closePosition, updatePosition, deletePosition,
     loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadPerformance,
     loadBriefing, loadStressTest, loadCorrelation, loadOptimalExposure, simulateRebalance,
+    loadMarketRegime, loadEfficientFrontier, loadBehavioralAudit,
   }
 })

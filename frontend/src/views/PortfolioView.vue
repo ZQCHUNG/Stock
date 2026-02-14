@@ -13,6 +13,7 @@ import MetricCard from '../components/MetricCard.vue'
 import EquityCurveChart from '../components/EquityCurveChart.vue'
 import ExposureTreemap from '../components/ExposureTreemap.vue'
 import CorrelationHeatmap from '../components/CorrelationHeatmap.vue'
+import EfficientFrontierChart from '../components/EfficientFrontierChart.vue'
 
 const app = useAppStore()
 const pf = usePortfolioStore()
@@ -29,6 +30,9 @@ onMounted(() => {
   pf.loadStressTest()
   pf.loadCorrelation()
   pf.loadOptimalExposure()
+  pf.loadMarketRegime()
+  pf.loadEfficientFrontier()
+  pf.loadBehavioralAudit()
 })
 
 function analyzeStock(code: string) {
@@ -210,6 +214,22 @@ const riskRatios = computed(() => perfData.value?.risk_ratios)
 const simData = computed(() => pf.rebalanceSim)
 const simLoading = ref(false)
 
+// Market regime (Gemini R35)
+const regimeData = computed(() => pf.marketRegime)
+const regimeColor = computed(() => {
+  const r = regimeData.value?.regime_en
+  if (r === 'trend_explosive') return '#18a058'
+  if (r === 'trend_mild') return '#2080f0'
+  if (r === 'range_volatile') return '#e53e3e'
+  return '#f0a020'
+})
+
+// Efficient frontier (Gemini R35)
+const efData = computed(() => pf.efficientFrontier)
+
+// Behavioral audit (Gemini R35)
+const behaviorData = computed(() => pf.behavioralAudit)
+
 async function runRebalanceSim() {
   // Collect current position codes + rotation suggestion targets
   const currentCodes = pf.positions.map((p: any) => p.code)
@@ -352,6 +372,9 @@ async function runRebalanceSim() {
             <NTag size="small" :bordered="false">Kelly Criterion</NTag>
             <NTag size="small" :type="kellyData.regime === '攻擊' ? 'success' : kellyData.regime === '盤整' ? 'warning' : 'error'">
               {{ kellyData.regime }}模式
+            </NTag>
+            <NTag v-if="regimeData?.has_data" size="small" :style="{ color: regimeColor, borderColor: regimeColor }">
+              {{ regimeData.regime }} (ADX {{ regimeData.adx }})
             </NTag>
           </NSpace>
         </template>
@@ -600,6 +623,69 @@ async function runRebalanceSim() {
             </NGi>
           </NGrid>
         </div>
+      </NCard>
+
+      <!-- Efficient Frontier (Gemini R35) -->
+      <NCard v-if="efData?.has_data" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">效率前緣</span>
+            <NTag size="small" :bordered="false">Efficient Frontier</NTag>
+            <NTag size="small">目前 Sharpe {{ efData.current?.sharpe }}</NTag>
+            <NTag size="small" type="success">最佳 Sharpe {{ efData.max_sharpe?.sharpe }}</NTag>
+          </NSpace>
+        </template>
+        <EfficientFrontierChart
+          :sim-returns="efData.sim_returns"
+          :sim-vols="efData.sim_vols"
+          :sim-sharpes="efData.sim_sharpes"
+          :current="efData.current"
+          :max-sharpe="efData.max_sharpe"
+        />
+        <div v-if="efData.max_sharpe?.weights" style="margin-top: 8px; font-size: 12px">
+          <div style="font-weight: 600; margin-bottom: 4px">最佳配置權重:</div>
+          <NSpace :size="6" style="flex-wrap: wrap">
+            <NTag v-for="(w, code) in efData.max_sharpe.weights" :key="code" size="small">
+              {{ code }}: {{ (w * 100).toFixed(1) }}%
+            </NTag>
+          </NSpace>
+        </div>
+      </NCard>
+
+      <!-- Behavioral Audit (Gemini R35) -->
+      <NCard v-if="behaviorData?.has_data && behaviorData.tag_stats?.length" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">行為鏡像</span>
+            <NTag size="small" :bordered="false">Behavioral Mirror</NTag>
+          </NSpace>
+        </template>
+        <NDataTable
+          :columns="[
+            { title: '標籤', key: 'tag', width: 120 },
+            { title: '筆數', key: 'count', width: 60, align: 'right' },
+            { title: '勝率', key: 'win_rate', width: 80, align: 'right',
+              render: (r: any) => h('span', { style: { color: (r.win_rate || 0) >= 0.5 ? '#18a058' : '#e53e3e' } }, fmtPct(r.win_rate)) },
+            { title: '平均報酬', key: 'avg_return', width: 90, align: 'right',
+              render: (r: any) => h('span', { style: { color: priceColor(r.avg_return) } }, fmtPct(r.avg_return)) },
+            { title: '淨損益', key: 'total_pnl', width: 100, align: 'right',
+              render: (r: any) => h('span', { style: { color: priceColor(r.total_pnl) } }, '$' + fmtNum(r.total_pnl, 0)) },
+          ]"
+          :data="behaviorData.tag_stats"
+          :pagination="false"
+          size="small"
+          :bordered="false"
+          :single-line="false"
+        />
+        <NAlert v-if="behaviorData.worst_pattern" type="error" style="margin-top: 8px" :bordered="false">
+          心理導師建議：帶有「{{ behaviorData.worst_pattern.tag }}」標籤的交易勝率僅
+          {{ fmtPct(behaviorData.worst_pattern.win_rate) }}（{{ behaviorData.worst_pattern.count }} 筆），
+          建議在此類交易前強制執行 5 分鐘冷靜期
+        </NAlert>
+        <NAlert v-if="behaviorData.best_pattern" type="success" style="margin-top: 8px" :bordered="false">
+          優勢模式：「{{ behaviorData.best_pattern.tag }}」標籤交易勝率高達
+          {{ fmtPct(behaviorData.best_pattern.win_rate) }}，持續保持此決策模式
+        </NAlert>
       </NCard>
 
       <!-- Active Positions -->

@@ -37,4 +37,7 @@ export const portfolioApi = {
   optimalExposure: () => client.get<any, any>('/portfolio/optimal-exposure'),
   simulateRebalance: (codes: string[]) =>
     client.post<any, any>('/portfolio/simulate-rebalance', { codes }),
+  marketRegime: () => client.get<any, any>('/portfolio/market-regime'),
+  efficientFrontier: () => client.get<any, any>('/portfolio/efficient-frontier'),
+  behavioralAudit: () => client.get<any, any>('/portfolio/behavioral-audit'),
 }

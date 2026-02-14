@@ -817,6 +817,259 @@ def simulate_rebalance(req: SimulateRebalanceRequest):
     })
 
 
+@router.get("/market-regime")
+def get_market_regime():
+    """市場狀態分類器 — ADX + ATR% 判斷趨勢/震盪（Gemini R35）
+
+    Uses 0050.TW as proxy for Taiwan market.
+    ADX > 25 = trending, < 20 = ranging.
+    ATR% > median = high volatility, else low.
+    """
+    from data.fetcher import get_stock_data
+    from backend.dependencies import make_serializable
+
+    try:
+        df = get_stock_data("0050", period_days=120)
+    except Exception:
+        return make_serializable({"has_data": False})
+
+    if len(df) < 60:
+        return make_serializable({"has_data": False})
+
+    import numpy as np
+
+    high = df["high"].values
+    low = df["low"].values
+    close = df["close"].values
+
+    # True Range
+    tr = np.maximum(high[1:] - low[1:],
+                    np.maximum(np.abs(high[1:] - close[:-1]),
+                               np.abs(low[1:] - close[:-1])))
+
+    # ATR14
+    atr_vals = []
+    atr = np.mean(tr[:14])
+    for i in range(14, len(tr)):
+        atr = (atr * 13 + tr[i]) / 14
+        atr_vals.append(atr)
+
+    # +DM / -DM
+    plus_dm = np.maximum(high[1:] - high[:-1], 0)
+    minus_dm = np.maximum(low[:-1] - low[1:], 0)
+    # Zero out when opposite is larger
+    mask = plus_dm > minus_dm
+    minus_dm[mask & (plus_dm > minus_dm)] = 0
+    mask2 = minus_dm > plus_dm
+    plus_dm[mask2 & (minus_dm > plus_dm)] = 0
+
+    # Smoothed DI
+    def _smooth(arr, period=14):
+        result = []
+        s = np.mean(arr[:period])
+        for i in range(period, len(arr)):
+            s = (s * (period - 1) + arr[i]) / period
+            result.append(s)
+        return np.array(result)
+
+    smooth_tr = _smooth(tr)
+    smooth_plus = _smooth(plus_dm)
+    smooth_minus = _smooth(minus_dm)
+
+    n = min(len(smooth_tr), len(smooth_plus), len(smooth_minus))
+    plus_di = smooth_plus[:n] / smooth_tr[:n] * 100
+    minus_di = smooth_minus[:n] / smooth_tr[:n] * 100
+
+    # DX → ADX
+    dx = np.abs(plus_di - minus_di) / (plus_di + minus_di + 1e-10) * 100
+    adx_vals = []
+    if len(dx) >= 14:
+        adx = np.mean(dx[:14])
+        for i in range(14, len(dx)):
+            adx = (adx * 13 + dx[i]) / 14
+            adx_vals.append(adx)
+
+    current_adx = float(adx_vals[-1]) if adx_vals else 20
+    current_atr = float(atr_vals[-1]) if atr_vals else 0
+    current_close = float(close[-1])
+    atr_pct = current_atr / current_close if current_close > 0 else 0.02
+    median_atr_pct = float(np.median([a / c for a, c in zip(atr_vals[-30:], close[-30:])]))
+
+    # Classify regime
+    is_trending = current_adx >= 25
+    is_high_vol = atr_pct > median_atr_pct
+
+    if is_trending and is_high_vol:
+        regime = "趨勢噴發"
+        regime_en = "trend_explosive"
+        description = "趨勢明確+波動大，V4 策略最佳環境"
+        kelly_mult = 1.0
+    elif is_trending and not is_high_vol:
+        regime = "溫和趨勢"
+        regime_en = "trend_mild"
+        description = "趨勢明確但波動收斂，適合加碼"
+        kelly_mult = 0.9
+    elif not is_trending and is_high_vol:
+        regime = "震盪劇烈"
+        regime_en = "range_volatile"
+        description = "無趨勢+高波動，V4 易被洗盤，建議減碼"
+        kelly_mult = 0.4
+    else:
+        regime = "低波盤整"
+        regime_en = "range_quiet"
+        description = "無趨勢+低波動，等待突破，輕倉觀望"
+        kelly_mult = 0.5
+
+    return make_serializable({
+        "has_data": True,
+        "regime": regime,
+        "regime_en": regime_en,
+        "description": description,
+        "kelly_multiplier": kelly_mult,
+        "adx": round(current_adx, 2),
+        "atr": round(current_atr, 2),
+        "atr_pct": round(atr_pct, 4),
+        "median_atr_pct": round(median_atr_pct, 4),
+        "close": round(current_close, 2),
+        "is_trending": is_trending,
+        "is_high_vol": is_high_vol,
+    })
+
+
+@router.get("/efficient-frontier")
+def get_efficient_frontier():
+    """效率前緣分析 — Markowitz 均值-變異數優化（Gemini R35）
+
+    Monte Carlo simulation with 3000 random portfolios.
+    Returns scatter data, current portfolio point, and max Sharpe point.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from data.fetcher import get_stock_data
+    from backend.dependencies import make_serializable
+    import numpy as np
+
+    positions = db.get_open_positions()
+    if len(positions) < 2:
+        return make_serializable({"has_data": False})
+
+    codes = [p["code"] for p in positions]
+    lots = {p["code"]: p["lots"] for p in positions}
+
+    def _get_returns(code):
+        try:
+            df = get_stock_data(code, period_days=120)
+            if len(df) < 60:
+                return code, None
+            return code, df["close"].pct_change().dropna().tail(60)
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        results = list(ex.map(_get_returns, codes))
+
+    import pandas as pd
+    valid = [(c, r) for c, r in results if r is not None and len(r) >= 30]
+    if len(valid) < 2:
+        return make_serializable({"has_data": False})
+
+    ret_df = pd.DataFrame({c: r for c, r in valid}).dropna()
+    if len(ret_df) < 30:
+        return make_serializable({"has_data": False})
+
+    v_codes = list(ret_df.columns)
+    mean_returns = ret_df.mean().values * 252  # Annualized
+    cov_matrix = ret_df.cov().values * 252  # Annualized
+    n = len(v_codes)
+    rf = 0.015
+
+    # Current portfolio weights (by market value)
+    total_lots = sum(lots.get(c, 1) for c in v_codes)
+    current_weights = np.array([lots.get(c, 1) / total_lots for c in v_codes])
+
+    # Current portfolio stats
+    cur_ret = float(current_weights @ mean_returns)
+    cur_vol = float(np.sqrt(current_weights @ cov_matrix @ current_weights))
+    cur_sharpe = (cur_ret - rf) / cur_vol if cur_vol > 0 else 0
+
+    # Monte Carlo: 3000 random portfolios
+    n_sim = 3000
+    sim_returns = []
+    sim_vols = []
+    sim_sharpes = []
+    best_sharpe = -999
+    best_weights = current_weights.copy()
+
+    rng = np.random.default_rng(42)
+    for _ in range(n_sim):
+        w = rng.random(n)
+        w = w / w.sum()
+        ret = float(w @ mean_returns)
+        vol = float(np.sqrt(w @ cov_matrix @ w))
+        sharpe = (ret - rf) / vol if vol > 0 else 0
+        sim_returns.append(round(ret, 4))
+        sim_vols.append(round(vol, 4))
+        sim_sharpes.append(round(sharpe, 3))
+        if sharpe > best_sharpe:
+            best_sharpe = sharpe
+            best_weights = w.copy()
+
+    # Max Sharpe portfolio
+    max_ret = float(best_weights @ mean_returns)
+    max_vol = float(np.sqrt(best_weights @ cov_matrix @ best_weights))
+
+    return make_serializable({
+        "has_data": True,
+        "codes": v_codes,
+        "sim_returns": sim_returns,
+        "sim_vols": sim_vols,
+        "sim_sharpes": sim_sharpes,
+        "current": {
+            "return": round(cur_ret, 4),
+            "volatility": round(cur_vol, 4),
+            "sharpe": round(cur_sharpe, 3),
+            "weights": {c: round(float(w), 4) for c, w in zip(v_codes, current_weights)},
+        },
+        "max_sharpe": {
+            "return": round(max_ret, 4),
+            "volatility": round(max_vol, 4),
+            "sharpe": round(best_sharpe, 3),
+            "weights": {c: round(float(w), 4) for c, w in zip(v_codes, best_weights)},
+        },
+        "data_points": len(ret_df),
+    })
+
+
+@router.get("/behavioral-audit")
+def get_behavioral_audit():
+    """AI 行為鏡像 — 交易標籤績效分析（Gemini R35）"""
+    from backend.dependencies import make_serializable
+
+    tag_stats = db.get_tag_performance()
+    if not tag_stats:
+        return make_serializable({"has_data": False})
+
+    # Identify worst behavioral pattern
+    worst = None
+    for ts in tag_stats:
+        if ts["count"] >= 2 and ts["win_rate"] < 0.35:
+            if worst is None or ts["win_rate"] < worst["win_rate"]:
+                worst = ts
+
+    # Identify best pattern
+    best = None
+    for ts in tag_stats:
+        if ts["count"] >= 2 and ts["win_rate"] >= 0.60:
+            if best is None or ts["win_rate"] > best["win_rate"]:
+                best = ts
+
+    return make_serializable({
+        "has_data": True,
+        "tag_stats": tag_stats,
+        "worst_pattern": worst,
+        "best_pattern": best,
+    })
+
+
 @router.get("/briefing")
 def get_briefing():
     """今日戰略簡報 — AI Briefing（Gemini R26-R27: with self-correction）"""
@@ -1050,7 +1303,23 @@ def get_briefing():
                 ),
             })
 
-    # 12. If no insights, add a neutral one
+    # 12. Behavioral mirror: worst-performing tag pattern (Gemini R35)
+    tag_stats = db.get_tag_performance()
+    for ts in tag_stats:
+        if ts["count"] >= 3 and ts["win_rate"] < 0.30:
+            insights.append({
+                "type": "behavioral",
+                "severity": "high",
+                "icon": "🪞",
+                "message": (
+                    f"行為鏡像：帶有「{ts['tag']}」標籤的交易勝率僅 {ts['win_rate']:.0%}"
+                    f"（{ts['count']} 筆，淨損益 ${ts['total_pnl']:,.0f}），"
+                    f"建議在此類交易前強制執行冷靜期"
+                ),
+            })
+            break  # Only the worst pattern
+
+    # 13. If no insights, add a neutral one
     if not insights:
         insights.append({
             "type": "neutral",
@@ -1070,6 +1339,7 @@ def get_briefing():
         "market_regime": 75,
         "kelly_overexposed": 72,
         "shadow_comparison": 70,
+        "behavioral": 68,
         "self_correction": 65,
         "sector_surge": 55,
         "rotation": 50,
@@ -1088,6 +1358,7 @@ def get_briefing():
         "market_regime": "風險防禦",
         "kelly_overexposed": "現金管理",
         "shadow_comparison": "績效檢視",
+        "behavioral": "行為修正",
         "self_correction": "自我修正",
         "sector_surge": "進場機會",
         "rotation": "換股建議",

@@ -724,6 +724,41 @@ def get_shadow_snapshots(limit: int = 365) -> list[dict]:
     return list(reversed(_rows_to_list(rows)))
 
 
+def get_tag_performance() -> list[dict]:
+    """Aggregate closed trade stats by tags (Gemini R35: Behavioral Mirror)."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT tags, net_pnl, return_pct FROM positions WHERE status='closed' AND tags != ''"
+        ).fetchall()
+
+    tag_data: dict[str, list[dict]] = {}
+    for r in rows:
+        raw_tags = r["tags"] or ""
+        for tag in raw_tags.split(","):
+            tag = tag.strip()
+            if not tag:
+                continue
+            tag_data.setdefault(tag, []).append({
+                "net_pnl": r["net_pnl"] or 0,
+                "return_pct": r["return_pct"] or 0,
+            })
+
+    result = []
+    for tag, trades in sorted(tag_data.items(), key=lambda x: -len(x[1])):
+        wins = sum(1 for t in trades if t["net_pnl"] > 0)
+        avg_ret = sum(t["return_pct"] for t in trades) / len(trades)
+        total_pnl = sum(t["net_pnl"] for t in trades)
+        result.append({
+            "tag": tag,
+            "count": len(trades),
+            "wins": wins,
+            "win_rate": round(wins / len(trades), 4),
+            "avg_return": round(avg_ret, 4),
+            "total_pnl": round(total_pnl, 0),
+        })
+    return result
+
+
 def get_shadow_stats_recent(days: int = 30) -> dict:
     """Get shadow trade stats for the past N days (Gemini R33: Strategy Drift Monitor)."""
     from datetime import timedelta
