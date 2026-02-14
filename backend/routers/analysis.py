@@ -193,6 +193,58 @@ def get_risk_budget(code: str, period_days: int = 365):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.post("/signal-tracker/record")
+def record_signals(max_workers: int = 4):
+    """記錄當日所有 BUY 信號（Gemini R39: Forward Testing）"""
+    from analysis.signal_tracker import record_daily_signals
+    from backend.dependencies import make_serializable
+    try:
+        result = record_daily_signals(max_workers=max_workers)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/signal-tracker/fill")
+def fill_returns(lookback_days: int = 10):
+    """回填信號的前瞻報酬率（1/3/5 日）"""
+    from analysis.signal_tracker import fill_forward_returns
+    from backend.dependencies import make_serializable
+    try:
+        result = fill_forward_returns(lookback_days=lookback_days)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/signal-tracker/performance")
+def signal_performance(days: int = 30, strategy: str = "", code: str = ""):
+    """查詢信號前瞻績效"""
+    from analysis.signal_tracker import get_signal_performance
+    from backend.dependencies import make_serializable
+    try:
+        result = get_signal_performance(
+            days=days,
+            strategy=strategy or None,
+            code=code or None,
+        )
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/signal-tracker/accuracy")
+def signal_accuracy(days: int = 60):
+    """取得各策略信號準確率摘要"""
+    from analysis.signal_tracker import get_strategy_accuracy
+    from backend.dependencies import make_serializable
+    try:
+        result = get_strategy_accuracy(days=days)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/strategy-fitness")
 def get_strategy_fitness(codes: str = ""):
     """取得策略適配度標籤（Gemini R38: Strategy Fitness Engine）

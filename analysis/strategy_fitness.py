@@ -8,6 +8,7 @@
 儲存於 SQLite，供前端快速查詢，避免即時計算延遲。
 """
 
+import math
 import sqlite3
 import logging
 from datetime import datetime
@@ -18,8 +19,21 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent.parent / "data" / "strategy_fitness.db"
 
-# Profit Factor ratio threshold for tagging
-PF_DOMINANCE_RATIO = 1.2  # V4 PF > V5 PF × 1.2 → "Trend Preferred"
+# Fitness scoring (Gemini R39 feedback)
+MIN_TRADES_FOR_CLASSIFICATION = 3  # < 3 trades → "Insufficient Data"
+PF_DOMINANCE_RATIO = 1.2  # V4 score > V5 score × 1.2 → "Trend Preferred"
+
+
+def _fitness_score(pf: float, n_trades: int) -> float:
+    """Compute fitness score = PF × ln(N_trades + 1).
+
+    Penalizes strategies with too few trades via logarithmic scaling.
+    Gemini R39: prevents a single lucky trade from inflating PF to infinity.
+    """
+    if n_trades == 0 or pf <= 0:
+        return 0.0
+    safe_pf = min(pf, 99.0)  # Cap infinity PF
+    return safe_pf * math.log(n_trades + 1)
 
 
 def _init_db():
@@ -32,10 +46,12 @@ def _init_db():
             computed_at TEXT NOT NULL,
             period_days INTEGER NOT NULL,
             v4_profit_factor REAL,
+            v4_fitness_score REAL,
             v4_sharpe REAL,
             v4_total_return REAL,
             v4_trades INTEGER,
             v5_profit_factor REAL,
+            v5_fitness_score REAL,
             v5_sharpe REAL,
             v5_total_return REAL,
             v5_trades INTEGER,
@@ -117,16 +133,22 @@ def compute_stock_fitness(code: str, period_days: int = 730) -> dict | None:
             ad_pf = ad_sharpe = ad_ret = 0
             ad_trades = 0
 
+        # Compute fitness scores (PF × ln(N+1)) — Gemini R39
+        v4_score = _fitness_score(v4_pf, v4_trades)
+        v5_score = _fitness_score(v5_pf, v5_trades)
+
         # Determine fitness tag
         if v4_trades == 0 and v5_trades == 0:
             tag = "No Signal"
-        elif v5_trades == 0:
+        elif v4_trades < MIN_TRADES_FOR_CLASSIFICATION and v5_trades < MIN_TRADES_FOR_CLASSIFICATION:
+            tag = "Insufficient Data"
+        elif v5_trades < MIN_TRADES_FOR_CLASSIFICATION:
             tag = "Trend Only (V4)"
-        elif v4_trades == 0:
+        elif v4_trades < MIN_TRADES_FOR_CLASSIFICATION:
             tag = "Reversion Only (V5)"
-        elif v4_pf > v5_pf * PF_DOMINANCE_RATIO:
+        elif v4_score > v5_score * PF_DOMINANCE_RATIO:
             tag = "Trend Preferred (V4)"
-        elif v5_pf > v4_pf * PF_DOMINANCE_RATIO:
+        elif v5_score > v4_score * PF_DOMINANCE_RATIO:
             tag = "Volatility Preferred (V5)"
         else:
             tag = "Balanced"
@@ -136,10 +158,12 @@ def compute_stock_fitness(code: str, period_days: int = 730) -> dict | None:
             "computed_at": datetime.now().isoformat(),
             "period_days": period_days,
             "v4_profit_factor": round(v4_pf, 3) if v4_pf != float("inf") else 99.0,
+            "v4_fitness_score": round(v4_score, 3),
             "v4_sharpe": round(v4_sharpe, 3),
             "v4_total_return": round(v4_ret, 4),
             "v4_trades": v4_trades,
             "v5_profit_factor": round(v5_pf, 3) if v5_pf != float("inf") else 99.0,
+            "v5_fitness_score": round(v5_score, 3),
             "v5_sharpe": round(v5_sharpe, 3),
             "v5_total_return": round(v5_ret, 4),
             "v5_trades": v5_trades,
@@ -232,15 +256,15 @@ def _save_results(results: list[dict]):
         conn.execute("""
             INSERT OR REPLACE INTO strategy_fitness
             (code, computed_at, period_days,
-             v4_profit_factor, v4_sharpe, v4_total_return, v4_trades,
-             v5_profit_factor, v5_sharpe, v5_total_return, v5_trades,
+             v4_profit_factor, v4_fitness_score, v4_sharpe, v4_total_return, v4_trades,
+             v5_profit_factor, v5_fitness_score, v5_sharpe, v5_total_return, v5_trades,
              adaptive_profit_factor, adaptive_sharpe, adaptive_total_return, adaptive_trades,
              fitness_tag, regime)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             r["code"], r["computed_at"], r["period_days"],
-            r["v4_profit_factor"], r["v4_sharpe"], r["v4_total_return"], r["v4_trades"],
-            r["v5_profit_factor"], r["v5_sharpe"], r["v5_total_return"], r["v5_trades"],
+            r["v4_profit_factor"], r["v4_fitness_score"], r["v4_sharpe"], r["v4_total_return"], r["v4_trades"],
+            r["v5_profit_factor"], r["v5_fitness_score"], r["v5_sharpe"], r["v5_total_return"], r["v5_trades"],
             r["adaptive_profit_factor"], r["adaptive_sharpe"], r["adaptive_total_return"], r["adaptive_trades"],
             r["fitness_tag"], r["regime"],
         ))

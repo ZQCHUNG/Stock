@@ -135,10 +135,39 @@ def multi_strategy_bouncer(
         action = "HOLD"
         reason = "V4+V5 皆無明確訊號"
 
-    # ===== 4. Tiered Execution (Gemini R38) =====
+    # ===== 4. Tiered Execution (Gemini R38-R39) =====
     # Composite 0.3-0.5 → 半倉試單, >=0.5 → 全倉進場
+    # R39 fix: Regime mismatch → force half position cap
+    regime_mismatch = False
     if action == "BUY":
-        if composite >= 0.5:
+        # Detect regime mismatch: V5 BUY in trend market or V4 BUY in range market
+        regime_weights = {
+            "trend_explosive": (0.9, 0.1),
+            "trend_mild": (0.8, 0.2),
+            "range_volatile": (0.2, 0.8),
+            "range_quiet": (0.3, 0.7),
+        }
+        w4, w5 = regime_weights.get(regime, (0.5, 0.5))
+
+        if is_v5_buy and not is_v4_buy and w4 > w5:
+            # V5 BUY in trend-dominant market → regime mismatch
+            regime_mismatch = True
+            warnings.append(
+                f"Regime 不匹配：盤整策略(V5)在趨勢市場(w4={w4:.0%})中觸發，強制半倉上限"
+            )
+        elif is_v4_buy and not is_v5_buy and w5 > w4:
+            # V4 BUY in range-dominant market → regime mismatch
+            regime_mismatch = True
+            warnings.append(
+                f"Regime 不匹配：趨勢策略(V4)在盤整市場(w5={w5:.0%})中觸發，強制半倉上限"
+            )
+
+        if regime_mismatch:
+            # Force half position regardless of composite score
+            confidence_tier = "half"
+            position_multiplier = 0.5
+            tier_label = "建議試單（半倉）— Regime 不匹配"
+        elif composite >= 0.5:
             confidence_tier = "full"
             position_multiplier = 1.0
             tier_label = "建議進場（全倉）"
@@ -172,6 +201,7 @@ def multi_strategy_bouncer(
         "confidence_tier": confidence_tier,
         "position_multiplier": position_multiplier,
         "tier_label": tier_label,
+        "regime_mismatch": regime_mismatch,
         "v5_bias_confirmed": v5_bias_confirmed,
         "regime": regime,
         "warnings": warnings,

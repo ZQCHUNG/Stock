@@ -26,4 +26,16 @@ export const analysisApi = {
       params: { period_days: periodDays, max_workers: maxWorkers },
       timeout: 600_000,  // 10 min timeout for batch scan
     }),
+  // Signal Tracker (Forward Testing)
+  recordSignals: () => client.post<any, any>('/analysis/signal-tracker/record'),
+  fillForwardReturns: (lookbackDays = 10) =>
+    client.post<any, any>('/analysis/signal-tracker/fill', null, {
+      params: { lookback_days: lookbackDays },
+    }),
+  signalPerformance: (days = 30, strategy?: string, code?: string) =>
+    client.get<any, any>('/analysis/signal-tracker/performance', {
+      params: { days, ...(strategy ? { strategy } : {}), ...(code ? { code } : {}) },
+    }),
+  signalAccuracy: (days = 60) =>
+    client.get<any, any>('/analysis/signal-tracker/accuracy', { params: { days } }),
 }

@@ -14,6 +14,8 @@ import SignalBadge from '../components/SignalBadge.vue'
 import CandlestickChart from '../components/CandlestickChart.vue'
 import MacdChart from '../components/MacdChart.vue'
 import KdChart from '../components/KdChart.vue'
+import RsiChart from '../components/RsiChart.vue'
+import BiasChart from '../components/BiasChart.vue'
 import PositionCalculator from '../components/PositionCalculator.vue'
 
 const app = useAppStore()
@@ -277,6 +279,20 @@ const institutionalColumns: DataTableColumns = [
         <NGi>
           <NCard title="KD" size="small">
             <KdChart :data="tech.indicators" group="tech" />
+          </NCard>
+        </NGi>
+      </NGrid>
+
+      <!-- RSI + BIAS (Gemini R39: Dynamic RSI threshold + 乖離率) -->
+      <NGrid :cols="chartCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+        <NGi>
+          <NCard title="RSI (含動態門檻)" size="small">
+            <RsiChart :data="tech.indicators" group="tech" />
+          </NCard>
+        </NGi>
+        <NGi>
+          <NCard title="乖離率 BIAS" size="small">
+            <BiasChart :data="tech.indicators" group="tech" />
           </NCard>
         </NGi>
       </NGrid>

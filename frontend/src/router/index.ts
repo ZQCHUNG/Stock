@@ -46,6 +46,12 @@ const router = createRouter({
       component: () => import('../views/PortfolioView.vue'),
       meta: { title: '模擬倉位' },
     },
+    {
+      path: '/fitness',
+      name: 'fitness',
+      component: () => import('../views/FitnessView.vue'),
+      meta: { title: '策略適配' },
+    },
   ],
 })
 
