@@ -38,6 +38,20 @@ export function signalText(signal: string): string {
   return '觀望'
 }
 
+/** 格式化價格（固定 2 位小數） */
+export function fmtPrice(v: number | null | undefined): string {
+  if (v == null) return '-'
+  return v.toFixed(2)
+}
+
+/** 格式化成交量（張） */
+export function fmtVol(v: number | null | undefined): string {
+  if (v == null) return '-'
+  const lots = v / 1000
+  if (lots >= 10000) return (lots / 10000).toFixed(1) + '萬張'
+  return lots.toFixed(0) + '張'
+}
+
 /** 匯出 CSV 下載 */
 export function downloadCsv(rows: Record<string, any>[], headers: { key: string; label: string }[], filename: string) {
   const headerLine = headers.map((h) => h.label).join(',')

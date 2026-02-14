@@ -42,7 +42,11 @@ const simEquityOption = computed(() => {
   const equity = r.daily_records.map((d: any) => d.total_equity)
   const cc = chartColors.value
   return {
-    tooltip: { trigger: 'axis', ...tooltipStyle.value },
+    tooltip: { trigger: 'axis', ...tooltipStyle.value, formatter: (params: any[]) => {
+      if (!params?.length) return ''
+      const p = params[0]
+      return `<div style="font-size:12px"><b>${p.name}</b><br/>資產: $${fmtNum(p.value, 0)}</div>`
+    }},
     toolbox: { ...toolboxConfig.value, feature: { restore: toolboxConfig.value.feature.restore, saveAsImage: toolboxConfig.value.feature.saveAsImage } },
     grid: { left: 80, right: 20, top: 30, bottom: 30 },
     xAxis: { type: 'category', data: dates, axisLabel: { color: cc.axisLabel } },

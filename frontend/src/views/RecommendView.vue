@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { h, onMounted } from 'vue'
-import { NCard, NButton, NGrid, NGi, NSpin, NTag, NSpace, NDataTable } from 'naive-ui'
+import { NCard, NButton, NGrid, NGi, NSpin, NTag, NSpace, NDataTable, NEmpty } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useRecommendStore } from '../stores/recommend'
@@ -128,6 +128,8 @@ const sellColumns: DataTableColumns = [
           :scroll-x="310"
         />
       </NCard>
+
+      <NEmpty v-if="!rec.isScanning && rec.scanResults.length === 0" description="無掃描結果，點擊「重新掃描」開始" style="margin: 40px 0" />
     </NSpin>
   </div>
 </template>

@@ -6,6 +6,7 @@ import { CandlestickChart as Candle, LineChart, BarChart, ScatterChart } from 'e
 import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, ToolboxComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { TimeSeriesData } from '../api/stocks'
+import { fmtPrice, fmtVol } from '../utils/format'
 import { useChartTheme } from '../composables/useChartTheme'
 
 use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, ToolboxComponent, CanvasRenderer])
@@ -74,12 +75,12 @@ const option = computed(() => {
         const date = dates[idx]
         let html = `<div style="font-size:12px"><b>${date}</b><br/>`
         if (open[idx] != null) {
-          const o = open[idx] ?? 0, c = close[idx] ?? 0, h = high[idx] ?? 0, l = low[idx] ?? 0, vol = volume[idx] ?? 0
+          const o = open[idx] ?? 0, c = close[idx] ?? 0
           const clr = c >= o ? '#e53e3e' : '#38a169'
-          html += `開 <b>${o.toFixed(2)}</b> 高 <b>${h.toFixed(2)}</b> 低 <b>${l.toFixed(2)}</b> 收 <b style="color:${clr}">${c.toFixed(2)}</b><br/>`
-          html += `量 ${(vol / 1000).toFixed(0)} 張`
-          if (ma5[idx] != null) html += ` MA5 ${(ma5[idx] ?? 0).toFixed(2)}`
-          if (ma20[idx] != null) html += ` MA20 ${(ma20[idx] ?? 0).toFixed(2)}`
+          html += `開 <b>${fmtPrice(open[idx])}</b> 高 <b>${fmtPrice(high[idx])}</b> 低 <b>${fmtPrice(low[idx])}</b> 收 <b style="color:${clr}">${fmtPrice(close[idx])}</b><br/>`
+          html += `量 ${fmtVol(volume[idx])}`
+          if (ma5[idx] != null) html += ` MA5 ${fmtPrice(ma5[idx])}`
+          if (ma20[idx] != null) html += ` MA20 ${fmtPrice(ma20[idx])}`
         }
         return html + '</div>'
       },

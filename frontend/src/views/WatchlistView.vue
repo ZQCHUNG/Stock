@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { h, onMounted, reactive } from 'vue'
-import { NCard, NButton, NDataTable, NSpin, NSpace, NTag } from 'naive-ui'
+import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useWatchlistStore } from '../stores/watchlist'
@@ -79,7 +79,8 @@ const btColumns: DataTableColumns = [
     />
 
     <NSpin :show="wl.isLoading && wl.batchProgress.total === 0">
-      <NCard title="即時總覽" size="small" style="margin-bottom: 16px">
+      <NEmpty v-if="!wl.overview.length && !wl.isLoading" description="尚無自選股，請在技術分析頁面加入股票" style="margin: 40px 0" />
+      <NCard v-if="wl.overview.length" title="即時總覽" size="small" style="margin-bottom: 16px">
         <NDataTable
           :columns="overviewColumns"
           :data="wl.overview"
