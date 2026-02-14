@@ -360,6 +360,34 @@ def get_performance():
         shadow_dates = [s["date"] for s in shadow_snaps]
         shadow_equity = [s.get("total_equity", 0) for s in shadow_snaps]
 
+    # Alpha/Beta attribution (Gemini R31)
+    benchmark_prices = [s.get("benchmark_price", 0) for s in snapshots]
+    has_benchmark = any(p > 0 for p in benchmark_prices)
+    alpha_beta = None
+    if has_benchmark and len(equities) >= 10:
+        # Simple return-based attribution
+        port_rets = []
+        bench_rets = []
+        for i in range(1, len(equities)):
+            if equities[i - 1] > 0 and benchmark_prices[i] > 0 and benchmark_prices[i - 1] > 0:
+                port_rets.append(equities[i] / equities[i - 1] - 1)
+                bench_rets.append(benchmark_prices[i] / benchmark_prices[i - 1] - 1)
+        if len(port_rets) >= 5:
+            import numpy as np
+            pr = np.array(port_rets)
+            br = np.array(bench_rets)
+            # Simple OLS: Rp = alpha + beta * Rm
+            cov = np.cov(pr, br)
+            beta_val = float(cov[0, 1] / cov[1, 1]) if cov[1, 1] > 0 else 1.0
+            alpha_val = float(pr.mean() - beta_val * br.mean()) * 252  # Annualized
+            correlation = float(np.corrcoef(pr, br)[0, 1]) if len(pr) >= 3 else 0
+            alpha_beta = {
+                "alpha_annual": round(alpha_val, 4),
+                "beta": round(beta_val, 3),
+                "correlation": round(correlation, 3),
+                "data_points": len(port_rets),
+            }
+
     return make_serializable({
         "has_data": True,
         "dates": dates,
@@ -369,6 +397,7 @@ def get_performance():
         "daily_returns": daily_returns,
         "shadow_dates": shadow_dates,
         "shadow_equity": shadow_equity,
+        "alpha_beta": alpha_beta,
         "summary": {
             "total_return": round(total_return, 4),
             "max_drawdown": round(max_dd, 4),
@@ -523,7 +552,30 @@ def get_briefing():
                 ),
             })
 
-    # 7. Shadow portfolio comparison (Gemini R30)
+    # 7. Market breadth regime diagnosis (Gemini R31)
+    if heat:
+        breadth = heat.get("market_breadth", 0)
+        total_buy = heat.get("total_buy", 0)
+        scanned = heat.get("scanned", 0)
+        if breadth <= 0.20:
+            insights.append({
+                "type": "market_regime",
+                "severity": "high",
+                "icon": "🛡️",
+                "message": (
+                    f"防禦模式：市場寬度僅 {breadth:.0%}（{total_buy}/{scanned} 檔 BUY），"
+                    f"影子組合已停止開倉，請減少主觀交易"
+                ),
+            })
+        elif breadth <= 0.40:
+            insights.append({
+                "type": "market_regime",
+                "severity": "medium",
+                "icon": "⚖️",
+                "message": f"盤整模式：市場寬度 {breadth:.0%}，影子組合限縮至 2 檔，謹慎操作",
+            })
+
+    # 8. Shadow portfolio comparison (Gemini R30)
     shadow_snaps = db.get_shadow_snapshots()
     user_snaps = db.get_equity_snapshots()
     if len(shadow_snaps) >= 5 and len(user_snaps) >= 5:

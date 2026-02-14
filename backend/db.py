@@ -40,6 +40,10 @@ def _run_migrations(conn: sqlite3.Connection):
     # R29: Add lessons column (post-mortem)
     if "lessons" not in cols:
         conn.execute("ALTER TABLE positions ADD COLUMN lessons TEXT DEFAULT ''")
+    # R31: Add benchmark_price to equity_snapshots
+    eq_cols = {r[1] for r in conn.execute("PRAGMA table_info(equity_snapshots)").fetchall()}
+    if "benchmark_price" not in eq_cols:
+        conn.execute("ALTER TABLE equity_snapshots ADD COLUMN benchmark_price REAL DEFAULT 0")
 
 
 
@@ -100,6 +104,7 @@ CREATE TABLE IF NOT EXISTS equity_snapshots (
     position_value  REAL DEFAULT 0,
     realized_pnl    REAL DEFAULT 0,
     position_count  INTEGER DEFAULT 0,
+    benchmark_price REAL DEFAULT 0,
     created_at      TEXT DEFAULT (datetime('now'))
 );
 
@@ -413,19 +418,22 @@ def append_equity_snapshot(snapshot: dict):
     date = snapshot.get("date") or datetime.now().strftime("%Y-%m-%d")
     with _connect() as conn:
         conn.execute(
-            """INSERT INTO equity_snapshots (date, total_equity, position_value, realized_pnl, position_count)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO equity_snapshots
+               (date, total_equity, position_value, realized_pnl, position_count, benchmark_price)
+               VALUES (?, ?, ?, ?, ?, ?)
                ON CONFLICT(date) DO UPDATE SET
                  total_equity=excluded.total_equity,
                  position_value=excluded.position_value,
                  realized_pnl=excluded.realized_pnl,
-                 position_count=excluded.position_count""",
+                 position_count=excluded.position_count,
+                 benchmark_price=excluded.benchmark_price""",
             (
                 date,
                 snapshot.get("total_equity", 0),
                 snapshot.get("position_value", 0),
                 snapshot.get("realized_pnl", 0),
                 snapshot.get("position_count", 0),
+                snapshot.get("benchmark_price", 0),
             ),
         )
 

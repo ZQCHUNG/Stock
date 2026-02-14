@@ -405,10 +405,13 @@ def scan_sector_heat() -> dict:
            if heat_data else "")
     )
 
+    breadth = total_buy / len(valid) if valid else 0
+
     return {
         "sectors": heat_data,
         "scanned": len(valid),
         "total_buy": total_buy,
+        "market_breadth": round(breadth, 3),
     }
 
 
@@ -531,12 +534,21 @@ def take_equity_snapshot() -> None:
 
     realized_pnl = stats["total_gain"] - stats["total_loss"]
 
+    # Fetch 0050 benchmark price for Alpha/Beta attribution (Gemini R31)
+    benchmark_price = 0
+    try:
+        df_bench = get_stock_data("0050", period_days=5)
+        benchmark_price = float(df_bench["close"].iloc[-1])
+    except Exception:
+        pass
+
     snapshot = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "total_equity": round(total_value + realized_pnl, 0),
         "position_value": round(total_value, 0),
         "realized_pnl": round(realized_pnl, 0),
         "position_count": len(positions),
+        "benchmark_price": benchmark_price,
     }
 
     db_append(snapshot)
@@ -547,19 +559,44 @@ def take_equity_snapshot() -> None:
     )
 
 
-def manage_shadow_portfolio(heat_result: dict) -> None:
-    """Shadow Portfolio: auto-trade AI top recommendation (Gemini R30).
+def _get_market_breadth(heat_result: dict) -> float:
+    """Calculate market breadth = BUY% of scanned stocks (Gemini R31)."""
+    scanned = heat_result.get("scanned", 0)
+    total_buy = heat_result.get("total_buy", 0)
+    return total_buy / scanned if scanned > 0 else 0
 
-    Logic:
-    - Pick top-1 BUY stock with highest confidence (Leader + Hw)
-    - If not already held in shadow, open 1-lot virtual position
-    - Close shadow positions that hit V4 exit conditions
-    - Take shadow equity snapshot
+
+def _get_shadow_max_positions(breadth: float) -> int:
+    """Dynamic shadow position limit based on market breadth (Gemini R31).
+
+    B > 40%: up to 5 positions (bull market)
+    20% < B <= 40%: up to 2 positions (consolidation)
+    B <= 20%: 0 positions (bear/risk-off — no new opens)
+    """
+    if breadth > 0.40:
+        return 5
+    elif breadth > 0.20:
+        return 2
+    return 0
+
+
+def manage_shadow_portfolio(heat_result: dict) -> None:
+    """Shadow Portfolio: auto-trade AI top recommendation (Gemini R30→R31).
+
+    R31 upgrades:
+    - Market breadth filter: dynamic position limit based on BUY%
+    - Sector uniqueness: max 1 stock per L1 sector
     """
     from data.fetcher import get_stock_data
     from backend import db
 
     today = datetime.now().strftime("%Y-%m-%d")
+    breadth = _get_market_breadth(heat_result)
+    max_positions = _get_shadow_max_positions(breadth)
+
+    logger.info(
+        f"  Shadow regime: breadth={breadth:.1%}, max_positions={max_positions}"
+    )
 
     # 1. Close shadow positions hitting exit conditions
     open_shadows = db.get_open_shadow_trades()
@@ -576,50 +613,67 @@ def manage_shadow_portfolio(heat_result: dict) -> None:
         except Exception:
             pass
 
-    # 2. Find top-1 high-C recommendation from scan result
-    best_candidate = None
-    best_score = 0
-    held_codes = {st["code"] for st in db.get_open_shadow_trades()}
+    # Refresh after closes
+    open_shadows = db.get_open_shadow_trades()
+    current_count = len(open_shadows)
+    held_codes = {st["code"] for st in open_shadows}
+    held_sectors = {st.get("sector", "") for st in open_shadows}
 
-    for sector_data in heat_result.get("sectors", []):
-        leader = sector_data.get("leader")
-        if not leader:
-            continue
-        code = leader["code"]
-        if code in held_codes:
-            continue
-        score = leader.get("score", 0)
-        wh = sector_data.get("weighted_heat", 0)
-        combined = score * 0.6 + wh * 0.4
-        if combined > best_score:
-            best_score = combined
-            best_candidate = {
+    # 2. Find candidates if room available
+    if current_count < max_positions:
+        # Collect all leaders, sorted by combined score
+        candidates = []
+        for sector_data in heat_result.get("sectors", []):
+            leader = sector_data.get("leader")
+            if not leader:
+                continue
+            code = leader["code"]
+            sector = sector_data["sector"]
+            if code in held_codes:
+                continue
+            # R31: Sector uniqueness — skip if already hold same L1 sector
+            if sector in held_sectors:
+                continue
+            score = leader.get("score", 0)
+            wh = sector_data.get("weighted_heat", 0)
+            combined = score * 0.6 + wh * 0.4
+            candidates.append({
                 "code": code,
                 "name": leader["name"],
-                "sector": sector_data["sector"],
+                "sector": sector,
                 "confidence": score,
-            }
-
-    # 3. Open shadow position for best candidate (max 5 concurrent)
-    if best_candidate and len(db.get_open_shadow_trades()) < 5:
-        try:
-            df = get_stock_data(best_candidate["code"], period_days=5)
-            price = float(df["close"].iloc[-1])
-            db.create_shadow_trade({
-                "date": today,
-                "code": best_candidate["code"],
-                "name": best_candidate["name"],
-                "entry_price": price,
-                "lots": 1,
-                "confidence": best_candidate["confidence"],
-                "sector": best_candidate["sector"],
+                "combined": combined,
             })
-            logger.info(
-                f"  Shadow BUY: {best_candidate['code']} {best_candidate['name']} "
-                f"@ {price:.2f} (C={best_candidate['confidence']:.2f})"
-            )
-        except Exception as e:
-            logger.warning(f"Shadow buy failed: {e}")
+
+        candidates.sort(key=lambda x: -x["combined"])
+        slots = max_positions - current_count
+
+        # 3. Open shadow positions (up to available slots)
+        for cand in candidates[:slots]:
+            try:
+                df = get_stock_data(cand["code"], period_days=5)
+                price = float(df["close"].iloc[-1])
+                db.create_shadow_trade({
+                    "date": today,
+                    "code": cand["code"],
+                    "name": cand["name"],
+                    "entry_price": price,
+                    "lots": 1,
+                    "confidence": cand["confidence"],
+                    "sector": cand["sector"],
+                })
+                held_sectors.add(cand["sector"])
+                logger.info(
+                    f"  Shadow BUY: {cand['code']} {cand['name']} "
+                    f"@ {price:.2f} (C={cand['confidence']:.2f}, {cand['sector']})"
+                )
+            except Exception as e:
+                logger.warning(f"Shadow buy failed for {cand['code']}: {e}")
+    elif max_positions == 0 and current_count > 0:
+        logger.info(
+            f"  Shadow DEFENSIVE: breadth={breadth:.1%} <= 20%, "
+            f"holding {current_count} positions (no new opens)"
+        )
 
     # 4. Shadow equity snapshot
     open_shadows = db.get_open_shadow_trades()

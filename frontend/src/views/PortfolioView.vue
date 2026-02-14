@@ -289,6 +289,14 @@ const perfData = computed(() => pf.performance)
             <NTag v-if="perfData.shadow_equity" size="small" :bordered="false" style="color: #f0a020">
               vs AI 影子組合
             </NTag>
+            <template v-if="perfData.alpha_beta">
+              <NTag size="small" :type="(perfData.alpha_beta.alpha_annual || 0) >= 0 ? 'success' : 'error'">
+                Alpha {{ fmtPct(perfData.alpha_beta.alpha_annual) }}
+              </NTag>
+              <NTag size="small" :bordered="false">
+                Beta {{ perfData.alpha_beta.beta?.toFixed(2) }}
+              </NTag>
+            </template>
           </NSpace>
         </template>
         <EquityCurveChart
