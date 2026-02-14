@@ -13,4 +13,7 @@ export const systemApi = {
   listBackups: () => client.get<any, any[]>('/system/backups'),
   dataQuality: () => client.get<any, any>('/system/data-quality', { timeout: 60000 }),
   apiPerformance: () => client.get<any, any>('/system/api-performance'),
+  omsEvents: (limit: number = 50) => client.get<any, any>(`/system/oms-events?limit=${limit}`),
+  omsStats: () => client.get<any, any>('/system/oms-stats'),
+  omsRunNow: () => client.post<any, any>('/system/oms-run', {}, { timeout: 60000 }),
 }

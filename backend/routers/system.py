@@ -212,3 +212,33 @@ def api_performance():
     """
     from backend.app import get_api_performance_stats
     return get_api_performance_stats()
+
+
+@router.get("/oms-events")
+def oms_events(limit: int = 50):
+    """R50-2: OMS 訂單事件記錄
+
+    取得最近的 OMS 自動出場與移動停利更新事件。
+    """
+    from backend.order_manager import get_order_events
+    return {"events": get_order_events(limit=limit)}
+
+
+@router.get("/oms-stats")
+def oms_stats():
+    """R50-2: OMS 執行統計
+
+    統計自動出場次數、原因分佈、累計損益。
+    """
+    from backend.order_manager import get_oms_stats
+    return get_oms_stats()
+
+
+@router.post("/oms-run")
+def oms_run_now():
+    """R50-2: 手動觸發 OMS 檢查
+
+    立即檢查所有持倉的停損/停利/移動停利條件。
+    """
+    from backend.order_manager import check_positions_and_execute
+    return check_positions_and_execute()

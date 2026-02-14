@@ -21,9 +21,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk
+from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk, strategies
 
 logger = logging.getLogger(__name__)
+
+# R50-1: Initialize structured logging
+from backend.logging_config import setup_logging
+import os
+setup_logging(json_format=os.environ.get("LOG_FORMAT") == "json")
 
 app = FastAPI(title="台股技術分析系統 API", version="2.0")
 
@@ -51,6 +56,23 @@ async def global_exception_handler(request: Request, exc: Exception):
             "path": str(request.url.path),
         },
     )
+
+# R50-1: API Key Authentication Middleware
+from backend.config import API_KEY, API_KEY_HEADER
+
+if API_KEY:
+    @app.middleware("http")
+    async def api_key_middleware(request: Request, call_next):
+        """Simple API key authentication for production."""
+        path = request.url.path
+        # Skip auth for health check and static files
+        if path.startswith("/api/system/health") or not path.startswith("/api/"):
+            return await call_next(request)
+        key = request.headers.get(API_KEY_HEADER, "")
+        if key != API_KEY:
+            return JSONResponse(status_code=401, content={"error": "Invalid API key"})
+        return await call_next(request)
+
 
 # R49-3: API Performance Monitoring Middleware
 _perf_lock = Lock()
@@ -150,6 +172,7 @@ app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"]
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(sqs_performance.router, prefix="/api/sqs-performance", tags=["sqs-performance"])
 app.include_router(risk.router, prefix="/api/risk", tags=["risk"])
+app.include_router(strategies.router, prefix="/api/strategies", tags=["strategies"])
 
 # Production: 伺服 Vue build 靜態檔
 DIST_DIR = PROJECT_ROOT / "frontend" / "dist"

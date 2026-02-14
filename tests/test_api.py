@@ -331,3 +331,93 @@ class TestStocks:
         """GET /api/stocks/search?q=2330 should return results."""
         resp = client.get("/api/stocks/search?q=2330")
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# OMS endpoints (R50-2)
+# ---------------------------------------------------------------------------
+
+class TestOms:
+    def test_oms_stats(self, client):
+        """GET /api/system/oms-stats should return statistics."""
+        resp = client.get("/api/system/oms-stats")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total_events" in data
+        assert "auto_exits" in data
+
+    def test_oms_events(self, client):
+        """GET /api/system/oms-events should return events list."""
+        resp = client.get("/api/system/oms-events?limit=10")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "events" in data
+
+    def test_oms_run_now(self, client):
+        """POST /api/system/oms-run should execute OMS check."""
+        resp = client.post("/api/system/oms-run")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "checked" in data
+        assert "actions" in data
+
+
+# ---------------------------------------------------------------------------
+# Strategy Workbench (R50-3)
+# ---------------------------------------------------------------------------
+
+class TestStrategies:
+    def test_list_strategies(self, client):
+        """GET /api/strategies/ should return strategy list."""
+        resp = client.get("/api/strategies/")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "strategies" in data
+        assert len(data["strategies"]) >= 1  # At least default
+
+    def test_create_and_delete_strategy(self, client):
+        """POST /api/strategies/ then DELETE should work."""
+        resp = client.post("/api/strategies/", json={
+            "name": "Test Strategy",
+            "description": "For testing",
+            "params": {"adx_threshold": 20, "stop_loss_pct": -0.05},
+        })
+        assert resp.status_code == 200
+        sid = resp.json()["strategy"]["id"]
+
+        # Delete
+        resp2 = client.delete(f"/api/strategies/{sid}")
+        assert resp2.status_code == 200
+
+    def test_clone_strategy(self, client):
+        """POST /api/strategies/{id}/clone should create a copy."""
+        # Get first strategy
+        resp = client.get("/api/strategies/")
+        first = resp.json()["strategies"][0]
+        resp2 = client.post(f"/api/strategies/{first['id']}/clone")
+        assert resp2.status_code == 200
+        cloned = resp2.json()["strategy"]
+        assert "Copy" in cloned["name"]
+        # Clean up
+        client.delete(f"/api/strategies/{cloned['id']}")
+
+    def test_cannot_delete_default(self, client):
+        """DELETE on default strategy should fail."""
+        resp = client.get("/api/strategies/")
+        defaults = [s for s in resp.json()["strategies"] if s.get("is_default")]
+        if defaults:
+            resp2 = client.delete(f"/api/strategies/{defaults[0]['id']}")
+            assert resp2.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# ML Market Regime (R50-3)
+# ---------------------------------------------------------------------------
+
+class TestMlRegime:
+    def test_ml_regime_endpoint(self, client):
+        """GET /api/analysis/market-regime-ml should return regime data."""
+        resp = client.get("/api/analysis/market-regime-ml")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "regime" in data

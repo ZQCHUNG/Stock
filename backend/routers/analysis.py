@@ -457,6 +457,35 @@ def get_market_regime():
         return {"regime": "unknown"}
 
 
+@router.get("/market-regime-ml")
+def get_market_regime_ml():
+    """R50-3: ML 增強市場情境分類
+
+    使用多指標特徵（ADX, ATR%, RSI, MACD, MA 交叉, 成交量趨勢）
+    進行 6 種市場情境分類，帶信心分數與策略建議。
+    """
+    from data.fetcher import get_stock_data
+    from backend.ml_regime import classify_market_regime
+    from backend.dependencies import make_serializable
+    import numpy as np
+
+    try:
+        # Use 0050.TW as proxy for Taiwan market
+        df = get_stock_data("0050", period_days=250)
+        if df is None or len(df) < 60:
+            return make_serializable({"regime": "unknown", "error": "數據不足"})
+
+        result = classify_market_regime(
+            close=df["close"].values,
+            high=df["high"].values,
+            low=df["low"].values,
+            volume=df["volume"].values,
+        )
+        return make_serializable(result)
+    except Exception as e:
+        return {"regime": "unknown", "error": str(e)}
+
+
 @router.get("/sector-heat")
 def get_sector_heat(force_refresh: bool = False):
     """產業熱度分析（Gemini R21 P1: Sector Rotation Monitor）

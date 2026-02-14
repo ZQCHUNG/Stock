@@ -70,6 +70,12 @@ const router = createRouter({
       component: () => import('../views/RiskDashboardView.vue'),
       meta: { title: '風險監控' },
     },
+    {
+      path: '/strategies',
+      name: 'strategies',
+      component: () => import('../views/StrategyWorkbenchView.vue'),
+      meta: { title: '策略工作台' },
+    },
   ],
 })
 

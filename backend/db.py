@@ -144,6 +144,21 @@ CREATE TABLE IF NOT EXISTS shadow_snapshots (
     position_value REAL DEFAULT 0,
     position_count INTEGER DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS order_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id TEXT NOT NULL,
+    code        TEXT NOT NULL,
+    event_type  TEXT NOT NULL,
+    exit_reason TEXT DEFAULT '',
+    exit_price  REAL DEFAULT 0,
+    detail      TEXT DEFAULT '',
+    pnl         REAL DEFAULT 0,
+    timestamp   TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_events_code ON order_events(code);
+CREATE INDEX IF NOT EXISTS idx_order_events_ts ON order_events(timestamp);
 """
 
 
@@ -888,6 +903,35 @@ def import_csv_trades(trades: list[dict]) -> dict:
                     errors.append(f"{code}: {e}")
 
     return {"imported": imported, "skipped": skipped, "errors": errors}
+
+
+# ---------------------------------------------------------------------------
+# Order Events DAO (R50-2: Simulated OMS)
+# ---------------------------------------------------------------------------
+
+def insert_order_event(data: dict):
+    """Insert an OMS order event for audit trail."""
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO order_events
+               (position_id, code, event_type, exit_reason, exit_price, detail, pnl)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                data["position_id"], data["code"], data["event_type"],
+                data.get("exit_reason", ""), data.get("exit_price", 0),
+                data.get("detail", ""), data.get("pnl", 0),
+            ),
+        )
+
+
+def get_order_events(limit: int = 50) -> list[dict]:
+    """Get recent order events, newest first."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM order_events ORDER BY timestamp DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
 
 
 # ---------------------------------------------------------------------------

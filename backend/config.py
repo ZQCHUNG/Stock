@@ -36,3 +36,8 @@ BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", "7"))
 
 # Log level
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+
+# API Key authentication (R50-1)
+# Set API_KEY env var to enable authentication. Empty = no auth (dev mode).
+API_KEY = os.environ.get("API_KEY", "")
+API_KEY_HEADER = "X-API-Key"

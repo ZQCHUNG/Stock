@@ -13,6 +13,7 @@ export const analysisApi = {
   supportResistance: (code: string) => client.get<any, any>(`/analysis/${code}/support-resistance`),
   volumePatterns: (code: string) => client.get<any, any>(`/analysis/${code}/volume-patterns`),
   marketRegime: () => client.get<any, any>('/analysis/market-regime'),
+  marketRegimeMl: () => client.get<any, any>('/analysis/market-regime-ml'),
   riskFactors: (code: string) => client.get<any, any>(`/analysis/${code}/risk-factors`),
   sectorHeat: () => client.get<any, any>('/analysis/sector-heat'),
   v5Signal: (code: string) => client.get<any, any>(`/analysis/${code}/v5-signal`),

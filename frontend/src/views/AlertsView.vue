@@ -32,6 +32,10 @@ const systemHealth = ref<any>(null)
 const isCheckingHealth = ref(false)
 const dataQuality = ref<any>(null)
 const dqLoading = ref(false)
+const omsStats = ref<any>(null)
+const omsEvents = ref<any[]>([])
+const omsLoading = ref(false)
+const omsRunning = ref(false)
 
 async function loadConfig() {
   isLoading.value = true
@@ -140,6 +144,28 @@ async function loadDataQuality() {
   dqLoading.value = false
 }
 
+async function loadOms() {
+  omsLoading.value = true
+  try {
+    const [stats, evts] = await Promise.all([
+      systemApi.omsStats(),
+      systemApi.omsEvents(30),
+    ])
+    omsStats.value = stats
+    omsEvents.value = evts.events || []
+  } catch { /* ignore */ }
+  omsLoading.value = false
+}
+
+async function runOmsNow() {
+  omsRunning.value = true
+  try {
+    await systemApi.omsRunNow()
+    await loadOms()
+  } catch { /* ignore */ }
+  omsRunning.value = false
+}
+
 function healthStatusType(status: string): 'success' | 'warning' | 'error' | 'default' {
   if (status === 'healthy') return 'success'
   if (status === 'degraded') return 'warning'
@@ -154,7 +180,7 @@ function useWatchlistAsFilter() {
 onMounted(async () => {
   await loadConfig()
   await loadAlerts()
-  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality()])
+  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality(), loadOms()])
 })
 
 const triggeredColumns: DataTableColumns = [
@@ -395,6 +421,58 @@ const historyColumns: DataTableColumns = [
         </template>
         <div v-else-if="dataQuality?.message" style="padding: 12px; color: #999; font-size: 12px">{{ dataQuality.message }}</div>
         <div v-else-if="!dqLoading" style="padding: 12px; color: #999; font-size: 12px">點擊「檢查」開始數據品質掃描</div>
+      </NSpin>
+    </NCard>
+
+    <!-- OMS Panel (R50-2) -->
+    <NCard title="OMS 自動出場監控" size="small" style="margin-top: 16px">
+      <template #header-extra>
+        <NSpace :size="8">
+          <NButton size="tiny" @click="loadOms" :loading="omsLoading">刷新</NButton>
+          <NButton size="tiny" type="primary" @click="runOmsNow" :loading="omsRunning">立即檢查</NButton>
+        </NSpace>
+      </template>
+      <NSpin :show="omsLoading">
+        <NSpace :size="12" style="margin-bottom: 8px" v-if="omsStats">
+          <NStatistic label="總事件" :value="omsStats.total_events || 0" />
+          <NStatistic label="自動出場" :value="omsStats.auto_exits || 0" />
+          <NStatistic label="移動停利更新" :value="omsStats.trailing_updates || 0" />
+          <NStatistic label="累計自動損益">
+            <template #default>
+              <span :style="{ color: (omsStats.total_auto_pnl || 0) >= 0 ? '#18a058' : '#e53e3e' }">
+                ${{ (omsStats.total_auto_pnl || 0).toLocaleString() }}
+              </span>
+            </template>
+          </NStatistic>
+          <NStatistic v-if="omsStats.last_event" label="最後事件" :value="omsStats.last_event?.slice(0, 19).replace('T', ' ') || '-'" />
+        </NSpace>
+        <NGrid v-if="omsStats?.exit_reasons && Object.keys(omsStats.exit_reasons).length" :cols="3" :x-gap="8" style="margin-bottom: 8px">
+          <NGi v-for="(count, reason) in omsStats.exit_reasons" :key="reason">
+            <NTag :type="reason === 'take_profit' ? 'success' : reason === 'stop_loss' ? 'error' : 'warning'" size="small">
+              {{ reason === 'stop_loss' ? '停損' : reason === 'take_profit' ? '停利' : '移動停利' }}: {{ count }}
+            </NTag>
+          </NGi>
+        </NGrid>
+        <NDataTable
+          v-if="omsEvents.length"
+          :columns="[
+            { title: '時間', key: 'timestamp', width: 150, render: (r: any) => r.timestamp?.slice(0, 19).replace('T', ' ') || '' },
+            { title: '代碼', key: 'code', width: 70 },
+            { title: '類型', key: 'event_type', width: 90, render: (r: any) => h(NTag, { type: r.event_type === 'auto_exit' ? 'error' : 'info', size: 'small' }, () => r.event_type === 'auto_exit' ? '自動出場' : '停利更新') },
+            { title: '原因', key: 'exit_reason', width: 80, render: (r: any) => r.exit_reason === 'stop_loss' ? '停損' : r.exit_reason === 'take_profit' ? '停利' : r.exit_reason === 'trailing_stop' ? '移動停利' : r.exit_reason || '-' },
+            { title: '價格', key: 'exit_price', width: 80, render: (r: any) => r.exit_price > 0 ? `$${r.exit_price.toFixed(2)}` : '-' },
+            { title: '損益', key: 'pnl', width: 80, render: (r: any) => r.pnl ? h('span', { style: { color: r.pnl >= 0 ? '#18a058' : '#e53e3e' } }, `$${r.pnl.toLocaleString()}`) : '-' },
+            { title: '說明', key: 'detail', ellipsis: { tooltip: true } },
+          ]"
+          :data="omsEvents"
+          :pagination="{ pageSize: 10 }"
+          size="small"
+          :bordered="false"
+          :single-line="false"
+        />
+        <div v-else-if="!omsLoading" style="padding: 12px; color: #999; font-size: 12px">
+          尚無 OMS 事件。系統每 5 分鐘自動檢查持倉停損/停利條件。
+        </div>
       </NSpin>
     </NCard>
 

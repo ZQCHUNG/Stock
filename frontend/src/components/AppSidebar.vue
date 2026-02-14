@@ -42,6 +42,7 @@ const menuItems = [
   { label: '9  SQS 警報', key: 'alerts' },
   { label: '10 SQS 績效', key: 'sqs-performance' },
   { label: '11 風險監控', key: 'risk' },
+  { label: '12 策略工作台', key: 'strategies' },
 ]
 
 const activeKey = computed(() => route.name as string)

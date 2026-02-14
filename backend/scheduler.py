@@ -380,6 +380,15 @@ def start_scheduler(interval_minutes: int = 5):
         replace_existing=True,
         max_instances=1,
     )
+    # R50-2: OMS position monitor (every 5 minutes)
+    _scheduler.add_job(
+        _run_oms_check,
+        trigger=IntervalTrigger(minutes=5),
+        id="oms_position_check",
+        name="OMS Position Monitor",
+        replace_existing=True,
+        max_instances=1,
+    )
 
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
@@ -539,6 +548,52 @@ def _notify_system_health_issue(status: str, degraded: list):
         _send_line_notify(config_data["line_token"], "\n".join(lines))
     except Exception as e:
         logger.warning(f"System health LINE notify failed: {e}")
+
+
+def _run_oms_check():
+    """R50-2: Scheduled job — OMS auto-exit check for open positions."""
+    try:
+        from backend.order_manager import check_positions_and_execute
+        result = check_positions_and_execute()
+        actions = result.get("actions", [])
+        if actions:
+            logger.info(f"OMS check: {len(actions)} auto-exits executed")
+            # Notify via LINE for auto-exits
+            _notify_oms_exits(actions)
+        else:
+            logger.debug(f"OMS check: {result['checked']} positions checked, no exits")
+    except Exception as e:
+        logger.warning(f"OMS check failed: {e}")
+
+
+def _notify_oms_exits(actions: list[dict]):
+    """Send LINE notification for OMS auto-exits."""
+    config_data = _load_json(ALERT_CONFIG_PATH, {})
+    if not config_data.get("notify_line") or not config_data.get("line_token"):
+        return
+
+    now = datetime.now()
+    lines = [
+        f"\n📋 OMS 自動出場通知",
+        f"⏰ {now.strftime('%Y-%m-%d %H:%M')}",
+        f"共 {len(actions)} 筆自動執行:\n",
+    ]
+    for a in actions[:10]:
+        icon = "🔴" if a.get("net_pnl", 0) < 0 else "🟢"
+        reason_label = {
+            "stop_loss": "停損",
+            "trailing_stop": "移動停利",
+            "take_profit": "停利",
+        }.get(a.get("exit_reason", ""), a.get("exit_reason", ""))
+        lines.append(
+            f"{icon} {a['code']} {a.get('name', '')} — {reason_label} "
+            f"@ ${a['exit_price']:.2f} (P&L ${a.get('net_pnl', 0):,.0f})"
+        )
+
+    try:
+        _send_line_notify(config_data["line_token"], "\n".join(lines))
+    except Exception as e:
+        logger.warning(f"OMS LINE notify failed: {e}")
 
 
 def stop_scheduler():
