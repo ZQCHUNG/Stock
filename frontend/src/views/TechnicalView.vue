@@ -5,6 +5,7 @@ import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NTe
 import { useAppStore } from '../stores/app'
 import { useTechnicalStore } from '../stores/technical'
 import { fmtNum } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
 import MetricCard from '../components/MetricCard.vue'
 import SignalBadge from '../components/SignalBadge.vue'
 import CandlestickChart from '../components/CandlestickChart.vue'
@@ -13,6 +14,11 @@ import KdChart from '../components/KdChart.vue'
 
 const app = useAppStore()
 const tech = useTechnicalStore()
+const { cols } = useResponsive()
+const signalCols = cols(2, 4, 4)
+const indicatorCols = cols(3, 5, 5)
+const chartCols = cols(1, 2, 2)
+const descCols = cols(1, 3, 3)
 
 async function loadData() {
   const code = app.currentStockCode
@@ -36,9 +42,12 @@ watch(() => app.currentStockCode, loadData)
       <NAlert v-if="tech.error" type="error" style="margin-bottom: 16px">{{ tech.error }}</NAlert>
 
       <!-- V4 訊號摘要 -->
-      <NGrid v-if="tech.v4Enhanced" :cols="4" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+      <NGrid v-if="tech.v4Enhanced" :cols="signalCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
         <NGi>
-          <MetricCard title="V4 訊號">
+          <MetricCard
+            title="V4 訊號"
+            :bg-color="tech.v4Enhanced.signal === 'BUY' ? '#fff5f5' : tech.v4Enhanced.signal === 'SELL' ? '#f0fff4' : undefined"
+          >
             <template #default>
               <SignalBadge :signal="tech.v4Enhanced.signal" size="large" />
             </template>
@@ -68,7 +77,7 @@ watch(() => app.currentStockCode, loadData)
 
       <!-- V4 指標面板 -->
       <NCard v-if="tech.v4Enhanced?.indicators" size="small" title="V4 指標" style="margin-bottom: 16px">
-        <NGrid :cols="5" :x-gap="8">
+        <NGrid :cols="indicatorCols" :x-gap="8" :y-gap="8">
           <NGi v-for="(val, key) in tech.v4Enhanced.indicators" :key="key">
             <MetricCard :title="String(key)" :value="val != null ? Number(val).toFixed(1) : '-'" />
           </NGi>
@@ -87,7 +96,7 @@ watch(() => app.currentStockCode, loadData)
       </NCard>
 
       <!-- MACD + KD -->
-      <NGrid :cols="2" :x-gap="12" style="margin-bottom: 16px">
+      <NGrid :cols="chartCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
         <NGi>
           <NCard title="MACD" size="small">
             <MacdChart :data="tech.indicators" group="tech" />
@@ -120,7 +129,7 @@ watch(() => app.currentStockCode, loadData)
 
       <!-- 量能型態 -->
       <NCard v-if="tech.volumePatterns" title="量能型態" size="small" style="margin-bottom: 16px">
-        <NDescriptions :column="3" label-placement="left" size="small">
+        <NDescriptions :column="descCols" label-placement="left" size="small">
           <NDescriptionsItem label="當前型態">{{ tech.volumePatterns.current_pattern || '無' }}</NDescriptionsItem>
           <NDescriptionsItem label="量比">{{ tech.volumePatterns.current_vol_ratio?.toFixed(2) || '-' }}</NDescriptionsItem>
           <NDescriptionsItem label="量能趨勢">{{ tech.volumePatterns.volume_trend || '-' }}</NDescriptionsItem>

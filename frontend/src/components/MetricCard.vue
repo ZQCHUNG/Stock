@@ -4,11 +4,12 @@ defineProps<{
   value?: string | number
   subtitle?: string
   color?: string
+  bgColor?: string
 }>()
 </script>
 
 <template>
-  <div class="metric-card">
+  <div class="metric-card" :style="bgColor ? { background: bgColor, borderColor: bgColor } : undefined">
     <div class="metric-title">{{ title }}</div>
     <div class="metric-value" :style="{ color: color || 'inherit' }">
       <slot>{{ value }}</slot>

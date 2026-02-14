@@ -103,9 +103,10 @@ def watchlist_overview():
         except Exception:
             return {"code": code, "name": get_stock_name(code), "error": True}
 
-    # 注意：yf.download 非 thread-safe，並行呼叫會導致資料混淆
-    # 因此使用循序載入
-    results = [_load_stock(code) for code in codes]
+    # yf.Ticker().history() 是 thread-safe（已從 yf.download 遷移）
+    # 可安全並行載入
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        results = list(executor.map(_load_stock, codes))
 
     return make_serializable(results)
 
@@ -147,7 +148,8 @@ def batch_backtest(req: BatchBacktestRequest):
         except Exception:
             return {"code": code, "name": get_stock_name(code), "error": True}
 
-    # yf.download 非 thread-safe，循序載入避免資料混淆
-    results = [_bt_stock(code) for code in codes]
+    # yf.Ticker().history() 是 thread-safe（已從 yf.download 遷移）
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(_bt_stock, codes))
 
     return make_serializable(results)

@@ -5,11 +5,15 @@ import { useAppStore } from '../stores/app'
 import { useRecommendStore } from '../stores/recommend'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, priceColor } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
 import SignalBadge from '../components/SignalBadge.vue'
 
 const app = useAppStore()
 const rec = useRecommendStore()
 const wl = useWatchlistStore()
+
+const { cols } = useResponsive()
+const cardCols = cols(1, 2, 3)
 
 onMounted(() => rec.scan())
 
@@ -40,7 +44,7 @@ const sellResults = () => rec.scanResults.filter((r) => r.signal === 'SELL')
     <NSpin :show="rec.isScanning">
       <!-- BUY 訊號 -->
       <NCard v-if="buyResults().length" title="買進訊號" size="small" style="margin-bottom: 16px">
-        <NGrid :cols="3" :x-gap="12" :y-gap="12">
+        <NGrid :cols="cardCols" :x-gap="12" :y-gap="12">
           <NGi v-for="r in buyResults()" :key="r.code">
             <NCard size="small" hoverable style="cursor: pointer" @click="selectStock(r.code)">
               <div style="display: flex; justify-content: space-between; align-items: center">

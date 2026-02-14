@@ -5,6 +5,7 @@ import { useAppStore } from '../stores/app'
 import { useScreenerStore } from '../stores/screener'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
 
 const app = useAppStore()
 const scr = useScreenerStore()
@@ -21,6 +22,9 @@ const ma20AboveMa60 = ref(false)
 const minUptrendDays = ref<number | null>(null)
 const signalFilter = ref<string | null>(null)
 const marketFilter = ref<string | null>(null)
+
+const { cols } = useResponsive()
+const filterCols = cols(2, 3, 4)
 
 const signalOptions = [
   { label: '不限', value: '' },
@@ -55,7 +59,7 @@ function runScreener() {
     <h2 style="margin: 0 0 16px">條件選股</h2>
 
     <NCard title="篩選條件" size="small" style="margin-bottom: 16px">
-      <NGrid :cols="4" :x-gap="12" :y-gap="8">
+      <NGrid :cols="filterCols" :x-gap="12" :y-gap="8">
         <NGi>
           <NText depth="3" style="font-size: 12px">最低價格</NText>
           <NInputNumber v-model:value="minPrice" size="small" placeholder="不限" clearable style="width: 100%" />
@@ -82,11 +86,11 @@ function runScreener() {
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">訊號</NText>
-          <NSelect v-model:value="signalFilter" :options="signalOptions" size="small" />
+          <NSelect v-model:value="signalFilter" :options="signalOptions" size="small" placeholder="不限" clearable />
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">市場</NText>
-          <NSelect v-model:value="marketFilter" :options="marketOptions" size="small" />
+          <NSelect v-model:value="marketFilter" :options="marketOptions" size="small" placeholder="不限" clearable />
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">MA20 > MA60</NText>
@@ -104,7 +108,8 @@ function runScreener() {
 
     <NSpin :show="scr.isLoading">
       <NCard v-if="scr.results.length" :title="`篩選結果 (${scr.results.length} 隻)`" size="small">
-        <table style="width: 100%; font-size: 13px; border-collapse: collapse">
+        <div style="overflow-x: auto">
+        <table style="width: 100%; font-size: 13px; border-collapse: collapse; min-width: 600px">
           <thead>
             <tr style="border-bottom: 2px solid #e2e8f0; text-align: left">
               <th style="padding: 6px">代碼</th>
@@ -134,6 +139,7 @@ function runScreener() {
             </tr>
           </tbody>
         </table>
+        </div>
       </NCard>
     </NSpin>
   </div>

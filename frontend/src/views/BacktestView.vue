@@ -9,6 +9,7 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useBacktestStore } from '../stores/backtest'
 import { fmtPct, fmtNum, priceColor, downloadCsv } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
 import MetricCard from '../components/MetricCard.vue'
 
 use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
@@ -16,6 +17,8 @@ use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendCompo
 const app = useAppStore()
 const bt = useBacktestStore()
 
+const { cols } = useResponsive()
+const metricCols = cols(2, 3, 4)
 const periodDays = ref(1095)
 const capital = ref(1_000_000)
 
@@ -88,7 +91,7 @@ const tradeColumns = [
 
       <template v-if="bt.singleResult">
         <!-- 績效指標 -->
-        <NGrid :cols="4" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+        <NGrid :cols="metricCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
           <NGi><MetricCard title="總報酬率" :value="fmtPct(bt.singleResult.total_return)" :color="priceColor(bt.singleResult.total_return)" /></NGi>
           <NGi><MetricCard title="年化報酬" :value="fmtPct(bt.singleResult.annual_return)" :color="priceColor(bt.singleResult.annual_return)" /></NGi>
           <NGi><MetricCard title="最大回撤" :value="fmtPct(bt.singleResult.max_drawdown)" color="#e53e3e" /></NGi>

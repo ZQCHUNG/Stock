@@ -21,16 +21,12 @@ def _resolve_ticker(stock_code: str) -> str:
     """自動判斷股票是上市 (.TW) 或上櫃 (.TWO)
 
     先嘗試 .TW，若無資料再嘗試 .TWO
+    使用 yf.Ticker().history() 而非 yf.download()，確保 thread-safety。
     """
     for suffix in [".TW", ".TWO"]:
         ticker = f"{stock_code}{suffix}"
         try:
-            df = yf.download(
-                ticker,
-                period="2d",
-                auto_adjust=True,
-                progress=False,
-            )
+            df = yf.Ticker(ticker).history(period="2d", auto_adjust=True)
             if not df.empty:
                 return ticker
         except Exception:
@@ -158,15 +154,14 @@ def get_stock_data(
     end_str = end_date.strftime("%Y-%m-%d")
 
     # 主要數據源：yfinance（調整後股價）
+    # 使用 yf.Ticker().history() 而非 yf.download()，確保 thread-safety
     df = None
     try:
         ticker = get_ticker(stock_code)
-        df = yf.download(
-            ticker,
+        df = yf.Ticker(ticker).history(
             start=start_str,
             end=end_str,
             auto_adjust=True,
-            progress=False,
         )
         if df.empty:
             df = None
@@ -232,12 +227,11 @@ def get_taiex_data(period_days: int = 365) -> pd.DataFrame:
     end_date = datetime.now()
     start_date = end_date - timedelta(days=period_days)
 
-    df = yf.download(
-        "^TWII",
+    # 使用 yf.Ticker().history() 確保 thread-safety
+    df = yf.Ticker("^TWII").history(
         start=start_date.strftime("%Y-%m-%d"),
         end=end_date.strftime("%Y-%m-%d"),
         auto_adjust=True,
-        progress=False,
     )
 
     if df.empty:
