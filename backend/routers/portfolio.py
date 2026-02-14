@@ -441,6 +441,113 @@ def get_analytics():
     })
 
 
+@router.get("/stress-test")
+def get_stress_test():
+    """組合壓力測試 — 3 情境模擬（Gemini R32）
+
+    Scenarios:
+    1. Base: market -3%
+    2. Black Swan: market -7%
+    3. Sector Crash: top sector -2×ATR
+    """
+    from data.fetcher import get_stock_data
+    from backend.dependencies import make_serializable
+
+    positions = db.get_open_positions()
+    if not positions:
+        return make_serializable({"has_data": False, "scenarios": []})
+
+    # Collect per-position data
+    pos_data = []
+    for p in positions:
+        shares = p["lots"] * 1000
+        entry = p["entry_price"]
+        current = p.get("current_price") or entry
+        market_value = current * shares
+        sector = p.get("sector", "未分類")
+
+        # Fetch ATR for sector crash scenario
+        atr = current * 0.03  # Default 3% if data unavailable
+        try:
+            df = get_stock_data(p["code"], period_days=30)
+            if len(df) >= 15:
+                high = df["high"]
+                low = df["low"]
+                close = df["close"]
+                tr = (high - low).combine(abs(high - close.shift(1)), max).combine(abs(low - close.shift(1)), max)
+                atr = float(tr.tail(14).mean())
+                current = float(close.iloc[-1])
+                market_value = current * shares
+        except Exception:
+            pass
+
+        pos_data.append({
+            "code": p["code"],
+            "name": p.get("name", ""),
+            "lots": p["lots"],
+            "current_price": current,
+            "market_value": round(market_value),
+            "sector": sector,
+            "atr": round(atr, 2),
+        })
+
+    total_value = sum(pd["market_value"] for pd in pos_data)
+
+    # Scenario 1: Base — market -3%, each stock drops 3% × estimated beta (assume 1.0)
+    base_loss = sum(-pd["market_value"] * 0.03 for pd in pos_data)
+
+    # Scenario 2: Black Swan — market -7%
+    swan_loss = sum(-pd["market_value"] * 0.07 for pd in pos_data)
+
+    # Scenario 3: Sector Crash — top sector drops 2×ATR per share
+    sector_values: dict[str, float] = {}
+    for pd in pos_data:
+        sector_values[pd["sector"]] = sector_values.get(pd["sector"], 0) + pd["market_value"]
+    top_sector = max(sector_values, key=sector_values.get) if sector_values else ""
+
+    sector_crash_loss = 0
+    for pd in pos_data:
+        if pd["sector"] == top_sector:
+            sector_crash_loss -= pd["lots"] * 1000 * pd["atr"] * 2
+        else:
+            # Other sectors drop 1.5% (sympathetic sell-off)
+            sector_crash_loss -= pd["market_value"] * 0.015
+
+    scenarios = [
+        {
+            "name": "基準回調 (Base)",
+            "description": "大盤下跌 3%",
+            "estimated_loss": round(base_loss),
+            "loss_pct": round(base_loss / total_value, 4) if total_value > 0 else 0,
+            "severity": "medium",
+        },
+        {
+            "name": "黑天鵝 (Black Swan)",
+            "description": "大盤暴跌 7%",
+            "estimated_loss": round(swan_loss),
+            "loss_pct": round(swan_loss / total_value, 4) if total_value > 0 else 0,
+            "severity": "high",
+        },
+        {
+            "name": f"板塊殺盤 ({top_sector})",
+            "description": f"{top_sector} 集體下跌 2×ATR",
+            "estimated_loss": round(sector_crash_loss),
+            "loss_pct": round(sector_crash_loss / total_value, 4) if total_value > 0 else 0,
+            "severity": "high",
+        },
+    ]
+
+    return make_serializable({
+        "has_data": True,
+        "total_value": round(total_value),
+        "position_count": len(positions),
+        "top_sector": top_sector,
+        "top_sector_pct": round(sector_values.get(top_sector, 0) / total_value * 100, 1) if total_value > 0 else 0,
+        "scenarios": scenarios,
+        "positions": pos_data,
+    })
+
+
 @router.get("/briefing")
 def get_briefing():
     """今日戰略簡報 — AI Briefing（Gemini R26-R27: with self-correction）"""
@@ -605,7 +712,34 @@ def get_briefing():
                     "message": f"超越影子組合：你的操作 {user_ret:+.1f}% 優於 AI 推薦 {shadow_ret:+.1f}%，主觀判斷加值 {delta:.1f}%",
                 })
 
-    # 8. If no insights, add a neutral one
+    # 9. Rotation suggestions: held cooling → new surge leader (Gemini R32)
+    if positions and heat:
+        sector_lookup = {s["sector"]: s for s in heat.get("sectors", [])}
+        for p in positions:
+            p_sector = p.get("sector", "")
+            sector_info = sector_lookup.get(p_sector, {})
+            p_momentum = sector_info.get("momentum", "stable")
+            # Check if held stock is in cooling sector
+            if p_momentum in ("cooling",):
+                # Find a surge sector with a leader in a different L1 sector
+                for s_data in heat.get("sectors", []):
+                    if s_data.get("momentum") == "surge" and s_data.get("leader"):
+                        leader = s_data["leader"]
+                        if leader["code"] != p["code"]:
+                            insights.append({
+                                "type": "rotation",
+                                "severity": "medium",
+                                "icon": "🔄",
+                                "message": (
+                                    f"換股建議：{p['code']} {p.get('name', '')} 所屬 {p_sector} 動能降溫 → "
+                                    f"轉進 {leader['code']} {leader['name']} ({s_data['sector']} Surge, Score={leader['score']:.2f})"
+                                ),
+                            })
+                            break  # One rotation per cooling position
+                if len(insights) >= 5:
+                    break
+
+    # 10. If no insights, add a neutral one
     if not insights:
         insights.append({
             "type": "neutral",
@@ -614,8 +748,8 @@ def get_briefing():
             "message": "目前無重大警報，市場穩定運行中",
         })
 
-    # Keep top 4
-    insights = insights[:4]
+    # Keep top 5
+    insights = insights[:5]
 
     return make_serializable({"insights": insights, "generated_at": datetime.now().isoformat()})
 

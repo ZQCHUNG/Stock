@@ -25,6 +25,7 @@ onMounted(() => {
   pf.loadAnalytics()
   pf.loadPerformance()
   pf.loadBriefing()
+  pf.loadStressTest()
 })
 
 function analyzeStock(code: string) {
@@ -184,6 +185,9 @@ const analyticsData = computed(() => pf.analytics)
 
 // Performance data (equity curve + MDD)
 const perfData = computed(() => pf.performance)
+
+// Stress test data (Gemini R32)
+const stressData = computed(() => pf.stressTest)
 </script>
 
 <template>
@@ -354,6 +358,31 @@ const perfData = computed(() => pf.performance)
             <div style="font-size: 11px; color: #999; margin-top: 1px">{{ sa.codes?.join(', ') }}</div>
           </div>
         </div>
+      </NCard>
+
+      <!-- Stress Test (Gemini R32) -->
+      <NCard v-if="stressData?.has_data" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">壓力測試</span>
+            <NTag size="small" :bordered="false">Stress Test</NTag>
+            <NTag size="small">{{ stressData.position_count }} 檔 · ${{ fmtNum(stressData.total_value, 0) }}</NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="3" :x-gap="12" :y-gap="12">
+          <NGi v-for="s in stressData.scenarios" :key="s.name">
+            <div style="border: 1px solid var(--n-border-color); border-radius: 6px; padding: 12px">
+              <div style="font-size: 12px; color: var(--n-text-color-3); margin-bottom: 4px">{{ s.name }}</div>
+              <div style="font-size: 11px; color: #999; margin-bottom: 6px">{{ s.description }}</div>
+              <div :style="{ fontSize: '20px', fontWeight: 700, color: '#e53e3e' }">
+                ${{ fmtNum(s.estimated_loss, 0) }}
+              </div>
+              <div style="font-size: 12px; color: #e53e3e">
+                {{ fmtPct(s.loss_pct) }}
+              </div>
+            </div>
+          </NGi>
+        </NGrid>
       </NCard>
 
       <!-- Active Positions -->

@@ -13,6 +13,7 @@ export const usePortfolioStore = defineStore('portfolio', () => {
   const analytics = ref<any>(null)
   const performance = ref<any>(null)
   const briefing = ref<any>(null)
+  const stressTest = ref<any>(null)
   const isLoading = ref(false)
 
   async function load() {
@@ -112,9 +113,17 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     }
   }
 
+  async function loadStressTest() {
+    try {
+      stressTest.value = await portfolioApi.stressTest()
+    } catch {
+      stressTest.value = null
+    }
+  }
+
   return {
-    positions, closed, summary, health, exitAlerts, equityLedger, analytics, performance, briefing, isLoading,
+    positions, closed, summary, health, exitAlerts, equityLedger, analytics, performance, briefing, stressTest, isLoading,
     load, openPosition, closePosition, updatePosition, deletePosition,
-    loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadPerformance, loadBriefing,
+    loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadPerformance, loadBriefing, loadStressTest,
   }
 })
