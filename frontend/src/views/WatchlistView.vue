@@ -2,6 +2,7 @@
 import { h, ref, onMounted, reactive, computed } from 'vue'
 import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty, NAlert, NGrid, NGi, NCollapse, NCollapseItem, NTooltip, NProgress } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
+import { useRouter } from 'vue-router'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { PieChart, BarChart } from 'echarts/charts'
@@ -16,6 +17,7 @@ use([PieChart, BarChart, TooltipComponent, LegendComponent, GridComponent, Canva
 
 const app = useAppStore()
 const wl = useWatchlistStore()
+const router = useRouter()
 
 onMounted(() => {
   wl.load()
@@ -26,6 +28,43 @@ onMounted(() => {
 function selectStock(code: string) {
   app.selectStock(code)
 }
+
+function analyzeStock(code: string) {
+  app.selectStock(code)
+  router.push({ name: 'technical' })
+}
+
+function addToWatchlist(code: string) {
+  wl.add(code)
+}
+
+// Check if stock is in watchlist
+const watchlistCodes = computed(() => new Set(wl.watchlist.map(s => s.code)))
+
+// Hot Spot Detector: BUY Leaders in Surge/Heating sectors
+const hotSpots = computed(() => {
+  const sectors = wl.sectorHeat?.sectors || []
+  const spots: { code: string; name: string; sector: string; momentum: string; score: number; maturity: string }[] = []
+  for (const sec of sectors) {
+    if (!['surge', 'heating'].includes(sec.momentum)) continue
+    // All BUY stocks in hot sectors, prioritize leaders
+    for (const bs of (sec.buy_stocks || [])) {
+      spots.push({
+        code: bs.code,
+        name: bs.name,
+        sector: sec.sector,
+        momentum: sec.momentum,
+        score: bs.leader_score || 0,
+        maturity: bs.maturity || 'N/A',
+      })
+    }
+  }
+  // Sort by leader_score desc, then momentum (surge first)
+  return spots.sort((a, b) => {
+    if (a.momentum !== b.momentum) return a.momentum === 'surge' ? -1 : 1
+    return b.score - a.score
+  })
+})
 
 // High-risk sectors (biotech, pharma, etc.)
 const HIGH_RISK_SECTORS = new Set([
@@ -306,6 +345,45 @@ const btColumns: DataTableColumns = [
         </div>
       </NCard>
 
+      <!-- Hot Spot Detector (Gemini R23 P1) -->
+      <NCard v-if="hotSpots.length" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span>🔥 今日熱點標的</span>
+            <NTag type="error" size="small">{{ hotSpots.length }} 檔</NTag>
+          </NSpace>
+        </template>
+        <NSpace :size="8" style="flex-wrap: wrap">
+          <NTooltip v-for="hs in hotSpots" :key="hs.code" trigger="hover">
+            <template #trigger>
+              <NTag
+                :type="hs.score > 0.6 ? 'warning' : 'error'"
+                size="small"
+                style="cursor: pointer"
+                @click="analyzeStock(hs.code)"
+              >
+                <template v-if="hs.score > 0.6">★ </template>
+                {{ hs.code }} {{ hs.name }}
+                <NButton
+                  v-if="!watchlistCodes.has(hs.code)"
+                  size="tiny"
+                  quaternary
+                  style="padding: 0 2px; margin-left: 4px; min-width: auto"
+                  @click.stop="addToWatchlist(hs.code)"
+                >+</NButton>
+              </NTag>
+            </template>
+            <div>
+              <div style="font-weight: 600">{{ hs.code }} {{ hs.name }}</div>
+              <div>板塊: {{ hs.sector }} {{ hs.momentum === 'surge' ? '🔥 Surge' : '↑ Heating' }}</div>
+              <div :style="{ color: maturityColor(hs.maturity) }">{{ hs.maturity }}</div>
+              <div v-if="hs.score > 0">Leader Score: {{ hs.score.toFixed(2) }}</div>
+              <div style="font-size: 11px; color: #aaa; margin-top: 4px">點擊分析 | + 加入自選</div>
+            </div>
+          </NTooltip>
+        </NSpace>
+      </NCard>
+
       <!-- L1/L2 Sector Drill-down (Gemini R22) -->
       <NCard v-if="sectorHeatSectors.length" title="產業板塊下鑽" size="small" style="margin-bottom: 16px">
         <template #header-extra>
@@ -396,7 +474,7 @@ const btColumns: DataTableColumns = [
 
               <!-- BUY stocks detail -->
               <div v-if="sector.buy_stocks?.length">
-                <div style="font-size: 11px; color: #999; margin-bottom: 6px">BUY 標的</div>
+                <div style="font-size: 11px; color: #999; margin-bottom: 6px">BUY 標的（點擊分析）</div>
                 <NSpace :size="6" style="flex-wrap: wrap">
                   <NTooltip v-for="bs in sector.buy_stocks" :key="bs.code" trigger="hover">
                     <template #trigger>
@@ -404,16 +482,24 @@ const btColumns: DataTableColumns = [
                         :type="bs.leader_score && bs.leader_score > 0.6 ? 'warning' : 'default'"
                         size="small"
                         style="cursor: pointer"
-                        @click="selectStock(bs.code)"
+                        @click="analyzeStock(bs.code)"
                       >
                         <template v-if="bs.leader_score && bs.leader_score > 0.6">★ </template>
                         {{ bs.code }} {{ bs.name }}
+                        <NButton
+                          v-if="!watchlistCodes.has(bs.code)"
+                          size="tiny"
+                          quaternary
+                          style="padding: 0 2px; margin-left: 4px; min-width: auto"
+                          @click.stop="addToWatchlist(bs.code)"
+                        >+</NButton>
                       </NTag>
                     </template>
                     <div>
                       <div>{{ bs.code }} {{ bs.name }}</div>
                       <div :style="{ color: maturityColor(bs.maturity) }">{{ bs.maturity }}</div>
                       <div v-if="bs.leader_score">Leader Score: {{ bs.leader_score.toFixed(2) }}</div>
+                      <div style="font-size: 11px; color: #aaa; margin-top: 2px">點擊 → 技術分析 | + → 加入自選</div>
                     </div>
                   </NTooltip>
                 </NSpace>
