@@ -70,3 +70,16 @@ def get_v4_params():
     """取得 v4 策略預設參數"""
     from config import STRATEGY_V4_PARAMS
     return STRATEGY_V4_PARAMS
+
+
+@router.get("/transition-alerts")
+def get_transition_alerts(limit: int = 20):
+    """取得 Maturity Transition 事件（Gemini R24 P2）
+
+    Returns list of transition events, most recent first.
+    High-value events: Leader stock upgrading maturity while sector is hot.
+    """
+    from data.cache import get_transition_events
+    events = get_transition_events(limit=limit)
+    # Return most recent first
+    return list(reversed(events))

@@ -232,20 +232,27 @@ def _calculate_confidence_multiplier(
     is_leader: bool,
     liquidity_factor: float,
     has_capital_strain: bool,
+    sector_weighted_heat: float | None = None,
 ) -> tuple[float, list[str]]:
-    """Calculate position confidence multiplier (Gemini R23).
+    """Calculate position confidence multiplier (Gemini R23, R24 adjusted).
 
     Returns (multiplier, breakdown_list).
 
     Base matrix: Maturity × Sector Momentum
-    Modifiers: +0.2 Leader, ×LF, -0.1 Capital Strain
-    Clamp to [0.3, 1.5], special case LF=0 → C=0
+    Modifiers: +0.2 Leader, ×LF, -0.1 Capital Strain, sector overheat decay
+    Clamp to [0.1, 1.5], special case LF=0 → C=0
+
+    R24 adjustments per Gemini CTO review:
+    - SS+Surge: 0.8→0.6 (FOMO risk, first-week premium too high)
+    - SS+Cooling: 0.3→0.1 (distribution trap / 無基之彈)
+    - Structural+Heating: 1.1→1.2 (most stable alpha, deserve more aggression)
+    - Clamp lower: 0.3→0.1 (allow near-zero for extreme risk)
     """
     # Base matrix: maturity → {momentum → base_score}
     MATRIX = {
-        "Structural Shift": {"surge": 1.3, "heating": 1.1, "stable": 0.9, "cooling": 0.6},
+        "Structural Shift": {"surge": 1.3, "heating": 1.2, "stable": 0.9, "cooling": 0.6},
         "Trend Formation": {"surge": 1.1, "heating": 0.9, "stable": 0.7, "cooling": 0.4},
-        "Speculative Spike": {"surge": 0.8, "heating": 0.6, "stable": 0.4, "cooling": 0.3},
+        "Speculative Spike": {"surge": 0.6, "heating": 0.6, "stable": 0.4, "cooling": 0.1},
     }
 
     # Ghost Town override
@@ -276,8 +283,14 @@ def _calculate_confidence_multiplier(
         score *= liquidity_factor
         breakdown.append(f"LF ×{liquidity_factor:.2f}")
 
-    # Clamp
-    score = max(0.3, min(1.5, score))
+    # Sector overheat decay (Gemini R24: crowded trade warning)
+    if sector_weighted_heat is not None and sector_weighted_heat > 0.8:
+        decay = max(0.7, 1.0 - (sector_weighted_heat - 0.8) * 1.5)
+        score *= decay
+        breakdown.append(f"板塊過熱衰減 ×{decay:.2f} (Hw={sector_weighted_heat:.2f})")
+
+    # Clamp (R24: lower bound 0.1 to allow near-zero for extreme risk)
+    score = max(0.1, min(1.5, score))
     breakdown.append(f"最終: {score:.2f}")
 
     return round(score, 2), breakdown
@@ -288,7 +301,12 @@ def _get_stock_sector_context(code: str) -> dict:
     from data.cache import get_cached_sector_heat
     from data.sector_mapping import get_stock_sector
 
-    result = {"sector_momentum": "stable", "is_leader": False, "sector_l1": "未分類"}
+    result = {
+        "sector_momentum": "stable",
+        "is_leader": False,
+        "sector_l1": "未分類",
+        "sector_weighted_heat": None,
+    }
 
     sector_l1 = get_stock_sector(code, level=1)
     result["sector_l1"] = sector_l1
@@ -302,6 +320,7 @@ def _get_stock_sector_context(code: str) -> dict:
         if sec.get("sector") != sector_l1:
             continue
         result["sector_momentum"] = sec.get("momentum", "stable")
+        result["sector_weighted_heat"] = sec.get("weighted_heat")
         leader = sec.get("leader")
         if leader and leader.get("code") == code:
             result["is_leader"] = True
@@ -398,6 +417,21 @@ def get_risk_factors(code: str, period_days: int = 365):
 
         current_price = float(df["close"].iloc[-1])
 
+        # Dynamic exit: ATR-based trailing stop (Gemini R24)
+        atr_14 = None
+        trailing_stop_price = None
+        highest_close_20d = None
+        if len(df) >= 15:
+            high = df["high"]
+            low = df["low"]
+            close = df["close"]
+            tr = (high - low).combine(abs(high - close.shift(1)), max).combine(abs(low - close.shift(1)), max)
+            atr_14 = float(tr.tail(14).mean())
+            highest_close_20d = float(close.tail(20).max())
+            # Trailing: max(static SL, highest_close - 2×ATR)
+            trailing_candidate = highest_close_20d - 2 * atr_14
+            # Will finalize after stop_loss_price is set
+
         # V4 signal for maturity info
         from analysis.strategy_v4 import get_v4_analysis
         try:
@@ -414,6 +448,11 @@ def get_risk_factors(code: str, period_days: int = 365):
         if stop_loss_price is None:
             from config import DEFAULT_V4_CONFIG
             stop_loss_price = round(current_price * (1 - DEFAULT_V4_CONFIG.stop_loss_pct), 2)
+
+        # Finalize trailing stop
+        if atr_14 is not None and highest_close_20d is not None:
+            trailing_candidate = highest_close_20d - 2 * atr_14
+            trailing_stop_price = round(max(stop_loss_price, trailing_candidate), 2)
 
         # Sector context (momentum, leader status)
         sector_ctx = _get_stock_sector_context(code)
@@ -432,6 +471,7 @@ def get_risk_factors(code: str, period_days: int = 365):
             is_leader=sector_ctx["is_leader"],
             liquidity_factor=round(liquidity_factor, 4),
             has_capital_strain=has_capital_strain,
+            sector_weighted_heat=sector_ctx.get("sector_weighted_heat"),
         )
 
         return make_serializable({
@@ -452,6 +492,10 @@ def get_risk_factors(code: str, period_days: int = 365):
             "confidence_breakdown": conf_breakdown,
             "industry": company_info.get("industry", ""),
             "sector": company_info.get("sector", ""),
+            # Dynamic exit (Gemini R24)
+            "atr_14": round(atr_14, 2) if atr_14 is not None else None,
+            "highest_close_20d": highest_close_20d,
+            "trailing_stop_price": trailing_stop_price,
         })
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))

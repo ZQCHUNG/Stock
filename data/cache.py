@@ -463,6 +463,80 @@ def get_worker_heartbeat() -> dict | None:
     return None
 
 
+# ===== Maturity Transition Events (Gemini R24 P2) =====
+
+def get_stock_maturity_map() -> dict | None:
+    """讀取前次掃描的每檔股票 maturity 狀態（用於 Transition 偵測）"""
+    cached = _cache_get("sector_heat:stock_maturity")
+    if cached:
+        try:
+            return json.loads(cached)
+        except Exception:
+            pass
+    return None
+
+
+def set_stock_maturity_map(maturity_map: dict, ttl: int = 86400) -> None:
+    """儲存當前每檔股票的 maturity（{code: maturity_str}）"""
+    try:
+        _cache_set("sector_heat:stock_maturity", json.dumps(maturity_map, ensure_ascii=False), ttl)
+    except Exception:
+        pass
+
+
+def add_transition_event(event: dict, ttl: int = 86400) -> None:
+    """新增 Maturity Transition 事件（單次觸發）
+
+    event keys: code, name, from_maturity, to_maturity, sector, momentum,
+                is_leader, leader_score, sector_heat, timestamp
+    """
+    try:
+        # Read existing events
+        cached = _cache_get("sector_heat:transitions")
+        events = json.loads(cached) if cached else []
+
+        # Single-fire: check if same code+transition already exists today
+        event_key = f"{event['code']}:{event['from_maturity']}→{event['to_maturity']}"
+        today = datetime.now().strftime("%Y-%m-%d")
+        existing_keys = {
+            f"{e['code']}:{e['from_maturity']}→{e['to_maturity']}"
+            for e in events if e.get("date") == today
+        }
+        if event_key in existing_keys:
+            return  # Already fired today
+
+        event["date"] = today
+        events.append(event)
+
+        # Keep only last 50 events
+        if len(events) > 50:
+            events = events[-50:]
+
+        _cache_set("sector_heat:transitions", json.dumps(events, ensure_ascii=False), ttl)
+    except Exception:
+        pass
+
+
+def get_transition_events(limit: int = 20) -> list:
+    """讀取最近的 Maturity Transition 事件"""
+    cached = _cache_get("sector_heat:transitions")
+    if cached:
+        try:
+            events = json.loads(cached)
+            return events[-limit:]
+        except Exception:
+            pass
+    return []
+
+
+def clear_transition_events() -> None:
+    """清除所有 Transition 事件（新交易日重置）"""
+    try:
+        _cache_set("sector_heat:transitions", "[]", 86400)
+    except Exception:
+        pass
+
+
 def get_cache_stats() -> dict:
     """取得快取統計"""
     r = get_redis()

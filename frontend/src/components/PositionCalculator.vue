@@ -49,6 +49,16 @@ const isLeader = computed(() => riskFactors.value?.is_leader ?? false)
 const v4Signal = computed(() => riskFactors.value?.v4_signal ?? 'HOLD')
 const sectorL1 = computed(() => riskFactors.value?.sector_l1 ?? '')
 
+// Dynamic exit (Gemini R24)
+const atr14 = computed(() => riskFactors.value?.atr_14 ?? null)
+const highestClose20d = computed(() => riskFactors.value?.highest_close_20d ?? null)
+const trailingStopPrice = computed(() => riskFactors.value?.trailing_stop_price ?? null)
+const hasTrailingStop = computed(() => trailingStopPrice.value !== null && trailingStopPrice.value > effectiveStopLoss.value)
+const trailingStopPct = computed(() => {
+  if (!trailingStopPrice.value || props.currentPrice <= 0) return 0
+  return (1 - trailingStopPrice.value / props.currentPrice) * 100
+})
+
 // Default stop loss from V4
 const defaultStopLoss = computed(() => riskFactors.value?.stop_loss_price ?? props.currentPrice * 0.93)
 
@@ -202,7 +212,7 @@ function resetStopLoss() {
       </NGrid>
 
       <!-- Results -->
-      <NGrid :cols="4" :x-gap="8" :y-gap="8">
+      <NGrid :cols="5" :x-gap="8" :y-gap="8">
         <NGi>
           <MetricCard
             title="建議張數"
@@ -214,7 +224,27 @@ function resetStopLoss() {
           <MetricCard title="買入成本" :value="`$${fmtNum(cost, 0)}`" />
         </NGi>
         <NGi>
-          <MetricCard title="停損價" :value="`$${effectiveStopLoss.toFixed(2)}`" />
+          <MetricCard title="靜態停損" :value="`$${effectiveStopLoss.toFixed(2)}`" />
+        </NGi>
+        <NGi>
+          <NTooltip v-if="hasTrailingStop" trigger="hover">
+            <template #trigger>
+              <MetricCard
+                title="移動停利"
+                :value="`$${trailingStopPrice!.toFixed(2)}`"
+                color="#2080f0"
+              />
+            </template>
+            <div>
+              <div style="font-weight: 600; margin-bottom: 4px">ATR 移動停利</div>
+              <div>公式: max(靜態SL, 最高收盤 − 2×ATR)</div>
+              <div>ATR(14): ${{ atr14?.toFixed(2) }}</div>
+              <div>近20日最高收盤: ${{ highestClose20d?.toFixed(2) }}</div>
+              <div>移動停利: ${{ trailingStopPrice!.toFixed(2) }} (−{{ trailingStopPct.toFixed(1) }}%)</div>
+              <div style="font-size: 11px; color: #aaa; margin-top: 4px">持有中應以較高者為準</div>
+            </div>
+          </NTooltip>
+          <MetricCard v-else title="移動停利" value="同靜態" />
         </NGi>
         <NGi>
           <MetricCard title="最大虧損" :value="`$${fmtNum(maxLoss, 0)}`" color="#e53e3e" />
@@ -224,7 +254,8 @@ function resetStopLoss() {
       <!-- Status line -->
       <div v-if="lots > 0 && !isGhostTown" style="margin-top: 8px; font-size: 12px; color: var(--n-text-color-3)">
         佔總資金 {{ costPct.toFixed(1) }}% |
-        停損 -{{ stopLossPct.toFixed(1) }}% = ${{ effectiveStopLoss.toFixed(2) }} |
+        停損 -{{ stopLossPct.toFixed(1) }}% = ${{ effectiveStopLoss.toFixed(2) }}
+        <template v-if="hasTrailingStop"> | 移動停利 ${{ trailingStopPrice!.toFixed(2) }} (ATR×2)</template> |
         風險金額 ${{ fmtNum(riskAmount, 0) }} (資金×{{ riskPct }}%×C{{ confidenceMultiplier.toFixed(2) }}) |
         最大虧損佔總資金 {{ (capital > 0 ? maxLoss / capital * 100 : 0).toFixed(2) }}%
       </div>

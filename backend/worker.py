@@ -35,6 +35,9 @@ from data.cache import (
     set_worker_heartbeat,
     get_sector_heat_previous,
     set_sector_heat_previous,
+    get_stock_maturity_map,
+    set_stock_maturity_map,
+    add_transition_event,
 )
 
 logging.basicConfig(
@@ -294,6 +297,81 @@ def scan_sector_heat() -> dict:
 
     # Save current heat as "previous" for next scan
     set_sector_heat_previous(current_heat_map)
+
+    # === Maturity Transition Detection (Gemini R24 P2) ===
+    prev_maturity = get_stock_maturity_map() or {}
+    current_maturity = {}
+
+    # Build sector lookup for quick access
+    sector_lookup = {h["sector"]: h for h in heat_data}
+
+    transition_count = 0
+    for stock in valid:
+        code = stock["code"]
+        mat = stock.get("signal_maturity", "N/A")
+        current_maturity[code] = mat
+
+        prev_mat = prev_maturity.get(code)
+        if prev_mat is None or prev_mat == mat:
+            continue
+
+        # Detect meaningful transitions (upgrade only)
+        MATURITY_RANK = {"Speculative Spike": 1, "Trend Formation": 2, "Structural Shift": 3}
+        prev_rank = MATURITY_RANK.get(prev_mat, 0)
+        curr_rank = MATURITY_RANK.get(mat, 0)
+
+        if curr_rank <= prev_rank:
+            continue  # Only upgrades are noteworthy
+
+        # Only alert for BUY signals
+        if stock.get("signal") != "BUY":
+            continue
+
+        sector_name = stock.get("sector", "")
+        sector_info = sector_lookup.get(sector_name, {})
+        sector_wh = sector_info.get("weighted_heat", 0)
+        sector_mom = sector_info.get("momentum", "stable")
+
+        # Check if leader
+        is_leader = False
+        leader_score = 0
+        leader_info = sector_info.get("leader")
+        if leader_info and leader_info.get("code") == code:
+            is_leader = True
+            leader_score = leader_info.get("score", 0)
+
+        # High-value: Leader + sector heat > 0.4
+        is_high_value = is_leader and sector_wh > 0.4
+
+        event = {
+            "code": code,
+            "name": stock.get("name", code),
+            "from_maturity": prev_mat,
+            "to_maturity": mat,
+            "sector": sector_name,
+            "momentum": sector_mom,
+            "weighted_heat": sector_wh,
+            "is_leader": is_leader,
+            "leader_score": leader_score,
+            "is_high_value": is_high_value,
+            "timestamp": datetime.now().isoformat(),
+        }
+        add_transition_event(event)
+        transition_count += 1
+
+        priority = "🔥 HIGH-VALUE" if is_high_value else "📊"
+        logger.info(
+            f"  {priority} Transition: {code} {stock.get('name', '')} "
+            f"{prev_mat} → {mat} "
+            f"[{sector_name} {sector_mom} Hw={sector_wh:.1%}]"
+            + (f" Leader({leader_score:.2f})" if is_leader else "")
+        )
+
+    # Save current maturity map
+    set_stock_maturity_map(current_maturity)
+
+    if transition_count:
+        logger.info(f"  Total transitions detected: {transition_count}")
 
     total_buy = sum(h["buy_count"] for h in heat_data)
 

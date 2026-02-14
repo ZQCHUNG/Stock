@@ -7,4 +7,5 @@ export const systemApi = {
   addRecentStock: (code: string) => client.post<any, any>(`/system/recent-stocks/${code}`),
   workerHeartbeat: () => client.get<any, any>('/system/worker-heartbeat'),
   v4Params: () => client.get<any, any>('/system/v4-params'),
+  transitionAlerts: (limit: number = 20) => client.get<any, any[]>(`/system/transition-alerts?limit=${limit}`),
 }

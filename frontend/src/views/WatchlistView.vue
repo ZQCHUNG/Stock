@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { h, ref, onMounted, reactive, computed } from 'vue'
-import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty, NAlert, NGrid, NGi, NCollapse, NCollapseItem, NTooltip, NProgress } from 'naive-ui'
+import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty, NAlert, NGrid, NGi, NCollapse, NCollapseItem, NTooltip, NProgress, NBadge } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import VChart from 'vue-echarts'
@@ -10,6 +10,7 @@ import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useWatchlistStore } from '../stores/watchlist'
+import { systemApi } from '../api/system'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import ProgressBar from '../components/ProgressBar.vue'
 
@@ -19,10 +20,28 @@ const app = useAppStore()
 const wl = useWatchlistStore()
 const router = useRouter()
 
+// Maturity Transition Alerts (Gemini R24 P2)
+const transitionAlerts = ref<any[]>([])
+const transitionLoading = ref(false)
+
+async function loadTransitionAlerts() {
+  transitionLoading.value = true
+  try {
+    transitionAlerts.value = await systemApi.transitionAlerts(20)
+  } catch {
+    transitionAlerts.value = []
+  }
+  transitionLoading.value = false
+}
+
+const highValueAlerts = computed(() => transitionAlerts.value.filter(a => a.is_high_value))
+const normalAlerts = computed(() => transitionAlerts.value.filter(a => !a.is_high_value))
+
 onMounted(() => {
   wl.load()
   wl.loadOverview()
   wl.loadSectorHeat()
+  loadTransitionAlerts()
 })
 
 function selectStock(code: string) {
@@ -382,6 +401,70 @@ const btColumns: DataTableColumns = [
             </div>
           </NTooltip>
         </NSpace>
+      </NCard>
+
+      <!-- Maturity Transition Alerts (Gemini R24 P2) -->
+      <NCard v-if="transitionAlerts.length" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span>📊 成熟度躍遷通知</span>
+            <NBadge v-if="highValueAlerts.length" :value="highValueAlerts.length" type="error" />
+            <NTag size="small" :bordered="false">{{ transitionAlerts.length }} 筆</NTag>
+          </NSpace>
+        </template>
+        <template #header-extra>
+          <NButton size="tiny" quaternary @click="loadTransitionAlerts()" :loading="transitionLoading">刷新</NButton>
+        </template>
+
+        <!-- High-value alerts -->
+        <div v-if="highValueAlerts.length" style="margin-bottom: 12px">
+          <div style="font-size: 11px; color: #e53e3e; font-weight: 600; margin-bottom: 6px">🔥 高價值躍遷（Leader + 熱板塊）</div>
+          <NSpace :size="6" style="flex-wrap: wrap">
+            <NTooltip v-for="(a, i) in highValueAlerts" :key="'hv-' + i" trigger="hover">
+              <template #trigger>
+                <NTag type="error" size="small" style="cursor: pointer; font-weight: 600" @click="analyzeStock(a.code)">
+                  ★ {{ a.code }} {{ a.name }}
+                  <span style="margin-left: 4px; font-size: 10px">{{ a.from_maturity?.split(' ')[0] }} → {{ a.to_maturity?.split(' ')[0] }}</span>
+                  <NButton
+                    v-if="!watchlistCodes.has(a.code)"
+                    size="tiny"
+                    quaternary
+                    style="padding: 0 2px; margin-left: 4px; min-width: auto"
+                    @click.stop="addToWatchlist(a.code)"
+                  >+</NButton>
+                </NTag>
+              </template>
+              <div>
+                <div style="font-weight: 600">{{ a.code }} {{ a.name }}</div>
+                <div>{{ a.from_maturity }} → {{ a.to_maturity }}</div>
+                <div>板塊: {{ a.sector }} ({{ a.momentum }}) Hw={{ ((a.weighted_heat || 0) * 100).toFixed(0) }}%</div>
+                <div>Leader Score: {{ (a.leader_score || 0).toFixed(2) }}</div>
+                <div style="font-size: 11px; color: #aaa; margin-top: 4px">{{ a.timestamp?.slice(11, 16) }} | 點擊分析</div>
+              </div>
+            </NTooltip>
+          </NSpace>
+        </div>
+
+        <!-- Normal alerts -->
+        <div v-if="normalAlerts.length">
+          <div v-if="highValueAlerts.length" style="font-size: 11px; color: #999; margin-bottom: 6px">其他躍遷</div>
+          <NSpace :size="6" style="flex-wrap: wrap">
+            <NTooltip v-for="(a, i) in normalAlerts" :key="'na-' + i" trigger="hover">
+              <template #trigger>
+                <NTag size="small" style="cursor: pointer" @click="analyzeStock(a.code)">
+                  {{ a.code }} {{ a.name }}
+                  <span style="margin-left: 4px; font-size: 10px; color: #999">{{ a.from_maturity?.split(' ')[0] }} → {{ a.to_maturity?.split(' ')[0] }}</span>
+                </NTag>
+              </template>
+              <div>
+                <div>{{ a.code }} {{ a.name }}</div>
+                <div>{{ a.from_maturity }} → {{ a.to_maturity }}</div>
+                <div>板塊: {{ a.sector }} ({{ a.momentum }})</div>
+                <div style="font-size: 11px; color: #aaa; margin-top: 2px">{{ a.timestamp?.slice(11, 16) }}</div>
+              </div>
+            </NTooltip>
+          </NSpace>
+        </div>
       </NCard>
 
       <!-- L1/L2 Sector Drill-down (Gemini R22) -->
