@@ -18,7 +18,7 @@ const props = defineProps<{
   group?: string
 }>()
 
-const { colors } = useChartTheme()
+const { colors, tooltipStyle } = useChartTheme()
 
 const option = computed(() => {
   const d = props.data
@@ -67,6 +67,7 @@ const option = computed(() => {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
+      ...tooltipStyle.value,
       formatter: (params: any[]) => {
         if (!params?.length) return ''
         const idx = params[0].dataIndex

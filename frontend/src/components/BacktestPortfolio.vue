@@ -4,7 +4,6 @@ import {
   NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSelect, NSpace,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
@@ -16,6 +15,7 @@ import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import { useChartTheme } from '../composables/useChartTheme'
 import { useResponsive } from '../composables/useResponsive'
 import MetricCard from './MetricCard.vue'
+import ChartContainer from './ChartContainer.vue'
 
 use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -24,7 +24,7 @@ const props = defineProps<{ periodDays: number; capital: number }>()
 const app = useAppStore()
 const bt = useBacktestStore()
 const wl = useWatchlistStore()
-const { colors: chartColors } = useChartTheme()
+const { colors: chartColors, tooltipStyle } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
@@ -52,7 +52,7 @@ const portfolioEquityOption = computed(() => {
   if (!r?.equity_curve?.dates?.length) return {}
   const cc = chartColors.value
   return {
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', ...tooltipStyle.value },
     grid: { left: 80, right: 20, top: 20, bottom: 30 },
     xAxis: { type: 'category', data: r.equity_curve.dates, axisLabel: { color: cc.axisLabel } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
@@ -126,7 +126,7 @@ const portfolioStockData = computed(() => {
 
       <NTabs type="line">
         <NTabPane name="equity" tab="組合權益曲線">
-          <NCard size="small"><VChart :option="portfolioEquityOption" autoresize style="height: 350px" /></NCard>
+          <NCard size="small"><ChartContainer :option="portfolioEquityOption" height="350px" /></NCard>
         </NTabPane>
         <NTabPane name="stocks" tab="個股明細">
           <NDataTable
@@ -134,6 +134,7 @@ const portfolioStockData = computed(() => {
             :data="portfolioStockData"
             size="small"
             :pagination="{ pageSize: 20 }"
+            :scroll-x="560"
           />
         </NTabPane>
       </NTabs>

@@ -88,6 +88,7 @@ const btColumns: DataTableColumns = [
           size="small"
           :bordered="false"
           :single-line="false"
+          :scroll-x="760"
         />
       </NCard>
 
@@ -97,6 +98,7 @@ const btColumns: DataTableColumns = [
           :data="wl.batchResults"
           :pagination="btPagination"
           size="small"
+          :scroll-x="650"
         />
       </NCard>
     </NSpin>

@@ -1,20 +1,28 @@
 <script setup lang="ts">
+import { NSkeleton } from 'naive-ui'
+
 defineProps<{
   title: string
   value?: string | number
   subtitle?: string
   color?: string
   bgColor?: string
+  loading?: boolean
 }>()
 </script>
 
 <template>
   <div class="metric-card" :style="bgColor ? { background: bgColor, borderColor: bgColor } : undefined">
     <div class="metric-title">{{ title }}</div>
-    <div class="metric-value" :style="{ color: color || 'inherit' }">
-      <slot>{{ value }}</slot>
-    </div>
-    <div v-if="subtitle" class="metric-subtitle">{{ subtitle }}</div>
+    <template v-if="loading">
+      <NSkeleton text style="width: 60%; margin: 4px auto 0" :sharp="false" />
+    </template>
+    <template v-else>
+      <div class="metric-value" :style="{ color: color || 'inherit' }">
+        <slot>{{ value }}</slot>
+      </div>
+      <div v-if="subtitle" class="metric-subtitle">{{ subtitle }}</div>
+    </template>
   </div>
 </template>
 

@@ -4,7 +4,6 @@ import {
   NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NInputNumber, NSpace, NTag,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
@@ -15,6 +14,7 @@ import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import { useChartTheme } from '../composables/useChartTheme'
 import { useResponsive } from '../composables/useResponsive'
 import MetricCard from './MetricCard.vue'
+import ChartContainer from './ChartContainer.vue'
 
 use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -22,7 +22,7 @@ const props = defineProps<{ periodDays: number; capital: number }>()
 
 const app = useAppStore()
 const bt = useBacktestStore()
-const { colors: chartColors } = useChartTheme()
+const { colors: chartColors, tooltipStyle } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
@@ -42,7 +42,7 @@ const simEquityOption = computed(() => {
   const equity = r.daily_records.map((d: any) => d.total_equity)
   const cc = chartColors.value
   return {
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', ...tooltipStyle.value },
     grid: { left: 80, right: 20, top: 20, bottom: 30 },
     xAxis: { type: 'category', data: dates, axisLabel: { color: cc.axisLabel } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
@@ -96,7 +96,7 @@ const simRecordColumns: DataTableColumns = [
 
       <NTabs type="line">
         <NTabPane name="equity" tab="資產曲線">
-          <NCard size="small"><VChart :option="simEquityOption" autoresize style="height: 350px" /></NCard>
+          <NCard size="small"><ChartContainer :option="simEquityOption" height="350px" /></NCard>
         </NTabPane>
         <NTabPane name="records" tab="每日紀錄">
           <NDataTable
@@ -104,6 +104,7 @@ const simRecordColumns: DataTableColumns = [
             :data="bt.simulationResult.daily_records"
             :pagination="simRecordPagination"
             size="small"
+            :scroll-x="680"
           />
         </NTabPane>
         <NTabPane v-if="bt.simulationResult.trade_log?.length" name="log" tab="交易日誌">

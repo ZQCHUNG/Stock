@@ -3,7 +3,6 @@ import { reactive, computed } from 'vue'
 import {
   NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace,
 } from 'naive-ui'
-import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
@@ -14,6 +13,7 @@ import { fmtPct, fmtNum, priceColor, downloadCsv } from '../utils/format'
 import { useChartTheme } from '../composables/useChartTheme'
 import { useResponsive } from '../composables/useResponsive'
 import MetricCard from './MetricCard.vue'
+import ChartContainer from './ChartContainer.vue'
 
 use([LineChart, PieChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -21,7 +21,7 @@ const props = defineProps<{ periodDays: number; capital: number }>()
 
 const app = useAppStore()
 const bt = useBacktestStore()
-const { colors: chartColors } = useChartTheme()
+const { colors: chartColors, tooltipStyle } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
@@ -34,7 +34,7 @@ const equityOption = computed(() => {
   if (!r?.equity_curve?.dates?.length) return {}
   const cc = chartColors.value
   return {
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', ...tooltipStyle.value },
     grid: { left: 80, right: 20, top: 20, bottom: 30 },
     xAxis: { type: 'category', data: r.equity_curve.dates, axisLabel: { color: cc.axisLabel } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
@@ -49,7 +49,7 @@ const exitPieOption = computed(() => {
   const data = Object.entries(counts).map(([name, value]) => ({ name, value }))
   const cc = chartColors.value
   return {
-    tooltip: { trigger: 'item' },
+    tooltip: { trigger: 'item', ...tooltipStyle.value },
     series: [{ type: 'pie', radius: ['40%', '70%'], data, label: { fontSize: 11, color: cc.legendText } }],
   }
 })
@@ -102,10 +102,10 @@ const tradeColumns = [
 
       <NTabs type="line">
         <NTabPane name="equity" tab="權益曲線">
-          <NCard size="small"><VChart :option="equityOption" autoresize style="height: 350px" /></NCard>
+          <NCard size="small"><ChartContainer :option="equityOption" height="350px" /></NCard>
         </NTabPane>
         <NTabPane name="exit" tab="出場分布">
-          <NCard size="small"><VChart :option="exitPieOption" autoresize style="height: 300px" /></NCard>
+          <NCard size="small"><ChartContainer :option="exitPieOption" height="300px" /></NCard>
         </NTabPane>
         <NTabPane name="trades" tab="交易明細">
           <NSpace style="margin-bottom: 8px" justify="end">
@@ -117,6 +117,7 @@ const tradeColumns = [
             :pagination="tradePagination"
             size="small"
             :row-class-name="(r: any) => r.pnl > 0 ? 'row-win' : 'row-loss'"
+            :scroll-x="640"
           />
         </NTabPane>
       </NTabs>

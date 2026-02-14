@@ -147,6 +147,7 @@ function runScreener() {
         size="small"
         :bordered="false"
         :single-line="false"
+        :scroll-x="620"
       />
     </NCard>
   </div>

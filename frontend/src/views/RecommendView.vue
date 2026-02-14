@@ -113,6 +113,7 @@ const sellColumns: DataTableColumns = [
           size="small"
           :bordered="false"
           :single-line="false"
+          :scroll-x="510"
         />
       </NCard>
 
@@ -124,6 +125,7 @@ const sellColumns: DataTableColumns = [
           size="small"
           :bordered="false"
           :single-line="false"
+          :scroll-x="310"
         />
       </NCard>
     </NSpin>

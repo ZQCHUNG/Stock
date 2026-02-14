@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { watch, onMounted, nextTick } from 'vue'
+import { h, watch, onMounted, nextTick, computed } from 'vue'
 import { connect } from 'echarts/core'
-import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NText, NCollapse, NCollapseItem } from 'naive-ui'
+import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NText, NDataTable } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useTechnicalStore } from '../stores/technical'
 import { fmtNum } from '../utils/format'
@@ -30,6 +31,33 @@ async function loadData() {
 
 onMounted(loadData)
 watch(() => app.currentStockCode, loadData)
+
+// Institutional data → row array for NDataTable
+const institutionalData = computed(() => {
+  const inst = tech.institutional
+  if (!inst?.dates?.length) return []
+  return inst.dates.map((date: string, i: number) => ({
+    date,
+    foreign_net: inst.columns.foreign_net?.[i] ?? 0,
+    trust_net: inst.columns.trust_net?.[i] ?? 0,
+    dealer_net: inst.columns.dealer_net?.[i] ?? 0,
+    total_net: inst.columns.total_net?.[i] ?? 0,
+  }))
+})
+
+function netColor(v: number) { return v > 0 ? '#e53e3e' : v < 0 ? '#38a169' : undefined }
+
+const institutionalColumns: DataTableColumns = [
+  { title: '日期', key: 'date', width: 100 },
+  { title: '外資', key: 'foreign_net', width: 90, sorter: (a: any, b: any) => a.foreign_net - b.foreign_net,
+    render: (r: any) => h('span', { style: { color: netColor(r.foreign_net) } }, fmtNum(r.foreign_net)) },
+  { title: '投信', key: 'trust_net', width: 90, sorter: (a: any, b: any) => a.trust_net - b.trust_net,
+    render: (r: any) => h('span', { style: { color: netColor(r.trust_net) } }, fmtNum(r.trust_net)) },
+  { title: '自營', key: 'dealer_net', width: 90, sorter: (a: any, b: any) => a.dealer_net - b.dealer_net,
+    render: (r: any) => h('span', { style: { color: netColor(r.dealer_net) } }, fmtNum(r.dealer_net)) },
+  { title: '合計', key: 'total_net', width: 100, sorter: (a: any, b: any) => a.total_net - b.total_net,
+    render: (r: any) => h('span', { style: { color: netColor(r.total_net), fontWeight: 600 } }, fmtNum(r.total_net)) },
+]
 </script>
 
 <template>
@@ -140,39 +168,14 @@ watch(() => app.currentStockCode, loadData)
       </NCard>
 
       <!-- 法人籌碼 -->
-      <NCard v-if="tech.institutional?.dates?.length" title="三大法人買賣超" size="small" style="margin-bottom: 16px">
-        <NCollapse>
-          <NCollapseItem title="法人資料表">
-            <table style="width: 100%; font-size: 12px; border-collapse: collapse">
-              <thead>
-                <tr style="border-bottom: 1px solid var(--card-border)">
-                  <th style="text-align: left; padding: 4px">日期</th>
-                  <th style="text-align: right; padding: 4px">外資</th>
-                  <th style="text-align: right; padding: 4px">投信</th>
-                  <th style="text-align: right; padding: 4px">自營</th>
-                  <th style="text-align: right; padding: 4px">合計</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(date, i) in tech.institutional.dates" :key="date" style="border-bottom: 1px solid var(--border-light)">
-                  <td style="padding: 4px">{{ date }}</td>
-                  <td style="text-align: right; padding: 4px" :style="{ color: (tech.institutional.columns.foreign_net?.[i] ?? 0) > 0 ? '#e53e3e' : '#38a169' }">
-                    {{ fmtNum(tech.institutional.columns.foreign_net?.[i]) }}
-                  </td>
-                  <td style="text-align: right; padding: 4px" :style="{ color: (tech.institutional.columns.trust_net?.[i] ?? 0) > 0 ? '#e53e3e' : '#38a169' }">
-                    {{ fmtNum(tech.institutional.columns.trust_net?.[i]) }}
-                  </td>
-                  <td style="text-align: right; padding: 4px" :style="{ color: (tech.institutional.columns.dealer_net?.[i] ?? 0) > 0 ? '#e53e3e' : '#38a169' }">
-                    {{ fmtNum(tech.institutional.columns.dealer_net?.[i]) }}
-                  </td>
-                  <td style="text-align: right; padding: 4px; font-weight: 600" :style="{ color: (tech.institutional.columns.total_net?.[i] ?? 0) > 0 ? '#e53e3e' : '#38a169' }">
-                    {{ fmtNum(tech.institutional.columns.total_net?.[i]) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </NCollapseItem>
-        </NCollapse>
+      <NCard v-if="institutionalData.length" title="三大法人買賣超" size="small" style="margin-bottom: 16px">
+        <NDataTable
+          :columns="institutionalColumns"
+          :data="institutionalData"
+          :pagination="{ pageSize: 10 }"
+          size="small"
+          :scroll-x="470"
+        />
       </NCard>
     </NSpin>
   </div>

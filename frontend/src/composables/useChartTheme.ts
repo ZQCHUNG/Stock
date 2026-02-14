@@ -23,11 +23,18 @@ export function useChartTheme() {
     }
   })
 
+  /** Tooltip style config for dark/light mode */
+  const tooltipStyle = computed(() => ({
+    backgroundColor: colors.value.tooltipBg,
+    borderColor: colors.value.tooltipBorder,
+    textStyle: { color: colors.value.tooltipText, fontSize: 12 },
+  }))
+
   /** Base chart options that should be merged into all chart configs */
   const baseOption = computed(() => ({
     backgroundColor: 'transparent',
     textStyle: { color: colors.value.legendText },
   }))
 
-  return { colors, baseOption, isDark: computed(() => theme.isDark) }
+  return { colors, tooltipStyle, baseOption, isDark: computed(() => theme.isDark) }
 }

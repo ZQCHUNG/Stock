@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { NCard, NButton, NSpin, NAlert, NTabs, NTabPane, NDescriptions, NDescriptionsItem, NGrid, NGi, NTag, NSpace, NText } from 'naive-ui'
+import { h, computed } from 'vue'
+import { NCard, NButton, NSpin, NAlert, NTabs, NTabPane, NDescriptions, NDescriptionsItem, NGrid, NGi, NTag, NSpace, NText, NDataTable } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useReportStore } from '../stores/report'
 import { fmtPct, priceColor } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
 import MetricCard from '../components/MetricCard.vue'
 
 const app = useAppStore()
@@ -14,6 +16,20 @@ async function generate() {
 }
 
 const r = computed(() => rpt.currentReport)
+
+const { cols } = useResponsive()
+const perfCols = cols(3, 5, 5)
+const descCols = cols(1, 2, 2)
+
+const priceTargetColumns: DataTableColumns = [
+  { title: '時間', key: 'timeframe', width: 70 },
+  { title: '情境', key: 'scenario', width: 70 },
+  { title: '目標價', key: 'target_price', width: 90,
+    render: (row: any) => h('span', { style: { fontWeight: 600 } }, row.target_price?.toFixed(2)) },
+  { title: '上檔%', key: 'upside_pct', width: 80,
+    render: (row: any) => h('span', { style: { color: priceColor(row.upside_pct) } }, fmtPct(row.upside_pct)) },
+  { title: '依據', key: 'rationale', ellipsis: { tooltip: true } },
+]
 </script>
 
 <template>
@@ -47,7 +63,7 @@ const r = computed(() => rpt.currentReport)
         <NTabs type="line">
           <!-- 價格表現 -->
           <NTabPane name="perf" tab="價格表現">
-            <NGrid :cols="5" :x-gap="12" :y-gap="12">
+            <NGrid :cols="perfCols" :x-gap="12" :y-gap="12">
               <NGi><MetricCard title="1週" :value="fmtPct(r.price_change_1w)" :color="priceColor(r.price_change_1w)" /></NGi>
               <NGi><MetricCard title="1月" :value="fmtPct(r.price_change_1m)" :color="priceColor(r.price_change_1m)" /></NGi>
               <NGi><MetricCard title="3月" :value="fmtPct(r.price_change_3m)" :color="priceColor(r.price_change_3m)" /></NGi>
@@ -62,7 +78,7 @@ const r = computed(() => rpt.currentReport)
 
           <!-- 技術面 -->
           <NTabPane name="tech" tab="技術面">
-            <NDescriptions :column="2" label-placement="left" size="small">
+            <NDescriptions :column="descCols" label-placement="left" size="small">
               <NDescriptionsItem label="趨勢方向">{{ r.trend_direction }}</NDescriptionsItem>
               <NDescriptionsItem label="趨勢強度">{{ r.trend_strength }}</NDescriptionsItem>
               <NDescriptionsItem label="動能狀態">{{ r.momentum_status }}</NDescriptionsItem>
@@ -78,31 +94,17 @@ const r = computed(() => rpt.currentReport)
 
           <!-- 目標價 -->
           <NTabPane name="targets" tab="目標價">
-            <table style="width: 100%; font-size: 13px; border-collapse: collapse">
-              <thead>
-                <tr style="border-bottom: 2px solid var(--card-border)">
-                  <th style="text-align: left; padding: 6px">時間</th>
-                  <th style="text-align: left; padding: 6px">情境</th>
-                  <th style="text-align: right; padding: 6px">目標價</th>
-                  <th style="text-align: right; padding: 6px">上檔%</th>
-                  <th style="text-align: left; padding: 6px">依據</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(t, i) in r.price_targets" :key="i" style="border-bottom: 1px solid var(--border-light)">
-                  <td style="padding: 6px">{{ t.timeframe }}</td>
-                  <td style="padding: 6px">{{ t.scenario }}</td>
-                  <td style="padding: 6px; text-align: right; font-weight: 600">{{ t.target_price?.toFixed(2) }}</td>
-                  <td style="padding: 6px; text-align: right" :style="{ color: priceColor(t.upside_pct) }">{{ fmtPct(t.upside_pct) }}</td>
-                  <td style="padding: 6px; font-size: 12px; color: var(--text-muted)">{{ t.rationale }}</td>
-                </tr>
-              </tbody>
-            </table>
+            <NDataTable
+              :columns="priceTargetColumns"
+              :data="r.price_targets || []"
+              size="small"
+              :scroll-x="480"
+            />
           </NTabPane>
 
           <!-- 基本面 -->
           <NTabPane name="fund" tab="基本面">
-            <NDescriptions :column="2" label-placement="left" size="small">
+            <NDescriptions :column="descCols" label-placement="left" size="small">
               <NDescriptionsItem v-for="(val, key) in r.fundamentals" :key="key" :label="String(key)">
                 {{ val != null ? (typeof val === 'number' ? val.toFixed(2) : val) : '-' }}
               </NDescriptionsItem>
@@ -137,7 +139,7 @@ const r = computed(() => rpt.currentReport)
 
           <!-- 風險 -->
           <NTabPane name="risk" tab="風險">
-            <NDescriptions :column="2" label-placement="left" size="small">
+            <NDescriptions :column="descCols" label-placement="left" size="small">
               <NDescriptionsItem label="風險等級">{{ r.key_risk_level }}</NDescriptionsItem>
               <NDescriptionsItem label="風報比">{{ r.risk_reward_ratio?.toFixed(2) }}</NDescriptionsItem>
               <NDescriptionsItem label="1年最大回撤">{{ fmtPct(r.max_drawdown_1y) }}</NDescriptionsItem>

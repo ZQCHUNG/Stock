@@ -4,7 +4,6 @@ import {
   NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NAlert, NInputNumber, NSpace,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
@@ -15,6 +14,7 @@ import { fmtPct, priceColor } from '../utils/format'
 import { useChartTheme } from '../composables/useChartTheme'
 import { useResponsive } from '../composables/useResponsive'
 import MetricCard from './MetricCard.vue'
+import ChartContainer from './ChartContainer.vue'
 
 use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
 
@@ -22,7 +22,7 @@ const props = defineProps<{ periodDays: number; capital: number }>()
 
 const app = useAppStore()
 const bt = useBacktestStore()
-const { colors: chartColors } = useChartTheme()
+const { colors: chartColors, tooltipStyle } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
@@ -45,7 +45,7 @@ const rollingBarOption = computed(() => {
   const names = r.windows.map((w: any) => w.window_name)
   const returns = r.windows.map((w: any) => w.total_return)
   return {
-    tooltip: { trigger: 'axis', formatter: (params: any[]) => {
+    tooltip: { trigger: 'axis', ...tooltipStyle.value, formatter: (params: any[]) => {
       if (!params?.length) return ''
       const p = params[0]
       return `${p.name}<br/>報酬率: ${fmtPct(p.value)}`
@@ -92,7 +92,7 @@ const alphaBetaChartOption = computed(() => {
   if (!r?.rolling_alpha?.dates?.length) return {}
   const cc = chartColors.value
   return {
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', ...tooltipStyle.value },
     legend: { data: ['Rolling Alpha', 'EMA20'], textStyle: { color: cc.legendText } },
     grid: { left: 80, right: 20, top: 30, bottom: 30 },
     xAxis: { type: 'category', data: r.rolling_alpha.dates, axisLabel: { color: cc.axisLabel } },
@@ -135,9 +135,9 @@ const alphaBetaChartOption = computed(() => {
             <NGi><MetricCard title="平均最大回撤" :value="fmtPct(bt.rollingResult.avg_max_drawdown)" color="#e53e3e" /></NGi>
           </NGrid>
           <NCard size="small" style="margin-bottom: 12px">
-            <VChart :option="rollingBarOption" autoresize style="height: 300px" />
+            <ChartContainer :option="rollingBarOption" height="300px" />
           </NCard>
-          <NDataTable :columns="rollingWindowColumns" :data="bt.rollingResult.windows" size="small" :pagination="{ pageSize: 10 }" />
+          <NDataTable :columns="rollingWindowColumns" :data="bt.rollingResult.windows" size="small" :pagination="{ pageSize: 10 }" :scroll-x="600" />
         </template>
         <NAlert v-else type="info">點擊「滾動回測」開始分析</NAlert>
       </NTabPane>
@@ -145,7 +145,7 @@ const alphaBetaChartOption = computed(() => {
       <!-- Parameter Sensitivity -->
       <NTabPane name="sensitivity" tab="參數敏感度">
         <template v-if="bt.sensitivityResult?.length">
-          <NDataTable :columns="sensitivityColumns" :data="bt.sensitivityResult" size="small" :pagination="{ pageSize: 20 }" />
+          <NDataTable :columns="sensitivityColumns" :data="bt.sensitivityResult" size="small" :pagination="{ pageSize: 20 }" :scroll-x="560" />
         </template>
         <NAlert v-else type="info">點擊「敏感度」開始分析</NAlert>
       </NTabPane>
@@ -162,7 +162,7 @@ const alphaBetaChartOption = computed(() => {
             <NGi><MetricCard title="R-squared" :value="bt.alphaBetaResult.r_squared?.toFixed(3) || '-'" /></NGi>
           </NGrid>
           <NCard title="Rolling Alpha (60日)" size="small">
-            <VChart :option="alphaBetaChartOption" autoresize style="height: 350px" />
+            <ChartContainer :option="alphaBetaChartOption" height="350px" />
           </NCard>
           <NAlert v-if="bt.alphaBetaResult.benchmark_warning" type="warning" style="margin-top: 8px">
             {{ bt.alphaBetaResult.benchmark_warning }}
