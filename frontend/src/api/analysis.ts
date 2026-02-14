@@ -13,4 +13,5 @@ export const analysisApi = {
   supportResistance: (code: string) => client.get<any, any>(`/analysis/${code}/support-resistance`),
   volumePatterns: (code: string) => client.get<any, any>(`/analysis/${code}/volume-patterns`),
   marketRegime: () => client.get<any, any>('/analysis/market-regime'),
+  riskFactors: (code: string) => client.get<any, any>(`/analysis/${code}/risk-factors`),
 }

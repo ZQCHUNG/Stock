@@ -432,10 +432,16 @@ def _fetch_institutional_from_finmind(stock_code: str, days: int = 20) -> pd.Dat
     return df
 
 
+# ===== Financial Statements Cache (TTL=4hr, 財報不常更新) =====
+import time as _time_mod
+_financial_cache: dict[str, tuple[float, dict]] = {}  # code → (expiry_ts, result)
+_FINANCIAL_CACHE_TTL = 4 * 3600  # 4 hours
+
+
 def get_financial_statements(stock_code: str, start_date: str = "") -> dict:
     """取得財務報表資料（FinMind API）— 資產負債表 + 現金流量表
 
-    主要用於生技股 Cash Runway 計算。
+    主要用於生技股 Cash Runway 計算。內建 4 小時 in-memory 快取。
 
     Args:
         stock_code: 台股代碼（純數字，例如 "6748"）
@@ -457,6 +463,16 @@ def get_financial_statements(stock_code: str, start_date: str = "") -> dict:
         }
     """
     import requests
+
+    # 快取檢查（4 小時 TTL）
+    cache_key = stock_code
+    cached = _financial_cache.get(cache_key)
+    if cached is not None:
+        expiry, data = cached
+        if _time_mod.time() < expiry:
+            return data
+        else:
+            del _financial_cache[cache_key]
 
     if not start_date:
         start_date = (datetime.now() - timedelta(days=365 * 3)).strftime("%Y-%m-%d")
@@ -492,6 +508,13 @@ def get_financial_statements(stock_code: str, start_date: str = "") -> dict:
 
     # --- 3. 計算 Cash Runway ---
     result["cash_runway"] = _calculate_cash_runway(bs_data, cf_data)
+
+    # 快取存入（4 小時 TTL）
+    _financial_cache[cache_key] = (_time_mod.time() + _FINANCIAL_CACHE_TTL, result)
+    # 限制快取大小（最多 50 支股票）
+    if len(_financial_cache) > 50:
+        oldest_key = min(_financial_cache, key=lambda k: _financial_cache[k][0])
+        del _financial_cache[oldest_key]
 
     return result
 

@@ -89,6 +89,17 @@ def watchlist_overview():
             prev = df.iloc[-2] if len(df) > 1 else latest
             change = (latest["close"] - prev["close"]) / prev["close"]
 
+            # Sector/Industry info (best-effort, cached in yfinance)
+            sector = ""
+            industry = ""
+            try:
+                from data.fetcher import get_stock_info
+                info = get_stock_info(code)
+                sector = info.get("sector", "")
+                industry = info.get("industry", "")
+            except Exception:
+                pass
+
             return {
                 "code": code,
                 "name": get_stock_name(code),
@@ -100,6 +111,8 @@ def watchlist_overview():
                 "uptrend_days": v4.get("uptrend_days", 0),
                 "rsi": v4["indicators"].get("RSI"),
                 "adx": v4["indicators"].get("ADX"),
+                "sector": sector,
+                "industry": industry,
             }
         except Exception:
             return {"code": code, "name": get_stock_name(code), "error": True}

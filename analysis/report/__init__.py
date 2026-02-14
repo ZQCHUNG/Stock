@@ -252,6 +252,7 @@ def generate_report(stock_code: str, period_days: int = 730,
         industry=company_info.get("industry", ""),
         sector=company_info.get("sector", ""),
         cash_runway=cash_runway,
+        institutional_visibility=inst_result.get("visibility", "active"),
     )
 
     # 5b. 其他分析模組

@@ -22,8 +22,9 @@ def _calculate_institutional_score(institutional_df: pd.DataFrame | None) -> dic
         dict with keys: score, details, consecutive_days, dominant_force
     """
     if institutional_df is None or institutional_df.empty:
-        return {"score": 0, "details": "無法人資料", "consecutive_days": 0,
-                "dominant_force": "無資料"}
+        return {"score": -3, "details": "無法人資料（Ghost Town）",
+                "consecutive_days": 0, "dominant_force": "無資料",
+                "visibility": "ghost_town"}
 
     df = institutional_df.copy()
     score = 0.0
@@ -115,6 +116,7 @@ def _calculate_institutional_score(institutional_df: pd.DataFrame | None) -> dic
         "details": "；".join(details) if details else "法人動向中性",
         "consecutive_days": consecutive * direction,
         "dominant_force": dominant,
+        "visibility": "active",
     }
 
 
@@ -160,7 +162,8 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
                                fundamental_score=0.0, market_regime=None,
                                technical_conflicts=None,
                                institutional_score=0.0, industry="",
-                               sector="", cash_runway=None):
+                               sector="", cash_runway=None,
+                               institutional_visibility="active"):
     """計算綜合評等（含 RR 矛盾修正 + 技術面矛盾降級 + 市場環境上限 + 籌碼面）
 
     評分邏輯（加權維度）：
@@ -243,9 +246,17 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
         rating = "強力賣出"
 
     # === Gatekeeper Logic (Gemini R19 共識) ===
-    # 籌碼面極度負面時，強制降階至中性以下
     _RATING_ORDER = ["強力賣出", "賣出", "中性", "買進", "強力買進"]
-    if institutional_score < -2:
+
+    # Ghost Town: 零法人交易 → 流動性荒漠，最高「賣出」(Gemini R20 Phase 2C)
+    if institutional_visibility == "ghost_town":
+        cur_idx = _RATING_ORDER.index(rating)
+        sell_idx = _RATING_ORDER.index("賣出")
+        if cur_idx > sell_idx:
+            rating = "賣出"
+
+    # 籌碼面極度負面時，強制降階至中性以下
+    elif institutional_score < -2:
         max_idx = _RATING_ORDER.index("中性")
         cur_idx = _RATING_ORDER.index(rating)
         if cur_idx > max_idx:

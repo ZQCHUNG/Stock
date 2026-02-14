@@ -1,11 +1,18 @@
 <script setup lang="ts">
-import { h, onMounted, reactive } from 'vue'
-import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty } from 'naive-ui'
+import { h, onMounted, reactive, computed } from 'vue'
+import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty, NAlert, NGrid, NGi } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
+import VChart from 'vue-echarts'
+import { use } from 'echarts/core'
+import { PieChart } from 'echarts/charts'
+import { TooltipComponent, LegendComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import ProgressBar from '../components/ProgressBar.vue'
+
+use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer])
 
 const app = useAppStore()
 const wl = useWatchlistStore()
@@ -18,6 +25,60 @@ onMounted(() => {
 function selectStock(code: string) {
   app.selectStock(code)
 }
+
+// High-risk sectors (biotech, pharma, etc.)
+const HIGH_RISK_SECTORS = new Set([
+  'Biotechnology', 'Drug Manufacturers', 'Diagnostics & Research',
+  'Medical Devices', 'Medical Instruments & Supplies',
+  '生技醫療', '生技', '新藥研發', '醫療器材',
+  'Healthcare',
+])
+
+// Sector concentration analysis
+const sectorDistribution = computed(() => {
+  const data = wl.overview.filter((s: any) => !s.error && s.sector)
+  if (!data.length) return []
+  const counts: Record<string, number> = {}
+  for (const s of data) {
+    const sector = s.sector || '未分類'
+    counts[sector] = (counts[sector] || 0) + 1
+  }
+  return Object.entries(counts)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+})
+
+const sectorConcentrationWarning = computed(() => {
+  const total = wl.overview.filter((s: any) => !s.error).length
+  if (total < 2) return null
+  for (const { name, value } of sectorDistribution.value) {
+    const pct = value / total * 100
+    if (pct >= 30 && HIGH_RISK_SECTORS.has(name)) {
+      return { sector: name, pct: pct.toFixed(0), count: value, total }
+    }
+  }
+  return null
+})
+
+const sectorChartOption = computed(() => ({
+  tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+  legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { fontSize: 11 } },
+  series: [{
+    type: 'pie',
+    radius: ['40%', '70%'],
+    center: ['35%', '50%'],
+    avoidLabelOverlap: true,
+    itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+    label: { show: false },
+    emphasis: { label: { show: true, fontSize: 13, fontWeight: 'bold' } },
+    data: sectorDistribution.value.map(d => ({
+      ...d,
+      itemStyle: HIGH_RISK_SECTORS.has(d.name)
+        ? { color: '#e53e3e' }
+        : undefined,
+    })),
+  }],
+}))
 
 const overviewPagination = reactive({ page: 1, pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] })
 const btPagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25] })
@@ -42,6 +103,8 @@ const overviewColumns: DataTableColumns = [
     render: (r: any) => r.rsi?.toFixed(1) || '-' },
   { title: 'ADX', key: 'adx', width: 60, sorter: (a: any, b: any) => (a.adx || 0) - (b.adx || 0),
     render: (r: any) => r.adx?.toFixed(1) || '-' },
+  { title: '產業', key: 'sector', width: 100,
+    render: (r: any) => r.sector ? h(NTag, { size: 'small', type: HIGH_RISK_SECTORS.has(r.sector) ? 'error' : 'default' }, () => r.sector) : '-' },
   { title: '操作', key: 'actions', width: 70,
     render: (r: any) => h(NButton, { size: 'tiny', quaternary: true, type: 'error', onClick: (e: Event) => { e.stopPropagation(); wl.remove(r.code) } }, () => '移除') },
 ]
@@ -66,6 +129,13 @@ const btColumns: DataTableColumns = [
   <div>
     <h2 style="margin: 0 0 16px">自選股總覽</h2>
 
+    <!-- Sector concentration warning -->
+    <NAlert v-if="sectorConcentrationWarning" type="error" style="margin-bottom: 16px">
+      產業集中度警告：{{ sectorConcentrationWarning.sector }} 佔自選股
+      {{ sectorConcentrationWarning.pct }}%（{{ sectorConcentrationWarning.count }}/{{ sectorConcentrationWarning.total }}），
+      建議分散至不同產業以降低系統性風險
+    </NAlert>
+
     <NSpace style="margin-bottom: 16px">
       <NButton @click="wl.loadOverview()" :loading="wl.isLoading" type="primary">重新載入</NButton>
       <NButton @click="wl.runBatchBacktest()" :loading="wl.isLoading">批次回測</NButton>
@@ -80,6 +150,16 @@ const btColumns: DataTableColumns = [
 
     <NSpin :show="wl.isLoading && wl.batchProgress.total === 0">
       <NEmpty v-if="!wl.overview.length && !wl.isLoading" description="尚無自選股，請在技術分析頁面加入股票" style="margin: 40px 0" />
+
+      <!-- Sector distribution pie chart -->
+      <NGrid v-if="sectorDistribution.length >= 2" :cols="1" style="margin-bottom: 16px">
+        <NGi>
+          <NCard title="產業分佈" size="small">
+            <VChart :option="sectorChartOption" style="height: 240px" autoresize />
+          </NCard>
+        </NGi>
+      </NGrid>
+
       <NCard v-if="wl.overview.length" title="即時總覽" size="small" style="margin-bottom: 16px">
         <NDataTable
           :columns="overviewColumns"
@@ -89,7 +169,7 @@ const btColumns: DataTableColumns = [
           size="small"
           :bordered="false"
           :single-line="false"
-          :scroll-x="760"
+          :scroll-x="960"
         />
       </NCard>
 

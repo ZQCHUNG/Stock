@@ -13,6 +13,7 @@ import SignalBadge from '../components/SignalBadge.vue'
 import CandlestickChart from '../components/CandlestickChart.vue'
 import MacdChart from '../components/MacdChart.vue'
 import KdChart from '../components/KdChart.vue'
+import PositionCalculator from '../components/PositionCalculator.vue'
 
 const app = useAppStore()
 const tech = useTechnicalStore()
@@ -125,6 +126,13 @@ const institutionalColumns: DataTableColumns = [
           </NGi>
         </NGrid>
       </NCard>
+
+      <!-- 下單計算機 -->
+      <PositionCalculator
+        v-if="tech.v4Enhanced"
+        :code="app.currentStockCode"
+        :current-price="tech.v4Enhanced.close || 0"
+      />
 
       <!-- K 線圖 -->
       <NCard title="K線圖" size="small" style="margin-bottom: 16px">

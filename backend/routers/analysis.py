@@ -135,3 +135,100 @@ def get_market_regime():
         }
     except Exception:
         return {"regime": "unknown"}
+
+
+@router.get("/{code}/risk-factors")
+def get_risk_factors(code: str, period_days: int = 365):
+    """取得部位風險因子（Position Calculator 用）
+
+    返回 is_biotech, cash_runway, institutional_visibility, avg_volume 等
+    用於計算 Liquidity_Factor。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from data.fetcher import (
+        get_stock_data, get_stock_info_and_fundamentals,
+        get_institutional_data, get_financial_statements,
+    )
+    from analysis.report.recommendation import (
+        _is_biotech_industry, _calculate_institutional_score,
+    )
+    from backend.dependencies import make_serializable
+    import numpy as np
+
+    try:
+        # 並行取得所有需要的資料
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            fut_data = executor.submit(get_stock_data, code, period_days=period_days)
+            fut_info = executor.submit(get_stock_info_and_fundamentals, code)
+            fut_inst = executor.submit(get_institutional_data, code, days=20)
+            fut_fin = executor.submit(get_financial_statements, code)
+
+            df = fut_data.result()
+            try:
+                company_info, _ = fut_info.result()
+            except Exception:
+                company_info = {"industry": "", "sector": ""}
+            try:
+                inst_df = fut_inst.result()
+            except Exception:
+                inst_df = None
+            try:
+                fin_data = fut_fin.result()
+            except Exception:
+                fin_data = None
+
+        # 計算風險因子
+        is_biotech = _is_biotech_industry(
+            company_info.get("industry", ""),
+            company_info.get("sector", ""),
+        )
+        inst_result = _calculate_institutional_score(inst_df)
+        cash_runway = fin_data.get("cash_runway") if fin_data else None
+
+        # 20 日平均成交量（股）
+        avg_volume_20d = float(df["volume"].tail(20).mean()) if len(df) >= 20 else 0
+
+        # 計算 Liquidity Factor
+        liquidity_factor = 1.0
+        warnings = []
+
+        if is_biotech:
+            liquidity_factor *= 0.5
+            warnings.append("生技股：部位 ×0.5")
+
+        if cash_runway is not None:
+            eff_runway = min(
+                cash_runway.get("runway_quarters", 99),
+                cash_runway.get("total_runway_quarters", 99),
+            )
+            if eff_runway < 4:
+                liquidity_factor *= 0.25
+                warnings.append(f"現金跑道 {eff_runway:.1f} 季（<4）：部位 ×0.25")
+            elif eff_runway < 8:
+                liquidity_factor *= 0.5
+                warnings.append(f"現金跑道 {eff_runway:.1f} 季（<8）：部位 ×0.5")
+
+        if inst_result.get("visibility") == "ghost_town":
+            liquidity_factor = 0
+            warnings.append("零法人交易（Ghost Town）：建議不持有")
+        elif avg_volume_20d < 500_000:
+            # 500K 股 = 500 張，低於此線性遞減
+            vol_factor = max(0.1, avg_volume_20d / 500_000)
+            liquidity_factor *= vol_factor
+            warnings.append(f"成交量偏低（{avg_volume_20d/1000:.0f}張/日）：部位 ×{vol_factor:.2f}")
+
+        current_price = float(df["close"].iloc[-1])
+
+        return make_serializable({
+            "is_biotech": is_biotech,
+            "cash_runway": cash_runway,
+            "institutional": inst_result,
+            "avg_volume_20d": avg_volume_20d,
+            "liquidity_factor": round(liquidity_factor, 4),
+            "warnings": warnings,
+            "current_price": current_price,
+            "industry": company_info.get("industry", ""),
+            "sector": company_info.get("sector", ""),
+        })
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
