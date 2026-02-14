@@ -36,6 +36,8 @@ const omsStats = ref<any>(null)
 const omsEvents = ref<any[]>([])
 const omsLoading = ref(false)
 const omsRunning = ref(false)
+const omsEfficiency = ref<any>(null)
+const effLoading = ref(false)
 
 async function loadConfig() {
   isLoading.value = true
@@ -166,6 +168,14 @@ async function runOmsNow() {
   omsRunning.value = false
 }
 
+async function loadOmsEfficiency() {
+  effLoading.value = true
+  try {
+    omsEfficiency.value = await systemApi.omsEfficiency()
+  } catch { omsEfficiency.value = null }
+  effLoading.value = false
+}
+
 function healthStatusType(status: string): 'success' | 'warning' | 'error' | 'default' {
   if (status === 'healthy') return 'success'
   if (status === 'degraded') return 'warning'
@@ -180,7 +190,7 @@ function useWatchlistAsFilter() {
 onMounted(async () => {
   await loadConfig()
   await loadAlerts()
-  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality(), loadOms()])
+  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality(), loadOms(), loadOmsEfficiency()])
 })
 
 const triggeredColumns: DataTableColumns = [
@@ -474,6 +484,45 @@ const historyColumns: DataTableColumns = [
           尚無 OMS 事件。系統每 5 分鐘自動檢查持倉停損/停利條件。
         </div>
       </NSpin>
+    </NCard>
+
+    <!-- OMS Efficiency (R51-2) -->
+    <NCard size="small" style="margin-top: 16px" v-if="omsEfficiency?.has_data">
+      <template #header>
+        <NSpace align="center" :size="8">
+          <span>OMS 效率分析</span>
+          <NButton size="tiny" @click="loadOmsEfficiency" :loading="effLoading">刷新</NButton>
+        </NSpace>
+      </template>
+      <NGrid :cols="4" :x-gap="12" :y-gap="8" style="margin-bottom: 8px">
+        <NGi>
+          <NStatistic label="自動化覆蓋率" :value="`${((omsEfficiency.auto_coverage || 0) * 100).toFixed(0)}%`" />
+        </NGi>
+        <NGi>
+          <NStatistic label="最大連續虧損" :value="omsEfficiency.max_consecutive_losses || 0" />
+        </NGi>
+        <NGi>
+          <NStatistic label="平均損益" :value="`$${(omsEfficiency.avg_pnl || 0).toLocaleString()}`" />
+        </NGi>
+        <NGi>
+          <NStatistic label="已平倉總數" :value="omsEfficiency.total_closed || 0" />
+        </NGi>
+      </NGrid>
+      <NDataTable
+        v-if="omsEfficiency.by_exit_type"
+        :columns="[
+          { title: '出場類型', key: 'label', width: 100 },
+          { title: '次數', key: 'count', width: 60 },
+          { title: '勝率', key: 'win_rate', width: 70, render: (r: any) => `${((r.win_rate || 0) * 100).toFixed(0)}%` },
+          { title: '平均損益', key: 'avg_pnl', width: 90, render: (r: any) => h('span', { style: { color: (r.avg_pnl || 0) >= 0 ? '#18a058' : '#e53e3e' } }, `$${(r.avg_pnl || 0).toLocaleString()}`) },
+          { title: '累計損益', key: 'total_pnl', width: 100, render: (r: any) => h('span', { style: { color: (r.total_pnl || 0) >= 0 ? '#18a058' : '#e53e3e' } }, `$${(r.total_pnl || 0).toLocaleString()}`) },
+          { title: '平均持有天數', key: 'avg_days', width: 90 },
+        ]"
+        :data="Object.values(omsEfficiency.by_exit_type).filter((v: any) => v.count > 0)"
+        size="small"
+        :bordered="false"
+        :single-line="false"
+      />
     </NCard>
 
     <!-- History -->

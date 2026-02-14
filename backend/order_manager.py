@@ -225,3 +225,93 @@ def get_oms_stats() -> dict:
         "total_auto_pnl": round(total_pnl, 0),
         "last_event": events[0]["timestamp"] if events else None,
     }
+
+
+def get_oms_efficiency() -> dict:
+    """R51-2: OMS efficiency analysis.
+
+    Analyzes closed positions to evaluate stop-loss/take-profit/trailing-stop
+    effectiveness.
+    """
+    closed = db.get_closed_positions(limit=200)
+    if not closed:
+        return {"has_data": False}
+
+    # Categorize by exit reason
+    sl_trades = [c for c in closed if c.get("exit_reason") == "stop_loss"]
+    tp_trades = [c for c in closed if c.get("exit_reason") == "take_profit"]
+    ts_trades = [c for c in closed if c.get("exit_reason") == "trailing_stop"]
+    manual_trades = [c for c in closed if c.get("exit_reason") in ("manual", None, "")]
+
+    total = len(closed)
+
+    # Stop-loss effectiveness
+    sl_stats = _compute_exit_stats(sl_trades, "停損")
+
+    # Take-profit stats
+    tp_stats = _compute_exit_stats(tp_trades, "停利")
+
+    # Trailing stop stats
+    ts_stats = _compute_exit_stats(ts_trades, "移動停利")
+
+    # Manual trades (user override)
+    manual_stats = _compute_exit_stats(manual_trades, "手動")
+
+    # OMS coverage: what % of exits were automated
+    auto_count = len(sl_trades) + len(tp_trades) + len(ts_trades)
+    auto_coverage = auto_count / total if total > 0 else 0
+
+    # Average P&L by exit type
+    all_pnl = [c.get("net_pnl", 0) or 0 for c in closed]
+    avg_pnl = sum(all_pnl) / len(all_pnl) if all_pnl else 0
+
+    # Max consecutive losses
+    max_consec_loss = _max_consecutive_losses(closed)
+
+    return {
+        "has_data": True,
+        "total_closed": total,
+        "auto_coverage": round(auto_coverage, 3),
+        "max_consecutive_losses": max_consec_loss,
+        "avg_pnl": round(avg_pnl, 0),
+        "by_exit_type": {
+            "stop_loss": sl_stats,
+            "take_profit": tp_stats,
+            "trailing_stop": ts_stats,
+            "manual": manual_stats,
+        },
+    }
+
+
+def _compute_exit_stats(trades: list[dict], label: str) -> dict:
+    """Compute stats for a group of trades by exit type."""
+    if not trades:
+        return {"count": 0, "label": label}
+
+    pnls = [(t.get("net_pnl") or 0) for t in trades]
+    returns = [(t.get("return_pct") or 0) for t in trades]
+    days = [(t.get("days_held") or 0) for t in trades]
+    wins = sum(1 for p in pnls if p > 0)
+
+    return {
+        "label": label,
+        "count": len(trades),
+        "win_rate": round(wins / len(trades), 3) if trades else 0,
+        "avg_pnl": round(sum(pnls) / len(pnls), 0),
+        "total_pnl": round(sum(pnls), 0),
+        "avg_return": round(sum(returns) / len(returns), 4) if returns else 0,
+        "avg_days": round(sum(days) / len(days), 1) if days else 0,
+    }
+
+
+def _max_consecutive_losses(trades: list[dict]) -> int:
+    """Count maximum consecutive losing trades."""
+    max_streak = 0
+    current = 0
+    for t in sorted(trades, key=lambda x: x.get("exit_date", "")):
+        if (t.get("net_pnl") or 0) < 0:
+            current += 1
+            max_streak = max(max_streak, current)
+        else:
+            current = 0
+    return max_streak

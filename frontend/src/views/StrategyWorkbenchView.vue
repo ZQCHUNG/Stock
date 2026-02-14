@@ -5,6 +5,8 @@ import {
   NDataTable, NSpin, NDivider, NStatistic, NAlert, NModal, NForm,
   NFormItem, NSelect, useMessage,
 } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
+import VChart from 'vue-echarts'
 import { strategiesApi, type Strategy, type StrategyParams } from '../api/strategies'
 import { analysisApi } from '../api/analysis'
 import { useAppStore } from '../stores/app'
@@ -21,6 +23,8 @@ const showBacktest = ref(false)
 const btResult = ref<any>(null)
 const btLoading = ref(false)
 const selectedStrategy = ref<Strategy | null>(null)
+const adaptive = ref<any>(null)
+const adaptiveLoading = ref(false)
 
 // Create form
 const createForm = ref({
@@ -50,6 +54,14 @@ async function loadRegime() {
     regime.value = await analysisApi.marketRegimeMl()
   } catch { regime.value = null }
   regimeLoading.value = false
+}
+
+async function loadAdaptive() {
+  adaptiveLoading.value = true
+  try {
+    adaptive.value = await strategiesApi.adaptiveRecommendation()
+  } catch { adaptive.value = null }
+  adaptiveLoading.value = false
 }
 
 async function createStrategy() {
@@ -125,8 +137,44 @@ function regimeTagType(suit: string): 'success' | 'warning' | 'error' | 'info' |
   return 'default'
 }
 
+// R51-3: Monthly returns chart option
+const monthlyChartOption = computed(() => {
+  const data = btResult.value?.monthly_returns || []
+  if (!data.length) return {}
+  return {
+    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0]?.axisValue}<br/>損益: $${(p[0]?.value || 0).toLocaleString()}` },
+    grid: { left: 60, right: 16, top: 8, bottom: 24 },
+    xAxis: { type: 'category', data: data.map((d: any) => d.month), axisLabel: { fontSize: 10, rotate: 30 } },
+    yAxis: { type: 'value', axisLabel: { fontSize: 10, formatter: (v: number) => `$${(v / 1000).toFixed(0)}K` } },
+    series: [{
+      type: 'bar',
+      data: data.map((d: any) => ({
+        value: d.pnl,
+        itemStyle: { color: d.pnl >= 0 ? '#18a058' : '#e53e3e' },
+      })),
+    }],
+  }
+})
+
+// R51-3: Regime breakdown table columns
+const regimeColumns: DataTableColumns = [
+  { title: '市場情境', key: 'regime', width: 120 },
+  { title: '交易數', key: 'count', width: 70, sorter: (a: any, b: any) => a.count - b.count },
+  { title: '勝率', key: 'win_rate', width: 80,
+    render: (r: any) => `${((r.win_rate || 0) * 100).toFixed(1)}%`,
+    sorter: (a: any, b: any) => a.win_rate - b.win_rate },
+  { title: '平均報酬', key: 'avg_return', width: 100,
+    render: (r: any) => h('span', { style: { color: (r.avg_return || 0) >= 0 ? '#18a058' : '#e53e3e' } },
+      `${((r.avg_return || 0) * 100).toFixed(2)}%`),
+    sorter: (a: any, b: any) => a.avg_return - b.avg_return },
+  { title: '累計損益', key: 'total_pnl', width: 110,
+    render: (r: any) => h('span', { style: { color: (r.total_pnl || 0) >= 0 ? '#18a058' : '#e53e3e' } },
+      `$${(r.total_pnl || 0).toLocaleString()}`),
+    sorter: (a: any, b: any) => a.total_pnl - b.total_pnl },
+]
+
 onMounted(async () => {
-  await Promise.all([loadStrategies(), loadRegime()])
+  await Promise.all([loadStrategies(), loadRegime(), loadAdaptive()])
 })
 </script>
 
@@ -182,6 +230,58 @@ onMounted(async () => {
         </template>
         <div v-else-if="!regimeLoading" style="color: #999; padding: 8px">無法取得市場情境</div>
       </NSpin>
+    </NCard>
+
+    <!-- Adaptive Recommendation (R51-1) -->
+    <NCard size="small" style="margin-bottom: 16px" v-if="adaptive && !adaptive.error">
+      <template #header>
+        <NSpace align="center" :size="8">
+          <span>自適應策略推薦</span>
+          <NButton size="tiny" @click="loadAdaptive" :loading="adaptiveLoading">刷新</NButton>
+        </NSpace>
+      </template>
+      <NGrid :cols="12" :x-gap="12">
+        <NGi :span="4">
+          <NStatistic label="推薦策略">
+            <template #default>
+              <NTag type="primary" size="large">{{ adaptive.recommended_strategy?.name || '-' }}</NTag>
+            </template>
+          </NStatistic>
+        </NGi>
+        <NGi :span="2">
+          <NStatistic label="倉位縮放" :value="`${((adaptive.param_adjustments?.position_scale || 0) * 100).toFixed(0)}%`" />
+        </NGi>
+        <NGi :span="2">
+          <NStatistic label="Kelly" :value="adaptive.kelly_multiplier?.toFixed(1)" />
+        </NGi>
+        <NGi :span="4">
+          <NStatistic label="參數調整">
+            <template #default>
+              <NSpace :size="4" :wrap="true">
+                <NTag v-if="adaptive.param_adjustments?.stop_loss_pct" size="small" type="error">
+                  SL {{ (adaptive.param_adjustments.stop_loss_pct * 100).toFixed(0) }}%
+                </NTag>
+                <NTag v-if="adaptive.param_adjustments?.trailing_stop_pct" size="small" type="warning">
+                  TS {{ (adaptive.param_adjustments.trailing_stop_pct * 100).toFixed(1) }}%
+                </NTag>
+                <NTag v-if="adaptive.param_adjustments?.adx_threshold" size="small">
+                  ADX ≥ {{ adaptive.param_adjustments.adx_threshold }}
+                </NTag>
+                <NTag v-if="adaptive.param_adjustments?.max_positions" size="small">
+                  Max {{ adaptive.param_adjustments.max_positions }}
+                </NTag>
+                <NTag v-if="adaptive.param_adjustments?.pause_new_entries" size="small" type="error">
+                  暫停開倉
+                </NTag>
+              </NSpace>
+            </template>
+          </NStatistic>
+        </NGi>
+      </NGrid>
+      <NAlert v-for="(reason, idx) in (adaptive.reasoning || [])" :key="idx"
+              type="info" :bordered="false" style="margin-top: 4px">
+        {{ reason }}
+      </NAlert>
     </NCard>
 
     <!-- Strategy List -->
@@ -292,11 +392,12 @@ onMounted(async () => {
       </template>
     </NModal>
 
-    <!-- Backtest Result Modal -->
-    <NModal v-model:show="showBacktest" preset="card" style="width: 700px"
+    <!-- Backtest Result Modal (R51-3 Enhanced) -->
+    <NModal v-model:show="showBacktest" preset="card" style="width: 800px"
             :title="`回測結果 — ${selectedStrategy?.name || ''} × ${app.currentStockCode || ''}`">
       <NSpin :show="btLoading">
         <template v-if="btResult?.result">
+          <!-- Key Metrics -->
           <NGrid :cols="4" :x-gap="12" :y-gap="8">
             <NGi>
               <NStatistic label="總報酬">
@@ -330,9 +431,27 @@ onMounted(async () => {
               <NStatistic label="獲利因子" :value="(btResult.result.profit_factor || 0).toFixed(2)" />
             </NGi>
             <NGi>
-              <NStatistic label="最終資產" :value="`$${(btResult.result.final_capital || 0).toLocaleString()}`" />
+              <NStatistic label="連續虧損" :value="btResult.result.max_consecutive_losses || 0" />
             </NGi>
           </NGrid>
+
+          <!-- Monthly Returns Bar Chart (R51-3) -->
+          <template v-if="btResult.monthly_returns?.length">
+            <NDivider style="margin: 12px 0">月度損益分佈</NDivider>
+            <VChart :option="monthlyChartOption" style="height: 180px" autoresize />
+          </template>
+
+          <!-- Regime Breakdown (R51-3) -->
+          <template v-if="btResult.regime_breakdown?.length">
+            <NDivider style="margin: 12px 0">市場情境表現分解</NDivider>
+            <NDataTable
+              :columns="regimeColumns"
+              :data="btResult.regime_breakdown"
+              size="small"
+              :bordered="false"
+              :pagination="false"
+            />
+          </template>
         </template>
         <div v-else-if="!btLoading" style="padding: 20px; text-align: center; color: #999">
           無回測結果

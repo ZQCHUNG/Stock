@@ -242,3 +242,90 @@ def oms_run_now():
     """
     from backend.order_manager import check_positions_and_execute
     return check_positions_and_execute()
+
+
+@router.get("/oms-efficiency")
+def oms_efficiency():
+    """R51-2: OMS 效率分析
+
+    分析停損/停利/移動停利的有效性：勝率、平均損益、覆蓋率。
+    """
+    from backend.order_manager import get_oms_efficiency
+    return get_oms_efficiency()
+
+
+@router.get("/performance-attribution")
+def performance_attribution():
+    """R51-2: 交易績效歸因
+
+    按出場類型、持倉時間、市場情境分析已平倉交易的績效。
+    """
+    from backend import db
+    from backend.dependencies import make_serializable
+
+    closed = db.get_closed_positions(limit=500)
+    if not closed:
+        return make_serializable({"has_data": False})
+
+    # Group by exit reason
+    by_reason: dict[str, list] = {}
+    for c in closed:
+        reason = c.get("exit_reason") or "manual"
+        by_reason.setdefault(reason, []).append(c)
+
+    reason_stats = {}
+    for reason, trades in by_reason.items():
+        pnls = [(t.get("net_pnl") or 0) for t in trades]
+        wins = sum(1 for p in pnls if p > 0)
+        reason_stats[reason] = {
+            "count": len(trades),
+            "win_rate": round(wins / len(trades), 3),
+            "total_pnl": round(sum(pnls), 0),
+            "avg_pnl": round(sum(pnls) / len(pnls), 0),
+        }
+
+    # Group by holding period buckets
+    period_buckets = {"1-5d": [], "6-10d": [], "11-20d": [], "21d+": []}
+    for c in closed:
+        days = c.get("days_held") or 0
+        if days <= 5:
+            period_buckets["1-5d"].append(c)
+        elif days <= 10:
+            period_buckets["6-10d"].append(c)
+        elif days <= 20:
+            period_buckets["11-20d"].append(c)
+        else:
+            period_buckets["21d+"].append(c)
+
+    period_stats = {}
+    for bucket, trades in period_buckets.items():
+        if not trades:
+            continue
+        pnls = [(t.get("net_pnl") or 0) for t in trades]
+        wins = sum(1 for p in pnls if p > 0)
+        period_stats[bucket] = {
+            "count": len(trades),
+            "win_rate": round(wins / len(trades), 3),
+            "avg_pnl": round(sum(pnls) / len(pnls), 0),
+        }
+
+    # Monthly P&L
+    monthly: dict[str, float] = {}
+    for c in closed:
+        exit_date = c.get("exit_date", "")
+        if len(exit_date) >= 7:
+            month = exit_date[:7]
+            monthly[month] = monthly.get(month, 0) + (c.get("net_pnl") or 0)
+
+    monthly_sorted = [
+        {"month": m, "pnl": round(v, 0)}
+        for m, v in sorted(monthly.items())
+    ]
+
+    return make_serializable({
+        "has_data": True,
+        "total_closed": len(closed),
+        "by_exit_reason": reason_stats,
+        "by_holding_period": period_stats,
+        "monthly_pnl": monthly_sorted[-12:],  # Last 12 months
+    })

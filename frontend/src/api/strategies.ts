@@ -34,4 +34,6 @@ export const strategiesApi = {
   delete: (id: string) => client.delete<any, { ok: boolean }>(`/strategies/${id}`),
   backtest: (id: string, code: string) =>
     client.post<any, any>(`/strategies/${id}/backtest/${code}`, {}, { timeout: 60000 }),
+  adaptiveRecommendation: () =>
+    client.get<any, any>('/strategies/adaptive-recommendation'),
 }

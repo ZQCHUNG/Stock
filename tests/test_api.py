@@ -421,3 +421,68 @@ class TestMlRegime:
         assert resp.status_code == 200
         data = resp.json()
         assert "regime" in data
+
+
+# ---------------------------------------------------------------------------
+# R51-3: Enhanced Backtest (monthly returns, regime breakdown)
+# ---------------------------------------------------------------------------
+
+class TestEnhancedBacktest:
+    def test_strategy_backtest_has_monthly_returns(self, client):
+        """Strategy backtest should include monthly_returns field."""
+        import numpy as np
+        import pandas as pd
+
+        # Create a mock BacktestResult
+        from backtest.engine import BacktestResult, Trade
+
+        dates_idx = pd.date_range("2024-01-01", periods=3)
+        mock_result = BacktestResult(
+            total_return=0.15, annual_return=0.10, max_drawdown=-0.05,
+            win_rate=0.6, profit_factor=1.5, sharpe_ratio=1.2,
+            sortino_ratio=1.5, calmar_ratio=2.0, total_trades=10,
+            avg_holding_days=8, max_consecutive_losses=2,
+            trades=[
+                Trade(date_open=pd.Timestamp("2024-01-15"), date_close=pd.Timestamp("2024-01-25"),
+                      shares=1000, price_open=100, price_close=110, pnl=10000, return_pct=0.1, exit_reason="take_profit"),
+                Trade(date_open=pd.Timestamp("2024-02-10"), date_close=pd.Timestamp("2024-02-20"),
+                      shares=1000, price_open=105, price_close=100, pnl=-5000, return_pct=-0.05, exit_reason="stop_loss"),
+            ],
+            equity_curve=pd.Series([1_000_000, 1_010_000, 1_005_000], index=dates_idx),
+            daily_returns=pd.Series([0, 0.01, -0.005], index=dates_idx),
+        )
+
+        with patch("backend.routers.strategies._load_strategies", return_value=[
+            {"id": "test-bt", "name": "Test", "params": {"adx_threshold": 18}, "is_default": False}
+        ]), patch("data.fetcher.get_stock_data", return_value=pd.DataFrame(
+            {"close": np.random.uniform(100, 110, 200), "high": np.random.uniform(105, 115, 200),
+             "low": np.random.uniform(95, 105, 200), "open": np.random.uniform(100, 110, 200),
+             "volume": np.random.uniform(1e6, 5e6, 200)},
+            index=pd.date_range("2023-06-01", periods=200),
+        )), patch("backtest.engine.run_backtest_v4", return_value=mock_result):
+            resp = client.post("/api/strategies/test-bt/backtest/2330")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "monthly_returns" in data
+            assert "regime_breakdown" in data
+            assert isinstance(data["monthly_returns"], list)
+            # Should have 2 months (Jan + Feb)
+            assert len(data["monthly_returns"]) == 2
+
+    def test_monthly_returns_computation(self):
+        """Test _compute_monthly_returns helper directly."""
+        import pandas as pd
+        from backtest.engine import BacktestResult, Trade
+        from backend.routers.strategies import _compute_monthly_returns
+
+        result = BacktestResult(trades=[
+            Trade(date_open=pd.Timestamp("2024-01-10"), date_close=pd.Timestamp("2024-01-20"), pnl=5000),
+            Trade(date_open=pd.Timestamp("2024-01-15"), date_close=pd.Timestamp("2024-01-25"), pnl=-2000),
+            Trade(date_open=pd.Timestamp("2024-02-05"), date_close=pd.Timestamp("2024-02-15"), pnl=8000),
+        ])
+        monthly = _compute_monthly_returns(result)
+        assert len(monthly) == 2
+        assert monthly[0]["month"] == "2024-01"
+        assert monthly[0]["pnl"] == 3000  # 5000 + (-2000)
+        assert monthly[1]["month"] == "2024-02"
+        assert monthly[1]["pnl"] == 8000

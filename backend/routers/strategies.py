@@ -213,7 +213,7 @@ def delete_strategy(strategy_id: str):
 
 @router.post("/{strategy_id}/backtest/{code}")
 def run_strategy_backtest(strategy_id: str, code: str):
-    """使用指定策略參數執行回測"""
+    """使用指定策略參數執行回測（R51-3: 含月度報酬 + 情境分解）"""
     strategies = _load_strategies()
 
     strategy = None
@@ -239,20 +239,120 @@ def run_strategy_backtest(strategy_id: str, code: str):
         result = run_backtest_v4(
             df,
             initial_capital=1_000_000,
-            adx_threshold=params.get("adx_threshold", 18),
-            ma_trend_days=params.get("ma_trend_days", 10),
-            take_profit=params.get("take_profit_pct", 0.10),
-            stop_loss=params.get("stop_loss_pct", -0.07),
-            trailing_stop=params.get("trailing_stop_pct", 0.02),
-            min_hold_days=params.get("min_hold_days", 5),
+            params=params,
         )
+
+        # R51-3: Monthly return distribution
+        monthly_returns = _compute_monthly_returns(result)
+
+        # R51-3: Regime-based performance breakdown
+        regime_breakdown = _compute_regime_breakdown(result, df)
 
         return make_serializable({
             "strategy_name": strategy["name"],
             "code": code,
             "result": result,
+            "monthly_returns": monthly_returns,
+            "regime_breakdown": regime_breakdown,
         })
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+def _compute_monthly_returns(result) -> list[dict]:
+    """R51-3: Compute monthly P&L from trades."""
+    monthly: dict[str, float] = {}
+    for t in result.trades:
+        if t.date_close:
+            month = t.date_close.strftime("%Y-%m")
+            monthly[month] = monthly.get(month, 0) + t.pnl
+    return [{"month": m, "pnl": round(v, 0)} for m, v in sorted(monthly.items())]
+
+
+def _compute_regime_breakdown(result, df) -> list[dict]:
+    """R51-3: Classify each trade's entry date into ML regime and aggregate."""
+    import numpy as np
+
+    if not result.trades:
+        return []
+
+    try:
+        from backend.ml_regime import classify_market_regime
+    except ImportError:
+        return []
+
+    regime_trades: dict[str, list] = {}
+
+    for trade in result.trades:
+        if trade.date_open is None:
+            continue
+
+        # Get 60-day window ending at entry date for regime classification
+        entry_idx = df.index.get_indexer([trade.date_open], method="nearest")[0]
+        start_idx = max(0, entry_idx - 59)
+        window = df.iloc[start_idx:entry_idx + 1]
+
+        if len(window) < 30:
+            regime_label = "資料不足"
+        else:
+            try:
+                regime_data = classify_market_regime(
+                    close=window["close"].values,
+                    high=window["high"].values,
+                    low=window["low"].values,
+                    volume=window["volume"].values.astype(float),
+                )
+                regime_label = regime_data.get("regime_label", "未知")
+            except Exception:
+                regime_label = "分類失敗"
+
+        regime_trades.setdefault(regime_label, []).append(trade)
+
+    breakdown = []
+    for regime_label, trades in regime_trades.items():
+        pnls = [t.pnl for t in trades]
+        returns = [t.return_pct for t in trades]
+        wins = sum(1 for p in pnls if p > 0)
+        breakdown.append({
+            "regime": regime_label,
+            "count": len(trades),
+            "win_rate": round(wins / len(trades), 3) if trades else 0,
+            "avg_return": round(float(np.mean(returns)), 4) if returns else 0,
+            "total_pnl": round(sum(pnls), 0),
+        })
+
+    breakdown.sort(key=lambda x: x["count"], reverse=True)
+    return breakdown
+
+
+@router.get("/adaptive-recommendation")
+def get_adaptive_recommendation_endpoint():
+    """R51-1: 自適應策略推薦
+
+    根據當前 ML 市場情境，自動推薦最合適的策略與參數調整。
+    """
+    from data.fetcher import get_stock_data
+    from backend.ml_regime import classify_market_regime
+    from backend.strategy_adapter import get_adaptive_recommendation
+    from backend.dependencies import make_serializable
+
+    try:
+        df = get_stock_data("0050", period_days=250)
+        if df is None or len(df) < 60:
+            return {"error": "數據不足"}
+
+        regime_data = classify_market_regime(
+            close=df["close"].values,
+            high=df["high"].values,
+            low=df["low"].values,
+            volume=df["volume"].values,
+        )
+
+        strategies = _load_strategies()
+        recommendation = get_adaptive_recommendation(regime_data, strategies)
+
+        return make_serializable(recommendation)
+    except Exception as e:
+        return {"error": str(e)}

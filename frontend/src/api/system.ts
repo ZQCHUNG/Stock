@@ -16,4 +16,6 @@ export const systemApi = {
   omsEvents: (limit: number = 50) => client.get<any, any>(`/system/oms-events?limit=${limit}`),
   omsStats: () => client.get<any, any>('/system/oms-stats'),
   omsRunNow: () => client.post<any, any>('/system/oms-run', {}, { timeout: 60000 }),
+  omsEfficiency: () => client.get<any, any>('/system/oms-efficiency'),
+  performanceAttribution: () => client.get<any, any>('/system/performance-attribution'),
 }

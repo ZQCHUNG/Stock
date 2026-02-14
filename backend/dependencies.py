@@ -1,5 +1,6 @@
 """共用工具 — DataFrame 序列化、股票清單 loader"""
 
+import dataclasses
 import math
 import numpy as np
 import pandas as pd
@@ -66,4 +67,9 @@ def make_serializable(obj):
         return series_to_response(obj)
     if isinstance(obj, pd.DataFrame):
         return df_to_response(obj)
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        # Shallow conversion: convert fields individually to preserve
+        # Series/DataFrame handling (dataclasses.asdict copies deeply)
+        return {f.name: make_serializable(getattr(obj, f.name))
+                for f in dataclasses.fields(obj)}
     return _safe_float(obj)

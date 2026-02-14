@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { h, ref, watch, onMounted, nextTick, computed } from 'vue'
 import { connect } from 'echarts/core'
-import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NText, NDataTable, NButton } from 'naive-ui'
+import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NText, NDataTable, NButton, NStatistic } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { NTag, NSpace } from 'naive-ui'
 import { useAppStore } from '../stores/app'
@@ -35,6 +35,7 @@ async function loadData() {
   tech.loadRiskBudget(code)      // Non-blocking: load risk budget in background
   tech.loadSignalSummary(code)   // Non-blocking: load forward testing data
   tech.loadSqs(code)             // Non-blocking: load SQS data
+  tech.loadFundamentals(code)    // Non-blocking: load fundamental data
   // Connect charts for crosshair + dataZoom sync after data renders
   nextTick(() => { try { connect('tech') } catch { /* charts not ready */ } })
 }
@@ -482,6 +483,84 @@ function sqsGradeIcon(grade: string): string {
           size="small"
           :scroll-x="470"
         />
+      </NCard>
+
+      <!-- 基本面數據 (R51-3) -->
+      <NCard v-if="tech.fundamentals" title="基本面數據" size="small" style="margin-bottom: 16px">
+        <NGrid :cols="cols(2, 3, 4)" :x-gap="12" :y-gap="8">
+          <NGi v-if="tech.fundamentals.trailing_pe != null">
+            <NStatistic label="本益比 (TTM)" :value="tech.fundamentals.trailing_pe?.toFixed(1)" />
+          </NGi>
+          <NGi v-if="tech.fundamentals.forward_pe != null">
+            <NStatistic label="預估本益比" :value="tech.fundamentals.forward_pe?.toFixed(1)" />
+          </NGi>
+          <NGi v-if="tech.fundamentals.price_to_book != null">
+            <NStatistic label="股價淨值比" :value="tech.fundamentals.price_to_book?.toFixed(2)" />
+          </NGi>
+          <NGi v-if="tech.fundamentals.trailing_eps != null">
+            <NStatistic label="EPS (TTM)" :value="tech.fundamentals.trailing_eps?.toFixed(2)" />
+          </NGi>
+          <NGi v-if="tech.fundamentals.return_on_equity != null">
+            <NStatistic label="ROE">
+              <template #default>
+                <span :style="{ color: (tech.fundamentals.return_on_equity || 0) >= 0.15 ? '#18a058' : undefined }">
+                  {{ (tech.fundamentals.return_on_equity * 100).toFixed(1) }}%
+                </span>
+              </template>
+            </NStatistic>
+          </NGi>
+          <NGi v-if="tech.fundamentals.revenue_growth != null">
+            <NStatistic label="營收成長">
+              <template #default>
+                <span :style="{ color: (tech.fundamentals.revenue_growth || 0) > 0 ? '#18a058' : '#e53e3e' }">
+                  {{ (tech.fundamentals.revenue_growth * 100).toFixed(1) }}%
+                </span>
+              </template>
+            </NStatistic>
+          </NGi>
+          <NGi v-if="tech.fundamentals.profit_margins != null">
+            <NStatistic label="淨利率" :value="`${(tech.fundamentals.profit_margins * 100).toFixed(1)}%`" />
+          </NGi>
+          <NGi v-if="tech.fundamentals.debt_to_equity != null">
+            <NStatistic label="負債權益比">
+              <template #default>
+                <span :style="{ color: (tech.fundamentals.debt_to_equity || 0) > 100 ? '#e53e3e' : undefined }">
+                  {{ tech.fundamentals.debt_to_equity?.toFixed(1) }}
+                </span>
+              </template>
+            </NStatistic>
+          </NGi>
+          <NGi v-if="tech.fundamentals.dividend_yield != null">
+            <NStatistic label="殖利率" :value="`${(tech.fundamentals.dividend_yield * 100).toFixed(2)}%`" />
+          </NGi>
+          <NGi v-if="tech.fundamentals.market_cap != null">
+            <NStatistic label="市值">
+              <template #default>
+                {{ tech.fundamentals.market_cap >= 1e12
+                  ? (tech.fundamentals.market_cap / 1e12).toFixed(1) + ' 兆'
+                  : tech.fundamentals.market_cap >= 1e8
+                    ? (tech.fundamentals.market_cap / 1e8).toFixed(0) + ' 億'
+                    : fmtNum(tech.fundamentals.market_cap)
+                }}
+              </template>
+            </NStatistic>
+          </NGi>
+          <NGi v-if="tech.fundamentals.beta != null">
+            <NStatistic label="Beta" :value="tech.fundamentals.beta?.toFixed(2)" />
+          </NGi>
+          <NGi v-if="tech.fundamentals.current_ratio != null">
+            <NStatistic label="流動比率" :value="tech.fundamentals.current_ratio?.toFixed(2)" />
+          </NGi>
+        </NGrid>
+        <div v-if="tech.fundamentals.analyst_rating" style="margin-top: 8px; font-size: 12px; color: #999">
+          法人評等: {{ tech.fundamentals.analyst_rating }}
+          <span v-if="tech.fundamentals.target_mean_price">
+            | 目標均價: {{ tech.fundamentals.target_mean_price?.toFixed(0) }}
+          </span>
+          <span v-if="tech.fundamentals.number_of_analysts">
+            ({{ tech.fundamentals.number_of_analysts }} 位分析師)
+          </span>
+        </div>
       </NCard>
     </NSpin>
   </div>
