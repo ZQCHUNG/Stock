@@ -1,8 +1,20 @@
 """技術分析路由"""
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 
 router = APIRouter()
+
+
+# Pydantic models for request validation (Gemini R44)
+class SqsStockItem(BaseModel):
+    code: str = Field(..., min_length=4, max_length=6)
+    strategy: str = Field(default="V4", pattern="^(V4|V5|Adaptive)$")
+    maturity: str = "N/A"
+
+
+class BatchSqsRequest(BaseModel):
+    stocks: list[SqsStockItem] = Field(..., min_length=1, max_length=200)
 
 
 @router.get("/{code}/indicators")
@@ -302,7 +314,7 @@ def get_sqs(code: str):
 
 
 @router.post("/batch-sqs")
-def batch_sqs(payload: dict):
+def batch_sqs(payload: BatchSqsRequest):
     """批次計算 SQS（Gemini R42: Alpha Hunter SQS-Ledger）
 
     接收 [{"code": "2330", "strategy": "V4", "maturity": "Structural Shift"}, ...]
@@ -311,17 +323,14 @@ def batch_sqs(payload: dict):
     from analysis.scoring import compute_sqs_for_signal
     from backend.dependencies import make_serializable
     try:
-        stocks = payload.get("stocks", [])
+        stocks = payload.stocks
         results = {}
         for s in stocks:
-            code = s.get("code", "")
-            strategy = s.get("strategy", "V4")
-            maturity = s.get("maturity", "N/A")
             try:
-                sqs = compute_sqs_for_signal(code, strategy, maturity)
-                results[code] = sqs
+                sqs = compute_sqs_for_signal(s.code, s.strategy, s.maturity)
+                results[s.code] = sqs
             except Exception:
-                results[code] = {"sqs": 50.0, "grade": "silver", "grade_label": "普通信號"}
+                results[s.code] = {"sqs": 50.0, "grade": "silver", "grade_label": "普通信號"}
         return make_serializable(results)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -135,6 +135,29 @@ def _score_maturity(signal_maturity: str) -> float:
     return scores.get(signal_maturity, 40.0)
 
 
+def _score_institutional(inst_net_ratio: float | None) -> float:
+    """Score: 法人動向（0-100）（Gemini R44）
+
+    inst_net_ratio: 近 5 日法人淨買賣超佔成交量比例（正=買超, 負=賣超）
+    Typical range: -0.3 to +0.3 (30% of volume)
+
+    三大法人持續買超 → 強烈認同信號
+    三大法人賣超 → 可能反向風險
+    """
+    if inst_net_ratio is None:
+        return 50.0  # No data → neutral
+
+    # Map ratio to score: -0.2 → 10, 0 → 50, +0.2 → 90
+    if inst_net_ratio >= 0.2:
+        return 95.0
+    elif inst_net_ratio >= 0:
+        return 50.0 + (inst_net_ratio / 0.2) * 45.0
+    elif inst_net_ratio >= -0.2:
+        return max(10.0, 50.0 + (inst_net_ratio / 0.2) * 40.0)
+    else:
+        return 10.0
+
+
 def calculate_sqs(
     fitness_tag: str = "",
     signal_strategy: str = "V4",
@@ -144,8 +167,12 @@ def calculate_sqs(
     sector_weighted_heat: float | None = None,
     sector_momentum: str = "stable",
     signal_maturity: str = "N/A",
+    inst_net_ratio: float | None = None,
 ) -> dict:
     """Calculate Signal Quality Score (SQS).
+
+    6 dimensions (Gemini R44: added Institutional Flow):
+    - Fitness 25%, Regime 20%, EV 15%, Heat 10%, Maturity 10%, Institutional 20%
 
     Returns:
         dict with sqs (0-100), grade, breakdown, net_ev, cost_drag
@@ -156,14 +183,16 @@ def calculate_sqs(
     s_ev = _score_net_ev(raw_ev_20d, ev_sample_count)
     s_heat = _score_heat(sector_weighted_heat, sector_momentum)
     s_maturity = _score_maturity(signal_maturity)
+    s_inst = _score_institutional(inst_net_ratio)
 
-    # Weighted sum
+    # Weighted sum (R44: rebalanced with institutional flow)
     sqs = (
-        s_fitness * 0.30
-        + s_regime * 0.25
-        + s_ev * 0.20
-        + s_heat * 0.15
+        s_fitness * 0.25
+        + s_regime * 0.20
+        + s_ev * 0.15
+        + s_heat * 0.10
         + s_maturity * 0.10
+        + s_inst * 0.20
     )
 
     # Grade
@@ -198,6 +227,7 @@ def calculate_sqs(
             "net_ev": round(s_ev, 1),
             "heat": round(s_heat, 1),
             "maturity": round(s_maturity, 1),
+            "institutional": round(s_inst, 1),
         },
     }
 
@@ -263,6 +293,23 @@ def compute_sqs_for_signal(
     except Exception:
         pass
 
+    # 5. Institutional flow (R44: 法人動向)
+    inst_net_ratio = None
+    try:
+        from data.fetcher import get_institutional_data
+        inst_df = get_institutional_data(code, days=5)
+        if inst_df is not None and len(inst_df) >= 3:
+            total_net = inst_df["total_net"].sum()
+            # Estimate avg daily volume from stock data
+            from data.fetcher import get_stock_data
+            df = get_stock_data(code, period_days=10)
+            if df is not None and len(df) >= 5:
+                avg_vol = float(df["volume"].tail(5).mean())
+                if avg_vol > 0:
+                    inst_net_ratio = total_net / (avg_vol * 5)  # net / total volume over 5 days
+    except Exception:
+        pass
+
     sqs_result = calculate_sqs(
         fitness_tag=fitness_tag,
         signal_strategy=signal_strategy,
@@ -272,9 +319,11 @@ def compute_sqs_for_signal(
         sector_weighted_heat=sector_weighted_heat,
         sector_momentum=sector_momentum,
         signal_maturity=signal_maturity,
+        inst_net_ratio=inst_net_ratio,
     )
     sqs_result["code"] = code
     sqs_result["fitness_tag"] = fitness_tag
+    sqs_result["inst_net_ratio"] = round(inst_net_ratio, 4) if inst_net_ratio is not None else None
     return sqs_result
 
 

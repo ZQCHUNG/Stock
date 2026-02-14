@@ -52,6 +52,12 @@ const router = createRouter({
       component: () => import('../views/FitnessView.vue'),
       meta: { title: '策略適配' },
     },
+    {
+      path: '/alerts',
+      name: 'alerts',
+      component: () => import('../views/AlertsView.vue'),
+      meta: { title: 'SQS 警報' },
+    },
   ],
 })
 

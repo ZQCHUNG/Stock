@@ -113,6 +113,7 @@ const sqsRadarOption = computed(() => {
       indicator: [
         { name: '性格匹配', max: 100 },
         { name: '市場環境', max: 100 },
+        { name: '法人動向', max: 100 },
         { name: '期望值', max: 100 },
         { name: '板塊熱度', max: 100 },
         { name: '成熟度', max: 100 },
@@ -122,7 +123,7 @@ const sqsRadarOption = computed(() => {
     series: [{
       type: 'radar',
       data: [{
-        value: [b.fitness, b.regime, b.net_ev, b.heat, b.maturity],
+        value: [b.fitness, b.regime, b.institutional ?? 50, b.net_ev, b.heat, b.maturity],
         name: `SQS ${sqs.sqs}`,
         areaStyle: { opacity: 0.3 },
         lineStyle: { width: 2 },
@@ -258,7 +259,7 @@ function sqsGradeIcon(grade: string): string {
           <NGi>
             <div style="padding: 8px 0; font-size: 13px">
               <div v-for="(score, dim) in tech.sqsData.breakdown" :key="dim" style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f0f0f0">
-                <span>{{ dim === 'fitness' ? '性格匹配' : dim === 'regime' ? '市場環境' : dim === 'net_ev' ? '期望值' : dim === 'heat' ? '板塊熱度' : '成熟度' }}</span>
+                <span>{{ dim === 'fitness' ? '性格匹配' : dim === 'regime' ? '市場環境' : dim === 'net_ev' ? '期望值' : dim === 'heat' ? '板塊熱度' : dim === 'institutional' ? '法人動向' : '成熟度' }}</span>
                 <span :style="{ fontWeight: 600, color: score >= 70 ? '#18a058' : score >= 40 ? '#333' : '#e53e3e' }">{{ score }}</span>
               </div>
               <div v-if="tech.sqsData.net_ev != null" style="margin-top: 8px; display: flex; justify-content: space-between">

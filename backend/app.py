@@ -11,13 +11,33 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio
+from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="台股技術分析系統 API", version="2.0")
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Standardized error response for all unhandled exceptions (Gemini R44)."""
+    logger.error(f"Unhandled error on {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "error_code": "INTERNAL_ERROR",
+            "message": str(exc),
+            "path": str(request.url.path),
+        },
+    )
 
 # CORS — 開發模式允許 Vite dev server
 app.add_middleware(
@@ -40,6 +60,7 @@ app.include_router(system.router, prefix="/api/system", tags=["system"])
 app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(bt_results.router, prefix="/api/backtest-results", tags=["backtest-results"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
+app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 
 # Production: 伺服 Vue build 靜態檔
 DIST_DIR = PROJECT_ROOT / "frontend" / "dist"

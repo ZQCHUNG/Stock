@@ -39,6 +39,7 @@ const menuItems = [
   { label: '6  條件選股', key: 'screener' },
   { label: '7  模擬倉位', key: 'portfolio' },
   { label: '8  策略適配', key: 'fitness' },
+  { label: '9  SQS 警報', key: 'alerts' },
 ]
 
 const activeKey = computed(() => route.name as string)
