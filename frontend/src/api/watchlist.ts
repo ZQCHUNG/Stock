@@ -7,4 +7,6 @@ export const watchlistApi = {
   batchAdd: (codes: string[]) => client.post<any, any>('/watchlist/batch-add', { codes }),
   overview: () => client.get<any, any[]>('/watchlist/overview'),
   batchBacktest: (req?: any) => client.post<any, any[]>('/watchlist/batch-backtest', req || {}),
+  riskAudit: (capital?: number, riskPct?: number) =>
+    client.get<any, any>('/watchlist/risk-audit', { params: { capital, risk_pct: riskPct } }),
 }

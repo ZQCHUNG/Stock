@@ -139,6 +139,7 @@ const btColumns: DataTableColumns = [
     <NSpace style="margin-bottom: 16px">
       <NButton @click="wl.loadOverview()" :loading="wl.isLoading" type="primary">重新載入</NButton>
       <NButton @click="wl.runBatchBacktest()" :loading="wl.isLoading">批次回測</NButton>
+      <NButton @click="wl.exportRiskAudit()" :loading="wl.isExporting" type="warning">匯出風險報告</NButton>
     </NSpace>
 
     <ProgressBar
