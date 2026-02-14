@@ -4,8 +4,8 @@ import {
   NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput,
 } from 'naive-ui'
 import { use } from 'echarts/core'
-import { LineChart, PieChart, BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, ToolboxComponent, DataZoomComponent } from 'echarts/components'
+import { LineChart, PieChart, BarChart, ScatterChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, ToolboxComponent, DataZoomComponent, MarkPointComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useBacktestStore } from '../stores/backtest'
@@ -17,7 +17,7 @@ import ChartContainer from './ChartContainer.vue'
 import { btResultsApi } from '../api/btResults'
 import { message } from '../utils/discrete'
 
-use([LineChart, PieChart, BarChart, GridComponent, TooltipComponent, ToolboxComponent, DataZoomComponent, CanvasRenderer])
+use([LineChart, PieChart, BarChart, ScatterChart, GridComponent, TooltipComponent, ToolboxComponent, DataZoomComponent, MarkPointComponent, LegendComponent, CanvasRenderer])
 
 const props = defineProps<{ periodDays: number; capital: number }>()
 
@@ -35,21 +35,62 @@ const equityOption = computed(() => {
   const r = bt.singleResult
   if (!r?.equity_curve?.dates?.length) return {}
   const cc = chartColors.value
+  const dates = r.equity_curve.dates
+  const values = r.equity_curve.values as number[]
+  const trades = r.trades || []
+
+  // Build date→index map for fast lookup
+  const dateIdx: Record<string, number> = {}
+  dates.forEach((d: string, i: number) => { dateIdx[d.slice(0, 10)] = i })
+
+  // Trade markers: buy (green up triangle) and sell (red down triangle)
+  const buyMarks: any[] = []
+  const sellMarks: any[] = []
+  trades.forEach((t: any) => {
+    const openDate = t.date_open?.slice(0, 10)
+    const closeDate = t.date_close?.slice(0, 10)
+    if (openDate && dateIdx[openDate] !== undefined) {
+      buyMarks.push({
+        coord: [dateIdx[openDate], values[dateIdx[openDate]]],
+        symbol: 'triangle', symbolSize: 10,
+        itemStyle: { color: '#38a169' },
+      })
+    }
+    if (closeDate && dateIdx[closeDate] !== undefined) {
+      sellMarks.push({
+        coord: [dateIdx[closeDate], values[dateIdx[closeDate]]],
+        symbol: 'pin', symbolSize: 10,
+        symbolRotate: 180,
+        itemStyle: { color: t.pnl >= 0 ? '#38a169' : '#e53e3e' },
+      })
+    }
+  })
+
   return {
     tooltip: { trigger: 'axis', ...tooltipStyle.value, formatter: (params: any[]) => {
       if (!params?.length) return ''
-      const p = params[0]
-      return `<div style="font-size:12px"><b>${p.name}</b><br/>權益: $${fmtNum(p.value, 0)}</div>`
+      let html = `<div style="font-size:12px"><b>${params[0].name}</b>`
+      params.forEach((p: any) => {
+        if (p.seriesName === '權益') html += `<br/>權益: $${fmtNum(p.value, 0)}`
+        else if (p.seriesName === '買入' && p.value) html += `<br/><span style="color:#38a169">▲</span> 買入`
+        else if (p.seriesName === '賣出' && p.value) html += `<br/><span style="color:#e53e3e">◆</span> 賣出`
+      })
+      return html + '</div>'
     }},
     toolbox: { ...toolboxConfig.value, feature: { restore: toolboxConfig.value.feature.restore, saveAsImage: toolboxConfig.value.feature.saveAsImage } },
+    legend: { data: ['權益', '買入', '賣出'], textStyle: { color: cc.legendText, fontSize: 11 }, top: 0 },
     grid: { left: 80, right: 20, top: 30, bottom: 50 },
-    xAxis: { type: 'category', data: r.equity_curve.dates, axisLabel: { color: cc.axisLabel } },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: cc.axisLabel } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
     dataZoom: [
       { type: 'inside', start: 0, end: 100 },
       { type: 'slider', start: 0, end: 100, height: 20, bottom: 4, borderColor: 'transparent', backgroundColor: cc.splitLine, fillerColor: 'rgba(33,150,243,0.15)' },
     ],
-    series: [{ type: 'line', data: r.equity_curve.values, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#2196f3' } }],
+    series: [
+      { name: '權益', type: 'line', data: values, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#2196f3' } },
+      { name: '買入', type: 'scatter', data: buyMarks.map(m => m.coord), symbol: 'triangle', symbolSize: 8, itemStyle: { color: '#38a169' }, z: 10 },
+      { name: '賣出', type: 'scatter', data: sellMarks.map(m => m.coord), symbol: 'diamond', symbolSize: 8, itemStyle: { color: '#e53e3e' }, z: 10 },
+    ],
   }
 })
 
