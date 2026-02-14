@@ -441,13 +441,21 @@ import { h } from 'vue'
                 <template v-if="info.ev?.d5">
                   <div style="margin-top: 4px; border-top: 1px solid var(--border-color); padding-top: 4px">
                     <b>EV(5d)</b>: <span :style="{ color: info.ev.d5.ev > 0 ? '#18a058' : '#e53e3e' }">{{ (info.ev.d5.ev * 100).toFixed(2) }}%</span>
+                    <span v-if="info.ev.d5.net_ev != null" style="margin-left: 4px; font-size: 11px" :style="{ color: info.ev.d5.net_ev > 0 ? '#18a058' : '#e53e3e' }">
+                      (Net {{ (info.ev.d5.net_ev * 100).toFixed(2) }}%)
+                    </span>
                     <span style="margin-left: 6px; color: var(--text-dimmed); font-size: 12px">勝率 {{ (info.ev.d5.win_pct * 100).toFixed(1) }}%</span>
+                    <span v-if="info.ev.d5.cost_trap" style="margin-left: 4px; font-size: 11px; color: #f0a020">成本陷阱</span>
                   </div>
                 </template>
                 <template v-if="info.ev?.d20">
                   <div>
                     <b>EV(20d)</b>: <span :style="{ color: info.ev.d20.ev > 0 ? '#18a058' : '#e53e3e' }">{{ (info.ev.d20.ev * 100).toFixed(2) }}%</span>
+                    <span v-if="info.ev.d20.net_ev != null" style="margin-left: 4px; font-size: 11px" :style="{ color: info.ev.d20.net_ev > 0 ? '#18a058' : '#e53e3e' }">
+                      (Net {{ (info.ev.d20.net_ev * 100).toFixed(2) }}%)
+                    </span>
                     <span style="margin-left: 6px; color: var(--text-dimmed); font-size: 12px">勝率 {{ (info.ev.d20.win_pct * 100).toFixed(1) }}% (n={{ info.ev.d20.n }})</span>
+                    <span v-if="info.ev.d20.cost_trap" style="margin-left: 4px; font-size: 11px; color: #f0a020">成本陷阱</span>
                   </div>
                 </template>
               </div>

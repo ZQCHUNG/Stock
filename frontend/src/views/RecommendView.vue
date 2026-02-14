@@ -19,8 +19,8 @@ const router = useRouter()
 const fitnessMap = ref<Map<string, any>>(new Map())
 
 onMounted(async () => {
-  rec.loadAlphaHunter()
-  // Load fitness tags in parallel
+  // Load alpha hunter + fitness tags in parallel
+  const alphaPromise = rec.loadAlphaHunter()
   try {
     const fitness = await analysisApi.strategyFitness()
     if (fitness?.stocks) {
@@ -31,6 +31,16 @@ onMounted(async () => {
       fitnessMap.value = map
     }
   } catch { /* fitness data optional */ }
+
+  // After alpha hunter loads, batch-load SQS for all BUY stocks
+  await alphaPromise
+  const allBuyStocks: any[] = []
+  for (const g of (rec.alphaHunter?.sectors || [])) {
+    for (const s of (g.stocks || [])) {
+      allBuyStocks.push(s)
+    }
+  }
+  if (allBuyStocks.length) loadBatchSqs(allBuyStocks)
 })
 
 const watchlistCodes = computed(() => new Set(wl.watchlist.map(s => s.code)))
@@ -98,21 +108,49 @@ function isRegimeMismatch(code: string): string | null {
   return null
 }
 
+// SQS data (Gemini R42)
+const sqsMap = ref<Map<string, any>>(new Map())
+
+async function loadBatchSqs(stocks: any[]) {
+  if (!stocks.length) return
+  try {
+    const payload = stocks.map((s: any) => ({
+      code: s.code,
+      strategy: 'V4',
+      maturity: s.maturity || 'N/A',
+    }))
+    const result = await analysisApi.batchSqs(payload)
+    const map = new Map<string, any>()
+    for (const [code, sqs] of Object.entries(result)) {
+      map.set(code, sqs)
+    }
+    sqsMap.value = map
+  } catch { /* SQS data optional */ }
+}
+
+function getSqs(code: string): any { return sqsMap.value.get(code) }
+function sqsGradeIcon(grade: string): string {
+  if (grade === 'diamond') return '💎'
+  if (grade === 'gold') return '🥇'
+  if (grade === 'noise') return '⚪'
+  return ''
+}
+function sqsColor(sqs: number): string {
+  if (sqs >= 80) return '#18a058'
+  if (sqs >= 60) return '#2080f0'
+  if (sqs >= 40) return '#f0a020'
+  return '#999'
+}
+
 // Alpha hunter data
 const alphaData = computed(() => rec.alphaHunter)
-// Sort high confidence by regime match (Gemini R40)
+// Sort high confidence by SQS (Gemini R42: SQS-Ledger replaces R40 regime sort)
 const highConfidence = computed(() => {
   const list = [...(alphaData.value?.high_confidence || [])]
-  if (!app.marketRegime || !fitnessMap.value.size) return list
-  const regime = app.marketRegime.regime
   return list.sort((a: any, b: any) => {
-    const aTag = getFitnessTag(a.code)
-    const bTag = getFitnessTag(b.code)
-    const aMatch = regime === 'bull' ? aTag.includes('Trend') : aTag.includes('Volatility')
-    const bMatch = regime === 'bull' ? bTag.includes('Trend') : bTag.includes('Volatility')
-    if (aMatch && !bMatch) return -1
-    if (!aMatch && bMatch) return 1
-    return (b.confidence || 0) - (a.confidence || 0)
+    const aSqs = getSqs(a.code)?.sqs ?? 50
+    const bSqs = getSqs(b.code)?.sqs ?? 50
+    return bSqs - aSqs  // Descending by SQS
   })
 })
 const sectorGroups = computed(() => alphaData.value?.sectors || [])
@@ -165,7 +203,7 @@ const holdColumns: DataTableColumns = [
       <NCard v-if="highConfidence.length" size="small" style="margin-bottom: 16px">
         <template #header>
           <NSpace align="center" :size="8">
-            <span style="font-weight: 700">⭐ 高信心推薦 (C ≥ 1.0)</span>
+            <span style="font-weight: 700">⭐ 高信心推薦 (SQS 排序)</span>
             <NTag type="error" size="small">{{ highConfidence.length }} 檔</NTag>
           </NSpace>
         </template>
@@ -177,13 +215,23 @@ const holdColumns: DataTableColumns = [
                   <span style="font-weight: 700; font-size: 16px">{{ stock.code }}</span>
                   <span style="margin-left: 8px; color: #666">{{ stock.name }}</span>
                 </div>
-                <NTag
-                  :color="{ textColor: '#fff', color: confidenceColor(stock.confidence), borderColor: confidenceColor(stock.confidence) }"
-                  size="small"
-                  style="font-weight: 700"
-                >
-                  C={{ stock.confidence.toFixed(2) }}
-                </NTag>
+                <NSpace :size="4" align="center">
+                  <NTag
+                    v-if="getSqs(stock.code)"
+                    :color="{ textColor: '#fff', color: sqsColor(getSqs(stock.code).sqs), borderColor: sqsColor(getSqs(stock.code).sqs) }"
+                    size="small"
+                    style="font-weight: 700"
+                  >
+                    {{ sqsGradeIcon(getSqs(stock.code).grade) }} {{ getSqs(stock.code).sqs }}
+                  </NTag>
+                  <NTag
+                    :color="{ textColor: '#fff', color: confidenceColor(stock.confidence), borderColor: confidenceColor(stock.confidence) }"
+                    size="small"
+                    style="font-weight: 700"
+                  >
+                    C={{ stock.confidence.toFixed(2) }}
+                  </NTag>
+                </NSpace>
               </div>
               <!-- Maturity progress bar -->
               <div style="margin-top: 8px">
@@ -224,6 +272,16 @@ const holdColumns: DataTableColumns = [
                   @click.stop="addToWatchlist(stock.code)"
                   style="min-width: auto"
                 >+ 自選</NButton>
+              </div>
+              <!-- SQS Net EV detail -->
+              <div v-if="getSqs(stock.code)" style="margin-top: 4px; font-size: 11px; color: #666">
+                Net EV:
+                <span :style="{ color: (getSqs(stock.code).net_ev ?? 0) >= 0 ? '#18a058' : '#e53e3e', fontWeight: 600 }">
+                  {{ ((getSqs(stock.code).net_ev ?? 0) * 100).toFixed(2) }}%
+                </span>
+                <span v-if="getSqs(stock.code).cost_trap" style="margin-left: 4px; color: #f0a020; font-weight: 600">
+                  成本陷阱
+                </span>
               </div>
               <!-- Regime mismatch warning -->
               <div v-if="isRegimeMismatch(stock.code)" style="margin-top: 4px; font-size: 11px; color: #e53e3e">
@@ -315,13 +373,23 @@ const holdColumns: DataTableColumns = [
                     <span style="font-weight: 600">{{ stock.code }}</span>
                     <span style="margin-left: 6px; font-size: 12px; color: #666">{{ stock.name }}</span>
                   </div>
-                  <NTag
-                    :color="{ textColor: '#fff', color: confidenceColor(stock.confidence), borderColor: confidenceColor(stock.confidence) }"
-                    size="tiny"
-                    style="font-weight: 600"
-                  >
-                    C={{ stock.confidence.toFixed(2) }}
-                  </NTag>
+                  <NSpace :size="2" align="center">
+                    <NTag
+                      v-if="getSqs(stock.code)"
+                      :color="{ textColor: '#fff', color: sqsColor(getSqs(stock.code).sqs), borderColor: sqsColor(getSqs(stock.code).sqs) }"
+                      size="tiny"
+                      style="font-weight: 600"
+                    >
+                      {{ sqsGradeIcon(getSqs(stock.code).grade) }}{{ getSqs(stock.code).sqs }}
+                    </NTag>
+                    <NTag
+                      :color="{ textColor: '#fff', color: confidenceColor(stock.confidence), borderColor: confidenceColor(stock.confidence) }"
+                      size="tiny"
+                      style="font-weight: 600"
+                    >
+                      C={{ stock.confidence.toFixed(2) }}
+                    </NTag>
+                  </NSpace>
                 </div>
                 <!-- Maturity mini progress -->
                 <div style="margin-top: 4px; display: flex; align-items: center; gap: 6px">

@@ -275,6 +275,58 @@ def signal_stock_summary(code: str, days: int = 180):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{code}/sqs")
+def get_sqs(code: str):
+    """取得個股 Signal Quality Score（Gemini R42）
+
+    整合適配度、Regime、EV、板塊熱度、成熟度為 0-100 分。
+    """
+    from analysis.scoring import compute_sqs_for_signal
+    from analysis.strategy_v4 import get_v4_analysis
+    from data.fetcher import get_stock_data
+    from backend.dependencies import make_serializable
+    try:
+        df = get_stock_data(code, period_days=365)
+        v4 = get_v4_analysis(df)
+        signal_strategy = "V4" if v4.get("signal") == "BUY" else "V4"
+        maturity = v4.get("signal_maturity", "N/A")
+
+        result = compute_sqs_for_signal(
+            code=code,
+            signal_strategy=signal_strategy,
+            signal_maturity=maturity,
+        )
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch-sqs")
+def batch_sqs(payload: dict):
+    """批次計算 SQS（Gemini R42: Alpha Hunter SQS-Ledger）
+
+    接收 [{"code": "2330", "strategy": "V4", "maturity": "Structural Shift"}, ...]
+    回傳各股 SQS 分數。
+    """
+    from analysis.scoring import compute_sqs_for_signal
+    from backend.dependencies import make_serializable
+    try:
+        stocks = payload.get("stocks", [])
+        results = {}
+        for s in stocks:
+            code = s.get("code", "")
+            strategy = s.get("strategy", "V4")
+            maturity = s.get("maturity", "N/A")
+            try:
+                sqs = compute_sqs_for_signal(code, strategy, maturity)
+                results[code] = sqs
+            except Exception:
+                results[code] = {"sqs": 50.0, "grade": "silver", "grade_label": "普通信號"}
+        return make_serializable(results)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/strategy-fitness")
 def get_strategy_fitness(codes: str = ""):
     """取得策略適配度標籤（Gemini R38: Strategy Fitness Engine）

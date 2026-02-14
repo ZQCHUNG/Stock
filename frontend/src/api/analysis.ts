@@ -42,4 +42,7 @@ export const analysisApi = {
     client.get<any, any>('/analysis/signal-tracker/decay', { params: { days } }),
   signalStockSummary: (code: string, days = 180) =>
     client.get<any, any>(`/analysis/signal-tracker/${code}/summary`, { params: { days } }),
+  sqs: (code: string) => client.get<any, any>(`/analysis/${code}/sqs`),
+  batchSqs: (stocks: { code: string; strategy: string; maturity: string }[]) =>
+    client.post<any, any>('/analysis/batch-sqs', { stocks }),
 }

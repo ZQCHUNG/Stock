@@ -518,7 +518,8 @@ def get_signal_decay(days: int = 90) -> dict:
         gains_20 = [r[7] for r in rows if r[7] is not None]
         dds_20 = [r[8] for r in rows if r[8] is not None]
 
-        # Compute EV at d5 and d20 (Gemini R41)
+        # Compute EV at d5 and d20 (Gemini R41, R42: + Net EV)
+        from analysis.scoring import TRANSACTION_COST
         ev = {}
         for day_col, day_label in [(2, "d5"), (4, "d20")]:
             rets = [r[day_col] for r in rows if r[day_col] is not None]
@@ -528,11 +529,16 @@ def get_signal_decay(days: int = 90) -> dict:
                 win_pct = len(wins) / len(rets)
                 avg_win = sum(wins) / len(wins) if wins else 0
                 avg_loss = abs(sum(losses) / len(losses)) if losses else 0
+                raw_ev = round(win_pct * avg_win - (1 - win_pct) * avg_loss, 5)
+                net_ev = round(raw_ev - TRANSACTION_COST, 5)
                 ev[day_label] = {
                     "win_pct": round(win_pct, 4),
                     "avg_win": round(avg_win, 5),
                     "avg_loss": round(avg_loss, 5),
-                    "ev": round(win_pct * avg_win - (1 - win_pct) * avg_loss, 5),
+                    "ev": raw_ev,
+                    "net_ev": net_ev,
+                    "cost_drag": TRANSACTION_COST,
+                    "cost_trap": raw_ev > 0 and net_ev < 0,
                     "n": len(rets),
                 }
 
