@@ -42,7 +42,11 @@ onMounted(async () => {
         <AppSidebar />
       </NLayoutSider>
       <NLayoutContent content-style="padding: 16px 24px; overflow-y: auto;" role="main">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <Transition name="page" mode="out-in">
+            <component :is="Component" />
+          </Transition>
+        </router-view>
       </NLayoutContent>
     </NLayout>
   </NConfigProvider>
@@ -72,5 +76,13 @@ body.dark {
 }
 @media (max-width: 768px) {
   .n-layout-content { padding: 8px 12px !important; }
+}
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.15s ease;
+}
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
 }
 </style>

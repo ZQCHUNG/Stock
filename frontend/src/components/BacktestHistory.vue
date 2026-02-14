@@ -4,7 +4,7 @@ import { NButton, NCard, NCheckbox, NDataTable, NEmpty, NGrid, NGi, NSpace, NTag
 import type { DataTableColumns } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, ToolboxComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, ToolboxComponent, DataZoomComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { btResultsApi, type SavedBtResult } from '../api/btResults'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
@@ -13,7 +13,7 @@ import { useAppStore } from '../stores/app'
 import { useChartTheme } from '../composables/useChartTheme'
 import ChartContainer from './ChartContainer.vue'
 
-use([LineChart, GridComponent, TooltipComponent, LegendComponent, ToolboxComponent, CanvasRenderer])
+use([LineChart, GridComponent, TooltipComponent, LegendComponent, ToolboxComponent, DataZoomComponent, CanvasRenderer])
 
 const app = useAppStore()
 const { colors: chartColors, tooltipStyle } = useChartTheme()
@@ -169,7 +169,11 @@ const equityCompareOption = computed(() => {
       textStyle: { color: cc.legendText, fontSize: 11 },
       bottom: 0,
     },
-    grid: { left: 60, right: 20, top: 20, bottom: 40 },
+    grid: { left: 60, right: 20, top: 20, bottom: 60 },
+    dataZoom: [
+      { type: 'inside', start: 0, end: 100 },
+      { type: 'slider', start: 0, end: 100, height: 18, bottom: 4, borderColor: 'transparent' },
+    ],
     xAxis: {
       type: 'category',
       data: longestResult.equityCurve!.dates,

@@ -4,8 +4,8 @@ import {
   NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput,
 } from 'naive-ui'
 import { use } from 'echarts/core'
-import { LineChart, PieChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, ToolboxComponent } from 'echarts/components'
+import { LineChart, PieChart, BarChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, ToolboxComponent, DataZoomComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useBacktestStore } from '../stores/backtest'
@@ -17,7 +17,7 @@ import ChartContainer from './ChartContainer.vue'
 import { btResultsApi } from '../api/btResults'
 import { message } from '../utils/discrete'
 
-use([LineChart, PieChart, GridComponent, TooltipComponent, ToolboxComponent, CanvasRenderer])
+use([LineChart, PieChart, BarChart, GridComponent, TooltipComponent, ToolboxComponent, DataZoomComponent, CanvasRenderer])
 
 const props = defineProps<{ periodDays: number; capital: number }>()
 
@@ -42,9 +42,13 @@ const equityOption = computed(() => {
       return `<div style="font-size:12px"><b>${p.name}</b><br/>權益: $${fmtNum(p.value, 0)}</div>`
     }},
     toolbox: { ...toolboxConfig.value, feature: { restore: toolboxConfig.value.feature.restore, saveAsImage: toolboxConfig.value.feature.saveAsImage } },
-    grid: { left: 80, right: 20, top: 30, bottom: 30 },
+    grid: { left: 80, right: 20, top: 30, bottom: 50 },
     xAxis: { type: 'category', data: r.equity_curve.dates, axisLabel: { color: cc.axisLabel } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
+    dataZoom: [
+      { type: 'inside', start: 0, end: 100 },
+      { type: 'slider', start: 0, end: 100, height: 20, bottom: 4, borderColor: 'transparent', backgroundColor: cc.splitLine, fillerColor: 'rgba(33,150,243,0.15)' },
+    ],
     series: [{ type: 'line', data: r.equity_curve.values, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#2196f3' } }],
   }
 })
@@ -58,6 +62,71 @@ const exitPieOption = computed(() => {
   return {
     tooltip: { trigger: 'item', ...tooltipStyle.value },
     series: [{ type: 'pie', radius: ['40%', '70%'], data, label: { fontSize: 11, color: cc.legendText } }],
+  }
+})
+
+// Drawdown chart
+const drawdownOption = computed(() => {
+  const r = bt.singleResult
+  if (!r?.equity_curve?.dates?.length) return {}
+  const cc = chartColors.value
+  const vals = r.equity_curve.values as number[]
+  // Calculate drawdown series
+  let peak = vals[0]
+  const dd = vals.map((v: number) => {
+    if (v > peak) peak = v
+    return +((v / peak - 1) * 100).toFixed(2)
+  })
+  return {
+    tooltip: { trigger: 'axis', ...tooltipStyle.value, formatter: (params: any[]) => {
+      if (!params?.length) return ''
+      const p = params[0]
+      return `<div style="font-size:12px"><b>${p.name}</b><br/>回撤: ${p.value}%</div>`
+    }},
+    grid: { left: 60, right: 20, top: 20, bottom: 50 },
+    xAxis: { type: 'category', data: r.equity_curve.dates, axisLabel: { color: cc.axisLabel } },
+    yAxis: { type: 'value', max: 0, axisLabel: { formatter: (v: number) => `${v}%`, color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
+    dataZoom: [
+      { type: 'inside', start: 0, end: 100 },
+      { type: 'slider', start: 0, end: 100, height: 18, bottom: 4, borderColor: 'transparent' },
+    ],
+    series: [{
+      type: 'line', data: dd, symbol: 'none',
+      areaStyle: { color: 'rgba(229,62,62,0.3)' },
+      lineStyle: { width: 1, color: '#e53e3e' },
+    }],
+  }
+})
+
+// Monthly returns
+const monthlyReturnsOption = computed(() => {
+  const trades = bt.singleResult?.trades || []
+  if (!trades.length) return {}
+  const cc = chartColors.value
+  const monthly: Record<string, number> = {}
+  trades.forEach((t: any) => {
+    if (!t.date_close) return
+    const month = t.date_close.slice(0, 7)
+    monthly[month] = (monthly[month] || 0) + (t.pnl || 0)
+  })
+  const months = Object.keys(monthly).sort()
+  const values = months.map(m => +(monthly[m]).toFixed(0))
+  return {
+    tooltip: { trigger: 'axis', ...tooltipStyle.value, formatter: (params: any[]) => {
+      if (!params?.length) return ''
+      const p = params[0]
+      return `<div style="font-size:12px"><b>${p.name}</b><br/>損益: $${fmtNum(p.value, 0)}</div>`
+    }},
+    grid: { left: 80, right: 20, top: 20, bottom: 30 },
+    xAxis: { type: 'category', data: months, axisLabel: { color: cc.axisLabel, fontSize: 10, rotate: 45 } },
+    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
+    series: [{
+      type: 'bar',
+      data: values.map(v => ({
+        value: v,
+        itemStyle: { color: v >= 0 ? '#38a169' : '#e53e3e' },
+      })),
+    }],
   }
 })
 
@@ -155,6 +224,12 @@ const tradeColumns = [
       <NTabs type="line">
         <NTabPane name="equity" tab="權益曲線">
           <NCard size="small"><ChartContainer :option="equityOption" height="350px" /></NCard>
+        </NTabPane>
+        <NTabPane name="drawdown" tab="回撤曲線">
+          <NCard size="small"><ChartContainer :option="drawdownOption" height="300px" aria-label="回撤曲線" /></NCard>
+        </NTabPane>
+        <NTabPane name="monthly" tab="月度損益">
+          <NCard size="small"><ChartContainer :option="monthlyReturnsOption" height="300px" aria-label="月度損益" /></NCard>
         </NTabPane>
         <NTabPane name="exit" tab="出場分布">
           <NCard size="small"><ChartContainer :option="exitPieOption" height="300px" /></NCard>

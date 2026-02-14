@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { NButton, NSpace, NPopover, NInput, NList, NListItem, NText, NEmpty } from 'naive-ui'
 import { configsApi, type SavedConfig } from '../api/configs'
 import { message } from '../utils/discrete'
@@ -19,6 +19,21 @@ const configs = ref<SavedConfig[]>([])
 const saveName = ref('')
 const showSave = ref(false)
 const showLoad = ref(false)
+const searchQuery = ref('')
+const sortBy = ref<'name' | 'date'>('date')
+
+const filteredConfigs = computed(() => {
+  let list = [...configs.value]
+  const q = searchQuery.value.trim().toLowerCase()
+  if (q) {
+    list = list.filter(c => c.name.toLowerCase().includes(q))
+  }
+  if (sortBy.value === 'name') {
+    list.sort((a, b) => a.name.localeCompare(b.name, 'zh-TW'))
+  }
+  // 'date' is default order from backend (newest first)
+  return list
+})
 
 async function loadList() {
   try {
@@ -62,6 +77,10 @@ function share() {
   })
 }
 
+function toggleSort() {
+  sortBy.value = sortBy.value === 'date' ? 'name' : 'date'
+}
+
 onMounted(loadList)
 </script>
 
@@ -84,20 +103,35 @@ onMounted(loadList)
       <template #trigger>
         <NButton size="tiny" quaternary>載入配置</NButton>
       </template>
-      <div style="width: 280px; max-height: 300px; overflow-y: auto; padding: 4px">
+      <div style="width: 280px; max-height: 360px; overflow-y: auto; padding: 4px">
         <NEmpty v-if="!configs.length" description="尚無保存的配置" style="padding: 16px 0" />
-        <NList v-else hoverable clickable :show-divider="false">
-          <NListItem v-for="c in configs" :key="c.name" @click="load(c.config)">
-            <div style="display: flex; justify-content: space-between; align-items: center">
-              <div>
-                <NText strong style="font-size: 13px">{{ c.name }}</NText>
-                <br />
-                <NText depth="3" style="font-size: 11px">{{ c.updatedAt?.slice(0, 16).replace('T', ' ') }}</NText>
+        <template v-else>
+          <NSpace :size="4" style="margin-bottom: 6px" align="center">
+            <NInput
+              v-model:value="searchQuery"
+              size="tiny"
+              placeholder="搜尋配置..."
+              clearable
+              style="flex: 1"
+            />
+            <NButton size="tiny" quaternary @click="toggleSort" style="font-size: 11px; white-space: nowrap">
+              {{ sortBy === 'date' ? '按時間' : '按名稱' }}
+            </NButton>
+          </NSpace>
+          <NEmpty v-if="!filteredConfigs.length" description="無匹配結果" style="padding: 12px 0" />
+          <NList v-else hoverable clickable :show-divider="false">
+            <NListItem v-for="c in filteredConfigs" :key="c.name" @click="load(c.config)">
+              <div style="display: flex; justify-content: space-between; align-items: center">
+                <div>
+                  <NText strong style="font-size: 13px">{{ c.name }}</NText>
+                  <br />
+                  <NText depth="3" style="font-size: 11px">{{ c.updatedAt?.slice(0, 16).replace('T', ' ') }}</NText>
+                </div>
+                <NButton size="tiny" quaternary type="error" @click.stop="remove(c.name)">刪除</NButton>
               </div>
-              <NButton size="tiny" quaternary type="error" @click.stop="remove(c.name)">刪除</NButton>
-            </div>
-          </NListItem>
-        </NList>
+            </NListItem>
+          </NList>
+        </template>
       </div>
     </NPopover>
   </NSpace>
