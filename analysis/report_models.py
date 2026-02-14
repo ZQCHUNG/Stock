@@ -159,6 +159,8 @@ class ReportResult:
     technical_bias: str = ""
     # 產業基準對照
     peer_context: dict = field(default_factory=dict)
+    # 估值模型結果
+    valuation: dict = field(default_factory=dict)
 
 
 # ============================================================

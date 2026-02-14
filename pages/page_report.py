@@ -242,6 +242,24 @@ def _render_tab_fundamentals(report, _esc):
 
         if report.fundamental_interpretation:
             st.markdown(_esc(report.fundamental_interpretation))
+
+    # 估值模型（Gemini R10 要求）
+    val = report.valuation
+    if val and val.get("methods"):
+        st.markdown("**估值分析**")
+        val_data = []
+        for m in val["methods"]:
+            vs = m["vs_current"]
+            vs_str = f"{vs:+.1%}"
+            val_data.append({
+                "方法": m["name"],
+                "合理價": f"${m['fair_value']:.2f}",
+                "vs 現價": vs_str,
+                "計算依據": m["basis"],
+            })
+        st.dataframe(pd.DataFrame(val_data), hide_index=True, width="stretch")
+        if val.get("summary"):
+            st.info(f"**估值結論：**{_esc(val['summary'])}")
     else:
         st.info("此股票基本面數據不足，可能為小型股或上櫃股，yfinance 尚未提供完整基本面資料。")
 
@@ -758,6 +776,19 @@ td,th{{border:1px solid #444;padding:8px;text-align:left}} th{{background:#2a2a4
 <div class="metric"><div class="label">ATR</div><div class="value">{report.atr_value:.2f}({report.atr_pct:.1f}%)</div></div>
 </div>"""
 
+    # HTML: 估值模型
+    _val_html = ""
+    _val = report.valuation
+    if _val and _val.get("methods"):
+        _val_rows = ""
+        for m in _val["methods"]:
+            _val_rows += f"<tr><td>{m['name']}</td><td>${m['fair_value']:.2f}</td><td>{m['vs_current']:+.1%}</td><td>{m['basis']}</td></tr>"
+        _val_summary = _val.get("summary", "")
+        _val_html = f"""
+<div class="section"><h2>估值分析</h2>
+<table><tr><th>方法</th><th>合理價</th><th>vs 現價</th><th>計算依據</th></tr>{_val_rows}</table>
+<p><strong>{_val_summary}</strong></p></div>"""
+
     # HTML: 技術面矛盾
     _tech_conflict_html = ""
     if report.technical_conflicts:
@@ -807,6 +838,7 @@ td,th{{border:1px solid #444;padding:8px;text-align:left}} th{{background:#2a2a4
         _rec_html += "</div>"
 
     report_html += f"""
+{_val_html}
 {_tech_conflict_html}
 {_risk_html}
 {_rec_html}

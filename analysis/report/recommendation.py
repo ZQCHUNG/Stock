@@ -7,8 +7,17 @@ import pandas as pd
 
 def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
                                v2_composite, rsi, rr_ratio, base_3m_upside=0,
-                               fundamental_score=0.0, market_regime=None):
-    """計算綜合評等（含 RR 矛盾修正 + 市場環境上限）"""
+                               fundamental_score=0.0, market_regime=None,
+                               technical_conflicts=None):
+    """計算綜合評等（含 RR 矛盾修正 + 技術面矛盾降級 + 市場環境上限）
+
+    評分邏輯：
+    - 趨勢（-2~+2）+ v4 訊號（-2~+2）+ v2 分數（-1~+1）
+    - 動能（-2~+2）+ RSI 極端（-1~+1）+ RR 比（-3~+1）
+    - 基本面（-2~+2）+ 目標價上檔（-2~+2）
+    - 技術面矛盾扣分（每個矛盾 -0.5，最多 -2）
+    - 最終評等：≥6 強力買進, ≥3 買進, ≥-1 中性, ≥-4 賣出, else 強力賣出
+    """
     score = 0
     trend_map = {"強勢上漲": 2, "溫和上漲": 1, "盤整": 0, "溫和下跌": -1, "強勢下跌": -2}
     score += trend_map.get(trend_direction, 0)
@@ -30,20 +39,20 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     elif rsi > 70:
         score -= 1
 
-    # RR 修正：強化低 RR 懲罰（Gemini 指出 RR 0.4:1 不應給中性）
+    # RR 修正：強化低 RR 懲罰
     if rr_ratio > 2:
         score += 1
     elif rr_ratio < 0.3:
-        score -= 3  # 極低 RR → 重罰
+        score -= 3
     elif rr_ratio < 0.5:
-        score -= 2  # 低 RR → 較強懲罰
+        score -= 2
     elif rr_ratio < 0.8:
         score -= 1
 
     # 基本面評分（-5~+5 → 約 -2~+2）
     score += fundamental_score * 0.4
 
-    # 目標價上檔空間調整：技術面再好，預期報酬低就不該強力推薦
+    # 目標價上檔空間調整
     if base_3m_upside > 0.10:
         score += 2
     elif base_3m_upside > 0.05:
@@ -52,6 +61,11 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
         score -= 2
     elif base_3m_upside < 0:
         score -= 1
+
+    # 技術面矛盾扣分：存在矛盾時降低評等，避免「強力買進」與「謹慎偏多」矛盾
+    conflicts = technical_conflicts or []
+    conflict_penalty = min(len(conflicts) * 0.5, 2.0)
+    score -= conflict_penalty
 
     if score >= 6:
         rating = "強力買進"
@@ -64,8 +78,17 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     else:
         rating = "強力賣出"
 
-    # 市場環境上限：空頭時最高「買進」（不允許「強力買進」）
+    # 市場環境上限：空頭時最高「買進」
     if market_regime == "bear" and rating == "強力買進":
+        rating = "買進"
+
+    # 技術面矛盾 + 強力買進 = 不允許（Gemini R10: 矛盾信號不應給最高評等）
+    # 只要存在任何技術面矛盾，就不能給「強力買進」
+    if conflicts and rating == "強力買進":
+        rating = "買進"
+
+    # RSI 超買（>70）+ 強力買進 = 不允許
+    if rsi > 70 and rating == "強力買進":
         rating = "買進"
 
     return rating
@@ -109,9 +132,18 @@ def _resolve_technical_conflicts(momentum_data: dict, trend_data: dict,
     if rr < 0.5:
         conflicts.append(f"風險報酬比僅 {rr:.1f}:1，下檔風險遠大於潛在報酬，操作需極度謹慎")
 
-    # 4) 均線多頭 + RSI 超買
+    # 4) 均線多頭 + RSI 超買 — 提供專業解讀
     if ma_align == "多頭排列" and rsi > 70:
-        conflicts.append("均線多頭排列但 RSI 超買，短線回檔壓力與中期趨勢存在衝突")
+        if adx > 30:
+            conflicts.append(
+                f"均線多頭排列但 RSI={rsi:.0f} 超買（ADX={adx:.0f} 趨勢強勁）：強趨勢下 RSI 可維持高位較久，"
+                f"但短線回檔機率升高。建議：逢低承接而非追高，等待 RSI 回落至 60 以下或股價回測 MA20 再加碼"
+            )
+        else:
+            conflicts.append(
+                f"均線多頭排列但 RSI={rsi:.0f} 超買（ADX={adx:.0f} 趨勢偏弱）：趨勢力道不足下 RSI 超買，"
+                f"回檔風險較高。建議：減碼或等待，觀察是否跌破 MA20 確認趨勢轉弱"
+            )
 
     # 5) 量價背離
     tail5 = df.tail(5)
@@ -250,58 +282,84 @@ def _generate_actionable_recommendation(
 
     thesis = "，".join(thesis_parts) + "。"
 
-    # --- 價位計算 ---
-    # 支撐位
+    # --- 價位計算（含計算依據）---
+    # 支撐位（來源：技術面支撐偵測，基於 pivot points + 密集成交區聚類）
     sup1 = support_levels[0].price if len(support_levels) >= 1 else current_price * 0.93
     sup2 = support_levels[1].price if len(support_levels) >= 2 else sup1 * 0.95
+    sup1_method = support_levels[0].method if len(support_levels) >= 1 and hasattr(support_levels[0], 'method') else "pivot聚類"
 
-    # 壓力位
+    # 壓力位（來源：技術面壓力偵測）
     res1 = resistance_levels[0].price if len(resistance_levels) >= 1 else current_price * 1.05
     res2 = resistance_levels[1].price if len(resistance_levels) >= 2 else res1 * 1.05
 
     # 進場區間
+    entry_basis = ""
     if action == "BUY":
         entry_low = round(sup1, 2)
         entry_high = round(current_price * 1.01, 2)
+        entry_basis = f"下緣=第一支撐位（{sup1_method}），上緣=現價+1%"
     elif action == "SELL":
         entry_low = round(current_price * 0.99, 2)
         entry_high = round(res1, 2)
+        entry_basis = "下緣=現價-1%，上緣=第一壓力位"
     else:
         entry_low = None
         entry_high = None
 
-    # 停損
-    stop_loss = round(sup2 - atr_val * 0.5, 2) if action == "BUY" else None
+    # 停損（基於第二支撐位 - 0.5x ATR 緩衝）
+    if action == "BUY":
+        stop_loss = round(sup2 - atr_val * 0.5, 2)
+        sl_basis = f"第二支撐位 ${sup2:.2f} - 0.5×ATR (${atr_val:.2f}) 緩衝"
+        sl_pct = (stop_loss - current_price) / current_price
+    else:
+        stop_loss = None
+        sl_basis = ""
+        sl_pct = 0
 
-    # 停利目標
+    # 停利目標（基於壓力位 + 技術型態）
+    tp_basis = ""
     if action == "BUY":
         tp1 = round(res1, 2)
         tp2 = round(res2, 2) if res2 > res1 else round(res1 * 1.1, 2)
+        tp_basis = f"T1=第一壓力位 ${res1:.2f}，T2=第二壓力位或+10%"
     elif action == "SELL":
         tp1 = round(sup1, 2)
         tp2 = round(sup2, 2)
+        tp_basis = f"T1=第一支撐位，T2=第二支撐位"
     else:
         tp1 = None
         tp2 = None
 
-    # --- 部位建議（依波動度調整）---
+    # --- 部位建議（基於 ATR% 波動度 + Kelly 簡化概念）---
     if action in ("AVOID", "HOLD"):
         position_pct = "N/A（不建議新增部位）"
+        position_basis = ""
     elif atr_pct > 0.04:
         position_pct = "3-5%（高波動，降低部位）"
+        position_basis = f"ATR%={atr_pct:.1%}（高波動），參考 2% 風險法則：單筆虧損上限=總資產 2%"
     elif atr_pct > 0.02:
         position_pct = "5-8%（中等波動）"
+        position_basis = f"ATR%={atr_pct:.1%}（中等波動），參考 2% 風險法則"
     else:
         position_pct = "8-12%（低波動）"
+        position_basis = f"ATR%={atr_pct:.1%}（低波動），參考 2% 風險法則"
 
-    # --- 觸發條件 ---
+    # --- 觸發條件（具體化 K 線形態定義）---
     triggers = []
     if action == "BUY":
-        triggers.append(f"股價回測支撐 ${sup1:.2f} 附近且量縮，出現止穩K線可分批進場")
+        triggers.append(
+            f"股價回測支撐 ${sup1:.2f} 附近且量縮（量能比<0.7x），"
+            f"出現止穩 K 線（帶長下影線且收盤 > 開盤，或連續兩日收紅），可分批進場"
+        )
         if resistance_levels:
-            triggers.append(f"突破壓力 ${res1:.2f} 且帶量（量能比 > 1.5x），可追買")
+            triggers.append(f"突破壓力 ${res1:.2f} 且帶量（量能比 > 1.5x 5日均量），可追買")
+        if rsi > 70:
+            triggers.append(
+                f"注意：RSI={rsi:.1f} 已超買，建議等待 RSI 回落至 60 以下或股價回測均線再進場，"
+                f"勿追高"
+            )
     elif action == "SELL":
-        triggers.append(f"跌破支撐 ${sup1:.2f} 且帶量，確認賣出訊號")
+        triggers.append(f"跌破支撐 ${sup1:.2f} 且帶量（量能比 > 1.3x），確認賣出訊號")
     elif action == "AVOID":
         triggers.append(f"重新評估條件 1：風險報酬比回升至 1.0 以上（需壓力下移或支撐上移）")
         triggers.append(f"重新評估條件 2：放量突破壓力 ${res1:.2f}，確認趨勢轉強")
@@ -320,10 +378,15 @@ def _generate_actionable_recommendation(
         "thesis": thesis,
         "entry_low": entry_low,
         "entry_high": entry_high,
+        "entry_basis": entry_basis,
         "stop_loss": stop_loss,
+        "stop_loss_basis": sl_basis,
+        "stop_loss_pct": sl_pct,
         "take_profit_t1": tp1,
         "take_profit_t2": tp2,
+        "tp_basis": tp_basis,
         "position_pct": position_pct,
+        "position_basis": position_basis,
         "trigger_conditions": triggers,
     }
 
@@ -593,14 +656,15 @@ def _generate_summary(data: dict) -> str:
     if contradictions:
         p2 += f"注意矛盾：{contradictions[0]}"
 
-    # ===== 第三段：交易計畫（僅 BUY/SELL） =====
+    # ===== 第三段：交易計畫（僅 BUY/SELL，含計算依據） =====
     p3 = ""
     if action in ("BUY", "SELL"):
         parts = []
         if rec.get("entry_low") and rec.get("entry_high"):
             parts.append(f"進場區間 ${rec['entry_low']:.2f}～${rec['entry_high']:.2f}")
         if rec.get("stop_loss"):
-            parts.append(f"停損 ${rec['stop_loss']:.2f}")
+            sl_pct = rec.get("stop_loss_pct", 0)
+            parts.append(f"停損 ${rec['stop_loss']:.2f}（{sl_pct:+.1%}）")
         if rec.get("take_profit_t1"):
             tp_str = f"${rec['take_profit_t1']:.2f}"
             if rec.get("take_profit_t2") and rec["take_profit_t2"] != rec["take_profit_t1"]:
@@ -608,6 +672,19 @@ def _generate_summary(data: dict) -> str:
             parts.append(f"目標 {tp_str}")
         parts.append(f"建議部位 {rec.get('position_pct', 'N/A')}")
         p3 = "交易計畫：" + "，".join(parts) + "。"
+
+        # 計算依據
+        basis_parts = []
+        if rec.get("entry_basis"):
+            basis_parts.append(f"進場依據：{rec['entry_basis']}")
+        if rec.get("stop_loss_basis"):
+            basis_parts.append(f"停損依據：{rec['stop_loss_basis']}")
+        if rec.get("tp_basis"):
+            basis_parts.append(f"目標依據：{rec['tp_basis']}")
+        if rec.get("position_basis"):
+            basis_parts.append(f"部位依據：{rec['position_basis']}")
+        if basis_parts:
+            p3 += "\n（" + "；".join(basis_parts) + "）"
 
     # ===== 第四段：觀察重點 =====
     watch_points = []
@@ -622,16 +699,23 @@ def _generate_summary(data: dict) -> str:
         watch_points.append(f"關鍵支撐 {s_str}，壓力 {r_str}")
     p4 = "觀察重點：" + "；".join(watch_points[:2]) + "。"
 
-    # ===== 第五段：基本面 + 產業定位濃縮 =====
+    # ===== 第五段：基本面 + 估值 + 產業定位 =====
     fund_interp = data.get("fundamental_interpretation", "")
     p5 = ""
     if fund_interp:
-        # 只取第一句
         first_sent = fund_interp.split("。")[0] + "。"
         p5 = f"基本面：{first_sent}"
 
     if peer_ctx.get("positioning"):
         p5 += "產業定位：" + "；".join(peer_ctx["positioning"][:2]) + "。"
+
+    # 估值模型（Gemini R10 要求）
+    valuation = data.get("valuation", {})
+    val_summary = valuation.get("summary", "")
+    val_methods = valuation.get("methods", [])
+    if val_summary and val_methods:
+        method_names = "、".join(m["name"] for m in val_methods[:3])
+        p5 += f"\n估值分析（{method_names}）：{val_summary}"
 
     # ===== 第六段：消息面濃縮 =====
     p_news = ""
@@ -654,9 +738,18 @@ def _generate_summary(data: dict) -> str:
             p_news = f"消息面（{credible_count} 則可信來源）：{'；'.join(news_summaries)}。"
         else:
             p_news = f"消息面（{credible_count} 則可信來源），整體情緒{data.get('news_sentiment_label', '中性')}。"
+        # 情緒趨勢（Gemini R10 要求）
+        sentiment_trend = news_data.get("sentiment_trend", "")
+        if sentiment_trend and sentiment_trend != "持平":
+            p_news += f"情緒趨勢：近期新聞情緒{sentiment_trend}。"
+        # 熱點議題
+        hotspot = news_data.get("hotspot", "")
+        if hotspot:
+            p_news += f"熱點議題：{hotspot}。"
+        # 低品質來源說明
         forum_note = news_data.get("forum_note", "")
         if forum_note:
-            p_news += forum_note + "。"
+            p_news += forum_note
 
     # ===== 組裝 =====
     sections = [p1, p2]

@@ -53,6 +53,7 @@ from analysis.report.fundamental import (  # noqa: F401
     _assess_fundamentals,
     _assess_industry_risks,
     _get_peer_context,
+    _simple_valuation,
 )
 from analysis.report.news import (  # noqa: F401
     _assess_news,
@@ -200,6 +201,11 @@ def generate_report(stock_code: str, period_days: int = 730,
     base_3m = next((t for t in targets if t.timeframe == "3M" and t.scenario == "base"), None)
     base_3m_upside = base_3m.upside_pct if base_3m else 0
 
+    # 5. 技術面矛盾偵測（必須在 overall_rating 之前，以便扣分）
+    tech_conflicts_result = _resolve_technical_conflicts(
+        momentum, trend, risk, df,
+    )
+
     overall_rating = _calculate_overall_rating(
         trend["trend_direction"], momentum["momentum_status"],
         v4["signal"], v2.get("composite_score", 0),
@@ -207,12 +213,10 @@ def generate_report(stock_code: str, period_days: int = 730,
         base_3m_upside=base_3m_upside,
         fundamental_score=fund_result["fundamental_score"],
         market_regime=market_regime,
+        technical_conflicts=tech_conflicts_result["conflicts"],
     )
 
-    # 5. 新增分析模組（Gemini 審核項目 1-7）
-    tech_conflicts_result = _resolve_technical_conflicts(
-        momentum, trend, risk, df,
-    )
+    # 5b. 其他分析模組
     industry_risks = _assess_industry_risks(
         sector, industry, fundamentals_raw, volatility,
         volume, current_price, company_info,
@@ -233,6 +237,9 @@ def generate_report(stock_code: str, period_days: int = 730,
 
     peer_context = _get_peer_context(
         sector, industry, fundamentals_raw, current_price, perf,
+    )
+    valuation = _simple_valuation(
+        fundamentals_raw, current_price, sector, industry,
     )
     recommendation = _generate_actionable_recommendation(
         overall_rating, risk, momentum, trend, volatility,
@@ -276,6 +283,7 @@ def generate_report(stock_code: str, period_days: int = 730,
         "technical_conflicts": tech_conflicts_result["conflicts"],
         "technical_bias": tech_conflicts_result["technical_bias"],
         "peer_context": peer_context,
+        "valuation": valuation,
     }
     summary = _generate_summary(summary_data)
 
@@ -358,4 +366,5 @@ def generate_report(stock_code: str, period_days: int = 730,
         technical_conflicts=tech_conflicts_result["conflicts"],
         technical_bias=tech_conflicts_result["technical_bias"],
         peer_context=peer_context,
+        valuation=valuation,
     )

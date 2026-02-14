@@ -271,10 +271,42 @@ def _extract_news_insights(scored_news: list, fundamentals: dict,
             "interpretation": interpretation,
         })
 
-    # 低品質新聞統計（供市場情緒參考）
+    # 低品質新聞統計（供市場情緒參考）+ 明確排除標準說明
     forum_note = ""
     if low_quality:
-        forum_note = f"另有 {len(low_quality)} 則低品質來源（社群/論壇），僅供市場情緒參考，不納入分析"
+        forum_note = (
+            f"另有 {len(low_quality)} 則低品質來源（社群/論壇），僅供市場情緒參考，不納入分析。"
+            f"排除標準：來源為 PTT/Mobile01/CMoney 等散戶討論區（可信度評分≤0），"
+            f"或標題含聳動用語（暴漲/崩盤/穩賺/飆漲等）、未經證實消息（據傳/市場傳聞等）"
+        )
+
+    # 情緒趨勢分析：比較近期 vs 較早期新聞情緒
+    recent_sentiment = {"pos": 0, "neg": 0, "total": 0}
+    older_sentiment = {"pos": 0, "neg": 0, "total": 0}
+    for n in credible:
+        senti = n.get("sentiment", "中性")
+        # 按順序分：前半為較早，後半為近期
+        bucket = recent_sentiment if credible.index(n) >= len(credible) // 2 else older_sentiment
+        bucket["total"] += 1
+        if senti == "正面":
+            bucket["pos"] += 1
+        elif senti == "負面":
+            bucket["neg"] += 1
+
+    sentiment_trend = "持平"
+    if recent_sentiment["total"] >= 2 and older_sentiment["total"] >= 2:
+        recent_ratio = (recent_sentiment["pos"] - recent_sentiment["neg"]) / max(recent_sentiment["total"], 1)
+        older_ratio = (older_sentiment["pos"] - older_sentiment["neg"]) / max(older_sentiment["total"], 1)
+        if recent_ratio > older_ratio + 0.2:
+            sentiment_trend = "轉多"
+        elif recent_ratio < older_ratio - 0.2:
+            sentiment_trend = "轉空"
+
+    # 熱點議題（出現頻率最高的主題）
+    hotspot = ""
+    if themes:
+        top_theme = max(themes.items(), key=lambda x: len(x[1]))
+        hotspot = f"{top_theme[0]}（{len(top_theme[1])} 則）"
 
     return {
         "insights": insights,
@@ -283,4 +315,6 @@ def _extract_news_insights(scored_news: list, fundamentals: dict,
         "credible_count": len(credible),
         "low_quality_count": len(low_quality),
         "forum_note": forum_note,
+        "sentiment_trend": sentiment_trend,
+        "hotspot": hotspot,
     }

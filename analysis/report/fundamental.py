@@ -396,6 +396,140 @@ def _assess_industry_risks(sector: str, industry: str,
     return risks
 
 
+def _simple_valuation(fundamentals: dict, current_price: float,
+                      sector: str, industry: str) -> dict:
+    """簡易估值模型（PE-based + Gordon Growth Model）
+
+    提供多種估值方法的合理價區間，供報告參考。
+    Gemini R10 要求：至少引入一種基本面估值模型。
+    """
+    methods = []
+
+    # 產業基準 PE
+    is_semi = industry and any(
+        kw.lower() in industry.lower()
+        for kw in ("Semiconductor", "半導體", "Chip", "Foundry", "IC Design")
+    )
+    is_financial = sector in _SECTOR_PROFILES["financial"]["sectors"]
+    is_traditional = sector in _SECTOR_PROFILES["traditional"]["sectors"]
+    profile = _get_sector_profile(sector, industry)
+    is_biotech = profile.get("skip_pe", False) and profile.get("skip_roe", False)
+
+    if is_biotech:
+        industry_pe = None  # 生技業 PE 不適用
+    elif is_semi:
+        industry_pe = 18.0
+    elif is_financial:
+        industry_pe = 12.0
+    elif is_traditional:
+        industry_pe = 10.0
+    else:
+        industry_pe = 15.0
+
+    eps = fundamentals.get("trailing_eps")
+    fwd_eps = fundamentals.get("forward_eps")
+    eg = fundamentals.get("earnings_growth")
+    dy = fundamentals.get("dividend_yield")
+    div_rate = fundamentals.get("dividend_rate")
+
+    pe_values = []
+
+    # 1. 歷史本益比法：EPS × 產業均值 PE
+    if eps and eps > 0 and industry_pe:
+        fair_pe = eps * industry_pe
+        pe_values.append(fair_pe)
+        methods.append({
+            "name": "歷史本益比法",
+            "fair_value": round(fair_pe, 2),
+            "basis": f"EPS {eps:.2f} × 產業均值 PE {industry_pe:.0f}x",
+            "vs_current": round((fair_pe / current_price - 1), 4),
+        })
+
+    # 2. 預估本益比法：Forward EPS × 產業均值 PE
+    if fwd_eps and fwd_eps > 0 and industry_pe:
+        fair_fwd = fwd_eps * industry_pe
+        pe_values.append(fair_fwd)
+        methods.append({
+            "name": "預估本益比法",
+            "fair_value": round(fair_fwd, 2),
+            "basis": f"預估 EPS {fwd_eps:.2f} × 產業均值 PE {industry_pe:.0f}x",
+            "vs_current": round((fair_fwd / current_price - 1), 4),
+        })
+
+    # 3. PEG 調整估值：考慮盈餘成長率
+    if eps and eps > 0 and eg and eg > 0.05 and industry_pe:
+        # PEG = 1 為合理，合理 PE = growth_rate × 100
+        peg_pe = min(eg * 100, industry_pe * 2)  # 上限為產業 PE 的 2 倍
+        peg_pe = max(peg_pe, industry_pe * 0.5)  # 下限為產業 PE 的一半
+        fair_peg = eps * peg_pe
+        pe_values.append(fair_peg)
+        methods.append({
+            "name": "PEG 估值法",
+            "fair_value": round(fair_peg, 2),
+            "basis": f"EPS {eps:.2f} × PEG 調整 PE {peg_pe:.1f}x（成長率 {eg:.0%}）",
+            "vs_current": round((fair_peg / current_price - 1), 4),
+        })
+
+    # 4. Gordon Growth Model（股息折現，適用配息股）
+    if dy is not None and div_rate and div_rate > 0:
+        # 正規化殖利率
+        norm_dy = dy / 100 if dy > 1 else dy
+        if norm_dy > 0.01:
+            growth = max(min(eg or 0.03, 0.12), 0.01)  # 成長率 1-12%
+            req_return = 0.10  # 台股要求報酬率 10%
+            if req_return > growth:
+                ggm_value = div_rate / (req_return - growth)
+                pe_values.append(ggm_value)
+                methods.append({
+                    "name": "股息折現模型(GGM)",
+                    "fair_value": round(ggm_value, 2),
+                    "basis": (
+                        f"股利 {div_rate:.2f} ÷ "
+                        f"(要求報酬率 {req_return:.0%} - 成長率 {growth:.1%})"
+                    ),
+                    "vs_current": round((ggm_value / current_price - 1), 4),
+                })
+
+    # 綜合估值
+    result = {"methods": methods}
+    if pe_values:
+        low = min(pe_values)
+        high = max(pe_values)
+        avg = sum(pe_values) / len(pe_values)
+        result["fair_value_low"] = round(low, 2)
+        result["fair_value_high"] = round(high, 2)
+        result["fair_value_avg"] = round(avg, 2)
+
+        vs = (avg / current_price - 1)
+        if vs > 0.15:
+            result["summary"] = (
+                f"綜合估值區間 ${low:.0f}～${high:.0f}（均值 ${avg:.0f}），"
+                f"目前股價低估約 {vs:.0%}，具投資價值"
+            )
+        elif vs > 0:
+            result["summary"] = (
+                f"綜合估值區間 ${low:.0f}～${high:.0f}（均值 ${avg:.0f}），"
+                f"目前股價略低於合理價位"
+            )
+        elif vs > -0.15:
+            result["summary"] = (
+                f"綜合估值區間 ${low:.0f}～${high:.0f}（均值 ${avg:.0f}），"
+                f"目前股價接近合理價位"
+            )
+        else:
+            result["summary"] = (
+                f"綜合估值區間 ${low:.0f}～${high:.0f}（均值 ${avg:.0f}），"
+                f"目前股價可能高估約 {abs(vs):.0%}，需成長動能支撐溢價"
+            )
+    else:
+        result["fair_value_low"] = None
+        result["fair_value_high"] = None
+        result["fair_value_avg"] = None
+        result["summary"] = "基本面數據不足，無法進行估值分析"
+
+    return result
+
+
 def _get_peer_context(sector: str, industry: str, fundamentals: dict,
                       current_price: float, perf_data: dict) -> dict:
     """產業基準對照（Gemini 項目 7: 同業比較）
