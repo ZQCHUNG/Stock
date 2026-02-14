@@ -1,5 +1,15 @@
-import { createDiscreteApi } from 'naive-ui'
+import { ref } from 'vue'
+import { createDiscreteApi, darkTheme, type ConfigProviderProps } from 'naive-ui'
 
-const { message, notification } = createDiscreteApi(['message', 'notification'])
+const themeRef = ref<ConfigProviderProps>({})
 
-export { message, notification }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const { message, notification } = createDiscreteApi(['message', 'notification'], {
+  configProviderProps: themeRef as any,
+})
+
+function setDiscreteTheme(isDark: boolean) {
+  themeRef.value = isDark ? { theme: darkTheme } : {}
+}
+
+export { message, notification, setDiscreteTheme }

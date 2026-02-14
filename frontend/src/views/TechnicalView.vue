@@ -145,7 +145,7 @@ watch(() => app.currentStockCode, loadData)
           <NCollapseItem title="法人資料表">
             <table style="width: 100%; font-size: 12px; border-collapse: collapse">
               <thead>
-                <tr style="border-bottom: 1px solid #e2e8f0">
+                <tr style="border-bottom: 1px solid var(--card-border)">
                   <th style="text-align: left; padding: 4px">日期</th>
                   <th style="text-align: right; padding: 4px">外資</th>
                   <th style="text-align: right; padding: 4px">投信</th>
@@ -154,7 +154,7 @@ watch(() => app.currentStockCode, loadData)
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(date, i) in tech.institutional.dates" :key="date" style="border-bottom: 1px solid #f0f0f0">
+                <tr v-for="(date, i) in tech.institutional.dates" :key="date" style="border-bottom: 1px solid var(--border-light)">
                   <td style="padding: 4px">{{ date }}</td>
                   <td style="text-align: right; padding: 4px" :style="{ color: (tech.institutional.columns.foreign_net?.[i] ?? 0) > 0 ? '#e53e3e' : '#38a169' }">
                     {{ fmtNum(tech.institutional.columns.foreign_net?.[i]) }}

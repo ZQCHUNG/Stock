@@ -80,7 +80,7 @@ const r = computed(() => rpt.currentReport)
           <NTabPane name="targets" tab="目標價">
             <table style="width: 100%; font-size: 13px; border-collapse: collapse">
               <thead>
-                <tr style="border-bottom: 2px solid #e2e8f0">
+                <tr style="border-bottom: 2px solid var(--card-border)">
                   <th style="text-align: left; padding: 6px">時間</th>
                   <th style="text-align: left; padding: 6px">情境</th>
                   <th style="text-align: right; padding: 6px">目標價</th>
@@ -89,12 +89,12 @@ const r = computed(() => rpt.currentReport)
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(t, i) in r.price_targets" :key="i" style="border-bottom: 1px solid #f0f0f0">
+                <tr v-for="(t, i) in r.price_targets" :key="i" style="border-bottom: 1px solid var(--border-light)">
                   <td style="padding: 6px">{{ t.timeframe }}</td>
                   <td style="padding: 6px">{{ t.scenario }}</td>
                   <td style="padding: 6px; text-align: right; font-weight: 600">{{ t.target_price?.toFixed(2) }}</td>
                   <td style="padding: 6px; text-align: right" :style="{ color: priceColor(t.upside_pct) }">{{ fmtPct(t.upside_pct) }}</td>
-                  <td style="padding: 6px; font-size: 12px; color: #718096">{{ t.rationale }}</td>
+                  <td style="padding: 6px; font-size: 12px; color: var(--text-muted)">{{ t.rationale }}</td>
                 </tr>
               </tbody>
             </table>
@@ -119,7 +119,7 @@ const r = computed(() => rpt.currentReport)
             </NTag>
             <div v-for="(n, i) in r.news_items?.slice(0, 10)" :key="i" style="margin-bottom: 8px; font-size: 13px">
               <a :href="n.url" target="_blank" style="color: #2196f3">{{ n.title }}</a>
-              <span style="color: #a0aec0; margin-left: 8px">{{ n.source }} | {{ n.date }}</span>
+              <span style="color: var(--text-dimmed); margin-left: 8px">{{ n.source }} | {{ n.date }}</span>
             </div>
           </NTabPane>
 

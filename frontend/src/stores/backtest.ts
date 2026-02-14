@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { backtestApi, type BacktestParams } from '../api/backtest'
+import { message } from '../utils/discrete'
 
 export const useBacktestStore = defineStore('backtest', () => {
   const singleResult = ref<any>(null)
@@ -17,6 +18,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     error.value = ''
     try {
       singleResult.value = await backtestApi.v4(code, req)
+      message.success(`回測完成：${singleResult.value.total_trades || 0} 筆交易`)
     } catch (e: any) {
       error.value = e.message
     } finally {
@@ -29,6 +31,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     error.value = ''
     try {
       portfolioResult.value = await backtestApi.portfolio(codes, req)
+      message.success(`組合回測完成：${codes.length} 隻股票`)
     } catch (e: any) {
       error.value = e.message
     } finally {
@@ -41,6 +44,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     error.value = ''
     try {
       simulationResult.value = await backtestApi.simulation(code, days, req)
+      message.success('模擬交易完成')
     } catch (e: any) {
       error.value = e.message
     } finally {
@@ -53,6 +57,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     error.value = ''
     try {
       rollingResult.value = await backtestApi.rolling(code, windowMonths, req)
+      message.success('滾動回測完成')
     } catch (e: any) {
       error.value = e.message
     } finally {
@@ -65,6 +70,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     error.value = ''
     try {
       sensitivityResult.value = await backtestApi.sensitivity(code, req)
+      message.success('參數敏感度分析完成')
     } catch (e: any) {
       error.value = e.message
     } finally {
@@ -77,6 +83,7 @@ export const useBacktestStore = defineStore('backtest', () => {
     error.value = ''
     try {
       alphaBetaResult.value = await backtestApi.alphaBeta(code, req)
+      message.success('Alpha/Beta 分析完成')
     } catch (e: any) {
       error.value = e.message
     } finally {

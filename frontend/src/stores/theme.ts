@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { darkTheme } from 'naive-ui'
+import { setDiscreteTheme } from '../utils/discrete'
 
 export const useThemeStore = defineStore('theme', () => {
   const isDark = ref(localStorage.getItem('theme') === 'dark')
@@ -15,6 +16,7 @@ export const useThemeStore = defineStore('theme', () => {
 
   function applyBodyClass() {
     document.body.classList.toggle('dark', isDark.value)
+    setDiscreteTheme(isDark.value)
   }
 
   // Apply on init

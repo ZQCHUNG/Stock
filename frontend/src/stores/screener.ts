@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { type ScreenerFilters } from '../api/screener'
 import { fetchSSE, type SSEProgress } from '../composables/useSSE'
+import { message } from '../utils/discrete'
 
 export const useScreenerStore = defineStore('screener', () => {
   const results = ref<any[]>([])
@@ -20,11 +21,16 @@ export const useScreenerStore = defineStore('screener', () => {
         {
           onProgress: (p) => { progress.value = p },
           onDone: (r) => { results.value = r },
+          onError: (msg) => { message.error(`篩選失敗: ${msg}`) },
         },
       )
-      if (result) results.value = result
-    } catch { /* ignore */ }
-    finally {
+      if (result) {
+        results.value = result
+        message.success(`篩選完成：共 ${result.length} 隻符合條件`)
+      }
+    } catch (e: any) {
+      message.error(`篩選失敗: ${e.message}`)
+    } finally {
       isLoading.value = false
       progress.value = { current: 0, total: 0, message: '' }
     }

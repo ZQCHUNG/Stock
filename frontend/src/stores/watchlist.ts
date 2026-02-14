@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { watchlistApi } from '../api/watchlist'
 import { fetchSSE, type SSEProgress } from '../composables/useSSE'
+import { message } from '../utils/discrete'
 
 export const useWatchlistStore = defineStore('watchlist', () => {
   const watchlist = ref<{ code: string; name: string }[]>([])
@@ -13,24 +14,30 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   async function load() {
     try {
       watchlist.value = await watchlistApi.get()
-    } catch { /* ignore */ }
+    } catch { /* interceptor handles toast */ }
   }
 
   async function add(code: string) {
-    await watchlistApi.add(code)
-    await load()
+    try {
+      await watchlistApi.add(code)
+      await load()
+      message.success(`已加入自選股: ${code}`)
+    } catch { /* interceptor handles toast */ }
   }
 
   async function remove(code: string) {
-    await watchlistApi.remove(code)
-    await load()
+    try {
+      await watchlistApi.remove(code)
+      await load()
+      message.success(`已移除自選股: ${code}`)
+    } catch { /* interceptor handles toast */ }
   }
 
   async function loadOverview() {
     isLoading.value = true
     try {
       overview.value = await watchlistApi.overview()
-    } catch { /* ignore */ }
+    } catch { /* interceptor handles toast */ }
     finally { isLoading.value = false }
   }
 
@@ -44,11 +51,16 @@ export const useWatchlistStore = defineStore('watchlist', () => {
         {
           onProgress: (p) => { batchProgress.value = p },
           onDone: (r) => { batchResults.value = r },
+          onError: (msg) => { message.error(`批次回測失敗: ${msg}`) },
         },
       )
-      if (result) batchResults.value = result
-    } catch { /* ignore */ }
-    finally {
+      if (result) {
+        batchResults.value = result
+        message.success(`批次回測完成：${result.length} 隻`)
+      }
+    } catch (e: any) {
+      message.error(`批次回測失敗: ${e.message}`)
+    } finally {
       isLoading.value = false
       batchProgress.value = { current: 0, total: 0, message: '' }
     }
