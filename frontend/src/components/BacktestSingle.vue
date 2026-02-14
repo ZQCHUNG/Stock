@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { reactive, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import {
-  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace,
+  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput,
 } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart, PieChart } from 'echarts/charts'
@@ -14,6 +14,8 @@ import { useChartTheme } from '../composables/useChartTheme'
 import { useResponsive } from '../composables/useResponsive'
 import MetricCard from './MetricCard.vue'
 import ChartContainer from './ChartContainer.vue'
+import { btResultsApi } from '../api/btResults'
+import { message } from '../utils/discrete'
 
 use([LineChart, PieChart, GridComponent, TooltipComponent, ToolboxComponent, CanvasRenderer])
 
@@ -74,6 +76,37 @@ function exportTrades() {
 
 const tradePagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25, 50] })
 
+const saveResultName = ref('')
+const showSaveResult = ref(false)
+
+async function saveResult() {
+  const name = saveResultName.value.trim()
+  if (!name || !bt.singleResult) return
+  const r = bt.singleResult
+  try {
+    await btResultsApi.save({
+      name,
+      stockCode: app.currentStockCode,
+      stockName: app.currentStockName,
+      config: { periodDays: props.periodDays, capital: props.capital },
+      metrics: {
+        total_return: r.total_return,
+        annual_return: r.annual_return,
+        max_drawdown: r.max_drawdown,
+        sharpe_ratio: r.sharpe_ratio,
+        win_rate: r.win_rate,
+        profit_factor: r.profit_factor,
+        total_trades: r.total_trades,
+        sortino_ratio: r.sortino_ratio,
+        calmar_ratio: r.calmar_ratio,
+      },
+    })
+    message.success(`已保存「${name}」`)
+    saveResultName.value = ''
+    showSaveResult.value = false
+  } catch { /* handled by interceptor */ }
+}
+
 const tradeColumns = [
   { title: '開倉日', key: 'date_open', width: 100, render: (r: any) => r.date_open?.slice(0, 10) },
   { title: '平倉日', key: 'date_close', width: 100, render: (r: any) => r.date_close?.slice(0, 10) },
@@ -87,7 +120,18 @@ const tradeColumns = [
 
 <template>
   <div>
-    <NButton type="primary" @click="runBacktest" :loading="bt.isLoading" style="margin-bottom: 16px">執行回測</NButton>
+    <NSpace style="margin-bottom: 16px">
+      <NButton type="primary" @click="runBacktest" :loading="bt.isLoading">執行回測</NButton>
+      <NPopover v-if="bt.singleResult" v-model:show="showSaveResult" trigger="click" placement="bottom">
+        <template #trigger>
+          <NButton size="small" quaternary>保存結果</NButton>
+        </template>
+        <div style="width: 220px; padding: 4px">
+          <NInput v-model:value="saveResultName" size="small" :placeholder="`${app.currentStockCode} 回測結果`" @keyup.enter="saveResult" />
+          <NButton size="small" type="primary" style="margin-top: 8px; width: 100%" @click="saveResult" :disabled="!saveResultName.trim()">保存</NButton>
+        </div>
+      </NPopover>
+    </NSpace>
 
     <template v-if="bt.singleResult">
       <NGrid :cols="metricCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
