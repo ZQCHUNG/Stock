@@ -56,6 +56,10 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
         else:
             result = run_backtest(backtest_df, initial_capital=initial_capital)
 
+    # 策略參數快照
+    if result.params_description:
+        st.caption(f"策略參數：{result.params_description}")
+
     # 績效指標
     st.subheader("績效摘要")
     col1, col2, col3, col4 = st.columns(4)
@@ -395,7 +399,10 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
         _trade_df = pd.DataFrame(trade_data)
         st.dataframe(_trade_df, width="stretch")
 
-        _csv_data = _trade_df.to_csv(index=False).encode("utf-8-sig")
+        _csv_header = ""
+        if result.params_description:
+            _csv_header = f"# 策略參數：{result.params_description}\n"
+        _csv_data = (_csv_header + _trade_df.to_csv(index=False)).encode("utf-8-sig")
         st.download_button(
             label="下載交易紀錄 (CSV)",
             data=_csv_data,
@@ -1084,6 +1091,26 @@ def _render_sensitivity_tab(stock_code, raw_df, initial_capital):
             st.caption(f"報酬率變化範圍 {_ret_range:.1f}% — 參數對 {param_name} 中度敏感")
         else:
             st.caption(f"報酬率變化範圍 {_ret_range:.1f}% — 參數對 {param_name} 高度敏感 (注意過擬合)")
+
+        # 懸崖效應偵測：最佳參數值的鄰居表現驟降
+        if len(param_results) >= 3:
+            _best_idx = max(range(len(_ret)), key=lambda i: _ret[i])
+            _best_ret = _ret[_best_idx]
+            if _best_ret > 0:
+                _neighbors = []
+                if _best_idx > 0:
+                    _neighbors.append(_ret[_best_idx - 1])
+                if _best_idx < len(_ret) - 1:
+                    _neighbors.append(_ret[_best_idx + 1])
+                if _neighbors:
+                    _avg_neighbor = sum(_neighbors) / len(_neighbors)
+                    _drop_pct = (_best_ret - _avg_neighbor) / _best_ret * 100
+                    if _drop_pct > 50:
+                        st.error(
+                            f"懸崖效應：最佳值 {_values[_best_idx]} 報酬 {_best_ret:.1f}%，"
+                            f"但相鄰參數驟降至 {_avg_neighbor:.1f}%（落差 {_drop_pct:.0f}%）。"
+                            f"策略可能高度依賴此特定參數值，過擬合風險極高。"
+                        )
 
     # 總結
     st.subheader("總結")

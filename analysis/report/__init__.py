@@ -68,8 +68,15 @@ from analysis.report.recommendation import (  # noqa: F401
 )
 
 
-def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
-    """產生完整專業分析報告"""
+def generate_report(stock_code: str, period_days: int = 730,
+                     market_regime: str | None = None) -> ReportResult:
+    """產生完整專業分析報告
+
+    Args:
+        stock_code: 股票代碼
+        period_days: 資料天數
+        market_regime: 市場環境 ("bull"/"sideways"/"bear")，影響評等上限
+    """
     # 中文名稱（用於報告標題、Google News 搜尋）—— 純本地查表，無網路
     cn_name = get_stock_name(stock_code, get_all_stocks())
 
@@ -199,6 +206,7 @@ def generate_report(stock_code: str, period_days: int = 730) -> ReportResult:
         momentum["rsi_value"], risk["risk_reward_ratio"],
         base_3m_upside=base_3m_upside,
         fundamental_score=fund_result["fundamental_score"],
+        market_regime=market_regime,
     )
 
     # 5. 新增分析模組（Gemini 審核項目 1-7）

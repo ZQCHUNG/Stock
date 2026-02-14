@@ -9,7 +9,7 @@
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
-from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT, STRATEGY_V4_PARAMS
+from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT, STRATEGY_V4_PARAMS, StrategyV4Config
 from analysis.strategy import generate_signals
 from analysis.strategy_v4 import generate_v4_signals
 
@@ -53,6 +53,7 @@ class BacktestResult:
     max_consecutive_wins: int = 0
     max_consecutive_losses: int = 0
     dividend_income: float = 0.0
+    params_description: str = ""  # 策略參數快照（由 StrategyV4Config.describe() 產生）
 
 
 class BacktestEngine:
@@ -294,6 +295,9 @@ class BacktestEngine:
         if params:
             p.update(params)
 
+        # 記錄參數快照
+        _params_desc = StrategyV4Config.from_dict(p).describe()
+
         signals_df = generate_v4_signals(df, params=p)
 
         tp_pct = p.get("take_profit_pct", 0.10)
@@ -461,7 +465,8 @@ class BacktestEngine:
             equity_curve = pd.Series(dtype=float)
 
         result = BacktestResult(trades=trades, equity_curve=equity_curve,
-                                dividend_income=total_dividend_income)
+                                dividend_income=total_dividend_income,
+                                params_description=_params_desc)
         self._calculate_metrics(result)
 
         return result

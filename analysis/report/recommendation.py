@@ -7,8 +7,8 @@ import pandas as pd
 
 def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
                                v2_composite, rsi, rr_ratio, base_3m_upside=0,
-                               fundamental_score=0.0):
-    """計算綜合評等（含 RR 矛盾修正）"""
+                               fundamental_score=0.0, market_regime=None):
+    """計算綜合評等（含 RR 矛盾修正 + 市場環境上限）"""
     score = 0
     trend_map = {"強勢上漲": 2, "溫和上漲": 1, "盤整": 0, "溫和下跌": -1, "強勢下跌": -2}
     score += trend_map.get(trend_direction, 0)
@@ -54,15 +54,21 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
         score -= 1
 
     if score >= 6:
-        return "強力買進"
+        rating = "強力買進"
     elif score >= 3:
-        return "買進"
+        rating = "買進"
     elif score >= -1:
-        return "中性"
+        rating = "中性"
     elif score >= -4:
-        return "賣出"
+        rating = "賣出"
     else:
-        return "強力賣出"
+        rating = "強力賣出"
+
+    # 市場環境上限：空頭時最高「買進」（不允許「強力買進」）
+    if market_regime == "bear" and rating == "強力買進":
+        rating = "買進"
+
+    return rating
 
 
 def _resolve_technical_conflicts(momentum_data: dict, trend_data: dict,

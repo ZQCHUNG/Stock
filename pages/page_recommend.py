@@ -155,6 +155,20 @@ def render(use_v4, all_stocks, scan_stocks, strategy_params,
 
 
 def _render_v4_results(buy_results, pool_size, save_watchlist_fn):
+    # 市場環境警告
+    _regime = st.session_state.get("_market_regime")
+    if _regime and _regime.get("regime") == "bear":
+        st.error(
+            f"**空頭環境，以下推薦僅供參考**｜大盤：{_regime['regime_label']}，"
+            f"建議部位 {_regime['position_multiplier']:.0%}。"
+            f"空頭市場中逆勢買入風險極高，請嚴格控制部位並設好停損。"
+        )
+    elif _regime and _regime.get("regime") == "sideways":
+        st.warning(
+            f"盤整環境，留意假突破｜大盤：{_regime['regime_label']}，"
+            f"建議部位 {_regime['position_multiplier']:.0%}。"
+        )
+
     if not buy_results:
         st.warning(
             f"掃描完成（共 {pool_size} 檔），目前沒有任何股票符合 v4 買入條件。\n\n"

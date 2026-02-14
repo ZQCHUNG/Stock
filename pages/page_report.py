@@ -31,7 +31,10 @@ def render(stock_code, add_recent_fn):
     if need_generate or manual_click:
         with st.spinner("正在產生專業分析報告，請稍候（約 10-30 秒）..."):
             try:
-                report = generate_report(stock_code, period_days=730)
+                _regime_info = st.session_state.get("_market_regime")
+                _mkt_regime = _regime_info["regime"] if _regime_info else None
+                report = generate_report(stock_code, period_days=730,
+                                          market_regime=_mkt_regime)
                 add_recent_fn(stock_code)
                 st.session_state["_cached_report"] = report
             except Exception as e:
