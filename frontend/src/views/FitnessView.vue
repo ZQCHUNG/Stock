@@ -11,6 +11,7 @@ import { fmtPct } from '../utils/format'
 // State
 const fitnessData = ref<any>(null)
 const accuracyData = ref<any>(null)
+const decayData = ref<any>(null)
 const isLoading = ref(false)
 const isScanRunning = ref(false)
 const error = ref('')
@@ -22,12 +23,14 @@ async function loadFitness() {
   isLoading.value = true
   error.value = ''
   try {
-    const [fitness, accuracy] = await Promise.all([
+    const [fitness, accuracy, decay] = await Promise.all([
       analysisApi.strategyFitness(),
       analysisApi.signalAccuracy(60).catch(() => null),
+      analysisApi.signalDecay(90).catch(() => null),
     ])
     fitnessData.value = fitness
     accuracyData.value = accuracy
+    decayData.value = decay
   } catch (e: any) {
     error.value = e.message || '載入失敗'
   }
@@ -235,6 +238,81 @@ const accuracyColumns: DataTableColumns = [
   },
 ]
 
+// Signal Decay chart (Gemini R40)
+const decayChartOption = computed(() => {
+  const d = decayData.value?.strategies
+  if (!d) return {}
+
+  const stratColors: Record<string, string> = {
+    V4: '#e53e3e',
+    V5: '#2080f0',
+    Adaptive: '#18a058',
+  }
+
+  const series: any[] = []
+  for (const [strat, info] of Object.entries(d) as [string, any][]) {
+    if (!info.decay_curve?.length) continue
+    series.push({
+      name: `${strat} (n=${info.sample_count})`,
+      type: 'line',
+      data: info.decay_curve.map((p: any) => [p.day, +(p.avg_return * 100).toFixed(3)]),
+      lineStyle: { width: 2, color: stratColors[strat] || '#666' },
+      symbol: 'circle',
+      symbolSize: 8,
+      itemStyle: { color: stratColors[strat] || '#666' },
+    })
+    // BIAS-confirmed subset for V5
+    if (strat === 'V5' && info.bias_decay_curve?.length) {
+      series.push({
+        name: `V5+BIAS (n=${info.bias_decay_curve[0]?.n || 0})`,
+        type: 'line',
+        data: info.bias_decay_curve.map((p: any) => [p.day, +(p.avg_return * 100).toFixed(3)]),
+        lineStyle: { width: 2, color: '#9b59b6', type: 'dashed' },
+        symbol: 'diamond',
+        symbolSize: 8,
+        itemStyle: { color: '#9b59b6' },
+      })
+    }
+  }
+
+  if (!series.length) return {}
+
+  return {
+    title: { text: '信號衰減曲線（平均報酬 %）', left: 'center', textStyle: { fontSize: 14 } },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: any[]) => {
+        if (!params?.length) return ''
+        let html = `<b>Day ${params[0].value[0]}</b><br/>`
+        for (const p of params) {
+          html += `<span style="color:${p.color}">${p.seriesName}: ${p.value[1].toFixed(3)}%</span><br/>`
+        }
+        return html
+      },
+    },
+    legend: { bottom: 0, textStyle: { fontSize: 11 } },
+    grid: { left: 60, right: 20, top: 40, bottom: 60 },
+    xAxis: {
+      type: 'value',
+      name: '信號後天數',
+      nameLocation: 'center',
+      nameGap: 30,
+      min: 0,
+      max: 6,
+      interval: 1,
+    },
+    yAxis: {
+      type: 'value',
+      name: '平均報酬 (%)',
+      nameLocation: 'center',
+      nameGap: 40,
+      axisLabel: { formatter: '{value}%' },
+      splitLine: { lineStyle: { type: 'dashed' } },
+    },
+    series,
+  }
+})
+
 // Import h for render functions
 import { h } from 'vue'
 </script>
@@ -246,6 +324,7 @@ import { h } from 'vue'
     <NTabs v-model:value="mode" type="segment" style="margin-bottom: 16px">
       <NTabPane name="fitness" tab="適配度矩陣" />
       <NTabPane name="accuracy" tab="信號準確率" />
+      <NTabPane name="decay" tab="信號衰減" />
     </NTabs>
 
     <NSpin :show="isLoading">
@@ -330,6 +409,41 @@ import { h } from 'vue'
 
           <div v-else style="padding: 40px; text-align: center; color: var(--text-dimmed)">
             尚無信號追蹤數據。先「記錄今日信號」，5 個交易日後系統會自動計算前瞻報酬率。
+          </div>
+        </NCard>
+      </template>
+
+      <!-- Signal Decay Tab (Gemini R40) -->
+      <template v-if="mode === 'decay'">
+        <NCard title="信號衰減分析（過去 90 天）" size="small">
+          <template #header-extra>
+            <NSpace :size="8">
+              <NButton size="small" @click="recordSignals">記錄今日信號</NButton>
+            </NSpace>
+          </template>
+
+          <div v-if="decayChartOption?.series" style="margin-bottom: 16px">
+            <VChart :option="decayChartOption" style="height: 360px" autoresize />
+          </div>
+
+          <!-- Per-strategy summary cards -->
+          <NSpace v-if="decayData?.strategies" :size="12" style="margin-top: 8px">
+            <NCard v-for="(info, strat) in decayData.strategies" :key="strat" size="small" style="min-width: 200px">
+              <template #header>
+                <NTag :type="strat === 'V4' ? 'error' : strat === 'V5' ? 'info' : 'success'" size="small">
+                  {{ strat }}
+                </NTag>
+                <span style="margin-left: 8px; font-size: 12px">{{ info.sample_count }} 筆信號</span>
+              </template>
+              <div style="font-size: 13px">
+                <div>平均最大漲幅: {{ info.avg_max_gain != null ? fmtPct(info.avg_max_gain) : '-' }}</div>
+                <div>平均最大回撤: {{ info.avg_max_dd != null ? fmtPct(info.avg_max_dd) : '-' }}</div>
+              </div>
+            </NCard>
+          </NSpace>
+
+          <div v-if="!decayData?.strategies" style="padding: 40px; text-align: center; color: var(--text-dimmed)">
+            尚無衰減數據。先「記錄今日信號」，待信號累積後系統會計算衰減曲線。
           </div>
         </NCard>
       </template>

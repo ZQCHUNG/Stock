@@ -38,4 +38,6 @@ export const analysisApi = {
     }),
   signalAccuracy: (days = 60) =>
     client.get<any, any>('/analysis/signal-tracker/accuracy', { params: { days } }),
+  signalDecay: (days = 90) =>
+    client.get<any, any>('/analysis/signal-tracker/decay', { params: { days } }),
 }

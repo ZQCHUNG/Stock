@@ -726,6 +726,25 @@ def run_scan_cycle(scan_count: int) -> int:
         except Exception as e:
             logger.warning(f"Portfolio monitoring error: {e}")
 
+        # Signal tracking (Gemini R40: auto-record daily signals + fill returns)
+        try:
+            now = datetime.now()
+            hour_min = now.hour * 60 + now.minute
+            # Run after market close (13:30-14:00 window)
+            if 13 * 60 + 30 <= hour_min <= 14 * 60:
+                from analysis.signal_tracker import record_daily_signals, fill_forward_returns
+                sig_result = record_daily_signals()
+                logger.info(
+                    f"  Signal tracker: {sig_result['total_signals']} signals recorded "
+                    f"(V4={sig_result['by_strategy']['V4']}, V5={sig_result['by_strategy']['V5']}, "
+                    f"Adaptive={sig_result['by_strategy']['Adaptive']})"
+                )
+                fill_result = fill_forward_returns()
+                if fill_result["filled"] > 0:
+                    logger.info(f"  Forward returns filled: {fill_result['filled']} signals")
+        except Exception as e:
+            logger.warning(f"Signal tracking error: {e}")
+
         # Shadow portfolio management (Gemini R30)
         try:
             manage_shadow_portfolio(result)

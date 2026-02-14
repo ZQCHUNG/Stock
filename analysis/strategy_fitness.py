@@ -24,16 +24,18 @@ MIN_TRADES_FOR_CLASSIFICATION = 3  # < 3 trades → "Insufficient Data"
 PF_DOMINANCE_RATIO = 1.2  # V4 score > V5 score × 1.2 → "Trend Preferred"
 
 
-def _fitness_score(pf: float, n_trades: int) -> float:
-    """Compute fitness score = PF × ln(N_trades + 1).
+def _fitness_score(pf: float, n_trades: int, sharpe: float = 0.0) -> float:
+    """Compute fitness score = PF × ln(N_trades + 1) × max(0.5, 1 + Sharpe).
 
     Penalizes strategies with too few trades via logarithmic scaling.
     Gemini R39: prevents a single lucky trade from inflating PF to infinity.
+    Gemini R40: incorporates Sharpe to reward "elegant" profitability.
     """
     if n_trades == 0 or pf <= 0:
         return 0.0
     safe_pf = min(pf, 99.0)  # Cap infinity PF
-    return safe_pf * math.log(n_trades + 1)
+    sharpe_factor = max(0.5, 1.0 + sharpe)
+    return safe_pf * math.log(n_trades + 1) * sharpe_factor
 
 
 def _init_db():
@@ -133,9 +135,9 @@ def compute_stock_fitness(code: str, period_days: int = 730) -> dict | None:
             ad_pf = ad_sharpe = ad_ret = 0
             ad_trades = 0
 
-        # Compute fitness scores (PF × ln(N+1)) — Gemini R39
-        v4_score = _fitness_score(v4_pf, v4_trades)
-        v5_score = _fitness_score(v5_pf, v5_trades)
+        # Compute fitness scores (PF × ln(N+1) × max(0.5, 1+Sharpe)) — Gemini R40
+        v4_score = _fitness_score(v4_pf, v4_trades, v4_sharpe)
+        v5_score = _fitness_score(v5_pf, v5_trades, v5_sharpe)
 
         # Determine fitness tag
         if v4_trades == 0 and v5_trades == 0:

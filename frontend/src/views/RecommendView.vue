@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { h, onMounted, computed } from 'vue'
+import { h, ref, onMounted, computed } from 'vue'
 import { NCard, NButton, NGrid, NGi, NSpin, NTag, NSpace, NDataTable, NEmpty, NTooltip, NProgress, NAlert } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { useRecommendStore } from '../stores/recommend'
 import { useWatchlistStore } from '../stores/watchlist'
+import { analysisApi } from '../api/analysis'
 import { fmtPct, priceColor } from '../utils/format'
 import ProgressBar from '../components/ProgressBar.vue'
 
@@ -14,8 +15,22 @@ const rec = useRecommendStore()
 const wl = useWatchlistStore()
 const router = useRouter()
 
-onMounted(() => {
+// Fitness tags for character-aware recommendations (Gemini R40)
+const fitnessMap = ref<Map<string, any>>(new Map())
+
+onMounted(async () => {
   rec.loadAlphaHunter()
+  // Load fitness tags in parallel
+  try {
+    const fitness = await analysisApi.strategyFitness()
+    if (fitness?.stocks) {
+      const map = new Map<string, any>()
+      for (const s of fitness.stocks) {
+        map.set(s.code, s)
+      }
+      fitnessMap.value = map
+    }
+  } catch { /* fitness data optional */ }
 })
 
 const watchlistCodes = computed(() => new Set(wl.watchlist.map(s => s.code)))
@@ -57,9 +72,49 @@ function momentumLabel(m: string): { icon: string; label: string; type: 'error' 
   return { icon: '', label: 'Stable', type: 'default' }
 }
 
+// Fitness tag helpers (Gemini R40)
+function getFitnessTag(code: string): string {
+  return fitnessMap.value.get(code)?.fitness_tag || ''
+}
+
+function fitnessTagLabel(tag: string): { label: string; type: 'error' | 'info' | 'success' | 'warning' | 'default' } {
+  if (tag.includes('Trend')) return { label: '趨勢性格', type: 'error' }
+  if (tag.includes('Volatility')) return { label: '波動性格', type: 'info' }
+  if (tag === 'Balanced') return { label: '均衡', type: 'success' }
+  if (tag.includes('Only')) return { label: tag.includes('V4') ? '僅趨勢' : '僅回歸', type: 'warning' }
+  return { label: '', type: 'default' }
+}
+
+function isRegimeMismatch(code: string): string | null {
+  const tag = getFitnessTag(code)
+  if (!tag || !app.marketRegime) return null
+  const regime = app.marketRegime.regime
+  if (regime === 'bull' && tag.includes('Volatility')) {
+    return '策略不匹配：此股適合盤整操作，目前為多頭環境，建議觀望或縮減部位'
+  }
+  if (regime === 'bear' && tag.includes('Trend')) {
+    return '策略不匹配：此股適合趨勢操作，目前為空頭環境，建議觀望'
+  }
+  return null
+}
+
 // Alpha hunter data
 const alphaData = computed(() => rec.alphaHunter)
-const highConfidence = computed(() => alphaData.value?.high_confidence || [])
+// Sort high confidence by regime match (Gemini R40)
+const highConfidence = computed(() => {
+  const list = [...(alphaData.value?.high_confidence || [])]
+  if (!app.marketRegime || !fitnessMap.value.size) return list
+  const regime = app.marketRegime.regime
+  return list.sort((a: any, b: any) => {
+    const aTag = getFitnessTag(a.code)
+    const bTag = getFitnessTag(b.code)
+    const aMatch = regime === 'bull' ? aTag.includes('Trend') : aTag.includes('Volatility')
+    const bMatch = regime === 'bull' ? bTag.includes('Trend') : bTag.includes('Volatility')
+    if (aMatch && !bMatch) return -1
+    if (!aMatch && bMatch) return 1
+    return (b.confidence || 0) - (a.confidence || 0)
+  })
+})
 const sectorGroups = computed(() => alphaData.value?.sectors || [])
 const transitions = computed(() => alphaData.value?.transitions || [])
 const updatedAt = computed(() => {
@@ -146,13 +201,21 @@ const holdColumns: DataTableColumns = [
                   </NTag>
                 </div>
               </div>
-              <!-- Sector + Leader -->
+              <!-- Sector + Leader + Fitness Tag -->
               <div style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap">
                 <NTag size="small" :bordered="false" :type="momentumLabel(stock.momentum).type">
                   {{ stock.sector }} {{ momentumLabel(stock.momentum).icon }}
                 </NTag>
                 <NTag v-if="stock.is_leader" type="warning" size="small" :bordered="false" style="font-weight: 700">
                   ★ Leader ({{ stock.leader_score.toFixed(2) }})
+                </NTag>
+                <NTag
+                  v-if="getFitnessTag(stock.code)"
+                  :type="fitnessTagLabel(getFitnessTag(stock.code)).type"
+                  size="small"
+                  :bordered="false"
+                >
+                  {{ fitnessTagLabel(getFitnessTag(stock.code)).label }}
                 </NTag>
                 <NButton
                   v-if="!watchlistCodes.has(stock.code)"
@@ -161,6 +224,10 @@ const holdColumns: DataTableColumns = [
                   @click.stop="addToWatchlist(stock.code)"
                   style="min-width: auto"
                 >+ 自選</NButton>
+              </div>
+              <!-- Regime mismatch warning -->
+              <div v-if="isRegimeMismatch(stock.code)" style="margin-top: 4px; font-size: 11px; color: #e53e3e">
+                {{ isRegimeMismatch(stock.code) }}
               </div>
             </NCard>
           </NGi>
@@ -268,6 +335,13 @@ const holdColumns: DataTableColumns = [
                   />
                   <span style="font-size: 10px; color: #888; min-width: 60px">{{ stock.maturity }}</span>
                   <NTag v-if="stock.is_leader" type="warning" size="tiny" :bordered="false" style="font-weight: 700; font-size: 10px">★</NTag>
+                  <NTag
+                    v-if="getFitnessTag(stock.code)"
+                    :type="fitnessTagLabel(getFitnessTag(stock.code)).type"
+                    size="tiny"
+                    :bordered="false"
+                    style="font-size: 10px"
+                  >{{ fitnessTagLabel(getFitnessTag(stock.code)).label }}</NTag>
                   <NButton
                     v-if="!watchlistCodes.has(stock.code)"
                     size="tiny"

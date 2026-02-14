@@ -402,3 +402,75 @@ def get_strategy_accuracy(days: int = 60) -> dict:
         "strategies": strategies,
         "pending_fill": unfilled,
     }
+
+
+def get_signal_decay(days: int = 90) -> dict:
+    """Compute signal decay curves: avg return at day 1, 3, 5 post-signal.
+
+    Groups by strategy. Returns data suitable for line chart visualization.
+    Gemini R40: "Signal Decay Analysis" — tells Joe when a signal's edge expires.
+
+    Returns:
+        dict with per-strategy decay curve data
+    """
+    _init_db()
+    conn = sqlite3.connect(str(DB_PATH))
+
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    result = {}
+    for strat in ["V4", "V5", "Adaptive"]:
+        rows = conn.execute("""
+            SELECT d1_return, d3_return, d5_return, max_gain_5d, max_drawdown_5d,
+                   bias_confirmed, regime
+            FROM forward_signals
+            WHERE signal_date >= ? AND strategy = ? AND filled_at IS NOT NULL
+        """, (cutoff, strat)).fetchall()
+
+        if not rows:
+            result[strat] = {
+                "sample_count": 0,
+                "decay_curve": [],
+                "bias_decay_curve": [],
+            }
+            continue
+
+        # Compute avg return at each time point
+        d1 = [r[0] for r in rows if r[0] is not None]
+        d3 = [r[1] for r in rows if r[1] is not None]
+        d5 = [r[2] for r in rows if r[2] is not None]
+        gains = [r[3] for r in rows if r[3] is not None]
+        dds = [r[4] for r in rows if r[4] is not None]
+
+        decay_curve = []
+        if d1:
+            decay_curve.append({"day": 1, "avg_return": round(sum(d1) / len(d1), 5), "n": len(d1)})
+        if d3:
+            decay_curve.append({"day": 3, "avg_return": round(sum(d3) / len(d3), 5), "n": len(d3)})
+        if d5:
+            decay_curve.append({"day": 5, "avg_return": round(sum(d5) / len(d5), 5), "n": len(d5)})
+
+        # BIAS-confirmed subset (V5 only meaningful)
+        bias_rows = [r for r in rows if r[5] == 1]
+        bias_decay = []
+        if bias_rows:
+            bd1 = [r[0] for r in bias_rows if r[0] is not None]
+            bd3 = [r[1] for r in bias_rows if r[1] is not None]
+            bd5 = [r[2] for r in bias_rows if r[2] is not None]
+            if bd1:
+                bias_decay.append({"day": 1, "avg_return": round(sum(bd1) / len(bd1), 5), "n": len(bd1)})
+            if bd3:
+                bias_decay.append({"day": 3, "avg_return": round(sum(bd3) / len(bd3), 5), "n": len(bd3)})
+            if bd5:
+                bias_decay.append({"day": 5, "avg_return": round(sum(bd5) / len(bd5), 5), "n": len(bd5)})
+
+        result[strat] = {
+            "sample_count": len(rows),
+            "avg_max_gain": round(sum(gains) / len(gains), 5) if gains else None,
+            "avg_max_dd": round(sum(dds) / len(dds), 5) if dds else None,
+            "decay_curve": decay_curve,
+            "bias_decay_curve": bias_decay,
+        }
+
+    conn.close()
+    return {"period_days": days, "strategies": result}

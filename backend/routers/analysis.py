@@ -245,6 +245,21 @@ def signal_accuracy(days: int = 60):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/signal-tracker/decay")
+def signal_decay(days: int = 90):
+    """取得信號衰減曲線（Gemini R40: Signal Decay Analysis）
+
+    顯示信號發出後 1/3/5 日的平均報酬，揭示信號有效期。
+    """
+    from analysis.signal_tracker import get_signal_decay
+    from backend.dependencies import make_serializable
+    try:
+        result = get_signal_decay(days=days)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/strategy-fitness")
 def get_strategy_fitness(codes: str = ""):
     """取得策略適配度標籤（Gemini R38: Strategy Fitness Engine）
