@@ -11,6 +11,7 @@ from backtest.rolling import run_rolling_backtest, run_parameter_sensitivity
 from simulation.simulator import run_simulation, run_simulation_v4, simulation_to_dataframe
 from data.stock_list import get_stock_name
 from data.fetcher import get_taiex_data
+from backtest.alpha_beta import calculate_alpha_beta
 
 
 def _show_backtest_disclaimers():
@@ -172,8 +173,8 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
         # 大盤基準（TAIEX）
         _taiex_return = _add_taiex_benchmark(fig_equity, result.equity_curve, initial_capital)
         if _taiex_return is not None:
-            _alpha = result.total_return - _taiex_return
-            st.caption(f"策略 vs 大盤：超額報酬 (alpha) **{_alpha:+.2%}**"
+            _excess = result.total_return - _taiex_return
+            st.caption(f"策略 vs 大盤：超額報酬 **{_excess:+.2%}**"
                        f"（策略 {result.total_return:+.2%} vs 大盤 {_taiex_return:+.2%}）")
 
         fig_equity.add_hline(
@@ -209,6 +210,10 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
                 yaxis_title="回撤 (%)", margin=dict(t=10, b=30),
             )
             st.plotly_chart(fig_dd, width="stretch")
+
+    # Alpha/Beta 風險分析
+    if not result.equity_curve.empty and _taiex_return is not None:
+        _show_alpha_beta_analysis(result, initial_capital)
 
     # K 線圖 + 交易標記
     if result.trades:
@@ -457,6 +462,120 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
             )
 
 
+def _show_alpha_beta_analysis(result, initial_capital):
+    """Alpha/Beta 風險分析區塊"""
+    try:
+        _start = result.equity_curve.index[0]
+        _end = result.equity_curve.index[-1]
+        _days = (_end - _start).days + 60
+        taiex_df = get_taiex_data(period_days=_days)
+        if taiex_df is None or taiex_df.empty:
+            return
+
+        taiex_close = taiex_df["close"]
+        taiex_close = taiex_close[taiex_close.index >= _start]
+        taiex_close = taiex_close[taiex_close.index <= _end]
+        if len(taiex_close) < 30:
+            return
+
+        ab = calculate_alpha_beta(result.equity_curve, taiex_close)
+        if ab["trading_days"] < 30:
+            return
+
+        st.subheader("Alpha/Beta 風險分析")
+
+        # 指標行
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            _alpha_label = "佳" if ab["alpha_jensen"] > 0 else "差"
+            st.metric(
+                "Jensen's Alpha",
+                f"{ab['alpha_jensen']:.2%}",
+                delta=_alpha_label,
+                delta_color="normal" if ab["alpha_jensen"] > 0 else "inverse",
+            )
+        with col2:
+            _beta_label = "高風險" if ab["beta"] > 1.2 else ("中" if ab["beta"] > 0.8 else "防禦")
+            st.metric("Beta", f"{ab['beta']:.2f}", delta=_beta_label)
+        with col3:
+            st.metric(
+                "超額報酬 (Net of Rf)",
+                f"{ab['excess_return']:.2%}",
+                delta=f"vs 定存 1.5%",
+            )
+        with col4:
+            st.metric(
+                "R²",
+                f"{ab['r_squared']:.2f}",
+                delta="高解釋力" if ab["r_squared"] > 0.5 else "低解釋力",
+                delta_color="normal" if ab["r_squared"] > 0.5 else "off",
+            )
+
+        col5, col6, col7, col8 = st.columns(4)
+        with col5:
+            st.metric("上行 Beta (大盤漲時)", f"{ab['up_beta']:.2f}")
+        with col6:
+            st.metric("下行 Beta (大盤跌時)", f"{ab['down_beta']:.2f}")
+        with col7:
+            _up_cap = ab["upside_capture"]
+            st.metric(
+                "上行捕捉率",
+                f"{_up_cap:.1%}" if _up_cap else "—",
+                delta="跟上大盤" if _up_cap >= 1 else "落後大盤",
+                delta_color="normal" if _up_cap >= 1 else "inverse",
+            )
+        with col8:
+            _dn_cap = ab["downside_capture"]
+            st.metric(
+                "下行捕捉率",
+                f"{_dn_cap:.1%}" if _dn_cap else "—",
+                delta="防守佳" if 0 < _dn_cap < 1 else "跟跌",
+                delta_color="normal" if 0 < _dn_cap < 1 else "inverse",
+            )
+
+        # 解讀
+        _interp = []
+        if ab["down_beta"] < 0.8 and ab["up_beta"] > 0.5:
+            _interp.append("大盤下跌時較抗跌（下行 Beta < 0.8），上漲時也能部分跟上")
+        elif ab["down_beta"] > 1.2:
+            _interp.append("大盤下跌時跌更多（下行 Beta > 1.2），風險偏高")
+        if ab["alpha_jensen"] > 0.05:
+            _interp.append(f"Jensen's Alpha 為正（{ab['alpha_jensen']:.2%}），策略有選股超額收益")
+        elif ab["alpha_jensen"] < -0.05:
+            _interp.append(f"Jensen's Alpha 為負（{ab['alpha_jensen']:.2%}），策略收益可能主要來自高 Beta 曝險")
+        if _interp:
+            st.caption("；".join(_interp) + "。")
+
+        # Rolling Alpha 圖
+        rolling_alpha = ab["rolling_alpha"]
+        rolling_ema = ab["rolling_alpha_ema"]
+        if len(rolling_alpha) > 10:
+            fig_ra = go.Figure()
+            fig_ra.add_trace(go.Scatter(
+                x=rolling_alpha.index, y=rolling_alpha.values * 100,
+                mode="lines", name="60日 Rolling Alpha",
+                line=dict(color="#64B5F6", width=1),
+                opacity=0.5,
+            ))
+            if len(rolling_ema) > 10:
+                fig_ra.add_trace(go.Scatter(
+                    x=rolling_ema.index, y=rolling_ema.values * 100,
+                    mode="lines", name="EMA(20) 平滑線",
+                    line=dict(color="#FFD600", width=2),
+                ))
+            fig_ra.add_hline(y=0, line_dash="dash", line_color="white", opacity=0.3)
+            fig_ra.update_layout(
+                height=250, template="plotly_dark",
+                yaxis_title="Alpha (%)", margin=dict(t=10, b=30),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            )
+            st.plotly_chart(fig_ra, width="stretch")
+
+        st.caption(ab["benchmark_disclaimer"])
+    except Exception:
+        pass
+
+
 def _add_taiex_benchmark(fig, equity_curve, initial_capital):
     """將 TAIEX 大盤基準加入權益曲線圖
 
@@ -614,8 +733,8 @@ def _display_portfolio_result(pf_result, initial_capital):
     # 大盤基準
     _pf_taiex_ret = _add_taiex_benchmark(fig_eq, pf_result.equity_curve, initial_capital)
     if _pf_taiex_ret is not None:
-        _pf_alpha = pf_result.total_return - _pf_taiex_ret
-        st.caption(f"組合 vs 大盤：超額報酬 (alpha) **{_pf_alpha:+.2%}**"
+        _pf_excess = pf_result.total_return - _pf_taiex_ret
+        st.caption(f"組合 vs 大盤：超額報酬 **{_pf_excess:+.2%}**"
                    f"（組合 {pf_result.total_return:+.2%} vs 大盤 {_pf_taiex_ret:+.2%}）")
 
     fig_eq.add_hline(y=initial_capital, line_dash="dash", line_color="white",
