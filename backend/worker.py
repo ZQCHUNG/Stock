@@ -547,6 +547,105 @@ def take_equity_snapshot() -> None:
     )
 
 
+def manage_shadow_portfolio(heat_result: dict) -> None:
+    """Shadow Portfolio: auto-trade AI top recommendation (Gemini R30).
+
+    Logic:
+    - Pick top-1 BUY stock with highest confidence (Leader + Hw)
+    - If not already held in shadow, open 1-lot virtual position
+    - Close shadow positions that hit V4 exit conditions
+    - Take shadow equity snapshot
+    """
+    from data.fetcher import get_stock_data
+    from backend import db
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # 1. Close shadow positions hitting exit conditions
+    open_shadows = db.get_open_shadow_trades()
+    for st in open_shadows:
+        try:
+            df = get_stock_data(st["code"], period_days=5)
+            price = float(df["close"].iloc[-1])
+            entry = st["entry_price"]
+            # Exit: +10% TP or -7% SL
+            if price >= entry * 1.10 or price <= entry * 0.93:
+                db.close_shadow_trade(st["id"], price, today)
+                reason = "TP" if price >= entry * 1.10 else "SL"
+                logger.info(f"  Shadow EXIT [{reason}]: {st['code']} @ {price:.2f}")
+        except Exception:
+            pass
+
+    # 2. Find top-1 high-C recommendation from scan result
+    best_candidate = None
+    best_score = 0
+    held_codes = {st["code"] for st in db.get_open_shadow_trades()}
+
+    for sector_data in heat_result.get("sectors", []):
+        leader = sector_data.get("leader")
+        if not leader:
+            continue
+        code = leader["code"]
+        if code in held_codes:
+            continue
+        score = leader.get("score", 0)
+        wh = sector_data.get("weighted_heat", 0)
+        combined = score * 0.6 + wh * 0.4
+        if combined > best_score:
+            best_score = combined
+            best_candidate = {
+                "code": code,
+                "name": leader["name"],
+                "sector": sector_data["sector"],
+                "confidence": score,
+            }
+
+    # 3. Open shadow position for best candidate (max 5 concurrent)
+    if best_candidate and len(db.get_open_shadow_trades()) < 5:
+        try:
+            df = get_stock_data(best_candidate["code"], period_days=5)
+            price = float(df["close"].iloc[-1])
+            db.create_shadow_trade({
+                "date": today,
+                "code": best_candidate["code"],
+                "name": best_candidate["name"],
+                "entry_price": price,
+                "lots": 1,
+                "confidence": best_candidate["confidence"],
+                "sector": best_candidate["sector"],
+            })
+            logger.info(
+                f"  Shadow BUY: {best_candidate['code']} {best_candidate['name']} "
+                f"@ {price:.2f} (C={best_candidate['confidence']:.2f})"
+            )
+        except Exception as e:
+            logger.warning(f"Shadow buy failed: {e}")
+
+    # 4. Shadow equity snapshot
+    open_shadows = db.get_open_shadow_trades()
+    if open_shadows:
+        total_value = 0
+        for st in open_shadows:
+            try:
+                df = get_stock_data(st["code"], period_days=5)
+                price = float(df["close"].iloc[-1])
+                total_value += price * st["lots"] * 1000
+            except Exception:
+                total_value += st["entry_price"] * st["lots"] * 1000
+
+        # Include realized P&L from closed shadow trades
+        all_shadows = db.get_all_shadow_trades()
+        realized = sum(s.get("net_pnl", 0) or 0 for s in all_shadows if s["status"] == "closed")
+
+        db.append_shadow_snapshot({
+            "date": today,
+            "total_equity": round(total_value + realized, 0),
+            "position_value": round(total_value, 0),
+            "position_count": len(open_shadows),
+        })
+        logger.info(f"  Shadow snapshot: {len(open_shadows)} positions, value={total_value:,.0f}")
+
+
 def run_scan_cycle(scan_count: int) -> int:
     """Execute one scan cycle with error handling and distributed lock.
 
@@ -572,6 +671,12 @@ def run_scan_cycle(scan_count: int) -> int:
             take_equity_snapshot()
         except Exception as e:
             logger.warning(f"Portfolio monitoring error: {e}")
+
+        # Shadow portfolio management (Gemini R30)
+        try:
+            manage_shadow_portfolio(result)
+        except Exception as e:
+            logger.warning(f"Shadow portfolio error: {e}")
 
         return scan_count + 1
     except Exception as e:

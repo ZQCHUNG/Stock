@@ -110,6 +110,32 @@ CREATE TABLE IF NOT EXISTS watchlist (
     name       TEXT DEFAULT '',
     added_date TEXT DEFAULT (date('now'))
 );
+
+CREATE TABLE IF NOT EXISTS shadow_trades (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    date        TEXT NOT NULL,
+    code        TEXT NOT NULL,
+    name        TEXT DEFAULT '',
+    entry_price REAL NOT NULL,
+    lots        INTEGER NOT NULL DEFAULT 1,
+    confidence  REAL DEFAULT 0.7,
+    sector      TEXT DEFAULT '',
+    exit_date   TEXT,
+    exit_price  REAL,
+    net_pnl     REAL,
+    return_pct  REAL,
+    status      TEXT NOT NULL DEFAULT 'open'
+);
+
+CREATE INDEX IF NOT EXISTS idx_shadow_date ON shadow_trades(date);
+CREATE INDEX IF NOT EXISTS idx_shadow_status ON shadow_trades(status);
+
+CREATE TABLE IF NOT EXISTS shadow_snapshots (
+    date           TEXT PRIMARY KEY,
+    total_equity   REAL NOT NULL,
+    position_value REAL DEFAULT 0,
+    position_count INTEGER DEFAULT 0
+);
 """
 
 
@@ -586,6 +612,108 @@ def get_best_worst_trades() -> tuple[dict | None, dict | None]:
             "SELECT code, name, net_pnl, return_pct FROM positions WHERE status='closed' ORDER BY net_pnl ASC LIMIT 1"
         ).fetchone()
     return _row_to_dict(best), _row_to_dict(worst)
+
+
+# ---------------------------------------------------------------------------
+# Shadow Portfolio DAO (Gemini R30: AI auto-trade benchmark)
+# ---------------------------------------------------------------------------
+
+def create_shadow_trade(data: dict) -> dict:
+    """Record a shadow (AI-recommended) trade."""
+    with _connect() as conn:
+        # Prevent duplicate: same code+date
+        existing = conn.execute(
+            "SELECT id FROM shadow_trades WHERE code=? AND date=? AND status='open'",
+            (data["code"], data["date"]),
+        ).fetchone()
+        if existing:
+            return dict(existing)
+
+        conn.execute(
+            """INSERT INTO shadow_trades
+               (date, code, name, entry_price, lots, confidence, sector, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 'open')""",
+            (
+                data["date"], data["code"], data.get("name", ""),
+                data["entry_price"], data.get("lots", 1),
+                data.get("confidence", 0.7), data.get("sector", ""),
+            ),
+        )
+    return data
+
+
+def close_shadow_trade(trade_id: int, exit_price: float, exit_date: str) -> bool:
+    """Close a shadow trade with exit price."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM shadow_trades WHERE id=? AND status='open'",
+            (trade_id,),
+        ).fetchone()
+        if not row:
+            return False
+
+        entry = row["entry_price"]
+        shares = row["lots"] * 1000
+        pnl = (exit_price - entry) * shares
+        commission = (entry + exit_price) * shares * 0.001425
+        tax = exit_price * shares * 0.003
+        net_pnl = pnl - commission - tax
+        return_pct = (exit_price / entry - 1) if entry > 0 else 0
+
+        conn.execute(
+            """UPDATE shadow_trades SET
+               status='closed', exit_date=?, exit_price=?,
+               net_pnl=?, return_pct=?
+               WHERE id=?""",
+            (exit_date, exit_price, round(net_pnl, 0), round(return_pct, 4), trade_id),
+        )
+    return True
+
+
+def get_open_shadow_trades() -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM shadow_trades WHERE status='open' ORDER BY date DESC"
+        ).fetchall()
+    return _rows_to_list(rows)
+
+
+def get_all_shadow_trades(limit: int = 200) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM shadow_trades ORDER BY date DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
+
+
+def append_shadow_snapshot(snapshot: dict):
+    """Upsert daily shadow portfolio snapshot."""
+    date = snapshot.get("date") or datetime.now().strftime("%Y-%m-%d")
+    with _connect() as conn:
+        conn.execute(
+            """INSERT INTO shadow_snapshots (date, total_equity, position_value, position_count)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(date) DO UPDATE SET
+                 total_equity=excluded.total_equity,
+                 position_value=excluded.position_value,
+                 position_count=excluded.position_count""",
+            (
+                date,
+                snapshot.get("total_equity", 0),
+                snapshot.get("position_value", 0),
+                snapshot.get("position_count", 0),
+            ),
+        )
+
+
+def get_shadow_snapshots(limit: int = 365) -> list[dict]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM shadow_snapshots ORDER BY date DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return list(reversed(_rows_to_list(rows)))
 
 
 # ---------------------------------------------------------------------------

@@ -76,19 +76,24 @@ const defaultStopLoss = computed(() => riskFactors.value?.stop_loss_price ?? pro
 const effectiveStopLoss = computed(() => useCustomStopLoss.value ? stopLossPrice.value : defaultStopLoss.value)
 const stopLossPct = computed(() => props.currentPrice > 0 ? (1 - effectiveStopLoss.value / props.currentPrice) * 100 : 7)
 
-// Position sizing: N = floor((Equity × Risk% × C) / ((Entry - StopLoss) × 1000))
+// Position sizing: ATR-volatility-normalized (Gemini R30)
+// N = floor((Equity × Risk% × C) / (riskPerShare × 1000))
+// riskPerShare = max(Entry − StopLoss, ATR14 × 2)  ← ensures volatile stocks get fewer lots
 const lossPerShare = computed(() => props.currentPrice - effectiveStopLoss.value)
+const atrRiskPerShare = computed(() => atr14.value !== null ? atr14.value * 2 : 0)
+const riskPerShare = computed(() => Math.max(lossPerShare.value, atrRiskPerShare.value))
+const isAtrDriven = computed(() => atrRiskPerShare.value > lossPerShare.value && atr14.value !== null)
 
 const riskAmount = computed(() =>
   capital.value * (riskPct.value / 100) * confidenceMultiplier.value
 )
 const lots = computed(() => {
-  if (isGhostTown.value || lossPerShare.value <= 0) return 0
-  const shares = Math.floor(riskAmount.value / lossPerShare.value)
+  if (isGhostTown.value || riskPerShare.value <= 0) return 0
+  const shares = Math.floor(riskAmount.value / riskPerShare.value)
   return Math.floor(shares / 1000)
 })
 const cost = computed(() => lots.value * 1000 * props.currentPrice)
-const maxLoss = computed(() => lots.value * 1000 * lossPerShare.value)
+const maxLoss = computed(() => lots.value * 1000 * riskPerShare.value)
 const costPct = computed(() => capital.value > 0 ? cost.value / capital.value * 100 : 0)
 
 // Confidence visual helpers
@@ -292,6 +297,9 @@ function resetStopLoss() {
         停損 -{{ stopLossPct.toFixed(1) }}% = ${{ effectiveStopLoss.toFixed(2) }}
         <template v-if="hasTrailingStop"> | 移動停利 ${{ trailingStopPrice!.toFixed(2) }} (ATR×2)</template> |
         風險金額 ${{ fmtNum(riskAmount, 0) }} (資金×{{ riskPct }}%×C{{ confidenceMultiplier.toFixed(2) }}) |
+        <template v-if="isAtrDriven">
+          <span style="color: #2080f0; font-weight: 600">ATR 驅動</span> 每股風險 ${{ riskPerShare.toFixed(2) }} (ATR×2=${{ atrRiskPerShare.toFixed(2) }} > SL差=${{ lossPerShare.toFixed(2) }}) |
+        </template>
         最大虧損佔總資金 {{ (capital > 0 ? maxLoss / capital * 100 : 0).toFixed(2) }}%
       </div>
       <div v-if="cost > capital" style="margin-top: 4px; font-size: 12px; color: #e53e3e; font-weight: 600">

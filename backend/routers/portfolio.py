@@ -181,23 +181,28 @@ def portfolio_health():
     if not positions:
         return make_serializable({"warnings": [], "sector_allocation": [], "total_positions": 0})
 
-    # Sector concentration
+    # Sector concentration — market-value based (Gemini R30: Cluster Audit)
     sector_counts: dict[str, int] = {}
-    sector_lots: dict[str, int] = {}
+    sector_value: dict[str, float] = {}
+    sector_codes: dict[str, list[str]] = {}
     for p in positions:
         sec = p.get("sector") or "未分類"
+        mv = p["lots"] * 1000 * (p.get("current_price") or p["entry_price"])
         sector_counts[sec] = sector_counts.get(sec, 0) + 1
-        sector_lots[sec] = sector_lots.get(sec, 0) + p["lots"]
+        sector_value[sec] = sector_value.get(sec, 0) + mv
+        sector_codes.setdefault(sec, []).append(p["code"])
 
+    total_value = sum(sector_value.values())
     total_lots = sum(p["lots"] for p in positions)
     sector_allocation = [
         {
             "sector": sec,
             "count": sector_counts[sec],
-            "lots": sector_lots[sec],
-            "pct": round(sector_lots[sec] / total_lots * 100, 1) if total_lots > 0 else 0,
+            "value": round(sector_value[sec]),
+            "codes": sector_codes[sec],
+            "pct": round(sector_value[sec] / total_value * 100, 1) if total_value > 0 else 0,
         }
-        for sec in sorted(sector_counts, key=lambda s: -sector_lots[s])
+        for sec in sorted(sector_counts, key=lambda s: -sector_value[s])
     ]
 
     warnings = []
@@ -347,6 +352,14 @@ def get_performance():
     last_eq = equities[-1] if equities else 0
     total_return = (last_eq / first_eq - 1) if first_eq > 0 else 0
 
+    # Shadow portfolio overlay (Gemini R30)
+    shadow_snaps = db.get_shadow_snapshots()
+    shadow_equity = None
+    shadow_dates = None
+    if len(shadow_snaps) >= 2:
+        shadow_dates = [s["date"] for s in shadow_snaps]
+        shadow_equity = [s.get("total_equity", 0) for s in shadow_snaps]
+
     return make_serializable({
         "has_data": True,
         "dates": dates,
@@ -354,6 +367,8 @@ def get_performance():
         "hwm": hwm_line,
         "drawdown": drawdown_line,
         "daily_returns": daily_returns,
+        "shadow_dates": shadow_dates,
+        "shadow_equity": shadow_equity,
         "summary": {
             "total_return": round(total_return, 4),
             "max_drawdown": round(max_dd, 4),
@@ -458,22 +473,23 @@ def get_briefing():
             "message": f"成熟度躍遷：{t['code']} {t.get('name', '')} 從 {t['from_maturity']} 升級至 {t['to_maturity']}（{t.get('sector', '')} Leader）",
         })
 
-    # 4. Portfolio health warnings
+    # 4. Portfolio health warnings — market-value based (Gemini R30: Cluster Audit)
     positions = db.get_open_positions()
     if positions:
-        sectors: dict[str, int] = {}
+        sector_mv: dict[str, float] = {}
         for p in positions:
             sec = p.get("sector") or "未分類"
-            sectors[sec] = sectors.get(sec, 0) + p["lots"]
-        total_lots = sum(sectors.values())
-        for sec, lots in sectors.items():
-            pct = lots / total_lots * 100 if total_lots > 0 else 0
+            mv = p["lots"] * 1000 * (p.get("current_price") or p["entry_price"])
+            sector_mv[sec] = sector_mv.get(sec, 0) + mv
+        total_mv = sum(sector_mv.values())
+        for sec, mv in sector_mv.items():
+            pct = mv / total_mv * 100 if total_mv > 0 else 0
             if pct > 50:
                 insights.append({
                     "type": "concentration",
                     "severity": "medium",
                     "icon": "⚠️",
-                    "message": f"集中風險：{sec} 佔組合 {pct:.0f}%，建議分散至其他板塊避險",
+                    "message": f"集中風險：{sec} 佔組合市值 {pct:.0f}%，建議分散至其他板塊避險",
                 })
                 break
 
@@ -507,7 +523,37 @@ def get_briefing():
                 ),
             })
 
-    # 7. If no insights, add a neutral one
+    # 7. Shadow portfolio comparison (Gemini R30)
+    shadow_snaps = db.get_shadow_snapshots()
+    user_snaps = db.get_equity_snapshots()
+    if len(shadow_snaps) >= 5 and len(user_snaps) >= 5:
+        shadow_first = shadow_snaps[0].get("total_equity", 0)
+        shadow_last = shadow_snaps[-1].get("total_equity", 0)
+        user_first = user_snaps[0].get("total_equity", 0)
+        user_last = user_snaps[-1].get("total_equity", 0)
+        if shadow_first > 0 and user_first > 0:
+            shadow_ret = (shadow_last / shadow_first - 1) * 100
+            user_ret = (user_last / user_first - 1) * 100
+            delta = user_ret - shadow_ret
+            if delta < -3:
+                insights.append({
+                    "type": "shadow_comparison",
+                    "severity": "high",
+                    "icon": "🤖",
+                    "message": (
+                        f"影子組合對比：AI 純系統推薦 {shadow_ret:+.1f}% vs 你的操作 {user_ret:+.1f}%，"
+                        f"主觀干預拖累 {abs(delta):.1f}%，建議減少偏離系統信號的交易"
+                    ),
+                })
+            elif delta > 3:
+                insights.append({
+                    "type": "shadow_comparison",
+                    "severity": "low",
+                    "icon": "🏆",
+                    "message": f"超越影子組合：你的操作 {user_ret:+.1f}% 優於 AI 推薦 {shadow_ret:+.1f}%，主觀判斷加值 {delta:.1f}%",
+                })
+
+    # 8. If no insights, add a neutral one
     if not insights:
         insights.append({
             "type": "neutral",
@@ -516,8 +562,8 @@ def get_briefing():
             "message": "目前無重大警報，市場穩定運行中",
         })
 
-    # Keep top 3
-    insights = insights[:3]
+    # Keep top 4
+    insights = insights[:4]
 
     return make_serializable({"insights": insights, "generated_at": datetime.now().isoformat()})
 

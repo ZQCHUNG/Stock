@@ -286,6 +286,9 @@ const perfData = computed(() => pf.performance)
             <NTag v-if="perfData.summary?.max_drawdown" size="small" type="warning">
               MDD {{ fmtPct(-perfData.summary.max_drawdown) }}
             </NTag>
+            <NTag v-if="perfData.shadow_equity" size="small" :bordered="false" style="color: #f0a020">
+              vs AI 影子組合
+            </NTag>
           </NSpace>
         </template>
         <EquityCurveChart
@@ -293,6 +296,8 @@ const perfData = computed(() => pf.performance)
           :equity="perfData.equity"
           :hwm="perfData.hwm"
           :drawdown="perfData.drawdown"
+          :shadow-dates="perfData.shadow_dates"
+          :shadow-equity="perfData.shadow_equity"
         />
       </NCard>
 
@@ -326,18 +331,19 @@ const perfData = computed(() => pf.performance)
           </NSpace>
         </template>
         <div style="display: flex; gap: 12px; flex-wrap: wrap">
-          <div v-for="sa in sectorAllocation" :key="sa.sector" style="min-width: 140px">
+          <div v-for="sa in sectorAllocation" :key="sa.sector" style="min-width: 180px">
             <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px">
               <span>{{ sa.sector }}</span>
-              <span style="font-weight: 600">{{ sa.pct }}% ({{ sa.count }}檔)</span>
+              <span style="font-weight: 600">{{ sa.pct }}% · ${{ fmtNum(sa.value, 0) }} ({{ sa.count }}檔)</span>
             </div>
             <NProgress
               type="line"
               :percentage="sa.pct"
-              :color="sa.pct > 40 ? '#e53e3e' : sa.pct > 25 ? '#f0a020' : '#18a058'"
+              :color="sa.pct > 50 ? '#e53e3e' : sa.pct > 30 ? '#f0a020' : '#18a058'"
               :height="8"
               :show-indicator="false"
             />
+            <div style="font-size: 11px; color: #999; margin-top: 1px">{{ sa.codes?.join(', ') }}</div>
           </div>
         </div>
       </NCard>
