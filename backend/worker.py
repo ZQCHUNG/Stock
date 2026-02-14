@@ -76,18 +76,15 @@ def scan_sector_heat() -> dict:
     Returns:
         dict with keys: sectors (list), scanned (int), total_buy (int)
     """
-    from data.fetcher import get_stock_data, get_stock_info
+    from data.fetcher import get_stock_data
     from analysis.strategy_v4 import get_v4_analysis
+    from data.sector_mapping import get_stock_sector
 
     def _scan_stock(code: str) -> dict | None:
         try:
             df = get_stock_data(code, period_days=120)
             v4 = get_v4_analysis(df)
-            try:
-                info = get_stock_info(code)
-                sector = info.get("sector", "")
-            except Exception:
-                sector = ""
+            sector = get_stock_sector(code, level=1)
 
             # Volume ratio: today's volume / 5-day avg (for Surge confirmation)
             vol_ratio = 0.0
@@ -99,7 +96,7 @@ def scan_sector_heat() -> dict:
             return {
                 "code": code,
                 "name": SCAN_STOCKS.get(code, code),
-                "sector": sector or "未分類",
+                "sector": sector,
                 "signal": v4["signal"],
                 "signal_maturity": v4.get("signal_maturity", "N/A"),
                 "uptrend_days": v4.get("uptrend_days", 0),

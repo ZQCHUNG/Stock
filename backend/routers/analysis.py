@@ -156,8 +156,9 @@ def get_sector_heat(force_refresh: bool = False):
     # 2. Fallback: live computation (same logic as worker)
     from concurrent.futures import ThreadPoolExecutor
     from config import SCAN_STOCKS
-    from data.fetcher import get_stock_data, get_stock_info
+    from data.fetcher import get_stock_data
     from analysis.strategy_v4 import get_v4_analysis
+    from data.sector_mapping import get_stock_sector
 
     MATURITY_WEIGHTS = {
         "Speculative Spike": 1.0,
@@ -169,15 +170,11 @@ def get_sector_heat(force_refresh: bool = False):
         try:
             df = get_stock_data(code, period_days=120)
             v4 = get_v4_analysis(df)
-            try:
-                info = get_stock_info(code)
-                sector = info.get("sector", "")
-            except Exception:
-                sector = ""
+            sector = get_stock_sector(code, level=1)
             return {
                 "code": code,
                 "name": SCAN_STOCKS.get(code, code),
-                "sector": sector or "未分類",
+                "sector": sector,
                 "signal": v4["signal"],
                 "signal_maturity": v4.get("signal_maturity", "N/A"),
                 "uptrend_days": v4.get("uptrend_days", 0),
