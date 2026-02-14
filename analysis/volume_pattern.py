@@ -171,6 +171,25 @@ def get_volume_pattern_summary(df: pd.DataFrame) -> dict:
     else:
         vol_trend = "unknown"
 
+    # Signal Maturity (Gemini R19: 爆量後信心分級)
+    if days_since >= 0:
+        if days_since <= 7:
+            signal_maturity = "speculative_spike"
+            signal_maturity_label = "投機性爆發"
+            signal_confidence = "low"
+        elif days_since <= 15:
+            signal_maturity = "trend_formation"
+            signal_maturity_label = "趨勢成形"
+            signal_confidence = "medium"
+        else:
+            signal_maturity = "structural_shift"
+            signal_maturity_label = "結構確立"
+            signal_confidence = "high"
+    else:
+        signal_maturity = ""
+        signal_maturity_label = ""
+        signal_confidence = ""
+
     return {
         "current_pattern": latest.get("volume_pattern", ""),
         "current_vol_ratio": float(latest.get("vol_ratio", 0)) if not pd.isna(latest.get("vol_ratio")) else 0.0,
@@ -179,4 +198,7 @@ def get_volume_pattern_summary(df: pd.DataFrame) -> dict:
         "has_active_sequence": bool(latest.get("breakout_pullback", False)),
         "days_since_breakout": days_since,
         "volume_trend": vol_trend,
+        "signal_maturity": signal_maturity,
+        "signal_maturity_label": signal_maturity_label,
+        "signal_confidence": signal_confidence,
     }

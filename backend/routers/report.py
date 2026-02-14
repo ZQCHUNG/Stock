@@ -129,6 +129,10 @@ def generate_report_api(code: str, req: ReportRequest):
             "technical_bias": report.technical_bias,
             "peer_context": report.peer_context,
             "valuation": report.valuation,
+            # 籌碼面（Gemini R19）
+            "institutional_score": report.institutional_score,
+            "is_biotech": report.is_biotech,
+            "rating_weights": report.rating_weights,
         }
 
         return make_serializable(result)

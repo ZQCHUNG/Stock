@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from data.fetcher import (
     get_stock_data, get_stock_info_and_fundamentals,
-    get_stock_news, get_google_news,
+    get_stock_news, get_google_news, get_institutional_data,
 )
 from data.stock_list import get_stock_name, get_all_stocks
 from analysis.indicators import calculate_all_indicators
@@ -62,6 +62,9 @@ from analysis.report.news import (  # noqa: F401
 )
 from analysis.report.recommendation import (  # noqa: F401
     _calculate_overall_rating,
+    _calculate_institutional_score,
+    _is_biotech_industry,
+    _get_rating_weights,
     _resolve_technical_conflicts,
     _generate_actionable_recommendation,
     _generate_outlook,
@@ -94,17 +97,22 @@ def generate_report(stock_code: str, period_days: int = 730,
     def _fetch_stock_news():
         return get_stock_news(stock_code)
 
+    def _fetch_institutional():
+        return get_institutional_data(stock_code, days=20)
+
     raw_df = None
     company_info = None
     fundamentals_raw = {}
     google_news_cn = []
     yf_news = []
+    institutional_df = None
 
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=5) as executor:
         fut_data = executor.submit(_fetch_stock_data)
         fut_info = executor.submit(_fetch_info_and_fundamentals)
         fut_gnews = executor.submit(_fetch_google_news_cn)
         fut_yfnews = executor.submit(_fetch_stock_news)
+        fut_inst = executor.submit(_fetch_institutional)
 
         # 收集結果
         try:
@@ -128,6 +136,11 @@ def generate_report(stock_code: str, period_days: int = 730,
             yf_news = fut_yfnews.result()
         except Exception:
             yf_news = []
+
+        try:
+            institutional_df = fut_inst.result()
+        except Exception:
+            institutional_df = None
 
     # 2. 計算指標
     df = calculate_all_indicators(raw_df)
@@ -206,6 +219,13 @@ def generate_report(stock_code: str, period_days: int = 730,
         momentum, trend, risk, df,
     )
 
+    # 5b. 籌碼面評分（Gemini R19）
+    inst_result = _calculate_institutional_score(institutional_df)
+    is_biotech = _is_biotech_industry(
+        company_info.get("industry", ""),
+        company_info.get("sector", ""),
+    )
+
     overall_rating = _calculate_overall_rating(
         trend["trend_direction"], momentum["momentum_status"],
         v4["signal"], v2.get("composite_score", 0),
@@ -214,6 +234,9 @@ def generate_report(stock_code: str, period_days: int = 730,
         fundamental_score=fund_result["fundamental_score"],
         market_regime=market_regime,
         technical_conflicts=tech_conflicts_result["conflicts"],
+        institutional_score=inst_result["score"],
+        industry=company_info.get("industry", ""),
+        sector=company_info.get("sector", ""),
     )
 
     # 5b. 其他分析模組
@@ -367,4 +390,7 @@ def generate_report(stock_code: str, period_days: int = 730,
         technical_bias=tech_conflicts_result["technical_bias"],
         peer_context=peer_context,
         valuation=valuation,
+        institutional_score=inst_result,
+        is_biotech=is_biotech,
+        rating_weights=_get_rating_weights(is_biotech),
     )

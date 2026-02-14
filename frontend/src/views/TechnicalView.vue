@@ -178,6 +178,14 @@ const institutionalColumns: DataTableColumns = [
           <NDescriptionsItem label="近20日爆量">{{ tech.volumePatterns.recent_breakouts || 0 }} 次</NDescriptionsItem>
           <NDescriptionsItem label="近20日縮量">{{ tech.volumePatterns.recent_pullbacks || 0 }} 次</NDescriptionsItem>
           <NDescriptionsItem label="活躍序列">{{ tech.volumePatterns.has_active_sequence ? '是' : '否' }}</NDescriptionsItem>
+          <NDescriptionsItem v-if="tech.volumePatterns.signal_maturity" label="訊號成熟度">
+            <NTag :type="tech.volumePatterns.signal_confidence === 'high' ? 'success' : tech.volumePatterns.signal_confidence === 'medium' ? 'info' : 'warning'" size="small">
+              {{ tech.volumePatterns.signal_maturity_label }}
+            </NTag>
+            <span style="margin-left: 8px; font-size: 12px; color: var(--text-dimmed)">
+              (爆量後 {{ tech.volumePatterns.days_since_breakout }} 日)
+            </span>
+          </NDescriptionsItem>
         </NDescriptions>
       </NCard>
 

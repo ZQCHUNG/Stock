@@ -161,6 +161,12 @@ class ReportResult:
     peer_context: dict = field(default_factory=dict)
     # 估值模型結果
     valuation: dict = field(default_factory=dict)
+    # 籌碼面評分（Gemini R19）
+    institutional_score: dict = field(default_factory=dict)
+    # 是否為生技股（自動偵測）
+    is_biotech: bool = False
+    # 評分權重（用於前端顯示）
+    rating_weights: dict = field(default_factory=dict)
 
 
 # ============================================================

@@ -5,67 +5,230 @@ from analysis.report_models import OutlookScenario, _safe
 import pandas as pd
 
 
+# ============================================================
+# Institutional Score (籌碼面評分) — Gemini R19: P0 缺失修復
+# ============================================================
+
+def _calculate_institutional_score(institutional_df: pd.DataFrame | None) -> dict:
+    """計算籌碼面評分 (-5 ~ +5)
+
+    基於三大法人買賣超資料，評估法人動向。
+
+    Args:
+        institutional_df: DataFrame with columns: date, foreign_net, trust_net,
+                          dealer_net, total_net (單位：股)
+
+    Returns:
+        dict with keys: score, details, consecutive_days, dominant_force
+    """
+    if institutional_df is None or institutional_df.empty:
+        return {"score": 0, "details": "無法人資料", "consecutive_days": 0,
+                "dominant_force": "無資料"}
+
+    df = institutional_df.copy()
+    score = 0.0
+    details = []
+
+    # --- 1. 近 3 日法人合計淨買超趨勢 ---
+    recent3 = df.tail(3)
+    if len(recent3) >= 3:
+        net3 = recent3["total_net"].sum()
+        if net3 > 0:
+            score += 1.0
+            details.append(f"近3日法人淨買超 {net3:,.0f} 股")
+        elif net3 < 0:
+            score -= 1.0
+            details.append(f"近3日法人淨賣超 {abs(net3):,.0f} 股")
+
+    # --- 2. 近 5 日外資方向（外資在台股影響力最大）---
+    recent5 = df.tail(5)
+    if len(recent5) >= 3:
+        foreign_net5 = recent5["foreign_net"].sum()
+        if foreign_net5 > 0:
+            score += 1.0
+            details.append(f"近5日外資淨買超 {foreign_net5:,.0f} 股")
+        elif foreign_net5 < 0:
+            score -= 1.0
+            details.append(f"近5日外資淨賣超 {abs(foreign_net5):,.0f} 股")
+
+    # --- 3. 投信連續買賣超（投信代表本土法人看法）---
+    recent5_trust = recent5["trust_net"] if len(recent5) >= 3 else pd.Series(dtype=float)
+    if len(recent5_trust) >= 3:
+        trust_all_buy = (recent5_trust > 0).all()
+        trust_all_sell = (recent5_trust < 0).all()
+        if trust_all_buy:
+            score += 0.5
+            details.append("投信連續買超")
+        elif trust_all_sell:
+            score -= 0.5
+            details.append("投信連續賣超")
+
+    # --- 4. 連續買賣超天數（全體法人）---
+    consecutive = 0
+    direction = 0  # +1 = buying streak, -1 = selling streak
+    for _, row in df.iloc[::-1].iterrows():
+        net = row.get("total_net", 0)
+        if direction == 0:
+            direction = 1 if net > 0 else -1 if net < 0 else 0
+        if (direction > 0 and net > 0) or (direction < 0 and net < 0):
+            consecutive += 1
+        else:
+            break
+
+    if consecutive >= 5:
+        bonus = min(consecutive * 0.3, 1.5)
+        score += bonus * direction
+        streak_label = "買超" if direction > 0 else "賣超"
+        details.append(f"法人連續 {consecutive} 日{streak_label}")
+    elif consecutive >= 3:
+        bonus = 0.5
+        score += bonus * direction
+
+    # --- 5. 單日爆量買超偵測（異常大單）---
+    if len(df) >= 5:
+        avg_abs_net = df["total_net"].abs().mean()
+        last_net = df["total_net"].iloc[-1]
+        if avg_abs_net > 0 and abs(last_net) > avg_abs_net * 3:
+            if last_net > 0:
+                score += 1.0
+                details.append(f"最近一日爆量買超（{last_net:,.0f} 股，為均值 {abs(last_net)/avg_abs_net:.1f} 倍）")
+            else:
+                score -= 1.0
+                details.append(f"最近一日爆量賣超（{abs(last_net):,.0f} 股，為均值 {abs(last_net)/avg_abs_net:.1f} 倍）")
+
+    # 限制範圍 [-5, +5]
+    score = max(-5.0, min(5.0, score))
+
+    # 主力方向判斷
+    if len(recent5) >= 3:
+        foreign_dom = abs(recent5["foreign_net"].sum())
+        trust_dom = abs(recent5["trust_net"].sum())
+        dealer_dom = abs(recent5["dealer_net"].sum())
+        forces = [("外資", foreign_dom), ("投信", trust_dom), ("自營商", dealer_dom)]
+        forces.sort(key=lambda x: x[1], reverse=True)
+        dominant = forces[0][0]
+    else:
+        dominant = "無資料"
+
+    return {
+        "score": round(score, 2),
+        "details": "；".join(details) if details else "法人動向中性",
+        "consecutive_days": consecutive * direction,
+        "dominant_force": dominant,
+    }
+
+
+# ============================================================
+# Recommendation Config (權重配置) — Gemini R19: 產業切換
+# ============================================================
+
+# Industry keywords for biotech auto-detection
+_BIOTECH_INDUSTRIES = {
+    "Biotechnology", "Drug Manufacturers", "Diagnostics & Research",
+    "Medical Devices", "Medical Instruments & Supplies",
+    "生技醫療", "生技", "新藥研發", "醫療器材",
+}
+
+
+def _is_biotech_industry(industry: str, sector: str = "") -> bool:
+    """判斷是否為生技醫療產業"""
+    for keyword in _BIOTECH_INDUSTRIES:
+        if keyword in (industry or "") or keyword in (sector or ""):
+            return True
+    return False
+
+
+def _get_rating_weights(is_biotech: bool) -> dict:
+    """取得評分權重（一般 vs 生技）"""
+    if is_biotech:
+        return {
+            "tech": 0.30,       # 技術面（生技股技術面較不可靠，降權）
+            "fund": 0.15,       # 基本面（生技股無獲利，大幅降權）
+            "inst": 0.30,       # 籌碼面（台股生技最重要驅動力）
+            "sector": 0.25,     # 產業面/情緒
+        }
+    return {
+        "tech": 0.35,           # 技術面
+        "fund": 0.25,           # 基本面
+        "inst": 0.25,           # 籌碼面
+        "sector": 0.15,         # 產業面/情緒
+    }
+
+
 def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
                                v2_composite, rsi, rr_ratio, base_3m_upside=0,
                                fundamental_score=0.0, market_regime=None,
-                               technical_conflicts=None):
-    """計算綜合評等（含 RR 矛盾修正 + 技術面矛盾降級 + 市場環境上限）
+                               technical_conflicts=None,
+                               institutional_score=0.0, industry="",
+                               sector=""):
+    """計算綜合評等（含 RR 矛盾修正 + 技術面矛盾降級 + 市場環境上限 + 籌碼面）
 
-    評分邏輯：
-    - 趨勢（-2~+2）+ v4 訊號（-2~+2）+ v2 分數（-1~+1）
-    - 動能（-2~+2）+ RSI 極端（-1~+1）+ RR 比（-3~+1）
-    - 基本面（-2~+2）+ 目標價上檔（-2~+2）
-    - 技術面矛盾扣分（每個矛盾 -0.5，最多 -2）
-    - 最終評等：≥6 強力買進, ≥3 買進, ≥-1 中性, ≥-4 賣出, else 強力賣出
+    評分邏輯（加權維度）：
+    - 技術面：趨勢 + V4訊號 + 動能 + RSI + V2 + RR比 + 矛盾扣分
+    - 基本面：fundamental_score + 目標價上檔空間
+    - 籌碼面：institutional_score (Gemini R19 新增)
+    - Gatekeeper: 籌碼面 < -2 強制降階（Gemini R19 共識）
+    - 生技股自動切換權重（Gemini R19 共識）
     """
-    score = 0
+    is_biotech = _is_biotech_industry(industry, sector)
+    weights = _get_rating_weights(is_biotech)
+
+    # === 技術面分數 (原始邏輯，範圍約 -10 ~ +10) ===
+    tech_score = 0
     trend_map = {"強勢上漲": 2, "溫和上漲": 1, "盤整": 0, "溫和下跌": -1, "強勢下跌": -2}
-    score += trend_map.get(trend_direction, 0)
+    tech_score += trend_map.get(trend_direction, 0)
 
     if v4_signal == "BUY":
-        score += 2
+        tech_score += 2
     elif v4_signal == "SELL":
-        score -= 2
+        tech_score -= 2
     if v2_composite > 0.3:
-        score += 1
+        tech_score += 1
     elif v2_composite < -0.3:
-        score -= 1
+        tech_score -= 1
 
     mom_map = {"強勁多頭": 2, "偏多": 1, "中性": 0, "偏空": -1, "強勁空頭": -2}
-    score += mom_map.get(momentum_status, 0)
+    tech_score += mom_map.get(momentum_status, 0)
 
     if rsi < 30:
-        score += 1
+        tech_score += 1
     elif rsi > 70:
-        score -= 1
+        tech_score -= 1
 
-    # RR 修正：強化低 RR 懲罰
+    # RR 修正
     if rr_ratio > 2:
-        score += 1
+        tech_score += 1
     elif rr_ratio < 0.3:
-        score -= 3
+        tech_score -= 3
     elif rr_ratio < 0.5:
-        score -= 2
+        tech_score -= 2
     elif rr_ratio < 0.8:
-        score -= 1
+        tech_score -= 1
 
-    # 基本面評分（-5~+5 → 約 -2~+2）
-    score += fundamental_score * 0.4
-
-    # 目標價上檔空間調整
-    if base_3m_upside > 0.10:
-        score += 2
-    elif base_3m_upside > 0.05:
-        score += 1
-    elif base_3m_upside < -0.05:
-        score -= 2
-    elif base_3m_upside < 0:
-        score -= 1
-
-    # 技術面矛盾扣分：存在矛盾時降低評等，避免「強力買進」與「謹慎偏多」矛盾
+    # 技術面矛盾扣分
     conflicts = technical_conflicts or []
     conflict_penalty = min(len(conflicts) * 0.5, 2.0)
-    score -= conflict_penalty
+    tech_score -= conflict_penalty
+
+    # === 基本面分數 (範圍約 -4 ~ +4) ===
+    fund_score = fundamental_score * 0.4  # -5~+5 → -2~+2
+    if base_3m_upside > 0.10:
+        fund_score += 2
+    elif base_3m_upside > 0.05:
+        fund_score += 1
+    elif base_3m_upside < -0.05:
+        fund_score -= 2
+    elif base_3m_upside < 0:
+        fund_score -= 1
+
+    # === 籌碼面分數 (範圍 -5 ~ +5) ===
+    inst_score = institutional_score  # 直接使用
+
+    # === 加權總分 ===
+    # 正規化各維度到相近範圍後加權
+    # tech_score 範圍 ~[-12, +10], fund_score ~[-4, +4], inst_score [-5, +5]
+    # 使用原始加總維持向後相容，加上籌碼面調整
+    score = tech_score + fund_score + inst_score * weights["inst"] * 4
 
     if score >= 6:
         rating = "強力買進"
@@ -78,12 +241,20 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     else:
         rating = "強力賣出"
 
+    # === Gatekeeper Logic (Gemini R19 共識) ===
+    # 籌碼面極度負面時，強制降階至中性以下
+    _RATING_ORDER = ["強力賣出", "賣出", "中性", "買進", "強力買進"]
+    if institutional_score < -2:
+        max_idx = _RATING_ORDER.index("中性")
+        cur_idx = _RATING_ORDER.index(rating)
+        if cur_idx > max_idx:
+            rating = "中性"
+
     # 市場環境上限：空頭時最高「買進」
     if market_regime == "bear" and rating == "強力買進":
         rating = "買進"
 
-    # 技術面矛盾 + 強力買進 = 不允許（Gemini R10: 矛盾信號不應給最高評等）
-    # 只要存在任何技術面矛盾，就不能給「強力買進」
+    # 技術面矛盾 + 強力買進 = 不允許
     if conflicts and rating == "強力買進":
         rating = "買進"
 
