@@ -4,15 +4,15 @@ import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty, NAlert, NGrid,
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
-import { PieChart } from 'echarts/charts'
-import { TooltipComponent, LegendComponent } from 'echarts/components'
+import { PieChart, BarChart } from 'echarts/charts'
+import { TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import ProgressBar from '../components/ProgressBar.vue'
 
-use([PieChart, TooltipComponent, LegendComponent, CanvasRenderer])
+use([PieChart, BarChart, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
 const app = useAppStore()
 const wl = useWatchlistStore()
@@ -20,6 +20,7 @@ const wl = useWatchlistStore()
 onMounted(() => {
   wl.load()
   wl.loadOverview()
+  wl.loadSectorHeat()
 })
 
 function selectStock(code: string) {
@@ -79,6 +80,51 @@ const sectorChartOption = computed(() => ({
     })),
   }],
 }))
+
+// Sector heat bar chart (market-wide V4 signal density)
+const watchlistSectors = computed(() => new Set(wl.overview.filter((s: any) => !s.error && s.sector).map((s: any) => s.sector)))
+
+const sectorHeatChartOption = computed(() => {
+  const data = wl.sectorHeat?.sectors || []
+  if (!data.length) return null
+  // Top 10 sectors with at least 2 stocks
+  const filtered = data.filter((s: any) => s.total >= 2).slice(0, 10).reverse()
+  if (!filtered.length) return null
+
+  const wlSectors = watchlistSectors.value
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      formatter: (params: any) => {
+        const d = params[0]
+        const sector = filtered[d.dataIndex]
+        const buyList = (sector.buy_stocks || []).map((s: any) => `${s.code} ${s.name} (${s.maturity})`).join('<br/>')
+        return `<b>${sector.sector}</b><br/>` +
+          `訊號密度: ${(sector.heat * 100).toFixed(0)}% (${sector.buy_count}/${sector.total})<br/>` +
+          (buyList ? `<br/>BUY 標的:<br/>${buyList}` : '')
+      },
+    },
+    grid: { left: 100, right: 30, top: 10, bottom: 30 },
+    xAxis: { type: 'value', max: 1, axisLabel: { formatter: (v: number) => `${(v * 100).toFixed(0)}%` } },
+    yAxis: {
+      type: 'category',
+      data: filtered.map((s: any) => s.sector),
+      axisLabel: {
+        formatter: (v: string) => wlSectors.has(v) ? `* ${v}` : v,
+        fontWeight: (idx: number) => wlSectors.has(filtered[idx]?.sector) ? 'bold' : 'normal',
+      },
+    },
+    series: [{
+      type: 'bar',
+      data: filtered.map((s: any) => ({
+        value: s.heat,
+        itemStyle: { color: s.heat >= 0.3 ? '#e53e3e' : s.heat >= 0.15 ? '#dd6b20' : '#38a169' },
+      })),
+      label: { show: true, position: 'right', formatter: (p: any) => `${(p.value * 100).toFixed(0)}%` },
+    }],
+  }
+})
 
 const overviewPagination = reactive({ page: 1, pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] })
 const btPagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25] })
@@ -166,6 +212,17 @@ const btColumns: DataTableColumns = [
           </NCard>
         </NGi>
       </NGrid>
+
+      <!-- Sector heat bar chart (market-wide V4 signal density) -->
+      <NCard v-if="sectorHeatChartOption" title="產業熱度（全市場 V4 訊號密度）" size="small" style="margin-bottom: 16px">
+        <template #header-extra>
+          <NButton size="tiny" quaternary @click="wl.loadSectorHeat()" :loading="wl.isSectorHeatLoading">更新</NButton>
+        </template>
+        <VChart :option="sectorHeatChartOption" style="height: 280px" autoresize />
+        <div style="font-size: 11px; color: #888; margin-top: 4px">
+          * 標記為自選股持有的產業。紅色 >= 30%（熱點板塊），橘色 >= 15%，綠色 &lt; 15%。掃描池: {{ wl.sectorHeat?.scanned || 0 }} 股
+        </div>
+      </NCard>
 
       <NCard v-if="wl.overview.length" title="即時總覽" size="small" style="margin-bottom: 16px">
         <NDataTable

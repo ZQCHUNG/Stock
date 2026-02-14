@@ -14,4 +14,5 @@ export const analysisApi = {
   volumePatterns: (code: string) => client.get<any, any>(`/analysis/${code}/volume-patterns`),
   marketRegime: () => client.get<any, any>('/analysis/market-regime'),
   riskFactors: (code: string) => client.get<any, any>(`/analysis/${code}/risk-factors`),
+  sectorHeat: () => client.get<any, any>('/analysis/sector-heat'),
 }

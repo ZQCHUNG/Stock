@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { watchlistApi } from '../api/watchlist'
+import { analysisApi } from '../api/analysis'
 import { fetchSSE, type SSEProgress } from '../composables/useSSE'
 import { message } from '../utils/discrete'
 
@@ -8,6 +9,8 @@ export const useWatchlistStore = defineStore('watchlist', () => {
   const watchlist = ref<{ code: string; name: string }[]>([])
   const overview = ref<any[]>([])
   const batchResults = ref<any[]>([])
+  const sectorHeat = ref<any>(null)
+  const isSectorHeatLoading = ref(false)
   const isLoading = ref(false)
   const batchProgress = ref<SSEProgress>({ current: 0, total: 0, message: '' })
 
@@ -64,6 +67,14 @@ export const useWatchlistStore = defineStore('watchlist', () => {
       isLoading.value = false
       batchProgress.value = { current: 0, total: 0, message: '' }
     }
+  }
+
+  async function loadSectorHeat() {
+    isSectorHeatLoading.value = true
+    try {
+      sectorHeat.value = await analysisApi.sectorHeat()
+    } catch { /* interceptor handles toast */ }
+    finally { isSectorHeatLoading.value = false }
   }
 
   const isExporting = ref(false)
@@ -135,5 +146,5 @@ export const useWatchlistStore = defineStore('watchlist', () => {
     }
   }
 
-  return { watchlist, overview, batchResults, isLoading, isExporting, batchProgress, load, add, remove, loadOverview, runBatchBacktest, exportRiskAudit }
+  return { watchlist, overview, batchResults, sectorHeat, isLoading, isExporting, isSectorHeatLoading, batchProgress, load, add, remove, loadOverview, runBatchBacktest, loadSectorHeat, exportRiskAudit }
 })

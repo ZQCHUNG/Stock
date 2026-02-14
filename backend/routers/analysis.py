@@ -137,6 +137,85 @@ def get_market_regime():
         return {"regime": "unknown"}
 
 
+@router.get("/sector-heat")
+def get_sector_heat():
+    """產業熱度分析（Gemini R21 P1: Sector Rotation Monitor）
+
+    掃描 SCAN_STOCKS 池，計算每個產業的 V4 訊號密度。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from config import SCAN_STOCKS
+    from data.fetcher import get_stock_data, get_stock_info
+    from analysis.strategy_v4 import get_v4_analysis
+    from backend.dependencies import make_serializable
+
+    MATURITY_SCORES = {
+        "Speculative Spike": 1,
+        "Trend Formation": 2,
+        "Structural Shift": 3,
+    }
+
+    def _scan_stock(code):
+        try:
+            df = get_stock_data(code, period_days=120)
+            v4 = get_v4_analysis(df)
+            try:
+                info = get_stock_info(code)
+                sector = info.get("sector", "")
+            except Exception:
+                sector = ""
+            return {
+                "code": code,
+                "name": SCAN_STOCKS.get(code, code),
+                "sector": sector or "未分類",
+                "signal": v4["signal"],
+                "signal_maturity": v4.get("signal_maturity", "N/A"),
+                "uptrend_days": v4.get("uptrend_days", 0),
+            }
+        except Exception:
+            return None
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        results = list(executor.map(_scan_stock, list(SCAN_STOCKS.keys())))
+
+    valid = [r for r in results if r is not None]
+
+    # Group by sector
+    sectors: dict[str, list] = {}
+    for s in valid:
+        sec = s["sector"]
+        sectors.setdefault(sec, []).append(s)
+
+    heat_data = []
+    for sector, stocks in sectors.items():
+        total = len(stocks)
+        buy_stocks = [s for s in stocks if s["signal"] == "BUY"]
+        buy_count = len(buy_stocks)
+        heat = buy_count / total if total > 0 else 0
+
+        # Average maturity score for BUY stocks
+        maturity_scores = [MATURITY_SCORES.get(s["signal_maturity"], 0) for s in buy_stocks]
+        avg_maturity = sum(maturity_scores) / len(maturity_scores) if maturity_scores else 0
+
+        heat_data.append({
+            "sector": sector,
+            "total": total,
+            "buy_count": buy_count,
+            "heat": round(heat, 3),
+            "avg_maturity_score": round(avg_maturity, 2),
+            "buy_stocks": [{"code": s["code"], "name": s["name"], "maturity": s["signal_maturity"]} for s in buy_stocks],
+            "all_stocks": [s["code"] for s in stocks],
+        })
+
+    heat_data.sort(key=lambda x: x["heat"], reverse=True)
+
+    return make_serializable({
+        "sectors": heat_data,
+        "scanned": len(valid),
+        "total_buy": sum(h["buy_count"] for h in heat_data),
+    })
+
+
 @router.get("/{code}/risk-factors")
 def get_risk_factors(code: str, period_days: int = 365):
     """取得部位風險因子（Position Calculator 用）
