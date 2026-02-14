@@ -100,6 +100,9 @@ async function saveResult() {
         sortino_ratio: r.sortino_ratio,
         calmar_ratio: r.calmar_ratio,
       },
+      equityCurve: r.equity_curve?.dates?.length
+        ? { dates: r.equity_curve.dates, values: r.equity_curve.values }
+        : undefined,
     })
     message.success(`已保存「${name}」`)
     saveResultName.value = ''

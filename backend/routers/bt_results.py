@@ -25,18 +25,27 @@ def _save_results(data: list):
     RESULTS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+class EquityCurveData(BaseModel):
+    dates: list[str] = []
+    values: list[float] = []
+
+
 class SaveResultRequest(BaseModel):
     name: str
     stockCode: str
     stockName: str
     config: dict
     metrics: dict
+    equityCurve: EquityCurveData | None = None
 
 
 @router.get("/")
-def list_results():
-    """列出所有回測結果歷史"""
-    return _load_results()
+def list_results(include_equity: bool = False):
+    """列出所有回測結果歷史（預設不含權益曲線以加快載入）"""
+    results = _load_results()
+    if not include_equity:
+        return [{k: v for k, v in r.items() if k != "equityCurve"} for r in results]
+    return results
 
 
 @router.post("/")
@@ -47,14 +56,18 @@ def save_result(req: SaveResultRequest):
 
     results = _load_results()
 
-    results.insert(0, {
+    entry: dict = {
         "name": req.name,
         "stockCode": req.stockCode,
         "stockName": req.stockName,
         "config": req.config,
         "metrics": req.metrics,
         "savedAt": datetime.now().isoformat(),
-    })
+    }
+    if req.equityCurve and req.equityCurve.dates:
+        entry["equityCurve"] = {"dates": req.equityCurve.dates, "values": req.equityCurve.values}
+
+    results.insert(0, entry)
 
     # Keep max 50 results
     _save_results(results[:50])
