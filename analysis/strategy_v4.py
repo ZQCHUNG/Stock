@@ -160,17 +160,37 @@ def generate_v4_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
     return result
 
 
+def _classify_signal_maturity(uptrend_days: int, signal: str) -> str:
+    """訊號成熟度三級分類（Gemini R21）
+
+    - Speculative Spike: 1-7天，爆發初期，高波動
+    - Trend Formation: 8-15天，站穩突破區，量能穩定
+    - Structural Shift: 16+天，籌碼換手完成，推升階段
+    - N/A: 無多頭訊號
+    """
+    if signal not in ("BUY", "HOLD") or uptrend_days <= 0:
+        return "N/A"
+    if uptrend_days <= 7:
+        return "Speculative Spike"
+    if uptrend_days <= 15:
+        return "Trend Formation"
+    return "Structural Shift"
+
+
 def get_v4_analysis(df: pd.DataFrame) -> dict:
     """取得最新的 v4 分析結果"""
     signals_df = generate_v4_signals(df)
     latest = signals_df.iloc[-1]
+    uptrend_days = latest.get("uptrend_days", 0)
+    signal = latest["v4_signal"]
 
     return {
         "date": signals_df.index[-1],
         "close": latest["close"],
-        "signal": latest["v4_signal"],
+        "signal": signal,
         "entry_type": latest["v4_entry_type"],
-        "uptrend_days": latest.get("uptrend_days", 0),
+        "uptrend_days": uptrend_days,
+        "signal_maturity": _classify_signal_maturity(uptrend_days, signal),
         "dist_ma20": latest.get("dist_ma20", 0),
         "indicators": {
             "ADX": latest.get("adx"),

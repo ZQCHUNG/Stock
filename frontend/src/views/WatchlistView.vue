@@ -98,6 +98,12 @@ const overviewColumns: DataTableColumns = [
       { label: 'BUY', value: 'BUY' }, { label: 'SELL', value: 'SELL' }, { label: 'HOLD', value: 'HOLD' },
     ], filter: (value: any, row: any) => row.signal === value,
     render: (r: any) => h(NTag, { type: r.signal === 'BUY' ? 'error' : r.signal === 'SELL' ? 'success' : 'default', size: 'small' }, () => r.signal || '-') },
+  { title: '成熟度', key: 'signal_maturity', width: 110,
+    render: (r: any) => {
+      const m = r.signal_maturity || 'N/A'
+      const color = m === 'Structural Shift' ? 'success' : m === 'Trend Formation' ? 'warning' : m === 'Speculative Spike' ? 'error' : 'default'
+      return h(NTag, { type: color, size: 'small' }, () => m)
+    } },
   { title: '趨勢天數', key: 'uptrend_days', width: 80, sorter: (a: any, b: any) => (a.uptrend_days || 0) - (b.uptrend_days || 0) },
   { title: 'RSI', key: 'rsi', width: 60, sorter: (a: any, b: any) => (a.rsi || 0) - (b.rsi || 0),
     render: (r: any) => r.rsi?.toFixed(1) || '-' },

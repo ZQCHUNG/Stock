@@ -78,17 +78,17 @@ export const useWatchlistStore = defineStore('watchlist', () => {
       // Build CSV
       const BOM = '\uFEFF'
       const headers = [
-        '代碼', '名稱', '收盤價', 'V4訊號', '進場類型', 'RSI', 'ADX', '趨勢天數',
+        '代碼', '名稱', '收盤價', 'V4訊號', '進場類型', '訊號成熟度', 'RSI', 'ADX', '趨勢天數',
         '產業', '生技?', '法人能見度', '法人分數',
         '營業跑道(季)', '總跑道(季)', '有效跑道(季)',
         'Liquidity Factor', '建議張數', '停損價', '最大虧損',
         '均量(張/日)', '風險警告',
       ]
       const rows = stocks.map((s: any) => {
-        if (s.error) return [s.code, s.name, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', `ERROR: ${s.error}`]
+        if (s.error) return [s.code, s.name, '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', `ERROR: ${s.error}`]
         return [
           s.code, s.name, s.price?.toFixed(2) ?? '',
-          s.signal ?? '', s.entry_type ?? '',
+          s.signal ?? '', s.entry_type ?? '', s.signal_maturity ?? 'N/A',
           s.rsi?.toFixed(1) ?? '', s.adx?.toFixed(1) ?? '', s.uptrend_days ?? '',
           s.sector ?? '', s.is_biotech ? 'Y' : 'N',
           s.visibility ?? '', s.inst_score ?? '',
