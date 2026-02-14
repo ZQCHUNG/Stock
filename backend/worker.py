@@ -70,6 +70,55 @@ def is_trading_hours() -> bool:
     return 8 * 60 + 30 <= time_val <= 14 * 60
 
 
+def _calculate_leader_score(stock: dict, inst_score: float | None) -> float:
+    """Calculate Leader_Score for a BUY stock (Gemini R22 P1).
+
+    Score = Maturity_Norm × 0.4 + Inst_Score_Norm × 0.4 + Vol_Strength_Norm × 0.2
+    All factors normalized to [0, 1].
+    """
+    # Maturity: 1.0 → 0, 1.5 → 0.5, 2.0 → 1.0
+    mat_weight = MATURITY_WEIGHTS.get(stock.get("signal_maturity", ""), 1.0)
+    mat_norm = (mat_weight - 1.0) / 1.0
+
+    # Institutional: [-5, 5] → [0, 1], default 0.5 if unavailable
+    if inst_score is not None:
+        inst_norm = max(0.0, min(1.0, (inst_score + 5) / 10))
+    else:
+        inst_norm = 0.5  # neutral when no data
+
+    # Volume: ratio 1.0 → 0, ratio ≥ 2.0 → 1.0
+    vol_ratio = stock.get("volume_ratio", 1.0)
+    vol_norm = max(0.0, min(1.0, (vol_ratio - 1.0) / 1.0))
+
+    return round(mat_norm * 0.4 + inst_norm * 0.4 + vol_norm * 0.2, 3)
+
+
+def _fetch_inst_scores(buy_codes: list[str]) -> dict[str, float]:
+    """Fetch institutional scores for BUY stocks only (minimize API calls)."""
+    if not buy_codes:
+        return {}
+
+    from data.fetcher import get_institutional_data
+    from analysis.report.recommendation import _calculate_institutional_score
+
+    scores = {}
+
+    def _get_inst(code):
+        try:
+            inst_df = get_institutional_data(code, days=10)
+            result = _calculate_institutional_score(inst_df)
+            return code, result.get("score", 0)
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(_get_inst, buy_codes))
+
+    for code, score in results:
+        scores[code] = score
+    return scores
+
+
 def scan_sector_heat() -> dict:
     """Execute full sector heat scan across SCAN_STOCKS pool.
 
@@ -84,7 +133,8 @@ def scan_sector_heat() -> dict:
         try:
             df = get_stock_data(code, period_days=120)
             v4 = get_v4_analysis(df)
-            sector = get_stock_sector(code, level=1)
+            sector_l1 = get_stock_sector(code, level=1)
+            sector_l2 = get_stock_sector(code, level=2)
 
             # Volume ratio: today's volume / 5-day avg (for Surge confirmation)
             vol_ratio = 0.0
@@ -96,7 +146,8 @@ def scan_sector_heat() -> dict:
             return {
                 "code": code,
                 "name": SCAN_STOCKS.get(code, code),
-                "sector": sector,
+                "sector": sector_l1,
+                "sector_l2": sector_l2,
                 "signal": v4["signal"],
                 "signal_maturity": v4.get("signal_maturity", "N/A"),
                 "uptrend_days": v4.get("uptrend_days", 0),
@@ -116,7 +167,14 @@ def scan_sector_heat() -> dict:
     elapsed = time.time() - start_time
     logger.info(f"Scan complete: {len(valid)}/{len(SCAN_STOCKS)} stocks in {elapsed:.1f}s")
 
-    # Group by sector
+    # === Fetch institutional scores for BUY stocks only ===
+    buy_codes = [s["code"] for s in valid if s["signal"] == "BUY"]
+    inst_scores = {}
+    if buy_codes:
+        logger.info(f"Fetching institutional data for {len(buy_codes)} BUY stocks...")
+        inst_scores = _fetch_inst_scores(buy_codes)
+
+    # Group by L1 sector
     sectors: dict[str, list] = {}
     for s in valid:
         sec = s["sector"]
@@ -139,6 +197,41 @@ def scan_sector_heat() -> dict:
         buy_vol_ratios = [s.get("volume_ratio", 0) for s in buy_stocks if s.get("volume_ratio", 0) > 0]
         avg_buy_vol_ratio = sum(buy_vol_ratios) / len(buy_vol_ratios) if buy_vol_ratios else 0
 
+        # === Leader Score (Gemini R22 P1) ===
+        leader = None
+        for bs in buy_stocks:
+            score = _calculate_leader_score(bs, inst_scores.get(bs["code"]))
+            bs["leader_score"] = score
+        # Pick highest scoring BUY stock (>0.6 threshold, tiebreak by uptrend_days)
+        candidates = [bs for bs in buy_stocks if bs.get("leader_score", 0) > 0.6]
+        if candidates:
+            best = max(candidates, key=lambda x: (x["leader_score"], x.get("uptrend_days", 0)))
+            leader = {
+                "code": best["code"],
+                "name": best["name"],
+                "score": best["leader_score"],
+                "maturity": best["signal_maturity"],
+            }
+
+        # === L2 Subsector breakdown ===
+        l2_groups: dict[str, list] = {}
+        for s in stocks:
+            l2 = s.get("sector_l2", "未分類")
+            l2_groups.setdefault(l2, []).append(s)
+
+        subsectors = []
+        for l2_name, l2_stocks in l2_groups.items():
+            l2_total = len(l2_stocks)
+            l2_buy = [s for s in l2_stocks if s["signal"] == "BUY"]
+            l2_heat = len(l2_buy) / l2_total if l2_total > 0 else 0
+            subsectors.append({
+                "sector": l2_name,
+                "total": l2_total,
+                "buy_count": len(l2_buy),
+                "heat": round(l2_heat, 3),
+            })
+        subsectors.sort(key=lambda x: x["heat"], reverse=True)
+
         heat_data.append({
             "sector": sector,
             "total": total,
@@ -146,8 +239,14 @@ def scan_sector_heat() -> dict:
             "heat": round(heat, 3),
             "weighted_heat": round(weighted_heat, 3),
             "avg_buy_vol_ratio": round(avg_buy_vol_ratio, 2),
+            "leader": leader,
+            "subsectors": subsectors,
             "buy_stocks": [
-                {"code": s["code"], "name": s["name"], "maturity": s["signal_maturity"]}
+                {
+                    "code": s["code"], "name": s["name"],
+                    "maturity": s["signal_maturity"],
+                    "leader_score": s.get("leader_score"),
+                }
                 for s in buy_stocks
             ],
             "all_stocks": [s["code"] for s in stocks],
@@ -209,8 +308,19 @@ def scan_sector_heat() -> dict:
                 f"ΔHeat={mc['delta_heat']:+.1%} Jump={mc['jump_ratio']:.1f}x"
             )
 
+    # Log leaders
+    leaders = [h for h in heat_data if h.get("leader")]
+    if leaders:
+        for h in leaders:
+            ld = h["leader"]
+            logger.info(
+                f"  Leader [{h['sector']}]: {ld['code']} {ld['name']} "
+                f"(Score={ld['score']:.2f}, {ld['maturity']})"
+            )
+
     logger.info(
-        f"Results: {len(heat_data)} sectors, {total_buy} BUY signals"
+        f"Results: {len(heat_data)} sectors, {total_buy} BUY signals, "
+        f"{len(leaders)} leaders"
         + (f", top: {heat_data[0]['sector']} ({heat_data[0]['weighted_heat']:.1%})"
            if heat_data else "")
     )
