@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
-import { NCard, NButton, NGrid, NGi, NSpin, NTag, NSpace } from 'naive-ui'
+import { h, onMounted } from 'vue'
+import { NCard, NButton, NGrid, NGi, NSpin, NTag, NSpace, NDataTable } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useRecommendStore } from '../stores/recommend'
 import { useWatchlistStore } from '../stores/watchlist'
@@ -29,6 +30,32 @@ function addToWatchlist(code: string) {
 const buyResults = () => rec.scanResults.filter((r) => r.signal === 'BUY')
 const holdResults = () => rec.scanResults.filter((r) => r.signal === 'HOLD')
 const sellResults = () => rec.scanResults.filter((r) => r.signal === 'SELL')
+
+const holdColumns: DataTableColumns = [
+  { title: '代碼', key: 'code', width: 70, sorter: 'default',
+    render: (r: any) => h('span', { style: { fontWeight: 600, cursor: 'pointer' }, onClick: () => selectStock(r.code) }, r.code) },
+  { title: '名稱', key: 'name', width: 80,
+    render: (r: any) => h('span', { style: { cursor: 'pointer' }, onClick: () => selectStock(r.code) }, r.name) },
+  { title: '價格', key: 'price', width: 80, sorter: (a: any, b: any) => (a.price || 0) - (b.price || 0),
+    render: (r: any) => r.price?.toFixed(2) || '-' },
+  { title: '漲跌%', key: 'price_change', width: 80, sorter: (a: any, b: any) => (a.price_change || 0) - (b.price_change || 0),
+    render: (r: any) => h('span', { style: { color: priceColor(r.price_change), fontWeight: 600 } }, fmtPct(r.price_change)) },
+  { title: '趨勢天數', key: 'uptrend_days', width: 80, sorter: (a: any, b: any) => (a.uptrend_days || 0) - (b.uptrend_days || 0) },
+  { title: 'ADX', key: 'adx', width: 60,
+    render: (r: any) => r.indicators?.ADX?.toFixed(1) || '-' },
+  { title: 'RSI', key: 'rsi', width: 60,
+    render: (r: any) => r.indicators?.RSI?.toFixed(1) || '-' },
+]
+
+const sellColumns: DataTableColumns = [
+  { title: '代碼', key: 'code', width: 70, sorter: 'default',
+    render: (r: any) => h('span', { style: { fontWeight: 600 } }, r.code) },
+  { title: '名稱', key: 'name', width: 80 },
+  { title: '價格', key: 'price', width: 80,
+    render: (r: any) => r.price?.toFixed(2) || '-' },
+  { title: '漲跌%', key: 'price_change', width: 80, sorter: (a: any, b: any) => (a.price_change || 0) - (b.price_change || 0),
+    render: (r: any) => h('span', { style: { color: priceColor(r.price_change), fontWeight: 600 } }, fmtPct(r.price_change)) },
+]
 </script>
 
 <template>
@@ -58,16 +85,16 @@ const sellResults = () => rec.scanResults.filter((r) => r.signal === 'SELL')
               <div style="display: flex; justify-content: space-between; align-items: center">
                 <div>
                   <span style="font-weight: 700; font-size: 16px">{{ r.code }}</span>
-                  <span style="margin-left: 8px; color: #718096">{{ r.name }}</span>
+                  <span style="margin-left: 8px; color: var(--text-muted)">{{ r.name }}</span>
                 </div>
                 <SignalBadge :signal="r.signal" size="small" />
               </div>
               <div style="margin-top: 8px; display: flex; gap: 16px; font-size: 13px">
                 <span>{{ r.price?.toFixed(2) }}</span>
                 <span :style="{ color: priceColor(r.price_change) }">{{ fmtPct(r.price_change) }}</span>
-                <span style="color: #718096">{{ r.entry_type }}</span>
+                <span style="color: var(--text-muted)">{{ r.entry_type }}</span>
               </div>
-              <div style="margin-top: 4px; font-size: 12px; color: #a0aec0">
+              <div style="margin-top: 4px; font-size: 12px; color: var(--text-dimmed)">
                 趨勢 {{ r.uptrend_days }}天 | ADX {{ r.indicators?.ADX?.toFixed(1) || '-' }} | RSI {{ r.indicators?.RSI?.toFixed(1) || '-' }}
               </div>
               <NButton size="tiny" quaternary style="margin-top: 4px" @click.stop="addToWatchlist(r.code)">加入自選</NButton>
@@ -77,49 +104,27 @@ const sellResults = () => rec.scanResults.filter((r) => r.signal === 'SELL')
       </NCard>
 
       <!-- HOLD -->
-      <NCard v-if="holdResults().length" title="觀望" size="small" style="margin-bottom: 16px">
-        <table style="width: 100%; font-size: 12px; border-collapse: collapse">
-          <thead>
-            <tr style="border-bottom: 1px solid #e2e8f0">
-              <th style="text-align: left; padding: 4px">代碼</th>
-              <th style="text-align: left; padding: 4px">名稱</th>
-              <th style="text-align: right; padding: 4px">價格</th>
-              <th style="text-align: right; padding: 4px">漲跌%</th>
-              <th style="text-align: right; padding: 4px">趨勢天數</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in holdResults()" :key="r.code" style="border-bottom: 1px solid #f0f0f0; cursor: pointer" @click="selectStock(r.code)">
-              <td style="padding: 4px; font-weight: 600">{{ r.code }}</td>
-              <td style="padding: 4px">{{ r.name }}</td>
-              <td style="padding: 4px; text-align: right">{{ r.price?.toFixed(2) }}</td>
-              <td style="padding: 4px; text-align: right" :style="{ color: priceColor(r.price_change) }">{{ fmtPct(r.price_change) }}</td>
-              <td style="padding: 4px; text-align: right">{{ r.uptrend_days }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <NCard v-if="holdResults().length" :title="`觀望 (${holdResults().length})`" size="small" style="margin-bottom: 16px">
+        <NDataTable
+          :columns="holdColumns"
+          :data="holdResults()"
+          :pagination="{ pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 30] }"
+          :row-props="(r: any) => ({ style: { cursor: 'pointer' }, onClick: () => selectStock(r.code) })"
+          size="small"
+          :bordered="false"
+          :single-line="false"
+        />
       </NCard>
 
       <!-- SELL -->
-      <NCard v-if="sellResults().length" title="賣出訊號" size="small">
-        <table style="width: 100%; font-size: 12px; border-collapse: collapse">
-          <thead>
-            <tr style="border-bottom: 1px solid #e2e8f0">
-              <th style="text-align: left; padding: 4px">代碼</th>
-              <th style="text-align: left; padding: 4px">名稱</th>
-              <th style="text-align: right; padding: 4px">價格</th>
-              <th style="text-align: right; padding: 4px">漲跌%</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="r in sellResults()" :key="r.code" style="border-bottom: 1px solid #f0f0f0">
-              <td style="padding: 4px; font-weight: 600">{{ r.code }}</td>
-              <td style="padding: 4px">{{ r.name }}</td>
-              <td style="padding: 4px; text-align: right">{{ r.price?.toFixed(2) }}</td>
-              <td style="padding: 4px; text-align: right" :style="{ color: priceColor(r.price_change) }">{{ fmtPct(r.price_change) }}</td>
-            </tr>
-          </tbody>
-        </table>
+      <NCard v-if="sellResults().length" :title="`賣出訊號 (${sellResults().length})`" size="small">
+        <NDataTable
+          :columns="sellColumns"
+          :data="sellResults()"
+          size="small"
+          :bordered="false"
+          :single-line="false"
+        />
       </NCard>
     </NSpin>
   </div>

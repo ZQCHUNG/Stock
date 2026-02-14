@@ -6,6 +6,7 @@ import { CandlestickChart as Candle, LineChart, BarChart, ScatterChart } from 'e
 import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { TimeSeriesData } from '../api/stocks'
+import { useChartTheme } from '../composables/useChartTheme'
 
 use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, CanvasRenderer])
 
@@ -17,9 +18,12 @@ const props = defineProps<{
   group?: string
 }>()
 
+const { colors } = useChartTheme()
+
 const option = computed(() => {
   const d = props.data
   if (!d || !d.dates.length) return {}
+  const c = colors.value
 
   const dates = d.dates
   const open = d.columns.open || []
@@ -79,7 +83,7 @@ const option = computed(() => {
         return html + '</div>'
       },
     },
-    legend: { data: ['K線', 'MA5', 'MA20', 'MA60', 'BB上', 'BB下'], top: 0, textStyle: { fontSize: 11 } },
+    legend: { data: ['K線', 'MA5', 'MA20', 'MA60', 'BB上', 'BB下'], top: 0, textStyle: { fontSize: 11, color: c.legendText } },
     grid: [
       { left: 60, right: 20, top: 40, height: '55%' },
       { left: 60, right: 20, top: '72%', height: '18%' },
@@ -89,7 +93,7 @@ const option = computed(() => {
       { type: 'category', data: dates, gridIndex: 1, axisLabel: { fontSize: 10 } },
     ],
     yAxis: [
-      { scale: true, gridIndex: 0, splitLine: { lineStyle: { type: 'dashed', color: '#eee' } } },
+      { scale: true, gridIndex: 0, splitLine: { lineStyle: { type: 'dashed', color: c.splitLine } } },
       { scale: true, gridIndex: 1, splitLine: { show: false } },
     ],
     dataZoom: [
@@ -111,8 +115,8 @@ const option = computed(() => {
       { name: 'MA5', type: 'line', data: ma5, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1 }, symbol: 'none', itemStyle: { color: '#ff6b35' } },
       { name: 'MA20', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1 }, symbol: 'none', itemStyle: { color: '#2196f3' } },
       { name: 'MA60', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1 }, symbol: 'none', itemStyle: { color: '#9c27b0' } },
-      { name: 'BB上', type: 'line', data: bbUpper, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1, type: 'dotted', color: '#aaa' }, symbol: 'none' },
-      { name: 'BB下', type: 'line', data: bbLower, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1, type: 'dotted', color: '#aaa' }, symbol: 'none' },
+      { name: 'BB上', type: 'line', data: bbUpper, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1, type: 'dotted', color: c.bbLine }, symbol: 'none' },
+      { name: 'BB下', type: 'line', data: bbLower, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1, type: 'dotted', color: c.bbLine }, symbol: 'none' },
       {
         name: '成交量', type: 'bar', data: volume.map((v, i) => ({
           value: v,

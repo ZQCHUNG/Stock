@@ -15,6 +15,7 @@ import { useBacktestStore } from '../stores/backtest'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, fmtNum, priceColor, downloadCsv } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
+import { useChartTheme } from '../composables/useChartTheme'
 import MetricCard from '../components/MetricCard.vue'
 
 use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
@@ -25,6 +26,7 @@ const wl = useWatchlistStore()
 
 onMounted(() => wl.load())
 
+const { colors: chartColors } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
@@ -43,11 +45,12 @@ async function runBacktest() {
 const equityOption = computed(() => {
   const r = bt.singleResult
   if (!r?.equity_curve?.dates?.length) return {}
+  const cc = chartColors.value
   return {
     tooltip: { trigger: 'axis' },
     grid: { left: 80, right: 20, top: 20, bottom: 30 },
-    xAxis: { type: 'category', data: r.equity_curve.dates },
-    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v) } },
+    xAxis: { type: 'category', data: r.equity_curve.dates, axisLabel: { color: cc.axisLabel } },
+    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
     series: [{ type: 'line', data: r.equity_curve.values, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#2196f3' } }],
   }
 })
@@ -57,9 +60,10 @@ const exitPieOption = computed(() => {
   const counts: Record<string, number> = {}
   trades.forEach((t: any) => { counts[t.exit_reason] = (counts[t.exit_reason] || 0) + 1 })
   const data = Object.entries(counts).map(([name, value]) => ({ name, value }))
+  const cc = chartColors.value
   return {
     tooltip: { trigger: 'item' },
-    series: [{ type: 'pie', radius: ['40%', '70%'], data, label: { fontSize: 11 } }],
+    series: [{ type: 'pie', radius: ['40%', '70%'], data, label: { fontSize: 11, color: cc.legendText } }],
   }
 })
 
@@ -111,11 +115,12 @@ async function runPortfolio() {
 const portfolioEquityOption = computed(() => {
   const r = bt.portfolioResult
   if (!r?.equity_curve?.dates?.length) return {}
+  const cc = chartColors.value
   return {
     tooltip: { trigger: 'axis' },
     grid: { left: 80, right: 20, top: 20, bottom: 30 },
-    xAxis: { type: 'category', data: r.equity_curve.dates },
-    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v) } },
+    xAxis: { type: 'category', data: r.equity_curve.dates, axisLabel: { color: cc.axisLabel } },
+    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
     series: [{ type: 'line', data: r.equity_curve.values, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#7c3aed' } }],
   }
 })
@@ -160,11 +165,12 @@ const simEquityOption = computed(() => {
   if (!r?.daily_records?.length) return {}
   const dates = r.daily_records.map((d: any) => d.date?.slice(0, 10))
   const equity = r.daily_records.map((d: any) => d.total_equity)
+  const cc = chartColors.value
   return {
     tooltip: { trigger: 'axis' },
     grid: { left: 80, right: 20, top: 20, bottom: 30 },
-    xAxis: { type: 'category', data: dates },
-    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v) } },
+    xAxis: { type: 'category', data: dates, axisLabel: { color: cc.axisLabel } },
+    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
     series: [{ type: 'line', data: equity, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#e53e3e' } }],
   }
 })
@@ -184,6 +190,85 @@ const simRecordColumns: DataTableColumns = [
   { title: '日損益', key: 'daily_pnl', width: 80,
     render: (r: any) => h('span', { style: { color: priceColor(r.daily_pnl) } }, fmtNum(r.daily_pnl, 0)) },
 ]
+
+// --- Advanced Analysis ---
+const windowMonths = ref(6)
+
+async function runRolling() {
+  await bt.runRolling(app.currentStockCode, windowMonths.value, { period_days: periodDays.value, initial_capital: capital.value })
+}
+async function runSensitivity() {
+  await bt.runSensitivity(app.currentStockCode, { period_days: periodDays.value, initial_capital: capital.value })
+}
+async function runAlphaBeta() {
+  await bt.runAlphaBeta(app.currentStockCode, { period_days: periodDays.value, initial_capital: capital.value })
+}
+
+const rollingBarOption = computed(() => {
+  const r = bt.rollingResult
+  if (!r?.windows?.length) return {}
+  const cc = chartColors.value
+  const names = r.windows.map((w: any) => w.window_name)
+  const returns = r.windows.map((w: any) => w.total_return)
+  return {
+    tooltip: { trigger: 'axis', formatter: (params: any[]) => {
+      if (!params?.length) return ''
+      const p = params[0]
+      return `${p.name}<br/>報酬率: ${fmtPct(p.value)}`
+    }},
+    grid: { left: 60, right: 20, top: 20, bottom: 40 },
+    xAxis: { type: 'category', data: names, axisLabel: { color: cc.axisLabel, rotate: 45, fontSize: 10 } },
+    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtPct(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
+    series: [{
+      type: 'bar', data: returns.map((v: number) => ({
+        value: v,
+        itemStyle: { color: v >= 0 ? '#2196f3' : '#e53e3e' },
+      })),
+    }],
+  }
+})
+
+const rollingWindowColumns: DataTableColumns = [
+  { title: '區間', key: 'window_name', width: 120 },
+  { title: '報酬率', key: 'total_return', width: 90, sorter: (a: any, b: any) => (a.total_return || 0) - (b.total_return || 0),
+    render: (r: any) => h('span', { style: { color: priceColor(r.total_return), fontWeight: 600 } }, fmtPct(r.total_return)) },
+  { title: '年化', key: 'annual_return', width: 80,
+    render: (r: any) => h('span', { style: { color: priceColor(r.annual_return) } }, fmtPct(r.annual_return)) },
+  { title: '最大回撤', key: 'max_drawdown', width: 90,
+    render: (r: any) => h('span', { style: { color: '#e53e3e' } }, fmtPct(r.max_drawdown)) },
+  { title: '勝率', key: 'win_rate', width: 70, render: (r: any) => fmtPct(r.win_rate) },
+  { title: 'Sharpe', key: 'sharpe_ratio', width: 80, render: (r: any) => r.sharpe_ratio?.toFixed(2) || '-' },
+  { title: '交易數', key: 'total_trades', width: 70 },
+]
+
+const sensitivityColumns: DataTableColumns = [
+  { title: '參數', key: 'param', width: 80 },
+  { title: '值', key: 'value', width: 80 },
+  { title: '報酬率', key: 'return', width: 90, sorter: (a: any, b: any) => (a.return || 0) - (b.return || 0),
+    render: (r: any) => h('span', { style: { color: priceColor(r.return), fontWeight: 600 } }, fmtPct(r.return)) },
+  { title: '勝率', key: 'win_rate', width: 70, render: (r: any) => fmtPct(r.win_rate) },
+  { title: '最大回撤', key: 'max_dd', width: 90,
+    render: (r: any) => h('span', { style: { color: '#e53e3e' } }, fmtPct(r.max_dd)) },
+  { title: 'Sharpe', key: 'sharpe', width: 80, render: (r: any) => r.sharpe?.toFixed(2) || '-' },
+  { title: '交易數', key: 'trades', width: 70 },
+]
+
+const alphaBetaChartOption = computed(() => {
+  const r = bt.alphaBetaResult
+  if (!r?.rolling_alpha?.dates?.length) return {}
+  const cc = chartColors.value
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['Rolling Alpha', 'EMA20'], textStyle: { color: cc.legendText } },
+    grid: { left: 80, right: 20, top: 30, bottom: 30 },
+    xAxis: { type: 'category', data: r.rolling_alpha.dates, axisLabel: { color: cc.axisLabel } },
+    yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtPct(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
+    series: [
+      { name: 'Rolling Alpha', type: 'line', data: r.rolling_alpha.values, symbol: 'none', lineStyle: { width: 1, color: '#2196f3' } },
+      { name: 'EMA20', type: 'line', data: r.rolling_alpha_ema?.values || [], symbol: 'none', lineStyle: { width: 1.5, color: '#ff9800' } },
+    ],
+  }
+})
 </script>
 
 <template>
@@ -195,6 +280,7 @@ const simRecordColumns: DataTableColumns = [
       <NTabPane name="single" tab="單一回測" />
       <NTabPane name="portfolio" tab="投資組合" />
       <NTabPane name="simulation" tab="模擬交易" />
+      <NTabPane name="advanced" tab="進階分析" />
     </NTabs>
 
     <!-- Shared Params -->
@@ -226,6 +312,14 @@ const simRecordColumns: DataTableColumns = [
       <template v-if="mode === 'simulation'">
         <NInputNumber v-model:value="simDays" :min="5" :max="120" size="small" placeholder="模擬天數" style="width: 120px" />
         <NButton type="primary" @click="runSimulation" :loading="bt.isLoading">開始模擬</NButton>
+      </template>
+
+      <!-- Advanced mode controls -->
+      <template v-if="mode === 'advanced'">
+        <NInputNumber v-model:value="windowMonths" :min="3" :max="24" size="small" placeholder="窗口(月)" style="width: 120px" />
+        <NButton @click="runRolling" :loading="bt.isLoading">滾動回測</NButton>
+        <NButton @click="runSensitivity" :loading="bt.isLoading">敏感度</NButton>
+        <NButton @click="runAlphaBeta" :loading="bt.isLoading">Alpha/Beta</NButton>
       </template>
     </NSpace>
 
@@ -346,10 +440,71 @@ const simRecordColumns: DataTableColumns = [
           </NTabPane>
           <NTabPane v-if="bt.simulationResult.trade_log?.length" name="log" tab="交易日誌">
             <div style="font-size: 13px; line-height: 1.8">
-              <div v-for="(log, i) in bt.simulationResult.trade_log" :key="i" style="border-bottom: 1px solid #f0f0f0; padding: 4px 0">
+              <div v-for="(log, i) in bt.simulationResult.trade_log" :key="i" style="border-bottom: 1px solid var(--border-light); padding: 4px 0">
                 {{ log }}
               </div>
             </div>
+          </NTabPane>
+        </NTabs>
+      </template>
+
+      <!-- ====== ADVANCED ANALYSIS ====== -->
+      <template v-if="mode === 'advanced'">
+        <NTabs type="line">
+          <!-- Rolling Backtest -->
+          <NTabPane name="rolling" tab="滾動回測">
+            <template v-if="bt.rollingResult">
+              <NGrid :cols="metricCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+                <NGi><MetricCard title="一致性分數" :value="bt.rollingResult.consistency_score?.toFixed(1) || '-'" :color="(bt.rollingResult.consistency_score || 0) >= 70 ? '#38a169' : '#e53e3e'" /></NGi>
+                <NGi><MetricCard title="平均報酬" :value="fmtPct(bt.rollingResult.avg_return)" :color="priceColor(bt.rollingResult.avg_return)" /></NGi>
+                <NGi><MetricCard title="報酬標準差" :value="fmtPct(bt.rollingResult.return_std)" /></NGi>
+                <NGi>
+                  <MetricCard title="正/負窗口">
+                    <template #default>
+                      <span style="color: #e53e3e">{{ bt.rollingResult.positive_windows }}</span>
+                      /
+                      <span style="color: #38a169">{{ bt.rollingResult.total_windows - bt.rollingResult.positive_windows }}</span>
+                    </template>
+                  </MetricCard>
+                </NGi>
+                <NGi><MetricCard title="平均勝率" :value="fmtPct(bt.rollingResult.avg_win_rate)" /></NGi>
+                <NGi><MetricCard title="平均最大回撤" :value="fmtPct(bt.rollingResult.avg_max_drawdown)" color="#e53e3e" /></NGi>
+              </NGrid>
+              <NCard size="small" style="margin-bottom: 12px">
+                <VChart :option="rollingBarOption" autoresize style="height: 300px" />
+              </NCard>
+              <NDataTable :columns="rollingWindowColumns" :data="bt.rollingResult.windows" size="small" :pagination="{ pageSize: 10 }" />
+            </template>
+            <NAlert v-else type="info">點擊「滾動回測」開始分析</NAlert>
+          </NTabPane>
+
+          <!-- Parameter Sensitivity -->
+          <NTabPane name="sensitivity" tab="參數敏感度">
+            <template v-if="bt.sensitivityResult?.length">
+              <NDataTable :columns="sensitivityColumns" :data="bt.sensitivityResult" size="small" :pagination="{ pageSize: 20 }" />
+            </template>
+            <NAlert v-else type="info">點擊「敏感度」開始分析</NAlert>
+          </NTabPane>
+
+          <!-- Alpha/Beta -->
+          <NTabPane name="alphabeta" tab="Alpha / Beta">
+            <template v-if="bt.alphaBetaResult">
+              <NGrid :cols="metricCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+                <NGi><MetricCard title="Jensen's Alpha" :value="fmtPct(bt.alphaBetaResult.jensen_alpha)" :color="priceColor(bt.alphaBetaResult.jensen_alpha)" /></NGi>
+                <NGi><MetricCard title="Beta" :value="bt.alphaBetaResult.beta?.toFixed(3) || '-'" /></NGi>
+                <NGi><MetricCard title="Up Beta" :value="bt.alphaBetaResult.up_beta?.toFixed(3) || '-'" /></NGi>
+                <NGi><MetricCard title="Down Beta" :value="bt.alphaBetaResult.down_beta?.toFixed(3) || '-'" /></NGi>
+                <NGi><MetricCard title="Capture Ratio" :value="bt.alphaBetaResult.capture_ratio?.toFixed(2) || '-'" /></NGi>
+                <NGi><MetricCard title="R-squared" :value="bt.alphaBetaResult.r_squared?.toFixed(3) || '-'" /></NGi>
+              </NGrid>
+              <NCard title="Rolling Alpha (60日)" size="small">
+                <VChart :option="alphaBetaChartOption" autoresize style="height: 350px" />
+              </NCard>
+              <NAlert v-if="bt.alphaBetaResult.benchmark_warning" type="warning" style="margin-top: 8px">
+                {{ bt.alphaBetaResult.benchmark_warning }}
+              </NAlert>
+            </template>
+            <NAlert v-else type="info">點擊「Alpha/Beta」開始分析</NAlert>
           </NTabPane>
         </NTabs>
       </template>

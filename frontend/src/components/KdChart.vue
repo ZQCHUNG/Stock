@@ -6,6 +6,7 @@ import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, DataZoomComponent, AxisPointerComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { TimeSeriesData } from '../api/stocks'
+import { useChartTheme } from '../composables/useChartTheme'
 
 use([LineChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, DataZoomComponent, AxisPointerComponent, CanvasRenderer])
 
@@ -14,11 +15,14 @@ const props = defineProps<{
   group?: string
 }>()
 
+const { colors } = useChartTheme()
+
 const option = computed(() => {
   const d = props.data
   if (!d || !d.dates.length) return {}
   const k = d.columns.k || []
   const dVal = d.columns.d || []
+  const c = colors.value
 
   return {
     tooltip: {
@@ -31,10 +35,10 @@ const option = computed(() => {
         return `<div style="font-size:12px"><b>${date}</b><br/>K ${k[idx]?.toFixed(1) ?? '-'} D ${dVal[idx]?.toFixed(1) ?? '-'}</div>`
       },
     },
-    legend: { data: ['K', 'D'], textStyle: { fontSize: 11 } },
+    legend: { data: ['K', 'D'], textStyle: { fontSize: 11, color: c.legendText } },
     grid: { left: 60, right: 20, top: 30, bottom: 20 },
     xAxis: { type: 'category', data: d.dates, axisLabel: { fontSize: 10, show: false } },
-    yAxis: { min: 0, max: 100, splitLine: { lineStyle: { type: 'dashed', color: '#eee' } } },
+    yAxis: { min: 0, max: 100, splitLine: { lineStyle: { type: 'dashed', color: c.splitLine } } },
     dataZoom: [{ type: 'inside', start: 60, end: 100 }],
     series: [
       {
