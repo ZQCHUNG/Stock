@@ -10,10 +10,12 @@ import { sqsPerformanceApi } from '../api/sqs-performance'
 
 const isLoading = ref(false)
 const isUpdating = ref(false)
+const isBackfilling = ref(false)
 const summary = ref<any>(null)
 const signals = ref<any[]>([])
 const error = ref('')
 const dateRange = ref<[number, number] | null>(null)
+const sourceFilter = ref<string | null>(null)  // null=all, 'live', 'backtest'
 
 async function loadSummary() {
   isLoading.value = true
@@ -24,6 +26,7 @@ async function loadSummary() {
       params.date_from = new Date(dateRange.value[0]).toISOString().slice(0, 10)
       params.date_to = new Date(dateRange.value[1]).toISOString().slice(0, 10)
     }
+    if (sourceFilter.value) params.source = sourceFilter.value
     summary.value = await sqsPerformanceApi.getSummary(params)
   } catch (e: any) {
     error.value = e?.message || 'Failed to load'
@@ -33,7 +36,9 @@ async function loadSummary() {
 
 async function loadSignals() {
   try {
-    const result = await sqsPerformanceApi.getSignals({ limit: 200 })
+    const params: any = { limit: 200 }
+    if (sourceFilter.value) params.source = sourceFilter.value
+    const result = await sqsPerformanceApi.getSignals(params)
     signals.value = result.signals || []
   } catch { /* ignore */ }
 }
@@ -48,6 +53,25 @@ async function updateReturns() {
     error.value = e?.message || 'Update failed'
   }
   isUpdating.value = false
+}
+
+async function runBackfill() {
+  isBackfilling.value = true
+  error.value = ''
+  try {
+    const result = await sqsPerformanceApi.backfill(730)
+    await Promise.all([loadSummary(), loadSignals()])
+    error.value = ''
+  } catch (e: any) {
+    error.value = e?.message || 'Backfill failed'
+  }
+  isBackfilling.value = false
+}
+
+function setSource(s: string | null) {
+  sourceFilter.value = s
+  loadSummary()
+  loadSignals()
 }
 
 onMounted(async () => {
@@ -155,6 +179,7 @@ const signalColumns: DataTableColumns = [
   { title: '名稱', key: 'name', width: 90 },
   { title: 'SQS', key: 'sqs', width: 60, sorter: (a: any, b: any) => a.sqs - b.sqs },
   { title: '等級', key: 'grade', width: 80 },
+  { title: '來源', key: 'source', width: 60, render: (r: any) => r.source === 'backtest' ? 'BT' : 'Live' },
   {
     title: 'd1', key: 'r_d1', width: 70,
     render: (r: any) => fmtReturn(r.returns?.d1),
@@ -194,10 +219,16 @@ function fmtReturn(val: number | undefined): string {
 
     <!-- Controls -->
     <NCard size="small" style="margin-bottom: 12px">
-      <NSpace align="center">
+      <NSpace align="center" :wrap="true">
         <NDatePicker v-model:value="dateRange" type="daterange" clearable size="small" />
         <NButton type="primary" size="small" @click="loadSummary" :loading="isLoading">查詢</NButton>
         <NButton size="small" @click="updateReturns" :loading="isUpdating">更新前向報酬</NButton>
+        <NDivider vertical />
+        <NButton size="tiny" :type="!sourceFilter ? 'primary' : 'default'" @click="setSource(null)">全部</NButton>
+        <NButton size="tiny" :type="sourceFilter === 'live' ? 'primary' : 'default'" @click="setSource('live')">實盤</NButton>
+        <NButton size="tiny" :type="sourceFilter === 'backtest' ? 'primary' : 'default'" @click="setSource('backtest')">回測</NButton>
+        <NDivider vertical />
+        <NButton size="small" @click="runBackfill" :loading="isBackfilling" type="warning">歷史回測預填</NButton>
         <NTag v-if="summary?.total" size="small">{{ summary.total }} 筆信號</NTag>
       </NSpace>
     </NCard>

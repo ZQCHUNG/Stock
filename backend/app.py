@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance
+from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ app.include_router(bt_results.router, prefix="/api/backtest-results", tags=["bac
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(sqs_performance.router, prefix="/api/sqs-performance", tags=["sqs-performance"])
+app.include_router(risk.router, prefix="/api/risk", tags=["risk"])
 
 # Production: 伺服 Vue build 靜態檔
 DIST_DIR = PROJECT_ROOT / "frontend" / "dist"

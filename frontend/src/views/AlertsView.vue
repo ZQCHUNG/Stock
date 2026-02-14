@@ -26,6 +26,7 @@ const history = ref<any[]>([])
 const error = ref('')
 const notifPermission = ref(Notification?.permission || 'default')
 const schedulerStatus = ref<SchedulerStatus | null>(null)
+const healthData = ref<any>(null)
 
 async function loadConfig() {
   isLoading.value = true
@@ -105,6 +106,19 @@ async function loadSchedulerStatus() {
   } catch { /* ignore */ }
 }
 
+async function loadHealth() {
+  try {
+    healthData.value = await alertsApi.getHealth()
+  } catch { /* ignore */ }
+}
+
+function formatUptime(seconds: number | null): string {
+  if (!seconds) return '-'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
 function useWatchlistAsFilter() {
   config.value.watch_codes = wl.watchlist.map(s => s.code)
 }
@@ -112,7 +126,7 @@ function useWatchlistAsFilter() {
 onMounted(async () => {
   await loadConfig()
   await loadAlerts()
-  await Promise.all([loadHistory(), loadSchedulerStatus()])
+  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth()])
 })
 
 const triggeredColumns: DataTableColumns = [
@@ -149,9 +163,16 @@ const historyColumns: DataTableColumns = [
         <NStatistic label="上次檢查" :value="schedulerStatus?.last_check?.timestamp?.slice(11, 19) || '-'" />
         <NStatistic label="觸發數" :value="schedulerStatus?.last_check?.triggered_count ?? 0" />
         <NStatistic v-if="schedulerStatus?.next_run" label="下次檢查" :value="schedulerStatus?.next_run?.slice(11, 19) || '-'" />
-        <NTag v-if="schedulerStatus?.running" type="success" size="small">APScheduler</NTag>
+        <NStatistic v-if="healthData" label="運行時間" :value="formatUptime(healthData.uptime_seconds)" />
+        <NStatistic v-if="healthData" label="檢查/錯誤" :value="`${healthData.total_checks || 0}/${healthData.total_errors || 0}`" />
+        <NTag v-if="healthData?.status === 'healthy'" type="success" size="small">Healthy</NTag>
+        <NTag v-else-if="healthData?.status === 'degraded'" type="error" size="small">Degraded</NTag>
+        <NTag v-else-if="schedulerStatus?.running" type="success" size="small">APScheduler</NTag>
         <NTag v-else type="warning" size="small">Fallback</NTag>
       </NSpace>
+      <NAlert v-if="healthData?.stale" type="warning" style="margin-top: 8px" :bordered="false">
+        排程器心跳超過 15 分鐘未更新，可能需要重啟。
+      </NAlert>
     </NCard>
 
     <NGrid :cols="2" :x-gap="16" :y-gap="16">

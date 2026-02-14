@@ -221,6 +221,13 @@ def notify_triggered_alerts():
     return {"status": "ok", "count": len(triggered), "message": message}
 
 
+@router.get("/health")
+def scheduler_health():
+    """R46-3: 排程器健康檢查 — 包含 uptime、錯誤率、心跳狀態"""
+    from backend.scheduler import get_health
+    return get_health()
+
+
 @router.get("/history")
 def get_alert_history():
     """取得警報歷史紀錄"""

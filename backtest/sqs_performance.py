@@ -42,12 +42,13 @@ def _save_tracker(records: list[dict]):
     )
 
 
-def record_signals(signals: list[dict]):
+def record_signals(signals: list[dict], source: str = "live"):
     """Record new SQS signal triggers.
 
     Args:
         signals: List of dicts with code, name, sqs, grade, maturity, confidence.
-                 Typically from the alert system's triggered list.
+                 May include trigger_date for backfill.
+        source: "live" (from scheduler) or "backtest" (historical backfill).
     """
     existing = _load_tracker()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -57,20 +58,22 @@ def record_signals(signals: list[dict]):
 
     new_count = 0
     for sig in signals:
-        key = (sig["code"], today)
+        trigger_date = sig.get("trigger_date", today)
+        key = (sig["code"], trigger_date)
         if key in existing_keys:
             continue
         existing.append({
             "code": sig["code"],
             "name": sig.get("name", ""),
-            "trigger_date": today,
+            "trigger_date": trigger_date,
             "sqs": sig["sqs"],
             "grade": sig["grade"],
             "grade_label": sig.get("grade_label", ""),
             "maturity": sig.get("maturity", ""),
             "confidence": sig.get("confidence", 0),
-            "signal_price": None,
-            "returns": {},  # {d1: x, d3: x, ...}
+            "signal_price": sig.get("signal_price"),
+            "returns": sig.get("returns", {}),
+            "source": source,
             "updated_at": None,
         })
         existing_keys.add(key)
@@ -78,7 +81,7 @@ def record_signals(signals: list[dict]):
 
     if new_count > 0:
         _save_tracker(existing)
-        logger.info(f"Recorded {new_count} new SQS signals")
+        logger.info(f"Recorded {new_count} new SQS signals (source={source})")
 
     return new_count
 
@@ -166,6 +169,7 @@ def get_performance_summary(
     date_from: str | None = None,
     date_to: str | None = None,
     min_sqs: float | None = None,
+    source: str | None = None,
 ) -> dict:
     """Compute performance summary for tracked SQS signals.
 
@@ -183,6 +187,8 @@ def get_performance_summary(
 
     # Apply filters
     filtered = records
+    if source:
+        filtered = [r for r in filtered if r.get("source", "live") == source]
     if date_from:
         filtered = [r for r in filtered if r["trigger_date"] >= date_from]
     if date_to:
@@ -292,9 +298,12 @@ def _compute_cumulative_curve(records: list[dict], period: str = "d5") -> list[d
 def get_tracked_signals(
     limit: int = 100,
     offset: int = 0,
+    source: str | None = None,
 ) -> dict:
     """Get raw tracked signal records for display."""
     records = _load_tracker()
+    if source:
+        records = [r for r in records if r.get("source", "live") == source]
     records.sort(key=lambda r: r["trigger_date"], reverse=True)
     total = len(records)
     page = records[offset:offset + limit]
@@ -304,3 +313,81 @@ def get_tracked_signals(
         "limit": limit,
         "signals": page,
     }
+
+
+def backfill_from_sqs_backtest(
+    period_days: int = 730,
+    max_workers: int = 4,
+) -> int:
+    """Backfill tracker with historical SQS backtest signals (R46-1).
+
+    Uses sqs_backtest module to generate historical V4 signals with SQS scores,
+    then records them with source='backtest' and pre-computed forward returns.
+    """
+    from backtest.sqs_backtest import run_sqs_backtest, _process_stock, _estimate_regime_at_date
+    from concurrent.futures import ThreadPoolExecutor
+
+    logger.info(f"Starting historical backfill (period_days={period_days})")
+
+    from config import SCAN_STOCKS
+    stock_codes = list(SCAN_STOCKS.keys())
+
+    # Load fitness tags
+    fitness_map: dict[str, str] = {}
+    try:
+        from analysis.strategy_fitness import get_fitness_tags
+        tags = get_fitness_tags(stock_codes)
+        for t in tags:
+            fitness_map[t["code"]] = t.get("fitness_tag", "")
+    except Exception:
+        pass
+
+    # Load TAIEX
+    taiex_df = None
+    try:
+        from data.fetcher import get_taiex_data
+        taiex_df = get_taiex_data(period_days=period_days + 120)
+    except Exception:
+        pass
+
+    # Process all stocks
+    all_signals: list[dict] = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_process_stock, code, period_days, fitness_map, taiex_df): code
+            for code in stock_codes
+        }
+        for future in futures:
+            try:
+                result = future.result(timeout=60)
+                all_signals.extend(result)
+            except Exception:
+                pass
+
+    if not all_signals:
+        return 0
+
+    # Convert to tracker format
+    tracker_signals = []
+    for sig in all_signals:
+        returns = {}
+        if sig.get("d5_return") is not None:
+            returns["d5"] = sig["d5_return"]
+        if sig.get("d20_return") is not None:
+            returns["d20"] = sig["d20_return"]
+
+        tracker_signals.append({
+            "code": sig["code"],
+            "name": "",
+            "trigger_date": sig["date"],
+            "sqs": sig["sqs"],
+            "grade": sig["grade"],
+            "grade_label": "",
+            "maturity": sig.get("maturity", ""),
+            "signal_price": sig.get("signal_price"),
+            "returns": returns,
+        })
+
+    count = record_signals(tracker_signals, source="backtest")
+    logger.info(f"Backfilled {count} historical signals")
+    return count

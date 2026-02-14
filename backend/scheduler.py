@@ -1,9 +1,10 @@
-"""Backend Alert Scheduler (Gemini R45-1)
+"""Backend Alert Scheduler (Gemini R45-1, R46-3 catch-up)
 
 APScheduler-based background job that periodically checks SQS alerts,
 records triggered alerts with dedup, and pushes notifications (LINE Notify).
 
-Replaces the frontend 5-min polling with a reliable backend mechanism.
+R46-3: Startup catch-up logic — detects missed checks during downtime
+and immediately runs a catch-up if needed. Health-check endpoint support.
 """
 
 import json
@@ -19,10 +20,14 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 ALERT_CONFIG_PATH = DATA_DIR / "alert_config.json"
 ALERT_HISTORY_PATH = DATA_DIR / "alert_history.json"
 DEDUP_PATH = DATA_DIR / "alert_dedup.json"
+HEARTBEAT_PATH = DATA_DIR / "scheduler_heartbeat.json"
 
 # Scheduler state (thread-safe access)
 _lock = threading.Lock()
 _scheduler = None
+_start_time: str | None = None
+_total_checks: int = 0
+_total_errors: int = 0
 _last_check: dict = {
     "timestamp": None,
     "triggered_count": 0,
@@ -203,12 +208,52 @@ def run_alert_check():
         logger.error(f"Alert check failed: {e}", exc_info=True)
 
     with _lock:
+        global _total_checks, _total_errors
+        _total_checks += 1
+        if error_msg:
+            _total_errors += 1
         _last_check = {
             "timestamp": now.isoformat(),
             "triggered_count": len(triggered),
             "triggered": triggered,
             "error": error_msg,
         }
+
+    # R46-3: Persist heartbeat for catch-up detection
+    _save_heartbeat(now)
+
+
+def _save_heartbeat(ts: datetime):
+    """Persist last successful check timestamp for catch-up detection."""
+    try:
+        _save_json(HEARTBEAT_PATH, {"last_check": ts.isoformat()})
+    except Exception:
+        pass
+
+
+def _load_heartbeat() -> datetime | None:
+    """Load last heartbeat timestamp."""
+    data = _load_json(HEARTBEAT_PATH, {})
+    ts = data.get("last_check")
+    if ts:
+        try:
+            return datetime.fromisoformat(ts)
+        except Exception:
+            pass
+    return None
+
+
+def _needs_catchup(interval_minutes: int) -> bool:
+    """Check if scheduler missed checks during downtime.
+
+    Returns True if last heartbeat is older than 2x the interval,
+    indicating the server was down and we need an immediate catch-up.
+    """
+    last = _load_heartbeat()
+    if last is None:
+        return True  # First run ever — run immediately
+    gap = datetime.now() - last
+    return gap > timedelta(minutes=interval_minutes * 2)
 
 
 def get_last_check() -> dict:
@@ -237,9 +282,45 @@ def get_scheduler_status() -> dict:
     }
 
 
+def get_health() -> dict:
+    """R46-3: Health check — comprehensive scheduler diagnostics."""
+    global _scheduler, _start_time, _total_checks, _total_errors
+    running = _scheduler is not None and _scheduler.running
+    last_heartbeat = _load_heartbeat()
+    now = datetime.now()
+
+    # Check staleness: if last heartbeat > 15min ago, something is wrong
+    stale = False
+    if last_heartbeat and running:
+        stale = (now - last_heartbeat) > timedelta(minutes=15)
+
+    uptime_seconds = None
+    if _start_time:
+        try:
+            uptime_seconds = (now - datetime.fromisoformat(_start_time)).total_seconds()
+        except Exception:
+            pass
+
+    return {
+        "status": "degraded" if stale else ("healthy" if running else "stopped"),
+        "running": running,
+        "uptime_seconds": uptime_seconds,
+        "start_time": _start_time,
+        "total_checks": _total_checks,
+        "total_errors": _total_errors,
+        "last_heartbeat": last_heartbeat.isoformat() if last_heartbeat else None,
+        "stale": stale,
+        "last_check": get_last_check(),
+    }
+
+
 def start_scheduler(interval_minutes: int = 5):
-    """Start the APScheduler background scheduler."""
-    global _scheduler
+    """Start the APScheduler background scheduler.
+
+    R46-3: Includes catch-up logic — if the server was down and missed
+    scheduled checks, runs an immediate catch-up on startup.
+    """
+    global _scheduler, _start_time
 
     if _scheduler is not None:
         logger.info("Scheduler already started, skipping")
@@ -251,6 +332,8 @@ def start_scheduler(interval_minutes: int = 5):
     except ImportError:
         logger.warning("APScheduler not installed. Run: pip install apscheduler")
         return
+
+    _start_time = datetime.now().isoformat()
 
     _scheduler = BackgroundScheduler(daemon=True)
     _scheduler.add_job(
@@ -274,11 +357,26 @@ def start_scheduler(interval_minutes: int = 5):
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
 
-    # Run initial check immediately
+    # R46-3: Catch-up logic — detect missed checks during downtime
+    needs_catchup = _needs_catchup(interval_minutes)
+    if needs_catchup:
+        last_hb = _load_heartbeat()
+        gap_info = f"last heartbeat: {last_hb.isoformat() if last_hb else 'never'}"
+        logger.info(f"Catch-up needed ({gap_info}) — running immediate check + return update")
+
+    # Always run initial check on startup
     try:
         run_alert_check()
     except Exception as e:
         logger.warning(f"Initial alert check failed: {e}")
+
+    # If catch-up needed, also update forward returns immediately
+    if needs_catchup:
+        try:
+            _update_tracked_returns()
+            logger.info("Catch-up: forward return update completed")
+        except Exception as e:
+            logger.warning(f"Catch-up return update failed: {e}")
 
 
 def _update_tracked_returns():

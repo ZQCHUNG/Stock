@@ -64,6 +64,12 @@ const router = createRouter({
       component: () => import('../views/SqsPerformanceView.vue'),
       meta: { title: 'SQS 績效' },
     },
+    {
+      path: '/risk',
+      name: 'risk',
+      component: () => import('../views/RiskDashboardView.vue'),
+      meta: { title: '風險監控' },
+    },
   ],
 })
 

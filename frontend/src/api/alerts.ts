@@ -28,4 +28,5 @@ export const alertsApi = {
   notifyTriggered: () => client.post<any, any>('/alerts/notify-triggered'),
   getHistory: () => client.get<any, any>('/alerts/history'),
   getSchedulerStatus: () => client.get<any, SchedulerStatus>('/alerts/scheduler-status'),
+  getHealth: () => client.get<any, any>('/alerts/health'),
 }
