@@ -10,6 +10,7 @@ export const useBacktestStore = defineStore('backtest', () => {
   const rollingResult = ref<any>(null)
   const sensitivityResult = ref<any>(null)
   const alphaBetaResult = ref<any>(null)
+  const strategyComparison = ref<any>(null)
   const isLoading = ref(false)
   const error = ref('')
 
@@ -91,11 +92,24 @@ export const useBacktestStore = defineStore('backtest', () => {
     }
   }
 
+  async function runStrategyComparison(code: string, req?: { period_days?: number; initial_capital?: number }) {
+    isLoading.value = true
+    error.value = ''
+    try {
+      strategyComparison.value = await backtestApi.strategyComparison(code, req)
+      message.success('策略比較完成')
+    } catch (e: any) {
+      error.value = e.message
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   return {
     singleResult, portfolioResult, simulationResult,
-    rollingResult, sensitivityResult, alphaBetaResult,
+    rollingResult, sensitivityResult, alphaBetaResult, strategyComparison,
     isLoading, error,
     runSingle, runPortfolio, runSimulation,
-    runRolling, runSensitivity, runAlphaBeta,
+    runRolling, runSensitivity, runAlphaBeta, runStrategyComparison,
   }
 })

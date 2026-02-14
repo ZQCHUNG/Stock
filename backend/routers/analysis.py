@@ -142,6 +142,55 @@ def get_adaptive_signal(code: str, period_days: int = 365):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{code}/risk-budget")
+def get_risk_budget(code: str, period_days: int = 365):
+    """V4/V5 多策略風險預算（Gemini R37: MultiStrategyBouncer）
+
+    偵測 V4/V5 訊號衝突 + 曝險上限建議。
+    """
+    from data.fetcher import get_stock_data
+    from analysis.strategy_v4 import get_v4_analysis
+    from analysis.strategy_v5 import get_v5_analysis
+    from analysis.risk_budget import multi_strategy_bouncer
+    from backend.dependencies import make_serializable
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        v4 = get_v4_analysis(df)
+        v5 = get_v5_analysis(df)
+
+        # Get market regime
+        try:
+            from backend.routers.portfolio import get_market_regime
+            regime_data = get_market_regime()
+            regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
+        except Exception:
+            regime_en = "range_quiet"
+
+        # Get Kelly from portfolio optimal exposure (if available)
+        kelly_half = 0.5
+        try:
+            from backend.routers.portfolio import get_optimal_exposure
+            exposure_data = get_optimal_exposure()
+            if exposure_data.get("has_data"):
+                kelly_half = exposure_data.get("kelly_half", 0.5)
+        except Exception:
+            pass
+
+        result = multi_strategy_bouncer(
+            code=code,
+            v4_signal=v4["signal"],
+            v5_signal=v5["signal"],
+            v4_confidence=v4.get("confidence_score", 1.0),
+            kelly_half=kelly_half,
+            current_exposure=0,  # No portfolio context for single-stock query
+            regime=regime_en,
+        )
+
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{code}/volume-patterns")
 def get_volume_patterns(code: str, period_days: int = 365):
     """量能型態偵測"""

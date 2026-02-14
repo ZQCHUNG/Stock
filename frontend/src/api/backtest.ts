@@ -9,9 +9,18 @@ export interface BacktestParams {
   slippage?: number
 }
 
+export interface StrategyComparisonParams {
+  period_days?: number
+  initial_capital?: number
+  v4_params?: Record<string, any>
+  v5_params?: Record<string, any>
+}
+
 export const backtestApi = {
   v4: (code: string, req: BacktestParams = {}) =>
     client.post<any, any>(`/backtest/${code}/v4`, req),
+  v5: (code: string, req: BacktestParams = {}) =>
+    client.post<any, any>(`/backtest/${code}/v5`, req),
   portfolio: (stockCodes: string[], req: BacktestParams = {}) =>
     client.post<any, any>('/backtest/portfolio', { stock_codes: stockCodes, ...req }),
   simulation: (code: string, days = 30, req: BacktestParams = {}) =>
@@ -22,4 +31,6 @@ export const backtestApi = {
     client.post<any, any>(`/backtest/${code}/sensitivity`, req),
   alphaBeta: (code: string, req: BacktestParams = {}) =>
     client.post<any, any>(`/backtest/${code}/alpha-beta`, req),
+  strategyComparison: (code: string, req: StrategyComparisonParams = {}) =>
+    client.post<any, any>(`/backtest/${code}/strategy-comparison`, req),
 }

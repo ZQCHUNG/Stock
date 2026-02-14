@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT, STRATEGY_V4_PARAMS, StrategyV4Config
 from analysis.strategy import generate_signals
 from analysis.strategy_v4 import generate_v4_signals
+from analysis.strategy_v5 import generate_v5_signals, STRATEGY_V5_PARAMS
 
 
 @dataclass
@@ -406,6 +407,272 @@ class BacktestEngine:
         self._calculate_metrics(result)
         return result
 
+    def run_v5(self, df: pd.DataFrame, params: dict | None = None) -> BacktestResult:
+        """執行 V5 回測（均值回歸：BB + RSI 超賣 + 縮量進場）
+
+        V5 出場邏輯與 V4 完全不同：
+        - 停損 -5%（比 V4 更緊）
+        - 無移動停利（均值回歸預期短期回彈）
+        - 最長持有 20 天（超時強制離場，避免價值陷阱）
+        - 訊號出場：v5_signal == "SELL"（BB中軌 / RSI超買）
+
+        Args:
+            df: 調整後股價 DataFrame
+            params: V5 策略參數覆蓋
+
+        Returns:
+            BacktestResult 回測結果
+        """
+        p = dict(STRATEGY_V5_PARAMS)
+        if params:
+            p.update(params)
+
+        signals_df = generate_v5_signals(df, params=p)
+
+        sl_pct = p.get("stop_loss_pct", 0.05)
+        max_hold = p.get("max_hold_days", 20)
+        max_pos_pct = p.get("max_position_pct", 0.9)
+
+        cash = self.initial_capital
+        position = 0
+        trades: list[Trade] = []
+        current_trade: Trade | None = None
+        equity_history = []
+        hold_days = 0
+        sl_price = 0.0
+
+        _has_high = "high" in signals_df.columns
+        _has_low = "low" in signals_df.columns
+        _has_v5_signal = "v5_signal" in signals_df.columns
+        _has_volume = "volume" in signals_df.columns
+        for row in signals_df.itertuples():
+            date = row.Index
+            price = row.close
+            high = row.high if _has_high else price
+            low = row.low if _has_low else price
+            signal = row.v5_signal if _has_v5_signal else "HOLD"
+
+            if position > 0:
+                hold_days += 1
+
+            # ===== 出場檢查 =====
+            force_sell = False
+            exit_reason = ""
+            exit_price = 0.0
+
+            if position > 0 and current_trade is not None:
+                # 1. 停損 -5%
+                if low <= sl_price:
+                    force_sell, exit_reason, exit_price = True, "stop_loss", sl_price
+                # 2. 最長持有天數
+                elif hold_days >= max_hold:
+                    force_sell, exit_reason, exit_price = True, "max_hold", price
+                # 3. V5 訊號出場（BB中軌 / RSI超買）
+                elif signal == "SELL":
+                    force_sell, exit_reason, exit_price = True, "signal", price
+
+            if force_sell and position > 0 and current_trade is not None:
+                cash += self._close_position(position, exit_price, current_trade, date, exit_reason)
+                trades.append(current_trade)
+                position, current_trade, hold_days = 0, None, 0
+
+            if position == 0 and cash > 0:
+                cash *= (1 + self._rf_daily)
+
+            equity_history.append({"date": date, "equity": cash + position * price})
+
+            # ===== 進場 =====
+            if signal == "BUY" and position == 0:
+                volume = row.volume if _has_volume else 0
+                trade, shares, cash = self._open_position(
+                    price, high, volume, cash, max_pos_pct, date)
+                if trade is not None:
+                    position = shares
+                    current_trade = trade
+                    hold_days = 0
+                    sl_price = trade.price_open * (1 - sl_pct)
+
+        # 期末平倉
+        if position > 0 and current_trade is not None:
+            last_price = signals_df.iloc[-1]["close"]
+            cash += self._close_position(position, last_price, current_trade,
+                                         signals_df.index[-1], "end_of_period")
+            trades.append(current_trade)
+
+        result = BacktestResult(
+            trades=trades,
+            equity_curve=self._build_equity_curve(equity_history),
+            params_description=f"V5 均值回歸 | SL {sl_pct:.0%} | MaxHold {max_hold}天",
+        )
+        self._calculate_metrics(result)
+        return result
+
+    def run_adaptive(self, df: pd.DataFrame, regime: str = "range_quiet",
+                     v4_params: dict | None = None,
+                     v5_params: dict | None = None) -> BacktestResult:
+        """執行自適應混合回測（V4+V5 Hybrid）
+
+        根據 regime 動態分配 V4/V5 權重，composite score >= 0.5 進場。
+        出場策略依 regime 決定：趨勢市場用 V4 出場邏輯，盤整市場用 V5 出場邏輯。
+
+        Args:
+            df: 調整後股價 DataFrame
+            regime: 市場狀態 (trend_explosive/trend_mild/range_volatile/range_quiet)
+            v4_params: V4 參數覆蓋
+            v5_params: V5 參數覆蓋
+
+        Returns:
+            BacktestResult 回測結果
+        """
+        from analysis.strategy_v5 import adaptive_strategy_score
+
+        p4 = dict(STRATEGY_V4_PARAMS)
+        if v4_params:
+            p4.update(v4_params)
+        p5 = dict(STRATEGY_V5_PARAMS)
+        if v5_params:
+            p5.update(v5_params)
+
+        # Generate both signal sets
+        v4_df = generate_v4_signals(df, params=p4)
+        v5_df = generate_v5_signals(df, params=p5)
+
+        # Merge on shared index
+        merged = v4_df[["close", "high", "low", "volume", "v4_signal"]].copy()
+        merged["v5_signal"] = v5_df["v5_signal"].reindex(merged.index).fillna("HOLD")
+
+        # Determine exit strategy based on regime
+        regime_weights = {
+            "trend_explosive": (0.9, 0.1),
+            "trend_mild": (0.8, 0.2),
+            "range_volatile": (0.2, 0.8),
+            "range_quiet": (0.3, 0.7),
+        }
+        w4, w5 = regime_weights.get(regime, (0.5, 0.5))
+        use_v4_exit = w4 >= w5  # Trend-dominant → V4 exit rules
+
+        # V4 exit params
+        tp_pct = p4.get("take_profit_pct", 0.10)
+        v4_sl_pct = p4.get("stop_loss_pct", 0.07)
+        trailing_pct = p4.get("trailing_stop_pct", 0.02)
+        v4_min_hold = p4.get("min_hold_days", 5)
+
+        # V5 exit params
+        v5_sl_pct = p5.get("stop_loss_pct", 0.05)
+        v5_max_hold = p5.get("max_hold_days", 20)
+
+        max_pos_pct = p4.get("max_position_pct", 0.9)
+
+        cash = self.initial_capital
+        position = 0
+        trades: list[Trade] = []
+        current_trade: Trade | None = None
+        equity_history = []
+        hold_days = 0
+        highest_since_entry = 0.0
+        tp_price = sl_price = original_sl_price = 0.0
+
+        for row in merged.itertuples():
+            date = row.Index
+            price = row.close
+            high = row.high
+            low = row.low
+            v4_sig = row.v4_signal
+            v5_sig = row.v5_signal
+
+            # Compute adaptive composite
+            score = adaptive_strategy_score(v4_sig, v5_sig, regime)
+            composite_signal = score["final_signal"]
+
+            if position > 0:
+                highest_since_entry = max(highest_since_entry, high)
+                hold_days += 1
+
+                # V4 trailing stop update
+                if use_v4_exit and trailing_pct > 0:
+                    new_sl = highest_since_entry * (1 - trailing_pct)
+                    if new_sl > sl_price:
+                        sl_price = new_sl
+
+            # ===== 出場檢查 =====
+            force_sell = False
+            exit_reason = ""
+            exit_price = 0.0
+
+            if position > 0 and current_trade is not None:
+                if use_v4_exit:
+                    # V4 exit rules: TP, SL, trailing stop
+                    if hold_days >= v4_min_hold:
+                        if tp_pct > 0 and high >= tp_price and low <= sl_price:
+                            force_sell = True
+                            if price >= current_trade.price_open:
+                                exit_reason, exit_price = "take_profit", tp_price
+                            else:
+                                exit_reason = "trailing_stop" if sl_price > original_sl_price else "stop_loss"
+                                exit_price = sl_price
+                        elif tp_pct > 0 and high >= tp_price:
+                            force_sell, exit_reason, exit_price = True, "take_profit", tp_price
+                        elif low <= sl_price:
+                            force_sell = True
+                            exit_reason = "trailing_stop" if sl_price > original_sl_price else "stop_loss"
+                            exit_price = sl_price
+                else:
+                    # V5 exit rules: SL, max hold, signal exit
+                    if low <= sl_price:
+                        force_sell, exit_reason, exit_price = True, "stop_loss", sl_price
+                    elif hold_days >= v5_max_hold:
+                        force_sell, exit_reason, exit_price = True, "max_hold", price
+                    elif v5_sig == "SELL":
+                        force_sell, exit_reason, exit_price = True, "signal", price
+
+                # Adaptive SELL signal also forces exit regardless of exit mode
+                if not force_sell and composite_signal == "SELL":
+                    force_sell, exit_reason, exit_price = True, "adaptive_signal", price
+
+            if force_sell and position > 0 and current_trade is not None:
+                cash += self._close_position(position, exit_price, current_trade, date, exit_reason)
+                trades.append(current_trade)
+                position, current_trade, hold_days = 0, None, 0
+
+            if position == 0 and cash > 0:
+                cash *= (1 + self._rf_daily)
+
+            equity_history.append({"date": date, "equity": cash + position * price})
+
+            # ===== 進場 =====
+            if composite_signal == "BUY" and position == 0:
+                volume = row.volume
+                trade, shares, cash = self._open_position(
+                    price, high, volume, cash, max_pos_pct, date)
+                if trade is not None:
+                    position = shares
+                    current_trade = trade
+                    highest_since_entry = high
+                    hold_days = 0
+                    if use_v4_exit:
+                        tp_price = trade.price_open * (1 + tp_pct) if tp_pct > 0 else float("inf")
+                        sl_price = trade.price_open * (1 - v4_sl_pct)
+                        original_sl_price = sl_price
+                    else:
+                        tp_price = float("inf")
+                        sl_price = trade.price_open * (1 - v5_sl_pct)
+                        original_sl_price = sl_price
+
+        # 期末平倉
+        if position > 0 and current_trade is not None:
+            last_price = merged.iloc[-1]["close"]
+            cash += self._close_position(position, last_price, current_trade,
+                                         merged.index[-1], "end_of_period")
+            trades.append(current_trade)
+
+        result = BacktestResult(
+            trades=trades,
+            equity_curve=self._build_equity_curve(equity_history),
+            params_description=f"Adaptive V4+V5 | Regime={regime} | W4={w4:.0%} W5={w5:.0%}",
+        )
+        self._calculate_metrics(result)
+        return result
+
     def _calculate_metrics(self, result: BacktestResult) -> None:
         """計算績效指標"""
         if result.equity_curve.empty:
@@ -538,6 +805,44 @@ def run_backtest_v4(
         slippage=slippage,
     )
     return engine.run_v4(df, params=params, dividends=dividends)
+
+
+def run_backtest_v5(
+    df: pd.DataFrame,
+    initial_capital: float | None = None,
+    params: dict | None = None,
+    commission_rate: float | None = None,
+    tax_rate: float | None = None,
+    slippage: float | None = None,
+) -> BacktestResult:
+    """便捷函式：執行 V5 均值回歸回測"""
+    engine = BacktestEngine(
+        initial_capital=initial_capital,
+        commission_rate=commission_rate,
+        tax_rate=tax_rate,
+        slippage=slippage,
+    )
+    return engine.run_v5(df, params=params)
+
+
+def run_backtest_adaptive(
+    df: pd.DataFrame,
+    regime: str = "range_quiet",
+    initial_capital: float | None = None,
+    v4_params: dict | None = None,
+    v5_params: dict | None = None,
+    commission_rate: float | None = None,
+    tax_rate: float | None = None,
+    slippage: float | None = None,
+) -> BacktestResult:
+    """便捷函式：執行自適應混合回測"""
+    engine = BacktestEngine(
+        initial_capital=initial_capital,
+        commission_rate=commission_rate,
+        tax_rate=tax_rate,
+        slippage=slippage,
+    )
+    return engine.run_adaptive(df, regime=regime, v4_params=v4_params, v5_params=v5_params)
 
 
 @dataclass

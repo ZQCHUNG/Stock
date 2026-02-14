@@ -48,6 +48,13 @@ class AlphaBetaRequest(BaseModel):
     params: dict | None = None
 
 
+class StrategyComparisonRequest(BaseModel):
+    period_days: int = 730
+    initial_capital: float = 1_000_000
+    v4_params: dict | None = None
+    v5_params: dict | None = None
+
+
 def _serialize_backtest_result(result) -> dict:
     """BacktestResult → JSON-safe dict"""
     from backend.dependencies import series_to_response, make_serializable
@@ -292,5 +299,92 @@ def run_alpha_beta(code: str, req: AlphaBetaRequest):
         serialized["rolling_alpha_ema"] = series_to_response(rolling_alpha_ema) if rolling_alpha_ema is not None else {"dates": [], "values": []}
 
         return serialized
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{code}/v5")
+def run_v5_backtest(code: str, req: BacktestRequest):
+    """執行 V5 均值回歸回測（Gemini R37）"""
+    from data.fetcher import get_stock_data
+    from backtest.engine import run_backtest_v5
+    try:
+        df = get_stock_data(code, period_days=req.period_days)
+        result = run_backtest_v5(
+            df, initial_capital=req.initial_capital, params=req.params,
+            commission_rate=req.commission_rate, tax_rate=req.tax_rate,
+            slippage=req.slippage,
+        )
+        return _serialize_backtest_result(result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{code}/strategy-comparison")
+def run_strategy_comparison(code: str, req: StrategyComparisonRequest):
+    """V4 vs V5 vs Adaptive 策略比較（Gemini R37）
+
+    同時執行三種回測，回傳並排比較指標 + 差異分析。
+    """
+    from data.fetcher import get_stock_data
+    from backtest.engine import run_backtest_v4, run_backtest_v5, run_backtest_adaptive
+    from backend.dependencies import make_serializable
+
+    try:
+        df = get_stock_data(code, period_days=req.period_days)
+
+        # Detect market regime for adaptive mode
+        try:
+            from backend.routers.portfolio import get_market_regime
+            regime_data = get_market_regime()
+            regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
+        except Exception:
+            regime_en = "range_quiet"
+
+        v4_result = run_backtest_v4(df, initial_capital=req.initial_capital, params=req.v4_params)
+        v5_result = run_backtest_v5(df, initial_capital=req.initial_capital, params=req.v5_params)
+        adaptive_result = run_backtest_adaptive(
+            df, regime=regime_en, initial_capital=req.initial_capital,
+            v4_params=req.v4_params, v5_params=req.v5_params,
+        )
+
+        def _summary(r):
+            return {
+                "total_return": r.total_return,
+                "annual_return": r.annual_return,
+                "max_drawdown": r.max_drawdown,
+                "sharpe_ratio": r.sharpe_ratio,
+                "sortino_ratio": r.sortino_ratio,
+                "calmar_ratio": r.calmar_ratio,
+                "win_rate": r.win_rate,
+                "profit_factor": r.profit_factor,
+                "total_trades": r.total_trades,
+                "avg_holding_days": r.avg_holding_days,
+                "params_description": r.params_description,
+            }
+
+        # Recovery Factor = total_return / abs(max_drawdown)
+        def _recovery_factor(r):
+            return r.total_return / abs(r.max_drawdown) if r.max_drawdown < 0 else 0
+
+        comparison = {
+            "sharpe_delta": adaptive_result.sharpe_ratio - v4_result.sharpe_ratio,
+            "return_delta": adaptive_result.total_return - v4_result.total_return,
+            "drawdown_delta": adaptive_result.max_drawdown - v4_result.max_drawdown,
+            "recovery_v4": round(_recovery_factor(v4_result), 3),
+            "recovery_v5": round(_recovery_factor(v5_result), 3),
+            "recovery_adaptive": round(_recovery_factor(adaptive_result), 3),
+        }
+
+        return make_serializable({
+            "v4": _serialize_backtest_result(v4_result),
+            "v5": _serialize_backtest_result(v5_result),
+            "adaptive": _serialize_backtest_result(adaptive_result),
+            "v4_summary": _summary(v4_result),
+            "v5_summary": _summary(v5_result),
+            "adaptive_summary": _summary(adaptive_result),
+            "comparison": comparison,
+            "regime": regime_en,
+        })
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

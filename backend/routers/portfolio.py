@@ -884,10 +884,12 @@ def _normalize_date(date_str: str) -> str:
 def _match_buy_sell_pairs(actions: list[dict]) -> list[dict]:
     """Match buy and sell actions into position records.
 
+    Gemini R37: Weighted Average Cost accounting.
     For each code:
     1. Sort by date
-    2. Buy → create entry record
-    3. Sell → close the earliest matching buy
+    2. Accumulate buys into a single aggregate position with weighted average cost:
+       C_avg = Σ(Price_i × Lots_i) / Σ(Lots_i)
+    3. Sell → close from the aggregate position at C_avg entry price
     """
     from collections import defaultdict
 
@@ -900,32 +902,52 @@ def _match_buy_sell_pairs(actions: list[dict]) -> list[dict]:
     for code, code_actions in by_code.items():
         code_actions.sort(key=lambda x: x["date"])
 
-        open_buys = []  # Stack of unmatched buys
+        # Weighted average cost accumulator
+        agg_lots = 0
+        agg_cost = 0.0  # total cost = Σ(price × lots)
+        first_buy_date = ""
+        last_name = ""
 
         for a in code_actions:
             if a["is_buy"]:
-                open_buys.append(a)
-            elif a["is_sell"] and open_buys:
-                # Match with earliest buy (FIFO)
-                buy = open_buys.pop(0)
+                if agg_lots == 0:
+                    first_buy_date = a["date"]
+                agg_lots += a["lots"]
+                agg_cost += a["price"] * a["lots"]
+                last_name = a.get("name") or last_name
+            elif a["is_sell"] and agg_lots > 0:
+                # Weighted average entry price
+                avg_price = agg_cost / agg_lots if agg_lots > 0 else a["price"]
+                sell_lots = min(a["lots"], agg_lots)
+
                 trades.append({
                     "code": code,
-                    "name": buy.get("name") or a.get("name", ""),
-                    "entry_date": buy["date"],
-                    "entry_price": buy["price"],
-                    "lots": min(buy["lots"], a["lots"]),
+                    "name": last_name or a.get("name", ""),
+                    "entry_date": first_buy_date,
+                    "entry_price": round(avg_price, 2),
+                    "lots": sell_lots,
                     "exit_date": a["date"],
                     "exit_price": a["price"],
                 })
 
-        # Remaining unmatched buys → open positions
-        for buy in open_buys:
+                # Reduce aggregate position
+                agg_lots -= sell_lots
+                agg_cost = avg_price * agg_lots  # Remaining cost at avg price
+
+                if agg_lots <= 0:
+                    agg_lots = 0
+                    agg_cost = 0.0
+                    first_buy_date = ""
+
+        # Remaining unmatched buys → open position at weighted average cost
+        if agg_lots > 0:
+            avg_price = agg_cost / agg_lots if agg_lots > 0 else 0
             trades.append({
                 "code": code,
-                "name": buy.get("name", ""),
-                "entry_date": buy["date"],
-                "entry_price": buy["price"],
-                "lots": buy["lots"],
+                "name": last_name,
+                "entry_date": first_buy_date,
+                "entry_price": round(avg_price, 2),
+                "lots": agg_lots,
             })
 
     return trades

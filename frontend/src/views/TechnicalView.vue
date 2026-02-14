@@ -29,6 +29,7 @@ async function loadData() {
   await tech.loadAll(code)
   await tech.loadV4SignalsFull(code)
   tech.loadAdaptiveSignal(code)  // Non-blocking: load adaptive signal in background
+  tech.loadRiskBudget(code)      // Non-blocking: load risk budget in background
   // Connect charts for crosshair + dataZoom sync after data renders
   nextTick(() => { try { connect('tech') } catch { /* charts not ready */ } })
 }
@@ -190,6 +191,52 @@ const institutionalColumns: DataTableColumns = [
             />
           </NGi>
         </NGrid>
+      </NCard>
+
+      <!-- 多策略風險預算 (Gemini R37) -->
+      <NCard v-if="tech.riskBudget && tech.riskBudget.divergence" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">訊號衝突警告</span>
+            <NTag size="small" type="error" :bordered="false">Divergence</NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="signalCols" :x-gap="12" :y-gap="12">
+          <NGi>
+            <MetricCard title="建議動作">
+              <template #default>
+                <SignalBadge :signal="tech.riskBudget.action" size="large" />
+              </template>
+            </MetricCard>
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="V4 訊號"
+              :subtitle="tech.riskBudget.v4_signal"
+              :color="tech.riskBudget.v4_signal === 'BUY' ? '#e53e3e' : tech.riskBudget.v4_signal === 'SELL' ? '#38a169' : undefined"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="V5 訊號"
+              :subtitle="tech.riskBudget.v5_signal"
+              :color="tech.riskBudget.v5_signal === 'BUY' ? '#e53e3e' : tech.riskBudget.v5_signal === 'SELL' ? '#38a169' : undefined"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="信心衰減"
+              :value="tech.riskBudget.confidence_decay?.toFixed(2) || '1.0'"
+              :color="(tech.riskBudget.confidence_decay || 1) < 0.5 ? '#e53e3e' : undefined"
+            />
+          </NGi>
+        </NGrid>
+        <div v-if="tech.riskBudget.reason" style="margin-top: 8px; font-size: 13px; color: var(--text-dimmed)">
+          {{ tech.riskBudget.reason }}
+        </div>
+        <div v-for="w in tech.riskBudget.warnings" :key="w" style="margin-top: 4px; font-size: 12px; color: #e53e3e">
+          {{ w }}
+        </div>
       </NCard>
 
       <!-- V4 指標面板 -->
