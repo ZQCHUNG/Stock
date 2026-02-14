@@ -16,6 +16,7 @@ class StrategyV4Config:
     min_uptrend_days: int = 10
     support_max_dist: float = 0.05
     min_volume_ratio: float = 0.7
+    min_volume_lots: int = 500  # 最低成交量（張），過濾殭屍股/低流動性標的
     # 出場
     take_profit_pct: float = 0.10
     stop_loss_pct: float = 0.07
@@ -46,7 +47,8 @@ class StrategyV4Config:
         return (f"ADX≥{self.adx_min} | RSI {self.rsi_low}-{self.rsi_high} | "
                 f"上升趨勢≥{self.min_uptrend_days}天 | "
                 f"TP {self.take_profit_pct:.0%} SL {self.stop_loss_pct:.0%} "
-                f"Trail {self.trailing_stop_pct:.0%} | 最短持有 {self.min_hold_days}天")
+                f"Trail {self.trailing_stop_pct:.0%} | 最短持有 {self.min_hold_days}天 | "
+                f"最低量 {self.min_volume_lots}張")
 
 
 # 預設 v4 config 實例
@@ -163,6 +165,7 @@ STRATEGY_V4_PARAMS = {
     "min_uptrend_days": 10,     # MA20>MA60 最少持續天數
     "support_max_dist": 0.05,   # 支撐進場：價格距 MA20 最大百分比
     "min_volume_ratio": 0.7,    # 最低量能比（相對 5 日均量）
+    "min_volume_lots": 500,     # 最低成交量（張），過濾殭屍股/低流動性標的
     # 出場
     "take_profit_pct": 0.10,    # 停利 +10%
     "stop_loss_pct": 0.07,      # 停損 -7%

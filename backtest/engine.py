@@ -28,6 +28,7 @@ class Trade:
     pnl: float = 0.0
     return_pct: float = 0.0
     exit_reason: str = ""  # "signal" / "stop_loss" / "trailing_stop" / "take_profit"
+    liquidity_warning: str = ""  # 流動性警告（交易金額佔當日成交額比重過高）
 
 
 @dataclass
@@ -107,6 +108,7 @@ class BacktestEngine:
 
         _has_high = "high" in signals_df.columns
         _has_atr = "atr" in signals_df.columns
+        _has_volume = "volume" in signals_df.columns
         for row in signals_df.itertuples():
             date = row.Index
             price = row.close
@@ -207,6 +209,13 @@ class BacktestEngine:
                         price_open=buy_price,
                         commission=commission,
                     )
+                    # 流動性警告：交易金額佔當日成交額 > 5%
+                    if _has_volume:
+                        _daily_amount = row.volume * price
+                        _trade_amount = shares * buy_price
+                        if _daily_amount > 0 and _trade_amount > _daily_amount * 0.05:
+                            _pct = _trade_amount / _daily_amount
+                            current_trade.liquidity_warning = f"佔當日成交額 {_pct:.1%}"
 
             elif signal == "SELL" and position > 0 and current_trade is not None:
                 sell_price = price * (1 - self.slippage)  # 滑價
@@ -334,6 +343,7 @@ class BacktestEngine:
         _has_high = "high" in signals_df.columns
         _has_low = "low" in signals_df.columns
         _has_v4_signal = "v4_signal" in signals_df.columns
+        _has_volume = "volume" in signals_df.columns
         for row in signals_df.itertuples():
             date = row.Index
             # 估算除息收入（僅追蹤，不加入 cash）
@@ -438,6 +448,13 @@ class BacktestEngine:
                         price_open=buy_price,
                         commission=commission,
                     )
+                    # 流動性警告：交易金額佔當日成交額 > 5%
+                    if _has_volume:
+                        _daily_amount = row.volume * price
+                        _trade_amount = shares * buy_price
+                        if _daily_amount > 0 and _trade_amount > _daily_amount * 0.05:
+                            _pct = _trade_amount / _daily_amount
+                            current_trade.liquidity_warning = f"佔當日成交額 {_pct:.1%}"
 
         # 期末平倉
         if position > 0 and current_trade is not None:

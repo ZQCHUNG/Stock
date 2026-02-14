@@ -190,9 +190,11 @@ class TestPortfolioBacktest:
         result = run_portfolio_backtest_v4(stocks, initial_capital=1_500_000)
         if not result.correlation_matrix.empty:
             assert result.correlation_matrix.shape[0] == result.correlation_matrix.shape[1]
-            # Diagonal should be 1.0
+            # Diagonal should be 1.0 (or NaN if stock has zero-variance returns)
             for i in range(len(result.correlation_matrix)):
-                assert result.correlation_matrix.iloc[i, i] == pytest.approx(1.0, abs=0.01)
+                val = result.correlation_matrix.iloc[i, i]
+                if not pd.isna(val):
+                    assert val == pytest.approx(1.0, abs=0.01)
 
     def test_empty_input(self):
         result = run_portfolio_backtest_v4({}, initial_capital=1_000_000)

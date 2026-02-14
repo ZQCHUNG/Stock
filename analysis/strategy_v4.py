@@ -64,6 +64,7 @@ def generate_v4_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
     min_uptrend = p["min_uptrend_days"]
     support_dist = p["support_max_dist"]
     require_vol = p["min_volume_ratio"]
+    min_vol_lots = p.get("min_volume_lots", 0)  # 最低成交量（張）
 
     signals = []
     entry_types = []
@@ -119,6 +120,12 @@ def generate_v4_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
             continue
 
         if not pd.isna(vol_ma5) and vol_ma5 > 0 and vol < vol_ma5 * require_vol:
+            signals.append("HOLD")
+            entry_types.append("")
+            continue
+
+        # 最低成交量過濾（張）：過濾殭屍股/低流動性標的
+        if min_vol_lots > 0 and not pd.isna(vol) and vol < min_vol_lots * 1000:
             signals.append("HOLD")
             entry_types.append("")
             continue

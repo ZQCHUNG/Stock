@@ -14,10 +14,11 @@ from data.fetcher import get_taiex_data
 
 
 def _show_backtest_disclaimers():
-    """回測免責聲明：生還者偏差 + 即時執行假設"""
+    """回測免責聲明：生還者偏差 + 即時執行假設 + 撮合風險"""
     st.caption(
         "**免責聲明**：本系統使用現存上市櫃股票回測，未校正生還者偏差（Survivorship Bias），"
-        "結果可能偏樂觀。訊號使用當日收盤價計算並假設當日收盤執行，實際交易可能有差異。"
+        "結果可能偏樂觀。訊號使用當日收盤價計算並假設 13:25 前下 MOC（收盤委託）單成交，"
+        "未考慮最後一盤撮合之價格跳動風險，實際成交價可能有差異。"
     )
 
 
@@ -118,6 +119,16 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
         st.metric("平均虧損", f"{result.avg_loss:.2%}" if result.avg_loss else "—",
                    delta=f"連敗 {result.max_consecutive_losses}" if result.max_consecutive_losses else None,
                    delta_color="inverse")
+
+    # 生還者偏差啟發式修正
+    _bt_years = backtest_days / 365
+    _survivorship_adj = _bt_years * 0.01  # 每年扣 1%
+    _adjusted_return = result.total_return - _survivorship_adj
+    st.caption(
+        f"生還者偏差修正後報酬：**{_adjusted_return:.2%}**"
+        f"（原始 {result.total_return:.2%} − 修正 {_survivorship_adj:.2%}，"
+        f"以每年 1% 估算 {_bt_years:.1f} 年偏差）"
+    )
 
     # 股利收入顯示
     st.caption("報酬率已透過調整後股價包含除權息（yfinance auto_adjust）")
@@ -393,8 +404,9 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
             "end_of_period": "期末平倉",
         }
         trade_data = []
+        _liquidity_warnings = 0
         for t in result.trades:
-            trade_data.append({
+            _row = {
                 "買入日期": t.date_open.strftime("%Y-%m-%d") if t.date_open else "",
                 "賣出日期": t.date_close.strftime("%Y-%m-%d") if t.date_close else "",
                 "股數": t.shares,
@@ -405,9 +417,18 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
                 "交易稅": f"${t.tax:,.0f}",
                 "損益": f"${t.pnl:,.0f}",
                 "報酬率": f"{t.return_pct:.2%}",
-            })
+            }
+            if t.liquidity_warning:
+                _row["流動性"] = t.liquidity_warning
+                _liquidity_warnings += 1
+            trade_data.append(_row)
         _trade_df = pd.DataFrame(trade_data)
         st.dataframe(_trade_df, width="stretch")
+        if _liquidity_warnings > 0:
+            st.warning(
+                f"⚠️ {_liquidity_warnings} 筆交易有流動性風險（交易金額佔當日成交額 > 5%），"
+                "現實中可能面臨滑價擴大或無法成交的問題。"
+            )
 
         _csv_lines = [
             f"# 股票：{stock_code} {stock_name}",
