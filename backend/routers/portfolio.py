@@ -24,6 +24,7 @@ class OpenPositionRequest(BaseModel):
     confidence: float = 0.7
     sector: str = ""
     note: str = ""
+    tags: str = ""
 
 
 class ClosePositionRequest(BaseModel):
@@ -127,6 +128,7 @@ def open_position(req: OpenPositionRequest):
             "confidence": req.confidence,
             "sector": req.sector,
             "note": req.note,
+            "tags": req.tags,
         })
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -290,6 +292,77 @@ def get_equity_ledger():
         }
 
     return make_serializable({"ledger": ledger, "delta_equity": delta})
+
+
+@router.get("/performance")
+def get_performance():
+    """資產淨值曲線 + 最大回撤（Gemini R28: Visual Intelligence）
+
+    Returns equity curve, daily returns, HWM, and drawdown from SQLite snapshots.
+    """
+    from backend.dependencies import make_serializable
+
+    snapshots = db.get_equity_snapshots()
+    if len(snapshots) < 2:
+        return make_serializable({"has_data": False})
+
+    dates = []
+    equities = []
+    hwm_line = []
+    drawdown_line = []
+    daily_returns = []
+
+    hwm = 0
+    max_dd = 0
+    max_dd_date = ""
+    prev_equity = None
+
+    for s in snapshots:
+        eq = s.get("total_equity", 0)
+        dates.append(s["date"])
+        equities.append(eq)
+
+        # HWM
+        if eq > hwm:
+            hwm = eq
+        hwm_line.append(hwm)
+
+        # Drawdown
+        dd = (hwm - eq) / hwm if hwm > 0 else 0
+        drawdown_line.append(round(-dd, 4))
+        if dd > max_dd:
+            max_dd = dd
+            max_dd_date = s["date"]
+
+        # Daily return
+        if prev_equity is not None and prev_equity > 0:
+            dr = (eq - prev_equity) / prev_equity
+            daily_returns.append(round(dr, 4))
+        else:
+            daily_returns.append(0)
+        prev_equity = eq
+
+    # Summary stats
+    first_eq = equities[0] if equities else 0
+    last_eq = equities[-1] if equities else 0
+    total_return = (last_eq / first_eq - 1) if first_eq > 0 else 0
+
+    return make_serializable({
+        "has_data": True,
+        "dates": dates,
+        "equity": equities,
+        "hwm": hwm_line,
+        "drawdown": drawdown_line,
+        "daily_returns": daily_returns,
+        "summary": {
+            "total_return": round(total_return, 4),
+            "max_drawdown": round(max_dd, 4),
+            "max_dd_date": max_dd_date,
+            "current_equity": last_eq,
+            "peak_equity": hwm,
+            "data_points": len(snapshots),
+        },
+    })
 
 
 @router.get("/analytics")

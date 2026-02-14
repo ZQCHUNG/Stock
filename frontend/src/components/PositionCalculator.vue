@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NCard, NGrid, NGi, NInputNumber, NSlider, NAlert, NTag, NSpin, NSpace, NTooltip, NButton } from 'naive-ui'
+import { NCard, NGrid, NGi, NInputNumber, NInput, NSlider, NAlert, NTag, NSpin, NSpace, NTooltip, NButton } from 'naive-ui'
 import { analysisApi } from '../api/analysis'
 import { usePortfolioStore } from '../stores/portfolio'
 import { useAppStore } from '../stores/app'
@@ -124,9 +124,10 @@ const momentumIcon = computed(() => {
   return ''
 })
 
-// Simulated buy (Gemini R25: Portfolio Commander)
+// Simulated buy (Gemini R25→R28: with journal note)
 const pfStore = usePortfolioStore()
 const isBuying = ref(false)
+const buyNote = ref('')
 
 async function simulateBuy() {
   if (lots.value <= 0) return
@@ -141,7 +142,9 @@ async function simulateBuy() {
       trailing_stop: trailingStopPrice.value,
       confidence: confidenceMultiplier.value,
       sector: sectorL1.value,
+      note: buyNote.value,
     })
+    buyNote.value = ''
   } catch { /* handled by store */ }
   isBuying.value = false
 }
@@ -295,8 +298,14 @@ function resetStopLoss() {
         買入成本超過總資金，無法執行
       </div>
 
-      <!-- Simulated Buy Button (Gemini R25) -->
+      <!-- Simulated Buy Button + Journal (Gemini R25→R28) -->
       <div v-if="lots > 0 && !isGhostTown && v4Signal === 'BUY'" style="margin-top: 10px">
+        <NInput
+          v-model:value="buyNote"
+          placeholder="買入理由（選填）：趨勢確認 / 突破支撐 / 板塊輪動..."
+          size="small"
+          style="margin-bottom: 6px; max-width: 400px"
+        />
         <NButton
           type="error"
           size="small"

@@ -10,6 +10,8 @@ import { useAppStore } from '../stores/app'
 import { usePortfolioStore } from '../stores/portfolio'
 import { fmtNum, fmtPct, priceColor } from '../utils/format'
 import MetricCard from '../components/MetricCard.vue'
+import EquityCurveChart from '../components/EquityCurveChart.vue'
+import ExposureTreemap from '../components/ExposureTreemap.vue'
 
 const app = useAppStore()
 const pf = usePortfolioStore()
@@ -21,6 +23,7 @@ onMounted(() => {
   pf.loadExitAlerts()
   pf.loadEquityLedger()
   pf.loadAnalytics()
+  pf.loadPerformance()
   pf.loadBriefing()
 })
 
@@ -178,6 +181,9 @@ const briefingInsights = computed(() => pf.briefing?.insights || [])
 
 // Analytics
 const analyticsData = computed(() => pf.analytics)
+
+// Performance data (equity curve + MDD)
+const perfData = computed(() => pf.performance)
 </script>
 
 <template>
@@ -268,6 +274,38 @@ const analyticsData = computed(() => pf.analytics)
           />
         </NGi>
       </NGrid>
+
+      <!-- Equity Curve + MDD (Gemini R28) -->
+      <NCard v-if="perfData?.has_data" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">績效曲線</span>
+            <NTag v-if="perfData.summary" size="small" :type="perfData.summary.total_return >= 0 ? 'success' : 'error'">
+              累計 {{ fmtPct(perfData.summary.total_return) }}
+            </NTag>
+            <NTag v-if="perfData.summary?.max_drawdown" size="small" type="warning">
+              MDD {{ fmtPct(-perfData.summary.max_drawdown) }}
+            </NTag>
+          </NSpace>
+        </template>
+        <EquityCurveChart
+          :dates="perfData.dates"
+          :equity="perfData.equity"
+          :hwm="perfData.hwm"
+          :drawdown="perfData.drawdown"
+        />
+      </NCard>
+
+      <!-- Exposure Treemap (Gemini R28) -->
+      <NCard v-if="pf.positions.length >= 2" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">曝險矩陣</span>
+            <NTag size="small" :bordered="false">Exposure Treemap</NTag>
+          </NSpace>
+        </template>
+        <ExposureTreemap :positions="pf.positions" />
+      </NCard>
 
       <!-- Health Warnings -->
       <NAlert

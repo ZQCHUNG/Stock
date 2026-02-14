@@ -27,7 +27,17 @@ def _ensure_db():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _connect() as conn:
         conn.executescript(_SCHEMA_DDL)
+        _run_migrations(conn)
         _maybe_migrate_json(conn)
+
+
+def _run_migrations(conn: sqlite3.Connection):
+    """Run incremental schema migrations (idempotent)."""
+    # R28: Add tags column if missing
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(positions)").fetchall()}
+    if "tags" not in cols:
+        conn.execute("ALTER TABLE positions ADD COLUMN tags TEXT DEFAULT ''")
+
 
 
 @contextmanager
@@ -64,6 +74,7 @@ CREATE TABLE IF NOT EXISTS positions (
     confidence  REAL DEFAULT 0.7,
     sector      TEXT DEFAULT '',
     note        TEXT DEFAULT '',
+    tags        TEXT DEFAULT '',
     status      TEXT NOT NULL DEFAULT 'open',   -- 'open' or 'closed'
     exit_date   TEXT,
     exit_price  REAL,
@@ -256,13 +267,14 @@ def create_position(data: dict) -> dict:
         conn.execute(
             """INSERT INTO positions
                (id, code, name, entry_date, entry_price, lots, stop_loss,
-                trailing_stop, confidence, sector, note, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')""",
+                trailing_stop, confidence, sector, note, tags, status)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')""",
             (
                 pid, data["code"], data.get("name", ""), entry_date,
                 data["entry_price"], data["lots"], data.get("stop_loss", 0),
                 data.get("trailing_stop"), data.get("confidence", 0.7),
                 data.get("sector", ""), data.get("note", ""),
+                data.get("tags", ""),
             ),
         )
 
@@ -273,6 +285,7 @@ def create_position(data: dict) -> dict:
         "trailing_stop": data.get("trailing_stop"),
         "confidence": data.get("confidence", 0.7),
         "sector": data.get("sector", ""), "note": data.get("note", ""),
+        "tags": data.get("tags", ""),
     }
 
 

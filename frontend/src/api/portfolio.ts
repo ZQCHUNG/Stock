@@ -10,6 +10,7 @@ export interface OpenPositionParams {
   confidence?: number
   sector?: string
   note?: string
+  tags?: string
 }
 
 export interface ClosePositionParams {
@@ -29,5 +30,6 @@ export const portfolioApi = {
   exitAlerts: () => client.get<any, any[]>('/portfolio/exit-alerts'),
   equityLedger: () => client.get<any, any>('/portfolio/equity-ledger'),
   analytics: () => client.get<any, any>('/portfolio/analytics'),
+  performance: () => client.get<any, any>('/portfolio/performance'),
   briefing: () => client.get<any, any>('/portfolio/briefing'),
 }
