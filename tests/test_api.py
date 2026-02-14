@@ -307,6 +307,16 @@ class TestDataQuality:
         assert "total_stocks" in data or "message" in data
 
 
+class TestApiPerformance:
+    def test_api_performance(self, client):
+        """GET /api/system/api-performance should return stats."""
+        resp = client.get("/api/system/api-performance")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "total_requests" in data
+        assert "endpoints" in data
+
+
 # ---------------------------------------------------------------------------
 # Stocks endpoints
 # ---------------------------------------------------------------------------

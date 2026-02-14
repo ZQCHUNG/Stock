@@ -273,3 +273,56 @@ def run_scenario(req: ScenarioRequest):
     )
 
     return make_serializable({"scenarios": results})
+
+
+@router.post("/validate-var")
+def validate_var():
+    """VaR 模型回測驗證（R49-1）
+
+    使用持倉 + 自選股的歷史數據回測 VaR 模型，
+    分析突破率、校準度，並提供參數調優建議。
+    """
+    from backend import db
+    from backend.dependencies import make_serializable
+    from backend.var_validator import validate_var_model
+    from data.fetcher import get_stock_data
+
+    # Collect codes from positions + watchlist
+    codes = set()
+    positions = db.get_open_positions()
+    codes.update(p["code"] for p in positions)
+
+    try:
+        from backend.routers.watchlist import _load_watchlist
+        wl = _load_watchlist()
+        codes.update(wl[:10])  # Max 10 from watchlist
+    except Exception:
+        pass
+
+    if not codes:
+        return {"error": "無持倉或自選股可供驗證"}
+
+    # Fetch 2 years of data
+    stock_data = {}
+    def _fetch(code):
+        try:
+            return code, get_stock_data(code, period_days=750)
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for code, df in ex.map(_fetch, list(codes)[:15]):
+            if df is not None and len(df) >= 300:
+                stock_data[code] = df
+
+    if not stock_data:
+        return {"error": "無法取得足夠的歷史數據"}
+
+    result = validate_var_model(
+        stock_data=stock_data,
+        confidence=0.95,
+        lookback_days=250,
+        test_window_days=500,
+    )
+
+    return make_serializable(result)

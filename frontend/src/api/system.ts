@@ -12,4 +12,5 @@ export const systemApi = {
   runBackup: () => client.post<any, any>('/system/backup'),
   listBackups: () => client.get<any, any[]>('/system/backups'),
   dataQuality: () => client.get<any, any>('/system/data-quality', { timeout: 60000 }),
+  apiPerformance: () => client.get<any, any>('/system/api-performance'),
 }

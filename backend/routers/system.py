@@ -202,3 +202,13 @@ def data_quality():
             stock_data[code] = df if df is not None else __import__('pandas').DataFrame()
 
     return check_batch_data_quality(stock_data)
+
+
+@router.get("/api-performance")
+def api_performance():
+    """R49-3: API 性能統計
+
+    顯示最近 500 個 API 請求的響應時間統計，按端點分組。
+    """
+    from backend.app import get_api_performance_stats
+    return get_api_performance_stats()

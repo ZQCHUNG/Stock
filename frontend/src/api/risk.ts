@@ -11,4 +11,6 @@ export const riskApi = {
   }) => client.post<any, any>('/risk/position-size', params, { timeout: 30000 }),
   getScenario: (account_value?: number) =>
     client.post<any, any>('/risk/scenario', { account_value: account_value || 1000000 }, { timeout: 30000 }),
+  validateVar: () =>
+    client.post<any, any>('/risk/validate-var', {}, { timeout: 120000 }),
 }

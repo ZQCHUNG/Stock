@@ -13,6 +13,8 @@ const data = ref<any>(null)
 const error = ref('')
 const scenarioData = ref<any>(null)
 const scenarioLoading = ref(false)
+const varValidation = ref<any>(null)
+const varValidLoading = ref(false)
 
 async function loadRisk() {
   isLoading.value = true
@@ -31,6 +33,16 @@ async function loadScenario() {
     scenarioData.value = await riskApi.getScenario()
   } catch { scenarioData.value = null }
   scenarioLoading.value = false
+}
+
+async function runVarValidation() {
+  varValidLoading.value = true
+  try {
+    varValidation.value = await riskApi.validateVar()
+  } catch (e: any) {
+    varValidation.value = { error: e?.message || 'Validation failed' }
+  }
+  varValidLoading.value = false
 }
 
 onMounted(() => {
@@ -302,6 +314,56 @@ const corrPairColumns: DataTableColumns = [
               </table>
             </template>
             <NEmpty v-else description="無持倉可進行壓力測試" />
+          </NSpin>
+        </NCard>
+
+        <!-- VaR Model Validation (R49-1) -->
+        <NCard title="VaR 模型回測驗證" size="small" style="margin-top: 16px">
+          <template #header-extra>
+            <NButton size="tiny" type="warning" @click="runVarValidation" :loading="varValidLoading">
+              執行驗證
+            </NButton>
+          </template>
+          <NSpin :show="varValidLoading">
+            <template v-if="varValidation && !varValidation.error">
+              <NGrid :cols="4" :x-gap="12" :y-gap="8" style="margin-bottom: 12px">
+                <NGi>
+                  <NStatistic label="測試天數" :value="varValidation.test_days" />
+                </NGi>
+                <NGi>
+                  <NStatistic label="突破次數" :value="varValidation.breach_count" />
+                </NGi>
+                <NGi>
+                  <NStatistic label="預期突破率">
+                    <template #default>{{ ((varValidation.expected_breach_rate || 0) * 100).toFixed(1) }}%</template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="實際突破率">
+                    <template #default>
+                      <span :style="{ color: (varValidation.breach_ratio || 0) > 1.5 ? '#f44336' : (varValidation.breach_ratio || 0) < 0.5 ? '#ff9800' : '#4caf50' }">
+                        {{ ((varValidation.actual_breach_rate || 0) * 100).toFixed(1) }}%
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NGi>
+              </NGrid>
+              <NAlert :type="(varValidation.breach_ratio || 0) <= 1.5 ? 'success' : 'warning'" style="margin-bottom: 8px">
+                <strong>{{ varValidation.calibration }}</strong> — {{ varValidation.calibration_action }}
+              </NAlert>
+              <div v-if="varValidation.parameter_recommendations?.length" style="margin-top: 8px">
+                <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px">參數調優建議:</div>
+                <div v-for="rec in varValidation.parameter_recommendations" :key="rec.parameter"
+                     style="font-size: 12px; margin-bottom: 2px; color: var(--n-text-color-3)">
+                  <NTag size="small" :bordered="false">{{ rec.parameter }}</NTag>
+                  {{ rec.current }} → {{ rec.suggested }} — {{ rec.reason }}
+                </div>
+              </div>
+            </template>
+            <NAlert v-else-if="varValidation?.error" type="error">{{ varValidation.error }}</NAlert>
+            <div v-else-if="!varValidLoading" style="padding: 12px; color: #999; font-size: 12px">
+              點擊「執行驗證」以回測 VaR 模型校準度（需 1-2 分鐘）
+            </div>
           </NSpin>
         </NCard>
 

@@ -362,6 +362,24 @@ def start_scheduler(interval_minutes: int = 5):
         replace_existing=True,
         max_instances=1,
     )
+    # R49-2: Daily data quality check (every 12 hours)
+    _scheduler.add_job(
+        _run_data_quality_check,
+        trigger=IntervalTrigger(hours=12),
+        id="data_quality_check",
+        name="Data Quality Check",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # R49-2: System health check (every 30 minutes)
+    _scheduler.add_job(
+        _run_system_health_check,
+        trigger=IntervalTrigger(minutes=30),
+        id="system_health_check",
+        name="System Health Check",
+        replace_existing=True,
+        max_instances=1,
+    )
 
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
@@ -409,6 +427,118 @@ def _run_daily_backup():
         logger.info(f"Daily backup completed: {backed} files backed up, {removed} old files removed")
     except Exception as e:
         logger.warning(f"Daily backup failed: {e}")
+
+
+def _run_data_quality_check():
+    """R49-2: Scheduled job — check data quality for watchlist + positions."""
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        from backend import db
+        from backend.data_quality import check_batch_data_quality
+        from data.fetcher import get_stock_data
+
+        codes = set()
+        try:
+            from backend.routers.watchlist import _load_watchlist
+            codes.update(_load_watchlist()[:20])
+        except Exception:
+            pass
+        try:
+            positions = db.get_open_positions()
+            codes.update(p["code"] for p in positions)
+        except Exception:
+            pass
+
+        if not codes:
+            return
+
+        stock_data = {}
+        import pandas as pd
+        def _fetch(code):
+            try:
+                return code, get_stock_data(code, period_days=60)
+            except Exception:
+                return code, None
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for code, df in ex.map(_fetch, list(codes)[:20]):
+                stock_data[code] = df if df is not None else pd.DataFrame()
+
+        result = check_batch_data_quality(stock_data)
+        error_count = result.get("error_count", 0)
+        overall_score = result.get("overall_score", 1.0)
+
+        # Notify if quality is poor
+        if error_count > 0 or overall_score < 0.9:
+            _notify_data_quality_issue(result)
+
+        logger.info(f"Data quality check: {result['total_stocks']} stocks, "
+                     f"score={overall_score:.0%}, errors={error_count}")
+    except Exception as e:
+        logger.warning(f"Data quality check failed: {e}")
+
+
+def _run_system_health_check():
+    """R49-2: Scheduled job — check system health and notify on degradation."""
+    try:
+        from backend.health import get_system_health
+        health = get_system_health(include_slow=False)
+
+        degraded = []
+        for name, component in health.get("components", {}).items():
+            if isinstance(component, dict) and component.get("status") not in ("healthy", None):
+                degraded.append(f"{name}: {component.get('status', 'unknown')}")
+
+        if degraded:
+            _notify_system_health_issue(health["status"], degraded)
+            logger.warning(f"System health degraded: {', '.join(degraded)}")
+        else:
+            logger.debug("System health check: all healthy")
+    except Exception as e:
+        logger.warning(f"System health check failed: {e}")
+
+
+def _notify_data_quality_issue(result: dict):
+    """Send LINE + log notification for data quality issues."""
+    config_data = _load_json(ALERT_CONFIG_PATH, {})
+    if not config_data.get("notify_line") or not config_data.get("line_token"):
+        return
+
+    now = datetime.now()
+    lines = [
+        f"\n📊 數據品質警報",
+        f"⏰ {now.strftime('%Y-%m-%d %H:%M')}",
+        f"完整度: {result.get('overall_score', 0):.0%}",
+        f"異常: {result.get('error_count', 0)} / 警告: {result.get('warning_count', 0)}",
+    ]
+    for issue in result.get("critical_issues", [])[:5]:
+        lines.append(f"❌ {issue['code']}: {issue['detail']}")
+
+    try:
+        _send_line_notify(config_data["line_token"], "\n".join(lines))
+    except Exception as e:
+        logger.warning(f"Data quality LINE notify failed: {e}")
+
+
+def _notify_system_health_issue(status: str, degraded: list):
+    """Send LINE notification for system health issues."""
+    config_data = _load_json(ALERT_CONFIG_PATH, {})
+    if not config_data.get("notify_line") or not config_data.get("line_token"):
+        return
+
+    now = datetime.now()
+    lines = [
+        f"\n⚠️ 系統健康警報",
+        f"⏰ {now.strftime('%Y-%m-%d %H:%M')}",
+        f"狀態: {status}",
+    ]
+    for d in degraded[:5]:
+        lines.append(f"❌ {d}")
+
+    try:
+        _send_line_notify(config_data["line_token"], "\n".join(lines))
+    except Exception as e:
+        logger.warning(f"System health LINE notify failed: {e}")
 
 
 def stop_scheduler():

@@ -12,6 +12,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import logging
+import time
+from collections import deque
+from threading import Lock
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,6 +51,79 @@ async def global_exception_handler(request: Request, exc: Exception):
             "path": str(request.url.path),
         },
     )
+
+# R49-3: API Performance Monitoring Middleware
+_perf_lock = Lock()
+_perf_log: deque = deque(maxlen=500)  # Last 500 requests
+_slow_threshold_ms = 2000  # Log warning for requests > 2s
+
+
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    """Record request timing for all API endpoints."""
+    start = time.time()
+    response = await call_next(request)
+    elapsed_ms = (time.time() - start) * 1000
+
+    path = request.url.path
+    if path.startswith("/api/"):
+        entry = {
+            "path": path,
+            "method": request.method,
+            "status": response.status_code,
+            "elapsed_ms": round(elapsed_ms, 1),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        with _perf_lock:
+            _perf_log.append(entry)
+
+        if elapsed_ms > _slow_threshold_ms:
+            logger.warning(f"Slow API: {request.method} {path} took {elapsed_ms:.0f}ms")
+
+        # Add timing header
+        response.headers["X-Response-Time"] = f"{elapsed_ms:.1f}ms"
+
+    return response
+
+
+def get_api_performance_stats() -> dict:
+    """Get API performance statistics for the monitoring endpoint."""
+    with _perf_lock:
+        entries = list(_perf_log)
+
+    if not entries:
+        return {"total_requests": 0, "endpoints": []}
+
+    # Group by path
+    from collections import defaultdict
+    by_path: dict = defaultdict(list)
+    for e in entries:
+        by_path[e["path"]].append(e["elapsed_ms"])
+
+    endpoints = []
+    for path, times in sorted(by_path.items()):
+        import numpy as np
+        arr = np.array(times)
+        endpoints.append({
+            "path": path,
+            "count": len(times),
+            "avg_ms": round(float(arr.mean()), 1),
+            "p50_ms": round(float(np.median(arr)), 1),
+            "p95_ms": round(float(np.percentile(arr, 95)), 1),
+            "max_ms": round(float(arr.max()), 1),
+            "slow_count": int((arr > _slow_threshold_ms).sum()),
+        })
+
+    endpoints.sort(key=lambda x: x["avg_ms"], reverse=True)
+
+    return {
+        "total_requests": len(entries),
+        "window_start": entries[0]["timestamp"] if entries else None,
+        "window_end": entries[-1]["timestamp"] if entries else None,
+        "slow_threshold_ms": _slow_threshold_ms,
+        "endpoints": endpoints,
+    }
+
 
 # CORS — 從環境變數讀取，開發模式預設允許 Vite dev server
 from backend.config import CORS_ORIGINS
