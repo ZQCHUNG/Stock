@@ -1,0 +1,3 @@
+[client]
+# 隱藏 Streamlit 原生 multipage sidebar 導航（我們使用自訂 radio 導航）
+showSidebarNavigation = false

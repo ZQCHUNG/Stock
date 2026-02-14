@@ -1,9 +1,10 @@
 """Redis 快取層
 
-快取策略：
-- 股價資料：TTL 5 分鐘（盤中即時性）
-- 技術分析結果：TTL 5 分鐘
+快取策略（市場感知）：
+- 股價資料：盤中 15 分鐘，收盤後 60 分鐘
+- 技術分析結果：盤中 15 分鐘，收盤後 60 分鐘
 - 推薦掃描結果：TTL 10 分鐘
+- 法人籌碼資料：TTL 60 分鐘
 - 股票清單：TTL 24 小時
 """
 
@@ -14,13 +15,22 @@ import numpy as np
 from datetime import datetime
 
 
-# Redis 連線（lazy init）
+# Redis 連線（lazy init + cooldown）
 _redis_client: redis.Redis | None = None
+_redis_last_fail: float = 0
+_REDIS_COOLDOWN = 30  # 連線失敗後 30 秒內不重試
 
 
 def get_redis() -> redis.Redis | None:
     """取得 Redis 連線（連不上回傳 None，系統仍可正常運作）"""
-    global _redis_client
+    global _redis_client, _redis_last_fail
+
+    # 冷卻期：避免 Redis 不在線時每次呼叫都等 timeout
+    import time
+    if _redis_client is None and _redis_last_fail > 0:
+        if time.time() - _redis_last_fail < _REDIS_COOLDOWN:
+            return None
+
     if _redis_client is not None:
         try:
             _redis_client.ping()
@@ -34,13 +44,15 @@ def get_redis() -> redis.Redis | None:
             port=6379,
             db=0,
             decode_responses=True,
-            socket_connect_timeout=2,
-            socket_timeout=2,
+            socket_connect_timeout=1,
+            socket_timeout=1,
         )
         _redis_client.ping()
+        _redis_last_fail = 0
         return _redis_client
     except Exception:
         _redis_client = None
+        _redis_last_fail = time.time()
         return None
 
 
@@ -66,6 +78,25 @@ def _json_to_df(json_str: str) -> pd.DataFrame:
     return df
 
 
+def _market_aware_ttl(ttl_open: int = 900, ttl_closed: int = 3600) -> int:
+    """根據台股開盤狀態回傳適當 TTL
+
+    台股交易時間：週一至週五 09:00-13:30
+    盤中 TTL 較短（預設 15 分鐘），收盤後較長（預設 60 分鐘）
+    """
+    now = datetime.now()
+    weekday = now.weekday()  # 0=Mon, 6=Sun
+    hour, minute = now.hour, now.minute
+    time_val = hour * 60 + minute
+
+    # 週末或非交易時間
+    if weekday >= 5:
+        return ttl_closed
+    if time_val < 9 * 60 or time_val > 13 * 60 + 30:
+        return ttl_closed
+    return ttl_open
+
+
 # ===== 股價資料快取 =====
 
 def get_cached_stock_data(stock_code: str, period_days: int) -> pd.DataFrame | None:
@@ -84,11 +115,14 @@ def get_cached_stock_data(stock_code: str, period_days: int) -> pd.DataFrame | N
     return None
 
 
-def set_cached_stock_data(stock_code: str, period_days: int, df: pd.DataFrame, ttl: int = 300) -> None:
-    """寫入股價資料快取"""
+def set_cached_stock_data(stock_code: str, period_days: int, df: pd.DataFrame, ttl: int | None = None) -> None:
+    """寫入股價資料快取（預設使用市場感知 TTL）"""
     r = get_redis()
     if r is None:
         return
+
+    if ttl is None:
+        ttl = _market_aware_ttl(ttl_open=900, ttl_closed=3600)
 
     key = f"stock_data:{stock_code}:{period_days}"
     try:
@@ -224,6 +258,37 @@ def set_cached_stock_list(stocks: dict[str, dict], ttl: int = 86400) -> None:
 
     try:
         r.setex("stock_list", ttl, json.dumps(stocks, ensure_ascii=False))
+    except Exception:
+        pass
+
+
+# ===== 法人籌碼快取 =====
+
+def get_cached_institutional_data(stock_code: str) -> pd.DataFrame | None:
+    """從快取讀取法人籌碼資料"""
+    r = get_redis()
+    if r is None:
+        return None
+
+    key = f"institutional:{stock_code}"
+    try:
+        cached = r.get(key)
+        if cached:
+            return _json_to_df(cached)
+    except Exception:
+        pass
+    return None
+
+
+def set_cached_institutional_data(stock_code: str, df: pd.DataFrame, ttl: int = 3600) -> None:
+    """寫入法人籌碼資料快取（預設 60 分鐘）"""
+    r = get_redis()
+    if r is None:
+        return
+
+    key = f"institutional:{stock_code}"
+    try:
+        r.setex(key, ttl, _df_to_json(df))
     except Exception:
         pass
 

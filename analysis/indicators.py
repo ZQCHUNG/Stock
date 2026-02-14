@@ -14,7 +14,7 @@ import numpy as np
 from config import INDICATOR_PARAMS
 
 
-def calculate_ma(df: pd.DataFrame, periods: list[int] | None = None) -> pd.DataFrame:
+def calculate_ma(df: pd.DataFrame, periods: list[int] | None = None, _inplace: bool = False) -> pd.DataFrame:
     """計算移動平均線
 
     Args:
@@ -31,14 +31,14 @@ def calculate_ma(df: pd.DataFrame, periods: list[int] | None = None) -> pd.DataF
             INDICATOR_PARAMS["ma_long"],
         ]
 
-    result = df.copy()
+    result = df if _inplace else df.copy()
     for period in periods:
         result[f"ma{period}"] = result["close"].rolling(window=period).mean()
 
     return result
 
 
-def calculate_rsi(df: pd.DataFrame, period: int | None = None) -> pd.DataFrame:
+def calculate_rsi(df: pd.DataFrame, period: int | None = None, _inplace: bool = False) -> pd.DataFrame:
     """計算 RSI 相對強弱指標
 
     使用 Wilder's smoothing method (exponential moving average)
@@ -53,7 +53,7 @@ def calculate_rsi(df: pd.DataFrame, period: int | None = None) -> pd.DataFrame:
     if period is None:
         period = INDICATOR_PARAMS["rsi_period"]
 
-    result = df.copy()
+    result = df if _inplace else df.copy()
     delta = result["close"].diff()
 
     gain = delta.where(delta > 0, 0.0)
@@ -73,6 +73,7 @@ def calculate_macd(
     fast: int | None = None,
     slow: int | None = None,
     signal: int | None = None,
+    _inplace: bool = False,
 ) -> pd.DataFrame:
     """計算 MACD 指標
 
@@ -92,7 +93,7 @@ def calculate_macd(
     if signal is None:
         signal = INDICATOR_PARAMS["macd_signal"]
 
-    result = df.copy()
+    result = df if _inplace else df.copy()
 
     ema_fast = result["close"].ewm(span=fast, adjust=False).mean()
     ema_slow = result["close"].ewm(span=slow, adjust=False).mean()
@@ -104,7 +105,7 @@ def calculate_macd(
     return result
 
 
-def calculate_kd(df: pd.DataFrame, period: int | None = None) -> pd.DataFrame:
+def calculate_kd(df: pd.DataFrame, period: int | None = None, _inplace: bool = False) -> pd.DataFrame:
     """計算 KD 隨機指標
 
     K = RSV 的 3 日移動平均
@@ -120,7 +121,7 @@ def calculate_kd(df: pd.DataFrame, period: int | None = None) -> pd.DataFrame:
     if period is None:
         period = INDICATOR_PARAMS["kd_period"]
 
-    result = df.copy()
+    result = df if _inplace else df.copy()
 
     low_min = result["low"].rolling(window=period).min()
     high_max = result["high"].rolling(window=period).max()
@@ -158,6 +159,7 @@ def calculate_bollinger_bands(
     df: pd.DataFrame,
     period: int | None = None,
     num_std: float | None = None,
+    _inplace: bool = False,
 ) -> pd.DataFrame:
     """計算布林通道
 
@@ -174,7 +176,7 @@ def calculate_bollinger_bands(
     if num_std is None:
         num_std = INDICATOR_PARAMS["bb_std"]
 
-    result = df.copy()
+    result = df if _inplace else df.copy()
 
     result["bb_middle"] = result["close"].rolling(window=period).mean()
     rolling_std = result["close"].rolling(window=period).std()
@@ -184,7 +186,7 @@ def calculate_bollinger_bands(
     return result
 
 
-def calculate_volume_analysis(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_volume_analysis(df: pd.DataFrame, _inplace: bool = False) -> pd.DataFrame:
     """成交量分析
 
     計算：
@@ -195,7 +197,7 @@ def calculate_volume_analysis(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         新增成交量分析欄位的 DataFrame
     """
-    result = df.copy()
+    result = df if _inplace else df.copy()
 
     result["volume_ma5"] = result["volume"].rolling(window=5).mean()
     result["volume_ma20"] = result["volume"].rolling(window=20).mean()
@@ -204,7 +206,7 @@ def calculate_volume_analysis(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+def calculate_adx(df: pd.DataFrame, period: int = 14, _inplace: bool = False) -> pd.DataFrame:
     """計算 ADX (Average Directional Index) 趨勢強度指標
 
     ADX > 25 表示有明確趨勢，適合趨勢跟隨策略。
@@ -213,7 +215,7 @@ def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     Returns:
         新增 'adx', 'plus_di', 'minus_di' 欄位的 DataFrame
     """
-    result = df.copy()
+    result = df if _inplace else df.copy()
     high = result["high"]
     low = result["low"]
     close = result["close"]
@@ -254,7 +256,7 @@ def calculate_adx(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     return result
 
 
-def calculate_roc(df: pd.DataFrame, period: int = 12) -> pd.DataFrame:
+def calculate_roc(df: pd.DataFrame, period: int = 12, _inplace: bool = False) -> pd.DataFrame:
     """計算 ROC (Rate of Change) 動量指標
 
     ROC = (今日收盤 - N日前收盤) / N日前收盤 * 100
@@ -262,12 +264,12 @@ def calculate_roc(df: pd.DataFrame, period: int = 12) -> pd.DataFrame:
     Returns:
         新增 'roc' 欄位的 DataFrame
     """
-    result = df.copy()
+    result = df if _inplace else df.copy()
     result["roc"] = result["close"].pct_change(periods=period) * 100
     return result
 
 
-def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
+def calculate_atr(df: pd.DataFrame, period: int = 14, _inplace: bool = False) -> pd.DataFrame:
     """計算 ATR (Average True Range) 平均真實波幅
 
     ATR 衡量股票的波動度，用於動態調整停損停利距離。
@@ -279,7 +281,7 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     Returns:
         新增 'atr', 'atr_pct' 欄位的 DataFrame
     """
-    result = df.copy()
+    result = df if _inplace else df.copy()
     high = result["high"]
     low = result["low"]
     prev_close = result["close"].shift(1)
@@ -308,14 +310,15 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
         包含所有技術指標的 DataFrame
     """
     result = df.copy()
-    result = calculate_ma(result)
-    result = calculate_rsi(result)
-    result = calculate_macd(result)
-    result = calculate_kd(result)
-    result = calculate_bollinger_bands(result)
-    result = calculate_volume_analysis(result)
-    result = calculate_atr(result)
-    result = calculate_adx(result)
-    result = calculate_roc(result)
+    # 單次 copy，後續全部 in-place 寫入，節省 ~9x 記憶體
+    calculate_ma(result, _inplace=True)
+    calculate_rsi(result, _inplace=True)
+    calculate_macd(result, _inplace=True)
+    calculate_kd(result, _inplace=True)
+    calculate_bollinger_bands(result, _inplace=True)
+    calculate_volume_analysis(result, _inplace=True)
+    calculate_atr(result, _inplace=True)
+    calculate_adx(result, _inplace=True)
+    calculate_roc(result, _inplace=True)
 
     return result

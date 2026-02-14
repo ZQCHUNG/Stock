@@ -176,3 +176,51 @@ def get_v4_analysis(df: pd.DataFrame) -> dict:
             "MA60": latest.get("ma60"),
         },
     }
+
+
+def get_v4_analysis_with_institutional(df: pd.DataFrame, inst_df: pd.DataFrame | None = None) -> dict:
+    """取得 v4 分析結果 + 法人確認訊號
+
+    在 v4 基礎分析之上，加入三大法人近 5 日淨買超資訊，
+    提供 "strong" / "moderate" / "weak" / "neutral" / "negative" 確認度。
+
+    Args:
+        df: 股價 DataFrame
+        inst_df: 法人買賣超 DataFrame（可選，若無則不提供確認訊號）
+
+    Returns:
+        dict: 含 v4 分析 + institutional_confirmation 欄位
+    """
+    result = get_v4_analysis(df)
+
+    if inst_df is None or inst_df.empty:
+        result["institutional_confirmation"] = "N/A"
+        result["institutional_net_5d"] = 0
+        result["institutional_detail"] = {}
+        return result
+
+    recent = inst_df.tail(5)
+    total_net = recent["total_net"].sum()
+    foreign_net = recent["foreign_net"].sum()
+    trust_net = recent["trust_net"].sum()
+
+    # 確認度判定
+    if total_net > 0 and foreign_net > 0 and trust_net > 0:
+        confirmation = "strong"
+    elif total_net > 0 and (foreign_net > 0 or trust_net > 0):
+        confirmation = "moderate"
+    elif total_net > 0:
+        confirmation = "weak"
+    elif total_net == 0:
+        confirmation = "neutral"
+    else:
+        confirmation = "negative"
+
+    result["institutional_confirmation"] = confirmation
+    result["institutional_net_5d"] = int(total_net)
+    result["institutional_detail"] = {
+        "foreign_5d": int(foreign_net),
+        "trust_5d": int(trust_net),
+        "dealer_5d": int(recent["dealer_net"].sum()),
+    }
+    return result

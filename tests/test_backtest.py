@@ -3,7 +3,11 @@
 import pandas as pd
 import numpy as np
 import pytest
-from backtest.engine import BacktestEngine, BacktestResult, run_backtest, run_backtest_v4
+from backtest.engine import (
+    BacktestEngine, BacktestResult,
+    run_backtest, run_backtest_v4,
+    PortfolioBacktestResult, run_portfolio_backtest_v4,
+)
 
 
 class TestBacktestEngine:
@@ -126,3 +130,130 @@ class TestMetrics:
         result = engine.run(uptrend_df)
         if result.total_trades > 0:
             assert result.profit_factor >= 0
+
+
+class TestPortfolioBacktest:
+    def _make_stock(self, seed, n=200, base=100.0, drift=0.5):
+        np.random.seed(seed)
+        dates = pd.bdate_range("2024-01-01", periods=n)
+        close = base + np.arange(n) * drift + np.random.normal(0, 0.5, n)
+        close = np.maximum(close, 10)
+        df = pd.DataFrame({
+            "open": close - np.random.uniform(0, 1, n),
+            "high": close + np.random.uniform(0, 2, n),
+            "low": close - np.random.uniform(0, 2, n),
+            "close": close,
+            "volume": np.random.randint(5000, 50000, n).astype(float),
+        }, index=dates)
+        df.index.name = "date"
+        return df
+
+    def test_basic_run(self):
+        stocks = {"A": self._make_stock(42), "B": self._make_stock(99)}
+        result = run_portfolio_backtest_v4(stocks, initial_capital=1_000_000)
+        assert isinstance(result, PortfolioBacktestResult)
+        assert not result.equity_curve.empty
+        assert result.initial_capital == 1_000_000
+        assert result.per_stock_capital == 500_000
+
+    def test_stock_results_populated(self):
+        stocks = {"A": self._make_stock(42), "B": self._make_stock(99)}
+        result = run_portfolio_backtest_v4(stocks, initial_capital=1_000_000)
+        assert len(result.stock_results) == 2
+        assert "A" in result.stock_results
+        assert "B" in result.stock_results
+
+    def test_equity_curve_starts_at_total_capital(self):
+        stocks = {"A": self._make_stock(42), "B": self._make_stock(99)}
+        result = run_portfolio_backtest_v4(stocks, initial_capital=1_000_000)
+        assert result.equity_curve.iloc[0] == pytest.approx(1_000_000, rel=0.01)
+
+    def test_total_return_consistent(self):
+        stocks = {"A": self._make_stock(42), "B": self._make_stock(99)}
+        result = run_portfolio_backtest_v4(stocks, initial_capital=1_000_000)
+        expected = (result.equity_curve.iloc[-1] - 1_000_000) / 1_000_000
+        assert result.total_return == pytest.approx(expected, rel=0.001)
+
+    def test_max_drawdown_in_range(self):
+        stocks = {"A": self._make_stock(42), "B": self._make_stock(99)}
+        result = run_portfolio_backtest_v4(stocks, initial_capital=1_000_000)
+        assert result.max_drawdown <= 0
+
+    def test_names_passed_through(self):
+        stocks = {"A": self._make_stock(42), "B": self._make_stock(99)}
+        names = {"A": "Stock A", "B": "Stock B"}
+        result = run_portfolio_backtest_v4(stocks, stock_names=names)
+        assert result.stock_names == names
+
+    def test_correlation_matrix(self):
+        stocks = {"A": self._make_stock(42), "B": self._make_stock(99), "C": self._make_stock(7)}
+        result = run_portfolio_backtest_v4(stocks, initial_capital=1_500_000)
+        if not result.correlation_matrix.empty:
+            assert result.correlation_matrix.shape[0] == result.correlation_matrix.shape[1]
+            # Diagonal should be 1.0
+            for i in range(len(result.correlation_matrix)):
+                assert result.correlation_matrix.iloc[i, i] == pytest.approx(1.0, abs=0.01)
+
+    def test_empty_input(self):
+        result = run_portfolio_backtest_v4({}, initial_capital=1_000_000)
+        assert isinstance(result, PortfolioBacktestResult)
+        assert result.equity_curve.empty
+
+    def test_winning_losing_counts(self):
+        stocks = {"A": self._make_stock(42), "B": self._make_stock(99)}
+        result = run_portfolio_backtest_v4(stocks, initial_capital=1_000_000)
+        total = result.winning_stocks + result.losing_stocks
+        # Some stocks may have 0 return (neither winning nor losing)
+        assert total <= len(result.stock_results)
+
+
+class TestDividendBacktest:
+    def _make_uptrend(self):
+        np.random.seed(42)
+        n = 200
+        dates = pd.bdate_range("2024-01-01", periods=n)
+        close = 100.0 + np.arange(n) * 0.5 + np.random.normal(0, 0.5, n)
+        close = np.maximum(close, 50)
+        return pd.DataFrame({
+            "open": close - np.random.uniform(0, 1, n),
+            "high": close + np.random.uniform(0, 2, n),
+            "low": close - np.random.uniform(0, 2, n),
+            "close": close,
+            "volume": np.random.randint(5000, 50000, n).astype(float),
+        }, index=dates)
+
+    def test_no_dividends_zero_income(self):
+        df = self._make_uptrend()
+        result = run_backtest_v4(df, initial_capital=1_000_000, dividends=None)
+        assert result.dividend_income == 0.0
+
+    def test_dividends_informational_only(self):
+        df = self._make_uptrend()
+        # Create dividends during the backtest period
+        dates = pd.bdate_range("2024-03-01", periods=3, freq="60B")
+        divs = pd.Series([2.0, 3.0, 2.5], index=dates)
+
+        result_no_div = run_backtest_v4(df, initial_capital=1_000_000, dividends=None)
+        result_with_div = run_backtest_v4(df, initial_capital=1_000_000, dividends=divs)
+
+        # Dividends are informational only (not added to cash/equity)
+        # because auto_adjust=True prices already include dividend adjustments.
+        # Equity curves should be identical regardless of dividend parameter.
+        assert abs(result_with_div.equity_curve.iloc[-1] - result_no_div.equity_curve.iloc[-1]) < 1.0
+
+    def test_dividend_income_positive(self):
+        df = self._make_uptrend()
+        # Place dividends where we're likely to have a position
+        mid_dates = df.index[60:180:30]
+        divs = pd.Series([3.0] * len(mid_dates), index=mid_dates)
+
+        result = run_backtest_v4(df, initial_capital=1_000_000, dividends=divs)
+        # We can't guarantee we'll be holding on dividend dates, but
+        # dividend_income should be >= 0
+        assert result.dividend_income >= 0
+
+    def test_empty_dividends_no_crash(self):
+        df = self._make_uptrend()
+        result = run_backtest_v4(df, initial_capital=1_000_000,
+                                dividends=pd.Series(dtype=float))
+        assert result.dividend_income == 0.0

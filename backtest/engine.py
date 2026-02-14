@@ -52,6 +52,7 @@ class BacktestResult:
     avg_loss: float = 0.0
     max_consecutive_wins: int = 0
     max_consecutive_losses: int = 0
+    dividend_income: float = 0.0
 
 
 class BacktestEngine:
@@ -101,11 +102,14 @@ class BacktestEngine:
         entry_atr = 0.0  # 進場時的 ATR（v3）
         hold_day_count = 0  # 持有天數計數（v3）
 
-        for date, row in signals_df.iterrows():
-            price = row["close"]
-            high = row.get("high", price)
-            signal = row["signal"]
-            current_atr = row.get("atr", 0.0)
+        _has_high = "high" in signals_df.columns
+        _has_atr = "atr" in signals_df.columns
+        for row in signals_df.itertuples():
+            date = row.Index
+            price = row.close
+            high = row.high if _has_high else price
+            signal = row.signal
+            current_atr = row.atr if _has_atr else 0.0
 
             # 更新持倉期間最高價（用當日最高價）
             if position > 0:
@@ -265,7 +269,8 @@ class BacktestEngine:
 
         return result
 
-    def run_v4(self, df: pd.DataFrame, params: dict | None = None) -> BacktestResult:
+    def run_v4(self, df: pd.DataFrame, params: dict | None = None,
+              dividends: pd.Series | None = None) -> BacktestResult:
         """執行 v4 回測（趨勢動量 + 支撐進場 + 移動停利停損）
 
         v4 使用完全不同的進出場邏輯：
@@ -274,9 +279,13 @@ class BacktestEngine:
         - 用當日最高最低價偵測 TP/SL（更貼近真實盤中行為）
         - 最短持有天數：避免正常波動觸發假停損
 
+        報酬率已透過 yfinance auto_adjust=True 的調整後股價包含除權息。
+        若提供 dividends 參數，僅追蹤估計股利收入供報表顯示，不影響 P&L 計算。
+
         Args:
-            df: 原始股價 DataFrame
+            df: 調整後股價 DataFrame（auto_adjust=True，含除權息調整）
             params: 覆蓋 STRATEGY_V4_PARAMS 的參數
+            dividends: 歷史除息資料（僅供估算顯示，不影響報酬計算）
 
         Returns:
             BacktestResult 回測結果
@@ -293,6 +302,14 @@ class BacktestEngine:
         max_pos_pct = p.get("max_position_pct", 0.9)
         min_hold = p.get("min_hold_days", 5)
 
+        # 建立除息日查詢集合（僅供估算，不影響 P&L）
+        # 注意：auto_adjust=True 的調整後股價已包含除權息，
+        # 此處僅追蹤持倉期間的估計股利收入供報表顯示
+        div_map = {}
+        if dividends is not None and not dividends.empty:
+            for d, v in dividends.items():
+                div_map[pd.Timestamp(d).normalize()] = v
+
         cash = self.initial_capital
         position = 0
         trades: list[Trade] = []
@@ -303,12 +320,25 @@ class BacktestEngine:
         tp_price = 0.0
         sl_price = 0.0
         original_sl_price = 0.0
+        total_dividend_income = 0.0
 
-        for date, row in signals_df.iterrows():
-            price = row["close"]
-            high = row.get("high", price)
-            low = row.get("low", price)
-            signal = row.get("v4_signal", "HOLD")
+        _has_high = "high" in signals_df.columns
+        _has_low = "low" in signals_df.columns
+        _has_v4_signal = "v4_signal" in signals_df.columns
+        for row in signals_df.itertuples():
+            date = row.Index
+            # 估算除息收入（僅追蹤，不加入 cash）
+            # 報酬率已透過 yfinance auto_adjust=True 的調整後股價包含除權息
+            if position > 0 and div_map:
+                _norm_date = pd.Timestamp(date).normalize()
+                if _norm_date in div_map:
+                    _div_per_share = div_map[_norm_date]
+                    _div_income = position * _div_per_share
+                    total_dividend_income += _div_income
+            price = row.close
+            high = row.high if _has_high else price
+            low = row.low if _has_low else price
+            signal = row.v4_signal if _has_v4_signal else "HOLD"
 
             if position > 0:
                 highest_since_entry = max(highest_since_entry, high)
@@ -430,7 +460,8 @@ class BacktestEngine:
         else:
             equity_curve = pd.Series(dtype=float)
 
-        result = BacktestResult(trades=trades, equity_curve=equity_curve)
+        result = BacktestResult(trades=trades, equity_curve=equity_curve,
+                                dividend_income=total_dividend_income)
         self._calculate_metrics(result)
 
         return result
@@ -539,19 +570,153 @@ def run_backtest_v4(
     df: pd.DataFrame,
     initial_capital: float | None = None,
     params: dict | None = None,
+    dividends: pd.Series | None = None,
 ) -> BacktestResult:
     """便捷函式：執行 v4 回測
 
+    報酬率已透過調整後股價包含除權息（yfinance auto_adjust=True）。
+
     Args:
-        df: 原始股價 DataFrame
+        df: 調整後股價 DataFrame
         initial_capital: 初始資金
         params: v4 策略參數覆蓋
+        dividends: 歷史除息資料（僅供估算顯示，不影響報酬計算）
 
     Returns:
         BacktestResult
     """
     engine = BacktestEngine(initial_capital=initial_capital)
-    return engine.run_v4(df, params=params)
+    return engine.run_v4(df, params=params, dividends=dividends)
+
+
+@dataclass
+class PortfolioBacktestResult:
+    """組合回測結果"""
+    # 組合層級
+    equity_curve: pd.Series = field(default_factory=pd.Series)
+    daily_returns: pd.Series = field(default_factory=pd.Series)
+    total_return: float = 0.0
+    annual_return: float = 0.0
+    max_drawdown: float = 0.0
+    sharpe_ratio: float = 0.0
+    sortino_ratio: float = 0.0
+    calmar_ratio: float = 0.0
+
+    # 個股層級
+    stock_results: dict[str, BacktestResult] = field(default_factory=dict)
+    stock_equity_curves: dict[str, pd.Series] = field(default_factory=dict)
+    stock_codes: list[str] = field(default_factory=list)
+    stock_names: dict[str, str] = field(default_factory=dict)
+
+    # 組合統計
+    initial_capital: float = 0.0
+    per_stock_capital: float = 0.0
+    total_trades: int = 0
+    winning_stocks: int = 0
+    losing_stocks: int = 0
+    correlation_matrix: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+
+def run_portfolio_backtest_v4(
+    stock_data: dict[str, pd.DataFrame],
+    stock_names: dict[str, str] | None = None,
+    initial_capital: float | None = None,
+    params: dict | None = None,
+) -> PortfolioBacktestResult:
+    """等權重組合回測（v4 策略）
+
+    將資金等分給每檔股票，獨立執行 v4 回測，再合併權益曲線。
+
+    Args:
+        stock_data: {stock_code: DataFrame} 各股票歷史資料
+        stock_names: {stock_code: name} 股票名稱（可選）
+        initial_capital: 總初始資金
+        params: v4 策略參數覆寫
+
+    Returns:
+        PortfolioBacktestResult
+    """
+    from config import BACKTEST_PARAMS
+
+    total_capital = initial_capital or BACKTEST_PARAMS["initial_capital"]
+    n_stocks = len(stock_data)
+    if n_stocks == 0:
+        return PortfolioBacktestResult(initial_capital=total_capital)
+
+    per_stock = total_capital / n_stocks
+
+    result = PortfolioBacktestResult(
+        initial_capital=total_capital,
+        per_stock_capital=per_stock,
+        stock_codes=list(stock_data.keys()),
+        stock_names=stock_names or {},
+    )
+
+    # 個股回測
+    for code, df in stock_data.items():
+        try:
+            engine = BacktestEngine(initial_capital=per_stock)
+            bt = engine.run_v4(df, params=params)
+            result.stock_results[code] = bt
+            if not bt.equity_curve.empty:
+                result.stock_equity_curves[code] = bt.equity_curve
+            result.total_trades += bt.total_trades
+            if bt.total_return > 0:
+                result.winning_stocks += 1
+            elif bt.total_return < 0:
+                result.losing_stocks += 1
+        except Exception:
+            continue
+
+    if not result.stock_equity_curves:
+        return result
+
+    # 合併權益曲線（日期對齊後加總）
+    eq_df = pd.DataFrame(result.stock_equity_curves)
+    eq_df = eq_df.ffill().bfill()
+    result.equity_curve = eq_df.sum(axis=1)
+
+    # 日報酬
+    if len(result.equity_curve) > 1:
+        result.daily_returns = result.equity_curve.pct_change().dropna()
+
+    # 總報酬
+    result.total_return = (result.equity_curve.iloc[-1] - total_capital) / total_capital
+
+    # 年化報酬
+    trading_days = len(result.equity_curve)
+    if trading_days > 1:
+        result.annual_return = (1 + result.total_return) ** (252 / trading_days) - 1
+
+    # 最大回撤
+    peak = result.equity_curve.expanding().max()
+    drawdown = (result.equity_curve - peak) / peak
+    result.max_drawdown = drawdown.min()
+
+    # Sharpe / Sortino
+    if len(result.daily_returns) > 1 and result.daily_returns.std() > 0:
+        risk_free_daily = 0.015 / 252
+        excess = result.daily_returns - risk_free_daily
+        result.sharpe_ratio = excess.mean() / excess.std() * np.sqrt(252)
+
+        downside = excess[excess < 0]
+        if len(downside) > 0 and downside.std() > 0:
+            result.sortino_ratio = excess.mean() / downside.std() * np.sqrt(252)
+
+    # Calmar
+    if result.max_drawdown < 0:
+        result.calmar_ratio = result.annual_return / abs(result.max_drawdown)
+
+    # 相關性矩陣（個股日報酬）
+    if len(result.stock_equity_curves) >= 2:
+        returns_df = pd.DataFrame({
+            code: curve.pct_change().dropna()
+            for code, curve in result.stock_equity_curves.items()
+        })
+        if len(returns_df) > 5:
+            result.correlation_matrix = returns_df.corr()
+
+    return result
 
 
 def format_backtest_summary(result: BacktestResult) -> str:

@@ -22,6 +22,11 @@ from analysis.report import (
     _assess_news,
     _analyze_news_sentiment,
     _generate_summary,
+    _resolve_technical_conflicts,
+    _assess_industry_risks,
+    _extract_news_insights,
+    _generate_actionable_recommendation,
+    _get_peer_context,
     FibonacciLevels,
     SupportResistanceLevel,
     OutlookScenario,
@@ -521,3 +526,417 @@ class TestAnalyzeNewsSentiment:
         _analyze_news_sentiment(news)
         assert "sentiment" in news[0]
         assert news[0]["sentiment"] in ("正面", "負面", "中性")
+
+
+# ============================================================
+# 新增測試：技術面矛盾解決
+# ============================================================
+
+class TestResolveTechnicalConflicts:
+    """測試 _resolve_technical_conflicts"""
+
+    def _make_momentum(self, macd_val=1.0, macd_sig=0.5, macd_hist=0.5,
+                       k=60, d=55, rsi=55, adx=25):
+        return {
+            "adx_value": adx, "rsi_value": rsi,
+            "macd_value": macd_val, "macd_signal_value": macd_sig,
+            "macd_histogram": macd_hist,
+            "macd_interpretation": "多頭格局" if macd_val > macd_sig else "空頭格局",
+            "kd_interpretation": "黃金交叉" if k > d else "死亡交叉",
+            "k_value": k, "d_value": d,
+            "momentum_status": "偏多",
+        }
+
+    def _make_trend(self, direction="盤整", alignment="糾結"):
+        return {"trend_direction": direction, "ma_alignment": alignment, "trend_strength": "中"}
+
+    def _make_risk(self, rr=1.0):
+        return {"risk_reward_ratio": rr, "max_drawdown_1y": -0.1, "current_drawdown": -0.05,
+                "key_risk_level": 90.0, "risk_interpretation": ""}
+
+    def _make_df(self, n=60):
+        np.random.seed(42)
+        dates = pd.bdate_range("2025-01-01", periods=n)
+        close = 100.0 + np.random.normal(0, 1, n).cumsum()
+        close = np.maximum(close, 50)
+        df = pd.DataFrame({
+            "open": close, "high": close + 1, "low": close - 1,
+            "close": close, "volume": np.random.randint(5000, 50000, n).astype(float),
+            "macd_hist": np.random.normal(0.1, 0.05, n),
+        }, index=dates)
+        return df
+
+    def test_macd_vs_kd_conflict(self):
+        """MACD 多頭 + KD 死叉 → 有衝突"""
+        mom = self._make_momentum(macd_val=2.0, macd_sig=1.0, k=40, d=55)
+        result = _resolve_technical_conflicts(mom, self._make_trend(), self._make_risk(), self._make_df())
+        assert len(result["conflicts"]) > 0
+        assert any("MACD" in c and "KD" in c for c in result["conflicts"])
+
+    def test_no_conflict_all_bullish(self):
+        """全部指標偏多 → 無衝突"""
+        mom = self._make_momentum(macd_val=2.0, macd_sig=1.0, k=70, d=55, rsi=60, adx=30)
+        result = _resolve_technical_conflicts(
+            mom, self._make_trend("溫和上漲", "多頭排列"), self._make_risk(2.0), self._make_df())
+        # 不保證零衝突（量價可能有），但 MACD/KD 不應衝突
+        macd_kd_conflicts = [c for c in result["conflicts"] if "MACD" in c and "KD" in c]
+        assert len(macd_kd_conflicts) == 0
+
+    def test_low_rr_conflict(self):
+        """RR < 0.5 → 標記風險報酬比衝突"""
+        mom = self._make_momentum()
+        result = _resolve_technical_conflicts(mom, self._make_trend(), self._make_risk(0.3), self._make_df())
+        assert any("風險報酬比" in c for c in result["conflicts"])
+
+    def test_bias_with_conflicts(self):
+        """有衝突時偏向應包含「謹慎」"""
+        mom = self._make_momentum(macd_val=2.0, macd_sig=1.0, k=40, d=55)
+        result = _resolve_technical_conflicts(mom, self._make_trend(), self._make_risk(0.4), self._make_df())
+        assert "謹慎" in result["technical_bias"] or "觀望" in result["technical_bias"]
+
+    def test_rsi_overbought_with_bullish_ma(self):
+        """均線多頭 + RSI 超買 → 有衝突"""
+        mom = self._make_momentum(rsi=75, k=70, d=65)
+        result = _resolve_technical_conflicts(
+            mom, self._make_trend("溫和上漲", "多頭排列"), self._make_risk(), self._make_df())
+        assert any("RSI" in c and "超買" in c for c in result["conflicts"])
+
+    def test_returns_dict(self):
+        """回傳格式正確"""
+        mom = self._make_momentum()
+        result = _resolve_technical_conflicts(mom, self._make_trend(), self._make_risk(), self._make_df())
+        assert "conflicts" in result
+        assert "technical_bias" in result
+        assert isinstance(result["conflicts"], list)
+        assert isinstance(result["technical_bias"], str)
+
+
+# ============================================================
+# 新增測試：產業特定風險
+# ============================================================
+
+class TestIndustryRisks:
+    """測試 _assess_industry_risks"""
+
+    def _vol(self, atr_pct=0.02):
+        return {"atr_pct": atr_pct, "atr_value": 2.0, "volatility_level": "中"}
+
+    def _volume(self, ratio=1.0):
+        return {"volume_ratio": ratio, "volume_trend": "平穩", "accumulation_distribution": "中性"}
+
+    def test_biotech_has_clinical_risk(self):
+        """生技股應有臨床試驗風險"""
+        risks = _assess_industry_risks(
+            "Healthcare", "Biotechnology",
+            {"operating_margins": -3.0, "revenue_growth": -0.30},
+            self._vol(0.05), self._volume(), 50.0,
+            {"market_cap": 3e9},
+        )
+        risk_names = [r["risk"] for r in risks]
+        assert "臨床試驗與法規審批風險" in risk_names
+
+    def test_biotech_cash_burn(self):
+        """生技股營業利益率 < -100% → 高現金燃燒率"""
+        risks = _assess_industry_risks(
+            "Healthcare", "Biotechnology",
+            {"operating_margins": -3.0},
+            self._vol(), self._volume(), 50.0,
+            {"market_cap": 3e9},
+        )
+        risk_names = [r["risk"] for r in risks]
+        assert "高現金燃燒率" in risk_names
+
+    def test_biotech_revenue_decline(self):
+        """生技股營收衰退 > 20% → 營收大幅衰退風險"""
+        risks = _assess_industry_risks(
+            "Healthcare", "Biotechnology",
+            {"revenue_growth": -0.35},
+            self._vol(), self._volume(), 50.0,
+            {"market_cap": 5e9},
+        )
+        risk_names = [r["risk"] for r in risks]
+        assert "營收大幅衰退" in risk_names
+
+    def test_financial_has_rate_risk(self):
+        """金融業應有利率敏感度風險"""
+        risks = _assess_industry_risks(
+            "Financial Services", "Banks", {},
+            self._vol(0.01), self._volume(), 100.0,
+            {"market_cap": 100e9},
+        )
+        risk_names = [r["risk"] for r in risks]
+        assert "利率敏感度風險" in risk_names
+
+    def test_small_cap_risk(self):
+        """市值 < 50 億 → 小型股風險"""
+        risks = _assess_industry_risks(
+            "Technology", "Software", {},
+            self._vol(), self._volume(), 30.0,
+            {"market_cap": 2e9},
+        )
+        risk_names = [r["risk"] for r in risks]
+        assert "小型股風險" in risk_names
+
+    def test_high_volatility_risk(self):
+        """ATR > 5% → 極高波動"""
+        risks = _assess_industry_risks(
+            "Technology", "Software", {},
+            self._vol(0.06), self._volume(), 100.0,
+            {"market_cap": 50e9},
+        )
+        risk_names = [r["risk"] for r in risks]
+        assert "極高波動度" in risk_names
+
+    def test_low_liquidity_risk(self):
+        """量能比 < 0.5 → 流動性不足"""
+        risks = _assess_industry_risks(
+            "Technology", "Software", {},
+            self._vol(), self._volume(0.3), 100.0,
+            {"market_cap": 50e9},
+        )
+        risk_names = [r["risk"] for r in risks]
+        assert "流動性不足" in risk_names
+
+    def test_empty_fundamentals(self):
+        """空基本面不 crash"""
+        risks = _assess_industry_risks(
+            "", "", {}, self._vol(), self._volume(), 100.0, {"market_cap": 0},
+        )
+        assert isinstance(risks, list)
+
+    def test_sorted_by_severity(self):
+        """回傳應依 severity 排序（high 在前）"""
+        risks = _assess_industry_risks(
+            "Healthcare", "Biotechnology",
+            {"operating_margins": -3.0, "revenue_growth": -0.35},
+            self._vol(0.06), self._volume(0.3), 50.0,
+            {"market_cap": 2e9},
+        )
+        severities = [r["severity"] for r in risks]
+        order = {"high": 0, "medium": 1, "low": 2}
+        assert severities == sorted(severities, key=lambda s: order.get(s, 2))
+
+
+# ============================================================
+# 新增測試：消息面洞察
+# ============================================================
+
+class TestExtractNewsInsights:
+    """測試 _extract_news_insights"""
+
+    def test_contradiction_detection(self):
+        """新聞說營收雙增但實際營收衰退 → 偵測矛盾"""
+        news = [
+            {"title": "亞果生醫拚營收、獲利雙增", "summary": "", "source": "工商時報",
+             "credibility_score": 2, "credibility": "可信"},
+        ]
+        result = _extract_news_insights(news, {"revenue_growth": -0.37}, "亞果生醫")
+        assert len(result["contradictions"]) > 0
+        assert "營收" in result["contradictions"][0]
+
+    def test_no_contradiction_when_data_matches(self):
+        """營收正成長 + 正面新聞 → 無矛盾"""
+        news = [
+            {"title": "公司營收成長創新高", "summary": "", "source": "經濟日報",
+             "credibility_score": 2, "credibility": "可信"},
+        ]
+        result = _extract_news_insights(news, {"revenue_growth": 0.25}, "測試公司")
+        assert len(result["contradictions"]) == 0
+
+    def test_theme_classification(self):
+        """新聞應被分到正確主題"""
+        news = [
+            {"title": "獲日本專利認證", "summary": "", "source": "經濟日報",
+             "credibility_score": 2, "credibility": "可信"},
+            {"title": "公司營收成長 30%", "summary": "", "source": "工商時報",
+             "credibility_score": 2, "credibility": "可信"},
+        ]
+        result = _extract_news_insights(news, {}, "測試公司")
+        assert "專利技術" in result["themes"]
+        assert "營收財報" in result["themes"]
+
+    def test_low_quality_filtered(self):
+        """低品質新聞（credibility_score <= 0）不納入分析"""
+        news = [
+            {"title": "同學會討論", "summary": "", "source": "CMoney",
+             "credibility_score": 0, "credibility": "存疑"},
+            {"title": "正規新聞", "summary": "", "source": "經濟日報",
+             "credibility_score": 2, "credibility": "可信"},
+        ]
+        result = _extract_news_insights(news, {}, "測試公司")
+        assert result["credible_count"] == 1
+        assert result["low_quality_count"] == 1
+
+    def test_empty_news(self):
+        """空新聞不 crash"""
+        result = _extract_news_insights([], {}, "測試")
+        assert result["credible_count"] == 0
+        assert result["contradictions"] == []
+        assert result["themes"] == {}
+
+    def test_forum_note(self):
+        """有低品質新聞時應產生 forum_note"""
+        news = [
+            {"title": "討論文", "summary": "", "source": "CMoney", "credibility_score": -1, "credibility": "存疑"},
+        ]
+        result = _extract_news_insights(news, {}, "測試")
+        assert "低品質" in result["forum_note"]
+
+
+# ============================================================
+# 新增測試：行動建議
+# ============================================================
+
+class TestActionableRecommendation:
+    """測試 _generate_actionable_recommendation"""
+
+    def _make_args(self, rating="中性", rr=1.0, trend="盤整", rsi=50, atr_pct=0.03,
+                   tech_bias="中性", high_risk_count=0):
+        risk = {"risk_reward_ratio": rr, "max_drawdown_1y": -0.1}
+        momentum = {"rsi_value": rsi, "adx_value": 22}
+        trend_data = {"trend_direction": trend, "ma_alignment": "糾結"}
+        vol = {"atr_pct": atr_pct, "atr_value": 3.0}
+        supports = [SupportResistanceLevel(90.0, "support", "test", 2),
+                    SupportResistanceLevel(85.0, "support", "test", 1)]
+        resistances = [SupportResistanceLevel(110.0, "resistance", "test", 2),
+                       SupportResistanceLevel(120.0, "resistance", "test", 1)]
+        industry_risks = [{"risk": "test", "severity": "high", "detail": "test"}] * high_risk_count
+        return (rating, risk, momentum, trend_data, vol,
+                supports, resistances, 100.0, industry_risks, tech_bias, {})
+
+    def test_buy_scenario(self):
+        """買進評等 → BUY action"""
+        args = self._make_args(rating="買進", rr=2.0, trend="溫和上漲")
+        result = _generate_actionable_recommendation(*args)
+        assert result["action"] == "BUY"
+        assert result["entry_low"] is not None
+        assert result["stop_loss"] is not None
+        assert result["take_profit_t1"] is not None
+
+    def test_sell_scenario(self):
+        """賣出 + 低 RR → AVOID"""
+        args = self._make_args(rating="賣出", rr=0.3)
+        result = _generate_actionable_recommendation(*args)
+        assert result["action"] == "AVOID"
+
+    def test_sell_with_ok_rr(self):
+        """賣出 + 正常 RR → SELL"""
+        args = self._make_args(rating="賣出", rr=1.5)
+        result = _generate_actionable_recommendation(*args)
+        assert result["action"] == "SELL"
+
+    def test_neutral_low_rr_avoid(self):
+        """中性 + 低 RR → AVOID"""
+        args = self._make_args(rating="中性", rr=0.4)
+        result = _generate_actionable_recommendation(*args)
+        assert result["action"] == "AVOID"
+
+    def test_hold_scenario(self):
+        """中性 + 正常 RR → HOLD"""
+        args = self._make_args(rating="中性", rr=1.2, tech_bias="中性")
+        result = _generate_actionable_recommendation(*args)
+        assert result["action"] == "HOLD"
+
+    def test_position_scales_with_volatility(self):
+        """部位隨波動度縮放"""
+        args_high = self._make_args(rating="買進", rr=2.0, atr_pct=0.06, trend="溫和上漲")
+        args_low = self._make_args(rating="買進", rr=2.0, atr_pct=0.015, trend="溫和上漲")
+        result_high = _generate_actionable_recommendation(*args_high)
+        result_low = _generate_actionable_recommendation(*args_low)
+        assert "3-5%" in result_high["position_pct"]
+        assert "8-12%" in result_low["position_pct"]
+
+    def test_thesis_not_empty(self):
+        """所有場景都有投資論點"""
+        for rating in ["強力買進", "買進", "中性", "賣出", "強力賣出"]:
+            args = self._make_args(rating=rating)
+            result = _generate_actionable_recommendation(*args)
+            assert len(result["thesis"]) > 0
+
+    def test_triggers_not_empty(self):
+        """觸發條件不應為空"""
+        for action_type in [("買進", 2.0, "溫和上漲"), ("中性", 1.0, "盤整"), ("賣出", 0.3, "溫和下跌")]:
+            args = self._make_args(rating=action_type[0], rr=action_type[1], trend=action_type[2])
+            result = _generate_actionable_recommendation(*args)
+            assert len(result["trigger_conditions"]) > 0
+
+    def test_hold_avoid_no_entry(self):
+        """HOLD/AVOID 不應有進場價"""
+        args = self._make_args(rating="中性", rr=1.2)
+        result = _generate_actionable_recommendation(*args)
+        if result["action"] in ("HOLD", "AVOID"):
+            assert result["entry_low"] is None
+
+
+# ============================================================
+# 新增測試：產業基準對照
+# ============================================================
+
+class TestPeerContext:
+    """測試 _get_peer_context"""
+
+    def test_biotech_context(self):
+        """生技股應回傳生技產業基準"""
+        result = _get_peer_context("Healthcare", "Biotechnology",
+                                   {"price_to_book": 7.0}, 50.0, {})
+        assert result["industry_label"] == "台灣生技業"
+        assert "毛利率" in result["key_metrics"]
+
+    def test_financial_context(self):
+        """金融業基準"""
+        result = _get_peer_context("Financial Services", "Banks",
+                                   {"trailing_pe": 10.0, "return_on_equity": 0.12}, 30.0, {})
+        assert result["industry_label"] == "台灣金融業"
+
+    def test_semiconductor_context(self):
+        """半導體業基準"""
+        result = _get_peer_context("Technology", "Semiconductors",
+                                   {"trailing_pe": 25.0}, 500.0, {})
+        assert result["industry_label"] == "台灣半導體業"
+
+    def test_positioning_with_high_pb(self):
+        """高 P/B 生技股 → 估值偏貴"""
+        result = _get_peer_context("Healthcare", "Biotechnology",
+                                   {"price_to_book": 8.0}, 50.0, {})
+        assert any("偏貴" in p or "溢價" in p for p in result["positioning"])
+
+    def test_empty_fundamentals(self):
+        """空基本面 → positioning 為空但不 crash"""
+        result = _get_peer_context("Technology", "Software", {}, 100.0, {})
+        assert isinstance(result["positioning"], list)
+
+    def test_default_for_unknown_sector(self):
+        """未知產業 → 一般企業基準"""
+        result = _get_peer_context("Unknown", "Unknown", {}, 100.0, {})
+        assert result["industry_label"] == "台股一般企業"
+
+
+# ============================================================
+# 新增測試：評等邏輯修正
+# ============================================================
+
+class TestOverallRatingRRFix:
+    """測試 _calculate_overall_rating 的 RR 矛盾修正"""
+
+    def test_low_rr_not_neutral(self):
+        """RR < 0.5 不應輕易給「中性」，應降級"""
+        # 使用偏弱的場景 + 低 RR
+        rating = _calculate_overall_rating(
+            "盤整", "偏多", "HOLD", 0.0, 55, 0.3,
+            base_3m_upside=0.05, fundamental_score=0.0,
+        )
+        # 低 RR 應讓評等至少不是「買進」
+        assert rating != "強力買進"
+        assert rating != "買進"
+
+    def test_very_low_rr_penalized_harder(self):
+        """RR < 0.3 應比 RR 0.5 懲罰更重"""
+        rating_03 = _calculate_overall_rating(
+            "盤整", "中性", "HOLD", 0.0, 50, 0.3,
+        )
+        rating_08 = _calculate_overall_rating(
+            "盤整", "中性", "HOLD", 0.0, 50, 0.8,
+        )
+        # 低 RR 的評等應 <= 高 RR 的評等
+        order = {"強力買進": 4, "買進": 3, "中性": 2, "賣出": 1, "強力賣出": 0}
+        assert order[rating_03] <= order[rating_08]

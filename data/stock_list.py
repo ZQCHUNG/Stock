@@ -163,10 +163,24 @@ def get_all_stocks(force_refresh: bool = False) -> dict[str, dict]:
     Returns:
         dict: {stock_code: {"name": str, "market": "上市"|"上櫃"}}
     """
-    # 1. 嘗試讀取快取
+    # 1. 嘗試讀取快取（先 Redis，再本地檔案）
     if not force_refresh:
+        try:
+            from data.cache import get_cached_stock_list, set_cached_stock_list
+            redis_cached = get_cached_stock_list()
+            if redis_cached and len(redis_cached) > 100:
+                return redis_cached
+        except Exception:
+            pass
+
         cached = _load_cache()
         if cached and len(cached) > 100:
+            # 回填 Redis（下次更快）
+            try:
+                from data.cache import set_cached_stock_list
+                set_cached_stock_list(cached)
+            except Exception:
+                pass
             return cached
 
     # 2. 線上 API
@@ -187,9 +201,14 @@ def get_all_stocks(force_refresh: bool = False) -> dict[str, dict]:
         if code not in stocks:
             stocks[code] = info
 
-    # 儲存快取
+    # 儲存快取（本地檔案 + Redis）
     if len(stocks) > 100:
         _save_cache(stocks)
+        try:
+            from data.cache import set_cached_stock_list
+            set_cached_stock_list(stocks)
+        except Exception:
+            pass
 
     # 至少回傳內建清單
     if not stocks:
