@@ -131,6 +131,7 @@ def get_adaptive_signal(code: str, period_days: int = 365):
             v5_signal=v5["signal"],
             regime=regime_en,
             v4_confidence=1.0,
+            v5_bias_confirmed=v5.get("bias_confirmed", False),
         )
 
         return make_serializable({
@@ -184,11 +185,46 @@ def get_risk_budget(code: str, period_days: int = 365):
             kelly_half=kelly_half,
             current_exposure=0,  # No portfolio context for single-stock query
             regime=regime_en,
+            v5_bias_confirmed=v5.get("bias_confirmed", False),
         )
 
         return make_serializable(result)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/strategy-fitness")
+def get_strategy_fitness(codes: str = ""):
+    """取得策略適配度標籤（Gemini R38: Strategy Fitness Engine）
+
+    快速查詢 SQLite 中已預計算的 V4/V5/Adaptive 績效 + Fitness Tag。
+    ?codes=2330,2317 → 過濾指定股票。空 = 全部。
+    """
+    from analysis.strategy_fitness import get_fitness_tags, get_fitness_summary
+    from backend.dependencies import make_serializable
+    try:
+        code_list = [c.strip() for c in codes.split(",") if c.strip()] if codes else None
+        tags = get_fitness_tags(code_list)
+        summary = get_fitness_summary()
+        return make_serializable({"stocks": tags, "summary": summary})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/strategy-fitness/scan")
+def run_strategy_fitness_scan(period_days: int = 730, max_workers: int = 4):
+    """啟動策略適配度掃描（Gemini R38）
+
+    批次計算所有 SCAN_STOCKS 的 V4/V5/Adaptive 績效。
+    注意：此操作耗時較長（~10-30 分鐘），建議背景執行。
+    """
+    from analysis.strategy_fitness import run_fitness_scan
+    from backend.dependencies import make_serializable
+    try:
+        result = run_fitness_scan(period_days=period_days, max_workers=max_workers)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{code}/volume-patterns")

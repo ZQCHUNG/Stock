@@ -1,9 +1,10 @@
-"""Multi-Strategy Risk Budget — 多策略風險預算管理（Gemini R37）
+"""Multi-Strategy Risk Budget — 多策略風險預算管理（Gemini R37-R38）
 
 核心功能：
 1. MultiStrategyBouncer: 同一股票 V4+V5 同時 BUY 時，總曝險上限 1.2× Kelly
 2. Signal Divergence Detection: V4/V5 訊號衝突偵測（一買一賣 → 建議觀望）
 3. Portfolio-level 風險預算分配
+4. Tiered Execution: composite 0.3-0.5 = 半倉試單, >=0.5 = 全倉進場（R38）
 
 設計原則：
 - 保守優先：訊號衝突時建議 HOLD（不做不錯）
@@ -20,8 +21,9 @@ def multi_strategy_bouncer(
     kelly_half: float = 0.5,
     current_exposure: float = 0.0,
     regime: str = "range_quiet",
+    v5_bias_confirmed: bool = False,
 ) -> dict:
-    """多策略彈跳器 — 偵測訊號衝突 + 曝險上限
+    """多策略彈跳器 — 偵測訊號衝突 + 曝險上限 + 分級執行
 
     Args:
         code: 股票代號
@@ -31,6 +33,7 @@ def multi_strategy_bouncer(
         kelly_half: Half-Kelly 建議曝險比例 (0-1)
         current_exposure: 目前對此股票的曝險比例 (0-1)
         regime: 市場狀態 (trend_explosive/trend_mild/range_volatile/range_quiet)
+        v5_bias_confirmed: V5 BIAS 確認（乖離率 > 5%）
 
     Returns:
         dict with:
@@ -39,10 +42,25 @@ def multi_strategy_bouncer(
         - divergence: bool — 是否存在訊號衝突
         - max_exposure: 建議最大曝險
         - confidence_decay: 信心衰減因子 (1.0 = 無衰減)
+        - confidence_tier: "full" / "half" / "none" — 分級執行建議
+        - position_multiplier: 1.0 / 0.5 / 0.0 — 部位乘數
+        - composite_score: 混合評分
         - warnings: list[str]
     """
+    from analysis.strategy_v5 import adaptive_strategy_score
+
     warnings = []
     confidence_decay = 1.0
+
+    # Compute composite score for tiered execution
+    score_data = adaptive_strategy_score(
+        v4_signal=v4_signal,
+        v5_signal=v5_signal,
+        regime=regime,
+        v4_confidence=v4_confidence,
+        v5_bias_confirmed=v5_bias_confirmed,
+    )
+    composite = score_data["composite_score"]
 
     # ===== 1. Signal Divergence Detection =====
     divergence = False
@@ -117,6 +135,29 @@ def multi_strategy_bouncer(
         action = "HOLD"
         reason = "V4+V5 皆無明確訊號"
 
+    # ===== 4. Tiered Execution (Gemini R38) =====
+    # Composite 0.3-0.5 → 半倉試單, >=0.5 → 全倉進場
+    if action == "BUY":
+        if composite >= 0.5:
+            confidence_tier = "full"
+            position_multiplier = 1.0
+            tier_label = "建議進場（全倉）"
+        elif composite >= 0.3:
+            confidence_tier = "half"
+            position_multiplier = 0.5
+            tier_label = "建議試單（半倉）"
+            warnings.append(f"Composite={composite:.2f} 介於 0.3-0.5，建議半倉試單")
+        else:
+            # Composite < 0.3 but action is BUY (from single strategy weight check)
+            confidence_tier = "half"
+            position_multiplier = 0.5
+            tier_label = "建議試單（半倉）"
+            warnings.append(f"Composite={composite:.2f} < 0.3，信號較弱，建議半倉")
+    else:
+        confidence_tier = "none"
+        position_multiplier = 0.0
+        tier_label = ""
+
     return {
         "code": code,
         "action": action,
@@ -127,6 +168,11 @@ def multi_strategy_bouncer(
         "max_exposure": round(max_exposure, 4),
         "current_exposure": round(current_exposure, 4),
         "confidence_decay": round(confidence_decay, 3),
+        "composite_score": composite,
+        "confidence_tier": confidence_tier,
+        "position_multiplier": position_multiplier,
+        "tier_label": tier_label,
+        "v5_bias_confirmed": v5_bias_confirmed,
         "regime": regime,
         "warnings": warnings,
     }

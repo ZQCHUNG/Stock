@@ -20,6 +20,7 @@ const useCustomStopLoss = ref(false)
 
 // API data
 const riskFactors = ref<any>(null)
+const riskBudget = ref<any>(null)
 const rfLoading = ref(false)
 const rfError = ref('')
 
@@ -28,7 +29,12 @@ async function loadRiskFactors() {
   rfLoading.value = true
   rfError.value = ''
   try {
-    riskFactors.value = await analysisApi.riskFactors(props.code)
+    const [rf, rb] = await Promise.all([
+      analysisApi.riskFactors(props.code),
+      analysisApi.riskBudget(props.code).catch(() => null),
+    ])
+    riskFactors.value = rf
+    riskBudget.value = rb
     // Set default stop loss from V4 signal
     if (!useCustomStopLoss.value && riskFactors.value?.stop_loss_price) {
       stopLossPrice.value = riskFactors.value.stop_loss_price
@@ -41,6 +47,7 @@ async function loadRiskFactors() {
   } catch (e: any) {
     rfError.value = e.message || '載入風險因子失敗'
     riskFactors.value = null
+    riskBudget.value = null
   }
   rfLoading.value = false
 }
@@ -87,10 +94,28 @@ const isAtrDriven = computed(() => atrRiskPerShare.value > lossPerShare.value &&
 const riskAmount = computed(() =>
   capital.value * (riskPct.value / 100) * confidenceMultiplier.value
 )
+
+// Tiered Execution (Gemini R38): half position for weak composite
+const positionMultiplier = computed(() => riskBudget.value?.position_multiplier ?? 1.0)
+const confidenceTier = computed(() => riskBudget.value?.confidence_tier ?? 'full')
+const tierLabel = computed(() => riskBudget.value?.tier_label ?? '')
+const compositeScore = computed(() => riskBudget.value?.composite_score ?? null)
+
+const tierColor = computed(() => {
+  if (confidenceTier.value === 'full') return '#18a058'
+  if (confidenceTier.value === 'half') return '#f0a020'
+  return '#999'
+})
+
 const lots = computed(() => {
   if (isGhostTown.value || riskPerShare.value <= 0) return 0
   const shares = Math.floor(riskAmount.value / riskPerShare.value)
-  return Math.floor(shares / 1000)
+  const rawLots = Math.floor(shares / 1000)
+  // Apply tiered multiplier: half position for composite 0.3-0.5
+  if (positionMultiplier.value < 1.0 && positionMultiplier.value > 0) {
+    return Math.max(1, Math.floor(rawLots * positionMultiplier.value))
+  }
+  return rawLots
 })
 const cost = computed(() => lots.value * 1000 * props.currentPrice)
 const maxLoss = computed(() => lots.value * 1000 * riskPerShare.value)
@@ -220,6 +245,24 @@ function resetStopLoss() {
         </NSpace>
       </div>
 
+      <!-- Tiered Execution (Gemini R38) -->
+      <div v-if="riskBudget && riskBudget.action === 'BUY'" style="margin-bottom: 12px">
+        <NSpace align="center" :size="8">
+          <span style="font-size: 12px; color: var(--n-text-color-3)">混合評分:</span>
+          <NTag :color="{ textColor: '#fff', color: tierColor, borderColor: tierColor }" size="small" style="font-weight: 700">
+            {{ compositeScore?.toFixed(2) }} {{ tierLabel }}
+          </NTag>
+          <NTag v-if="riskBudget.v5_bias_confirmed" type="info" size="small">BIAS 確認</NTag>
+          <NTag v-if="riskBudget.divergence" type="error" size="small">訊號衝突</NTag>
+          <span v-if="confidenceTier === 'half'" style="font-size: 11px; color: #f0a020; font-weight: 600">
+            (半倉 ×0.5)
+          </span>
+        </NSpace>
+      </div>
+      <NAlert v-else-if="riskBudget?.divergence" type="warning" style="margin-bottom: 12px">
+        V4/V5 訊號衝突 — {{ riskBudget.reason }}
+      </NAlert>
+
       <!-- Inputs -->
       <NGrid :cols="3" :x-gap="12" :y-gap="8" style="margin-bottom: 12px">
         <NGi>
@@ -306,8 +349,8 @@ function resetStopLoss() {
         買入成本超過總資金，無法執行
       </div>
 
-      <!-- Simulated Buy Button + Journal (Gemini R25→R28) -->
-      <div v-if="lots > 0 && !isGhostTown && v4Signal === 'BUY'" style="margin-top: 10px">
+      <!-- Simulated Buy Button + Journal (Gemini R25→R28→R38: supports adaptive BUY) -->
+      <div v-if="lots > 0 && !isGhostTown && (v4Signal === 'BUY' || riskBudget?.action === 'BUY')" style="margin-top: 10px">
         <NInput
           v-model:value="buyNote"
           placeholder="買入理由（選填）：趨勢確認 / 突破支撐 / 板塊輪動..."

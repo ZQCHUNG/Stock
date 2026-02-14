@@ -18,4 +18,12 @@ export const analysisApi = {
   v5Signal: (code: string) => client.get<any, any>(`/analysis/${code}/v5-signal`),
   adaptiveSignal: (code: string) => client.get<any, any>(`/analysis/${code}/adaptive-signal`),
   riskBudget: (code: string) => client.get<any, any>(`/analysis/${code}/risk-budget`),
+  strategyFitness: (codes?: string) => client.get<any, any>('/analysis/strategy-fitness', {
+    params: codes ? { codes } : {},
+  }),
+  runFitnessScan: (periodDays = 730, maxWorkers = 4) =>
+    client.post<any, any>('/analysis/strategy-fitness/scan', null, {
+      params: { period_days: periodDays, max_workers: maxWorkers },
+      timeout: 600_000,  // 10 min timeout for batch scan
+    }),
 }

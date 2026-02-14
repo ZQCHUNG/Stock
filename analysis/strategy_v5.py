@@ -23,11 +23,14 @@ from analysis.indicators import calculate_all_indicators
 # V5 預設參數
 STRATEGY_V5_PARAMS = {
     # 進場條件
-    "rsi_oversold": 30,          # RSI 超賣門檻
+    "rsi_oversold": 30,          # RSI 超賣門檻（固定上限）
+    "rsi_dynamic_window": 60,    # 動態 RSI 門檻滾動窗口（天）
+    "rsi_dynamic_percentile": 15,  # 動態 RSI 百分位（15th = 更自適應）
     "bb_touch_margin": 0.005,    # 距 BB 下軌容許範圍（0.5%）
     "volume_shrink_ratio": 0.7,  # 縮量門檻（< 0.7x 五日均量）
     "adx_max": 25,               # ADX 上限（排除強趨勢）
     "min_volume_lots": 500,      # 最低成交量（張）
+    "bias_threshold": -0.05,     # BIAS 門檻（< -5% = 強均值回歸信號）
     # 出場條件
     "rsi_overbought": 70,        # RSI 超買 → 離場
     "stop_loss_pct": 0.05,       # 停損 -5%
@@ -57,21 +60,40 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
     result = calculate_all_indicators(df)
 
     rsi_oversold = p["rsi_oversold"]
+    rsi_dyn_window = p.get("rsi_dynamic_window", 60)
+    rsi_dyn_pct = p.get("rsi_dynamic_percentile", 15) / 100  # 0.15
     bb_margin = p["bb_touch_margin"]
     vol_shrink = p["volume_shrink_ratio"]
     adx_max = p["adx_max"]
     min_vol_lots = p.get("min_volume_lots", 0)
     rsi_overbought = p["rsi_overbought"]
+    bias_threshold = p.get("bias_threshold", -0.05)
+
+    # Pre-compute dynamic RSI threshold (rolling 15th percentile)
+    if "rsi" in result.columns:
+        result["v5_rsi_threshold"] = result["rsi"].rolling(
+            window=rsi_dyn_window, min_periods=20
+        ).quantile(rsi_dyn_pct)
+    else:
+        result["v5_rsi_threshold"] = np.nan
+
+    # BIAS = (close - MA20) / MA20 — 乖離率
+    if "ma20" in result.columns:
+        result["v5_bias"] = (result["close"] - result["ma20"]) / result["ma20"]
+    else:
+        result["v5_bias"] = np.nan
 
     signals = []
     entry_types = []
     exit_types = []
+    bias_confirmed_list = []
 
     for i in range(len(result)):
         if i < 2:
             signals.append("HOLD")
             entry_types.append("")
             exit_types.append("")
+            bias_confirmed_list.append(False)
             continue
 
         row = result.iloc[i]
@@ -83,12 +105,15 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
         bb_middle = row.get("bb_middle", np.nan)
         vol = row.get("volume", np.nan)
         vol_ma5 = row.get("volume_ma5", np.nan)
+        rsi_dyn = row.get("v5_rsi_threshold", np.nan)
+        bias = row.get("v5_bias", np.nan)
 
         # Skip if indicators not ready
         if any(pd.isna([rsi, adx, bb_lower, bb_middle, vol, vol_ma5])):
             signals.append("HOLD")
             entry_types.append("")
             exit_types.append("")
+            bias_confirmed_list.append(False)
             continue
 
         # === 出場信號（優先判斷） ===
@@ -97,6 +122,7 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
             signals.append("SELL")
             entry_types.append("")
             exit_types.append("bb_middle")
+            bias_confirmed_list.append(False)
             continue
 
         # 2. RSI 超買（反彈過度）
@@ -104,6 +130,7 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
             signals.append("SELL")
             entry_types.append("")
             exit_types.append("rsi_overbought")
+            bias_confirmed_list.append(False)
             continue
 
         # === 進場信號 ===
@@ -112,6 +139,7 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
             signals.append("HOLD")
             entry_types.append("")
             exit_types.append("")
+            bias_confirmed_list.append(False)
             continue
 
         # 最低量過濾
@@ -119,31 +147,43 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
             signals.append("HOLD")
             entry_types.append("")
             exit_types.append("")
+            bias_confirmed_list.append(False)
             continue
 
         buy = False
+        has_bias_confirm = False
 
-        # 條件：BB 下軌碰觸 + RSI 超賣 + 縮量
+        # Dynamic RSI threshold: min(fixed, rolling 15th percentile)
+        effective_rsi = min(rsi_oversold, rsi_dyn) if not pd.isna(rsi_dyn) else rsi_oversold
+
+        # 條件：BB 下軌碰觸 + 動態 RSI 超賣 + 縮量
         bb_distance = (close - bb_lower) / bb_lower if bb_lower > 0 else 999
         is_near_bb_lower = bb_distance <= bb_margin
-        is_rsi_oversold = rsi <= rsi_oversold
+        is_rsi_oversold = rsi <= effective_rsi
         is_volume_shrinking = vol < vol_ma5 * vol_shrink if vol_ma5 > 0 else False
+
+        # BIAS confirmation: price 5%+ below MA20
+        if not pd.isna(bias) and bias < bias_threshold:
+            has_bias_confirm = True
 
         if is_near_bb_lower and is_rsi_oversold and is_volume_shrinking:
             buy = True
 
         if buy:
             signals.append("BUY")
-            entry_types.append("bb_rsi_oversold")
+            entry_types.append("bb_rsi_oversold_bias" if has_bias_confirm else "bb_rsi_oversold")
             exit_types.append("")
+            bias_confirmed_list.append(has_bias_confirm)
         else:
             signals.append("HOLD")
             entry_types.append("")
             exit_types.append("")
+            bias_confirmed_list.append(False)
 
     result["v5_signal"] = signals
     result["v5_entry_type"] = entry_types
     result["v5_exit_type"] = exit_types
+    result["v5_bias_confirmed"] = bias_confirmed_list
 
     return result
 
@@ -153,19 +193,26 @@ def get_v5_analysis(df: pd.DataFrame) -> dict:
     signals_df = generate_v5_signals(df)
     latest = signals_df.iloc[-1]
 
+    rsi_dyn = latest.get("v5_rsi_threshold")
+    bias = latest.get("v5_bias")
+    bias_confirmed = bool(latest.get("v5_bias_confirmed", False))
+
     return {
         "date": signals_df.index[-1],
         "close": latest["close"],
         "signal": latest["v5_signal"],
         "entry_type": latest["v5_entry_type"],
         "exit_type": latest["v5_exit_type"],
+        "bias_confirmed": bias_confirmed,
         "indicators": {
             "RSI": latest.get("rsi"),
+            "RSI_Dynamic_Threshold": float(rsi_dyn) if not pd.isna(rsi_dyn) else None,
             "ADX": latest.get("adx"),
             "BB_Upper": latest.get("bb_upper"),
             "BB_Middle": latest.get("bb_middle"),
             "BB_Lower": latest.get("bb_lower"),
             "Volume_Ratio": latest.get("volume_ratio"),
+            "BIAS": float(bias) if not pd.isna(bias) else None,
         },
     }
 
@@ -175,6 +222,7 @@ def adaptive_strategy_score(
     v5_signal: str,
     regime: str,
     v4_confidence: float = 1.0,
+    v5_bias_confirmed: bool = False,
 ) -> dict:
     """V4 + V5 自適應混合評分
 
@@ -182,6 +230,9 @@ def adaptive_strategy_score(
     - 趨勢噴發 / 溫和趨勢: V4 主導 (0.9 / 0.1)
     - 震盪劇烈: V5 主導 (0.2 / 0.8)
     - 低波盤整: 均衡偏 V5 (0.3 / 0.7)
+
+    BIAS 確認加成（Gemini R38）：
+    - 當 V5 BUY + BIAS < -5% → V5 分數 ×1.2（乖離率大 = 強回歸動能）
 
     Returns:
         dict with final_signal, v4_weight, v5_weight, composite_score
@@ -202,6 +253,10 @@ def adaptive_strategy_score(
     s4 = signal_score.get(v4_signal, 0) * v4_confidence
     s5 = signal_score.get(v5_signal, 0)
 
+    # BIAS confirmation boost: V5 BUY with strong mean-reversion signal
+    if v5_bias_confirmed and v5_signal == "BUY":
+        s5 *= 1.2
+
     composite = w4 * s4 + w5 * s5
 
     # Determine final signal
@@ -219,5 +274,6 @@ def adaptive_strategy_score(
         "v5_weight": w5,
         "v4_score": round(s4, 3),
         "v5_score": round(s5, 3),
+        "v5_bias_confirmed": v5_bias_confirmed,
         "regime": regime,
     }
