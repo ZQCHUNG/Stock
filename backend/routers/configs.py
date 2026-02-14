@@ -100,6 +100,24 @@ def rename_config(config_type: str, name: str, req: RenameConfigRequest):
     return {"ok": True}
 
 
+class BatchDeleteRequest(BaseModel):
+    names: list[str]
+
+
+@router.post("/{config_type}/batch-delete")
+def batch_delete_configs(config_type: str, req: BatchDeleteRequest):
+    """批量刪除配置"""
+    if config_type not in ("backtest", "screener"):
+        raise HTTPException(400, "config_type must be 'backtest' or 'screener'")
+
+    names_set = set(req.names)
+    data = _load_all()
+    configs = data.get(config_type, [])
+    data[config_type] = [c for c in configs if c.get("name") not in names_set]
+    _save_all(data)
+    return {"ok": True, "deleted": len(names_set)}
+
+
 @router.delete("/{config_type}/{name}")
 def delete_config(config_type: str, name: str):
     """刪除配置"""

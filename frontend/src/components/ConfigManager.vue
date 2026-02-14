@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { NButton, NSpace, NPopover, NInput, NList, NListItem, NText, NEmpty } from 'naive-ui'
+import { NButton, NSpace, NPopover, NInput, NList, NListItem, NText, NEmpty, NCheckbox } from 'naive-ui'
 import { configsApi, type SavedConfig } from '../api/configs'
 import { message } from '../utils/discrete'
 import { buildShareUrl } from '../utils/urlConfig'
@@ -23,6 +23,8 @@ const searchQuery = ref('')
 const sortBy = ref<'name' | 'date'>('date')
 const editingName = ref('')
 const editNewName = ref('')
+const selectedForDelete = ref<Set<string>>(new Set())
+const batchMode = ref(false)
 
 const filteredConfigs = computed(() => {
   let list = [...configs.value]
@@ -92,6 +94,30 @@ function cancelRename() {
   editingName.value = ''
 }
 
+function toggleBatchMode() {
+  batchMode.value = !batchMode.value
+  selectedForDelete.value.clear()
+}
+
+function toggleSelect(name: string) {
+  const s = new Set(selectedForDelete.value)
+  if (s.has(name)) s.delete(name)
+  else s.add(name)
+  selectedForDelete.value = s
+}
+
+async function batchDelete() {
+  const names = [...selectedForDelete.value]
+  if (!names.length) return
+  try {
+    await configsApi.batchDelete(props.configType, names)
+    message.success(`已刪除 ${names.length} 個配置`)
+    selectedForDelete.value.clear()
+    batchMode.value = false
+    await loadList()
+  } catch { /* handled by interceptor */ }
+}
+
 function share() {
   const route = useRoute()
   const url = buildShareUrl(route.path, props.configType, props.getCurrentConfig())
@@ -142,11 +168,26 @@ onMounted(loadList)
             <NButton size="tiny" quaternary @click="toggleSort" style="font-size: 11px; white-space: nowrap">
               {{ sortBy === 'date' ? '按時間' : '按名稱' }}
             </NButton>
+            <NButton size="tiny" :type="batchMode ? 'primary' : 'default'" quaternary @click="toggleBatchMode" style="font-size: 11px">
+              {{ batchMode ? '取消' : '批量' }}
+            </NButton>
+          </NSpace>
+          <NSpace v-if="batchMode && selectedForDelete.size > 0" :size="4" style="margin-bottom: 6px">
+            <NButton size="tiny" type="error" @click="batchDelete">
+              刪除選中 ({{ selectedForDelete.size }})
+            </NButton>
           </NSpace>
           <NEmpty v-if="!filteredConfigs.length" description="無匹配結果" style="padding: 12px 0" />
           <NList v-else hoverable clickable :show-divider="false">
-            <NListItem v-for="c in filteredConfigs" :key="c.name" @click="editingName !== c.name && load(c.config)">
+            <NListItem v-for="c in filteredConfigs" :key="c.name" @click="!batchMode && editingName !== c.name && load(c.config)">
               <div style="display: flex; justify-content: space-between; align-items: center">
+                <NCheckbox
+                  v-if="batchMode"
+                  :checked="selectedForDelete.has(c.name)"
+                  style="margin-right: 8px"
+                  @update:checked="toggleSelect(c.name)"
+                  @click.stop
+                />
                 <div style="flex: 1; min-width: 0">
                   <template v-if="editingName === c.name">
                     <NInput
@@ -166,7 +207,7 @@ onMounted(loadList)
                     <NText depth="3" style="font-size: 11px">{{ c.updatedAt?.slice(0, 16).replace('T', ' ') }}</NText>
                   </template>
                 </div>
-                <NSpace :size="0" style="flex-shrink: 0; margin-left: 8px">
+                <NSpace v-if="!batchMode" :size="0" style="flex-shrink: 0; margin-left: 8px">
                   <NButton size="tiny" quaternary @click.stop="startRename(c.name)">改名</NButton>
                   <NButton size="tiny" quaternary type="error" @click.stop="remove(c.name)">刪除</NButton>
                 </NSpace>

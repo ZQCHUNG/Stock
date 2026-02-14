@@ -4,6 +4,9 @@ export interface BacktestParams {
   period_days?: number
   initial_capital?: number
   params?: Record<string, any>
+  commission_rate?: number
+  tax_rate?: number
+  slippage?: number
 }
 
 export const backtestApi = {

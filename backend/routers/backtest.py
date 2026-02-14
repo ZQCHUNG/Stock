@@ -10,6 +10,9 @@ class BacktestRequest(BaseModel):
     period_days: int = 1095
     initial_capital: float = 1_000_000
     params: dict | None = None
+    commission_rate: float | None = None  # 手續費率 (default 0.001425)
+    tax_rate: float | None = None         # 交易稅率 (default 0.003)
+    slippage: float | None = None         # 滑價率 (default 0.001)
 
 
 class PortfolioRequest(BaseModel):
@@ -92,7 +95,11 @@ def run_v4_backtest(code: str, req: BacktestRequest):
     from backtest.engine import run_backtest_v4
     try:
         df = get_stock_data(code, period_days=req.period_days)
-        result = run_backtest_v4(df, initial_capital=req.initial_capital, params=req.params)
+        result = run_backtest_v4(
+            df, initial_capital=req.initial_capital, params=req.params,
+            commission_rate=req.commission_rate, tax_rate=req.tax_rate,
+            slippage=req.slippage,
+        )
         return _serialize_backtest_result(result)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -22,7 +22,11 @@ import { message } from '../utils/discrete'
 
 use([LineChart, PieChart, BarChart, ScatterChart, GridComponent, TooltipComponent, ToolboxComponent, DataZoomComponent, MarkPointComponent, LegendComponent, CanvasRenderer])
 
-const props = defineProps<{ periodDays: number; capital: number }>()
+const props = defineProps<{
+  periodDays: number
+  capital: number
+  costParams?: { commission_rate: number; tax_rate: number; slippage: number }
+}>()
 
 const app = useAppStore()
 const bt = useBacktestStore()
@@ -35,7 +39,11 @@ const klineData = ref<TimeSeriesData | null>(null)
 const klineLoading = ref(false)
 
 async function runBacktest() {
-  await bt.runSingle(app.currentStockCode, { period_days: props.periodDays, initial_capital: props.capital })
+  await bt.runSingle(app.currentStockCode, {
+    period_days: props.periodDays,
+    initial_capital: props.capital,
+    ...props.costParams,
+  })
 }
 
 // Auto-fetch K-line data when backtest result is available
@@ -202,6 +210,19 @@ function exportTrades() {
   ], `backtest_${app.currentStockCode}_trades.csv`)
 }
 
+function exportEquityCurve() {
+  const ec = bt.singleResult?.equity_curve
+  if (!ec?.dates?.length) return
+  const rows = ec.dates.map((d: string, i: number) => ({
+    date: d,
+    equity: ec.values[i],
+  }))
+  downloadCsv(rows, [
+    { key: 'date', label: '日期' },
+    { key: 'equity', label: '權益' },
+  ], `backtest_${app.currentStockCode}_equity.csv`)
+}
+
 const tradePagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25, 50] })
 
 const saveResultName = ref('')
@@ -282,7 +303,12 @@ const tradeColumns = [
 
       <NTabs type="line">
         <NTabPane name="equity" tab="權益曲線">
-          <NCard size="small"><ChartContainer :option="equityOption" height="350px" /></NCard>
+          <NCard size="small">
+            <template #header-extra>
+              <NButton size="tiny" quaternary @click="exportEquityCurve" :disabled="!bt.singleResult?.equity_curve?.dates?.length">匯出 CSV</NButton>
+            </template>
+            <ChartContainer :option="equityOption" height="350px" />
+          </NCard>
         </NTabPane>
         <NTabPane name="kline-trades" tab="K線交易">
           <NCard size="small">

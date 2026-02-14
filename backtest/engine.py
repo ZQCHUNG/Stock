@@ -511,6 +511,9 @@ def run_backtest_v4(
     initial_capital: float | None = None,
     params: dict | None = None,
     dividends: pd.Series | None = None,
+    commission_rate: float | None = None,
+    tax_rate: float | None = None,
+    slippage: float | None = None,
 ) -> BacktestResult:
     """便捷函式：執行 v4 回測
 
@@ -521,11 +524,19 @@ def run_backtest_v4(
         initial_capital: 初始資金
         params: v4 策略參數覆蓋
         dividends: 歷史除息資料（僅供估算顯示，不影響報酬計算）
+        commission_rate: 手續費率（預設 0.001425）
+        tax_rate: 交易稅率（預設 0.003）
+        slippage: 滑價率（預設 0.001）
 
     Returns:
         BacktestResult
     """
-    engine = BacktestEngine(initial_capital=initial_capital)
+    engine = BacktestEngine(
+        initial_capital=initial_capital,
+        commission_rate=commission_rate,
+        tax_rate=tax_rate,
+        slippage=slippage,
+    )
     return engine.run_v4(df, params=params, dividends=dividends)
 
 

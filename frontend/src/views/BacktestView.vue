@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import {
-  NTabs, NTabPane, NInputNumber, NSpace, NSpin, NAlert,
+  NTabs, NTabPane, NInputNumber, NSpace, NSpin, NAlert, NCollapse, NCollapseItem, NGrid, NGi, NText,
 } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useBacktestStore } from '../stores/backtest'
@@ -19,6 +19,9 @@ const bt = useBacktestStore()
 const mode = ref('single')
 const periodDays = ref(1095)
 const capital = ref(1_000_000)
+const commissionRate = ref(0.1425)  // % display
+const taxRate = ref(0.3)            // % display
+const slippageRate = ref(0.1)       // % display
 
 function getBacktestConfig() {
   return {
@@ -26,6 +29,9 @@ function getBacktestConfig() {
     periodDays: periodDays.value,
     capital: capital.value,
     mode: mode.value,
+    commissionRate: commissionRate.value,
+    taxRate: taxRate.value,
+    slippageRate: slippageRate.value,
   }
 }
 
@@ -34,6 +40,18 @@ function loadBacktestConfig(config: Record<string, any>) {
   if (config.periodDays) periodDays.value = config.periodDays
   if (config.capital) capital.value = config.capital
   if (config.mode) mode.value = config.mode
+  if (config.commissionRate != null) commissionRate.value = config.commissionRate
+  if (config.taxRate != null) taxRate.value = config.taxRate
+  if (config.slippageRate != null) slippageRate.value = config.slippageRate
+}
+
+// Convert % display values to decimal rates for API
+function costParams() {
+  return {
+    commission_rate: commissionRate.value / 100,
+    tax_rate: taxRate.value / 100,
+    slippage: slippageRate.value / 100,
+  }
 }
 
 onMounted(() => {
@@ -60,7 +78,7 @@ onMounted(() => {
     </NTabs>
 
     <!-- Shared Params -->
-    <NSpace align="center" style="margin-bottom: 16px">
+    <NSpace align="center" style="margin-bottom: 8px">
       <span style="font-size: 12px; color: var(--text-muted)">回測天數</span>
       <NInputNumber v-model:value="periodDays" :min="180" :max="3650" :step="30" size="small" placeholder="180~3650" style="width: 130px" />
       <span style="font-size: 12px; color: var(--text-muted)">初始資金</span>
@@ -68,10 +86,40 @@ onMounted(() => {
       <ConfigManager config-type="backtest" :get-current-config="getBacktestConfig" @load="loadBacktestConfig" />
     </NSpace>
 
+    <!-- Transaction Cost Settings -->
+    <NCollapse style="margin-bottom: 16px">
+      <NCollapseItem title="交易成本設定" name="costs">
+        <NGrid :cols="3" :x-gap="12" :y-gap="8">
+          <NGi>
+            <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 4px">手續費 (%)</NText>
+            <NInputNumber v-model:value="commissionRate" :min="0" :max="1" :step="0.01" size="small" style="width: 100%">
+              <template #suffix>%</template>
+            </NInputNumber>
+          </NGi>
+          <NGi>
+            <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 4px">交易稅 (%)</NText>
+            <NInputNumber v-model:value="taxRate" :min="0" :max="1" :step="0.1" size="small" style="width: 100%">
+              <template #suffix>%</template>
+            </NInputNumber>
+          </NGi>
+          <NGi>
+            <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 4px">滑價 (%)</NText>
+            <NInputNumber v-model:value="slippageRate" :min="0" :max="1" :step="0.05" size="small" style="width: 100%">
+              <template #suffix>%</template>
+            </NInputNumber>
+          </NGi>
+        </NGrid>
+        <NText depth="3" style="font-size: 11px; margin-top: 8px; display: block">
+          來回交易成本 ≈ {{ ((commissionRate * 2 + taxRate + slippageRate * 2) || 0).toFixed(3) }}%
+          （手續費×2 + 稅 + 滑價×2）
+        </NText>
+      </NCollapseItem>
+    </NCollapse>
+
     <NSpin :show="bt.isLoading">
       <NAlert v-if="bt.error" type="error" style="margin-bottom: 16px">{{ bt.error }}</NAlert>
 
-      <BacktestSingle v-if="mode === 'single'" :period-days="periodDays" :capital="capital" />
+      <BacktestSingle v-if="mode === 'single'" :period-days="periodDays" :capital="capital" :cost-params="costParams()" />
       <BacktestPortfolio v-if="mode === 'portfolio'" :period-days="periodDays" :capital="capital" />
       <BacktestSimulation v-if="mode === 'simulation'" :period-days="periodDays" :capital="capital" />
       <BacktestAdvanced v-if="mode === 'advanced'" :period-days="periodDays" :capital="capital" />

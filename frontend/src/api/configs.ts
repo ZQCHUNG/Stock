@@ -16,6 +16,9 @@ export const configsApi = {
   rename(type: 'backtest' | 'screener', name: string, newName: string) {
     return client.patch(`/configs/${type}/${encodeURIComponent(name)}`, { new_name: newName }) as any
   },
+  batchDelete(type: 'backtest' | 'screener', names: string[]) {
+    return client.post(`/configs/${type}/batch-delete`, { names }) as any
+  },
   remove(type: 'backtest' | 'screener', name: string) {
     return client.delete(`/configs/${type}/${encodeURIComponent(name)}`) as any
   },
