@@ -556,6 +556,59 @@ def clear_transition_events() -> None:
         pass
 
 
+# ===== Portfolio Exit Alerts (Gemini R25) =====
+
+def get_portfolio_exit_alerts() -> list:
+    """讀取倉位出場警報"""
+    cached = _cache_get("portfolio:exit_alerts")
+    if cached:
+        try:
+            return json.loads(cached)
+        except Exception:
+            pass
+    return []
+
+
+def set_portfolio_exit_alerts(alerts: list, ttl: int = 86400) -> None:
+    """儲存倉位出場警報"""
+    try:
+        _cache_set("portfolio:exit_alerts", json.dumps(alerts, ensure_ascii=False), ttl)
+    except Exception:
+        pass
+
+
+# ===== Equity Ledger (Gemini R25: Daily Snapshot) =====
+
+def get_equity_ledger() -> list:
+    """讀取每日資產快照歷史"""
+    cached = _cache_get("portfolio:equity_ledger")
+    if cached:
+        try:
+            return json.loads(cached)
+        except Exception:
+            pass
+    return []
+
+
+def append_equity_snapshot(snapshot: dict, ttl: int = 86400 * 365) -> None:
+    """新增每日資產快照（去重：同日只保留最新）"""
+    try:
+        ledger = get_equity_ledger()
+        today = snapshot.get("date", datetime.now().strftime("%Y-%m-%d"))
+
+        # Replace if same date exists
+        ledger = [s for s in ledger if s.get("date") != today]
+        ledger.append(snapshot)
+
+        # Keep last 365 days
+        if len(ledger) > 365:
+            ledger = ledger[-365:]
+
+        _cache_set("portfolio:equity_ledger", json.dumps(ledger, ensure_ascii=False), ttl)
+    except Exception:
+        pass
+
+
 def get_cache_stats() -> dict:
     """取得快取統計"""
     r = get_redis()

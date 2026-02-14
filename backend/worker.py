@@ -39,6 +39,8 @@ from data.cache import (
     set_stock_maturity_map,
     add_transition_event,
     clear_transition_events,
+    set_portfolio_exit_alerts,
+    append_equity_snapshot,
 )
 
 logging.basicConfig(
@@ -440,6 +442,129 @@ def _release_scan_lock():
             pass
 
 
+def check_portfolio_exits() -> None:
+    """Check all open positions against exit conditions (Gemini R25).
+
+    Reads portfolio.json, fetches current prices, checks:
+    - Static stop loss
+    - ATR trailing stop
+    - Take profit (+10%)
+    Stores exit alerts in Redis for frontend display.
+    """
+    from data.fetcher import get_stock_data
+
+    portfolio_file = Path(__file__).resolve().parent.parent / "data" / "portfolio.json"
+    try:
+        if not portfolio_file.exists():
+            return
+        portfolio = json.loads(portfolio_file.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    positions = portfolio.get("positions", [])
+    if not positions:
+        set_portfolio_exit_alerts([])
+        return
+
+    alerts = []
+    for pos in positions:
+        code = pos["code"]
+        try:
+            df = get_stock_data(code, period_days=5)
+            current_price = float(df["close"].iloc[-1])
+        except Exception:
+            continue
+
+        exit_signals = []
+        stop_loss = pos.get("stop_loss", 0)
+        trailing_stop = pos.get("trailing_stop")
+        entry_price = pos.get("entry_price", 0)
+
+        if stop_loss > 0 and current_price <= stop_loss:
+            exit_signals.append("觸及停損")
+        if trailing_stop and current_price <= trailing_stop:
+            exit_signals.append("觸及移動停利")
+        if entry_price > 0 and current_price >= entry_price * 1.10:
+            exit_signals.append("達停利 +10%")
+
+        if exit_signals:
+            pnl_pct = (current_price / entry_price - 1) if entry_price > 0 else 0
+            alerts.append({
+                "code": code,
+                "name": pos.get("name", code),
+                "current_price": current_price,
+                "entry_price": entry_price,
+                "pnl_pct": round(pnl_pct, 4),
+                "exit_signals": exit_signals,
+                "lots": pos.get("lots", 0),
+                "timestamp": datetime.now().isoformat(),
+            })
+            logger.warning(
+                f"  🔴 EXIT ALERT: {code} {pos.get('name', '')} "
+                f"@ {current_price:.2f} — {', '.join(exit_signals)}"
+            )
+
+    set_portfolio_exit_alerts(alerts)
+    if alerts:
+        logger.info(f"  Portfolio exit alerts: {len(alerts)} positions triggered")
+
+
+def take_equity_snapshot() -> None:
+    """Take daily equity snapshot for Ledger (Gemini R25).
+
+    Computes total portfolio value = sum(position_market_value).
+    Stores as timeseries entry in Redis.
+    """
+    from data.fetcher import get_stock_data
+
+    portfolio_file = Path(__file__).resolve().parent.parent / "data" / "portfolio.json"
+    try:
+        if not portfolio_file.exists():
+            return
+        portfolio = json.loads(portfolio_file.read_text(encoding="utf-8"))
+    except Exception:
+        return
+
+    positions = portfolio.get("positions", [])
+    closed = portfolio.get("closed", [])
+
+    if not positions and not closed:
+        return
+
+    total_cost = 0
+    total_value = 0
+
+    for pos in positions:
+        shares = pos["lots"] * 1000
+        total_cost += pos["entry_price"] * shares
+        try:
+            df = get_stock_data(pos["code"], period_days=5)
+            current = float(df["close"].iloc[-1])
+            total_value += current * shares
+        except Exception:
+            total_value += pos["entry_price"] * shares  # Fallback to entry price
+
+    realized_pnl = sum(c.get("net_pnl", 0) for c in closed)
+
+    snapshot = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "total_equity": round(total_value + realized_pnl, 0),
+        "position_value": round(total_value, 0),
+        "position_cost": round(total_cost, 0),
+        "unrealized_pnl": round(total_value - total_cost, 0),
+        "realized_pnl": round(realized_pnl, 0),
+        "open_positions": len(positions),
+        "closed_trades": len(closed),
+    }
+
+    append_equity_snapshot(snapshot)
+    logger.info(
+        f"  Equity snapshot: value={total_value:,.0f} "
+        f"unrealized={total_value - total_cost:+,.0f} "
+        f"realized={realized_pnl:+,.0f}"
+    )
+
+
 def run_scan_cycle(scan_count: int) -> int:
     """Execute one scan cycle with error handling and distributed lock.
 
@@ -458,6 +583,14 @@ def run_scan_cycle(scan_count: int) -> int:
             buy_signals=result["total_buy"],
         )
         logger.info(f"Scan #{scan_count} saved to cache successfully")
+
+        # Portfolio monitoring (Gemini R25)
+        try:
+            check_portfolio_exits()
+            take_equity_snapshot()
+        except Exception as e:
+            logger.warning(f"Portfolio monitoring error: {e}")
+
         return scan_count + 1
     except Exception as e:
         logger.error(f"Scan #{scan_count} failed: {e}")

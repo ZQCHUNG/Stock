@@ -18,6 +18,8 @@ const router = useRouter()
 onMounted(() => {
   pf.load()
   pf.loadHealth()
+  pf.loadExitAlerts()
+  pf.loadEquityLedger()
 })
 
 function analyzeStock(code: string) {
@@ -146,6 +148,12 @@ const maxSectorPct = computed(() => {
   const allocs = sectorAllocation.value
   return allocs.length ? Math.max(...allocs.map((a: any) => a.pct)) : 0
 })
+
+// Worker exit alerts (from Redis)
+const workerExitAlerts = computed(() => pf.exitAlerts || [])
+
+// Delta equity (today vs yesterday)
+const deltaEquity = computed(() => pf.equityLedger?.delta_equity)
 </script>
 
 <template>
@@ -162,9 +170,36 @@ const maxSectorPct = computed(() => {
       <NTag v-if="pf.summary.exit_alert_count" type="error" size="small">
         {{ pf.summary.exit_alert_count }} 檔出場警告
       </NTag>
+      <NTag v-if="workerExitAlerts.length" type="error" size="small" :bordered="false" style="font-weight: 700">
+        🔴 Worker 偵測 {{ workerExitAlerts.length }} 檔觸發
+      </NTag>
+      <span v-if="deltaEquity" style="font-size: 12px">
+        今日 Delta:
+        <span :style="{ color: priceColor(deltaEquity.change), fontWeight: 600 }">
+          ${{ fmtNum(deltaEquity.change, 0) }} ({{ fmtPct(deltaEquity.change_pct) }})
+        </span>
+      </span>
     </NSpace>
 
     <NSpin :show="pf.isLoading">
+      <!-- Worker Exit Alerts (Gemini R25) -->
+      <NAlert v-if="workerExitAlerts.length" type="error" style="margin-bottom: 12px">
+        <template #header>🔴 Worker 偵測出場信號（{{ workerExitAlerts.length }} 檔）</template>
+        <NSpace :size="6" style="flex-wrap: wrap">
+          <NTag
+            v-for="(a, i) in workerExitAlerts"
+            :key="i"
+            type="error"
+            size="small"
+            style="cursor: pointer"
+            @click="analyzeStock(a.code)"
+          >
+            {{ a.code }} {{ a.name }} @ ${{ a.current_price?.toFixed(2) }}
+            ({{ fmtPct(a.pnl_pct) }}) — {{ a.exit_signals?.join(', ') }}
+          </NTag>
+        </NSpace>
+      </NAlert>
+
       <!-- Summary Cards -->
       <NGrid v-if="pf.summary.total_positions" :cols="5" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
         <NGi>

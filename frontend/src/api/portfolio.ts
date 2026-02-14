@@ -26,4 +26,6 @@ export const portfolioApi = {
     client.put<any, any>(`/portfolio/${id}`, params),
   delete: (id: string) => client.delete<any, any>(`/portfolio/${id}`),
   health: () => client.get<any, any>('/portfolio/health'),
+  exitAlerts: () => client.get<any, any[]>('/portfolio/exit-alerts'),
+  equityLedger: () => client.get<any, any>('/portfolio/equity-ledger'),
 }

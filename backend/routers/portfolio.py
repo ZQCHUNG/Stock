@@ -315,6 +315,40 @@ def portfolio_health():
     })
 
 
+@router.get("/exit-alerts")
+def get_exit_alerts():
+    """Worker 自動偵測的出場警報（Gemini R25）"""
+    from data.cache import get_portfolio_exit_alerts
+    return get_portfolio_exit_alerts()
+
+
+@router.get("/equity-ledger")
+def get_equity_ledger():
+    """每日資產快照歷史（Gemini R25）"""
+    from data.cache import get_equity_ledger as _get_ledger
+    from backend.dependencies import make_serializable
+
+    ledger = _get_ledger()
+    if not ledger:
+        return {"ledger": [], "delta_equity": None}
+
+    # Delta equity: today vs yesterday
+    delta = None
+    if len(ledger) >= 2:
+        today = ledger[-1]
+        yesterday = ledger[-2]
+        delta = {
+            "today": today.get("total_equity", 0),
+            "yesterday": yesterday.get("total_equity", 0),
+            "change": round(today.get("total_equity", 0) - yesterday.get("total_equity", 0), 0),
+            "change_pct": round(
+                (today.get("total_equity", 0) / yesterday.get("total_equity", 1) - 1), 4
+            ) if yesterday.get("total_equity", 0) > 0 else 0,
+        }
+
+    return make_serializable({"ledger": ledger, "delta_equity": delta})
+
+
 def _calculate_summary(positions: list, closed: list) -> dict:
     """Calculate portfolio summary metrics."""
     if not positions:
