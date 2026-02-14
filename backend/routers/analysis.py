@@ -226,12 +226,96 @@ def get_sector_heat(force_refresh: bool = False):
     return make_serializable(result)
 
 
+def _calculate_confidence_multiplier(
+    signal_maturity: str,
+    sector_momentum: str,
+    is_leader: bool,
+    liquidity_factor: float,
+    has_capital_strain: bool,
+) -> tuple[float, list[str]]:
+    """Calculate position confidence multiplier (Gemini R23).
+
+    Returns (multiplier, breakdown_list).
+
+    Base matrix: Maturity × Sector Momentum
+    Modifiers: +0.2 Leader, ×LF, -0.1 Capital Strain
+    Clamp to [0.3, 1.5], special case LF=0 → C=0
+    """
+    # Base matrix: maturity → {momentum → base_score}
+    MATRIX = {
+        "Structural Shift": {"surge": 1.3, "heating": 1.1, "stable": 0.9, "cooling": 0.6},
+        "Trend Formation": {"surge": 1.1, "heating": 0.9, "stable": 0.7, "cooling": 0.4},
+        "Speculative Spike": {"surge": 0.8, "heating": 0.6, "stable": 0.4, "cooling": 0.3},
+    }
+
+    # Ghost Town override
+    if liquidity_factor == 0:
+        return 0.0, ["LF=0 (Ghost Town)：建議不持有"]
+
+    breakdown = []
+
+    # Base score from matrix
+    maturity_row = MATRIX.get(signal_maturity, MATRIX["Speculative Spike"])
+    base = maturity_row.get(sector_momentum, maturity_row.get("stable", 0.5))
+    breakdown.append(f"基礎: {signal_maturity} × {sector_momentum} = {base:.1f}")
+
+    score = base
+
+    # Leader bonus
+    if is_leader:
+        score += 0.2
+        breakdown.append("Leader +0.2")
+
+    # Capital strain penalty
+    if has_capital_strain:
+        score -= 0.1
+        breakdown.append("資本壓力 -0.1")
+
+    # Apply liquidity factor
+    if liquidity_factor < 1.0:
+        score *= liquidity_factor
+        breakdown.append(f"LF ×{liquidity_factor:.2f}")
+
+    # Clamp
+    score = max(0.3, min(1.5, score))
+    breakdown.append(f"最終: {score:.2f}")
+
+    return round(score, 2), breakdown
+
+
+def _get_stock_sector_context(code: str) -> dict:
+    """Get sector momentum and leader status from cached sector heat data."""
+    from data.cache import get_cached_sector_heat
+    from data.sector_mapping import get_stock_sector
+
+    result = {"sector_momentum": "stable", "is_leader": False, "sector_l1": "未分類"}
+
+    sector_l1 = get_stock_sector(code, level=1)
+    result["sector_l1"] = sector_l1
+
+    cached = get_cached_sector_heat()
+    if not cached:
+        return result
+
+    sectors = cached.get("sectors", [])
+    for sec in sectors:
+        if sec.get("sector") != sector_l1:
+            continue
+        result["sector_momentum"] = sec.get("momentum", "stable")
+        leader = sec.get("leader")
+        if leader and leader.get("code") == code:
+            result["is_leader"] = True
+        break
+
+    return result
+
+
 @router.get("/{code}/risk-factors")
 def get_risk_factors(code: str, period_days: int = 365):
     """取得部位風險因子（Position Calculator 用）
 
-    返回 is_biotech, cash_runway, institutional_visibility, avg_volume 等
-    用於計算 Liquidity_Factor。
+    返回 is_biotech, cash_runway, institutional_visibility, avg_volume,
+    liquidity_factor, confidence_multiplier 等。
     """
     from concurrent.futures import ThreadPoolExecutor
     from data.fetcher import (
@@ -314,6 +398,42 @@ def get_risk_factors(code: str, period_days: int = 365):
 
         current_price = float(df["close"].iloc[-1])
 
+        # V4 signal for maturity info
+        from analysis.strategy_v4 import get_v4_analysis
+        try:
+            v4 = get_v4_analysis(df)
+            signal_maturity = v4.get("signal_maturity", "N/A")
+            v4_signal = v4.get("signal", "HOLD")
+            stop_loss_price = v4.get("stop_loss_price")
+        except Exception:
+            signal_maturity = "N/A"
+            v4_signal = "HOLD"
+            stop_loss_price = None
+
+        # Default stop loss from V4 or calculate from config
+        if stop_loss_price is None:
+            from config import DEFAULT_V4_CONFIG
+            stop_loss_price = round(current_price * (1 - DEFAULT_V4_CONFIG.stop_loss_pct), 2)
+
+        # Sector context (momentum, leader status)
+        sector_ctx = _get_stock_sector_context(code)
+
+        # Capital strain flag
+        has_capital_strain = False
+        if not is_biotech and cash_runway is not None:
+            total_runway = cash_runway.get("total_runway_quarters", 99)
+            if total_runway < 8:
+                has_capital_strain = True
+
+        # Confidence multiplier
+        conf_mult, conf_breakdown = _calculate_confidence_multiplier(
+            signal_maturity=signal_maturity,
+            sector_momentum=sector_ctx["sector_momentum"],
+            is_leader=sector_ctx["is_leader"],
+            liquidity_factor=round(liquidity_factor, 4),
+            has_capital_strain=has_capital_strain,
+        )
+
         return make_serializable({
             "is_biotech": is_biotech,
             "cash_runway": cash_runway,
@@ -322,6 +442,14 @@ def get_risk_factors(code: str, period_days: int = 365):
             "liquidity_factor": round(liquidity_factor, 4),
             "warnings": warnings,
             "current_price": current_price,
+            "stop_loss_price": stop_loss_price,
+            "v4_signal": v4_signal,
+            "signal_maturity": signal_maturity,
+            "sector_l1": sector_ctx["sector_l1"],
+            "sector_momentum": sector_ctx["sector_momentum"],
+            "is_leader": sector_ctx["is_leader"],
+            "confidence_multiplier": conf_mult,
+            "confidence_breakdown": conf_breakdown,
             "industry": company_info.get("industry", ""),
             "sector": company_info.get("sector", ""),
         })
