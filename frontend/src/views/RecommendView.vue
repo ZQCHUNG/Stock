@@ -1,72 +1,102 @@
 <script setup lang="ts">
-import { h, onMounted } from 'vue'
-import { NCard, NButton, NGrid, NGi, NSpin, NTag, NSpace, NDataTable, NEmpty } from 'naive-ui'
+import { h, onMounted, computed } from 'vue'
+import { NCard, NButton, NGrid, NGi, NSpin, NTag, NSpace, NDataTable, NEmpty, NTooltip, NProgress, NAlert } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
+import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { useRecommendStore } from '../stores/recommend'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, priceColor } from '../utils/format'
-import { useResponsive } from '../composables/useResponsive'
 import SignalBadge from '../components/SignalBadge.vue'
 import ProgressBar from '../components/ProgressBar.vue'
 
 const app = useAppStore()
 const rec = useRecommendStore()
 const wl = useWatchlistStore()
+const router = useRouter()
 
-const { cols } = useResponsive()
-const cardCols = cols(1, 2, 3)
+onMounted(() => {
+  rec.loadAlphaHunter()
+})
 
-onMounted(() => rec.scan())
+const watchlistCodes = computed(() => new Set(wl.watchlist.map(s => s.code)))
 
-function selectStock(code: string) {
+function analyzeStock(code: string) {
   app.selectStock(code)
+  router.push({ name: 'technical' })
 }
 
 function addToWatchlist(code: string) {
   wl.add(code)
 }
 
-const buyResults = () => rec.scanResults.filter((r) => r.signal === 'BUY')
-const holdResults = () => rec.scanResults.filter((r) => r.signal === 'HOLD')
-const sellResults = () => rec.scanResults.filter((r) => r.signal === 'SELL')
+// Visual helpers
+function maturityProgress(maturity: string): number {
+  if (maturity === 'Structural Shift') return 100
+  if (maturity === 'Trend Formation') return 60
+  if (maturity === 'Speculative Spike') return 25
+  return 0
+}
 
+function maturityColor(maturity: string): string {
+  if (maturity === 'Structural Shift') return '#18a058'
+  if (maturity === 'Trend Formation') return '#f0a020'
+  return '#e53e3e'
+}
+
+function confidenceColor(c: number): string {
+  if (c >= 1.2) return '#18a058'
+  if (c >= 1.0) return '#2080f0'
+  if (c >= 0.5) return '#f0a020'
+  return '#e53e3e'
+}
+
+function momentumLabel(m: string): { icon: string; label: string; type: 'error' | 'warning' | 'info' | 'default' } {
+  if (m === 'surge') return { icon: '🔥', label: 'Surge', type: 'error' }
+  if (m === 'heating') return { icon: '↑', label: 'Heating', type: 'warning' }
+  if (m === 'cooling') return { icon: '↓', label: 'Cooling', type: 'info' }
+  return { icon: '', label: 'Stable', type: 'default' }
+}
+
+// Alpha hunter data
+const alphaData = computed(() => rec.alphaHunter)
+const highConfidence = computed(() => alphaData.value?.high_confidence || [])
+const sectorGroups = computed(() => alphaData.value?.sectors || [])
+const transitions = computed(() => alphaData.value?.transitions || [])
+const updatedAt = computed(() => {
+  const ts = alphaData.value?.updated_at
+  if (!ts) return null
+  const dt = new Date(ts)
+  return `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+})
+
+// Traditional scan columns (kept for fallback)
 const holdColumns: DataTableColumns = [
   { title: '代碼', key: 'code', width: 70, sorter: 'default',
-    render: (r: any) => h('span', { style: { fontWeight: 600, cursor: 'pointer' }, onClick: () => selectStock(r.code) }, r.code) },
-  { title: '名稱', key: 'name', width: 80,
-    render: (r: any) => h('span', { style: { cursor: 'pointer' }, onClick: () => selectStock(r.code) }, r.name) },
-  { title: '價格', key: 'price', width: 80, sorter: (a: any, b: any) => (a.price || 0) - (b.price || 0),
-    render: (r: any) => r.price?.toFixed(2) || '-' },
+    render: (r: any) => h('span', { style: { fontWeight: 600, cursor: 'pointer' }, onClick: () => analyzeStock(r.code) }, r.code) },
+  { title: '名稱', key: 'name', width: 80 },
+  { title: '價格', key: 'price', width: 80, render: (r: any) => r.price?.toFixed(2) || '-' },
   { title: '漲跌%', key: 'price_change', width: 80, sorter: (a: any, b: any) => (a.price_change || 0) - (b.price_change || 0),
     render: (r: any) => h('span', { style: { color: priceColor(r.price_change), fontWeight: 600 } }, fmtPct(r.price_change)) },
   { title: '趨勢天數', key: 'uptrend_days', width: 80, sorter: (a: any, b: any) => (a.uptrend_days || 0) - (b.uptrend_days || 0) },
-  { title: 'ADX', key: 'adx', width: 60,
-    render: (r: any) => r.indicators?.ADX?.toFixed(1) || '-' },
-  { title: 'RSI', key: 'rsi', width: 60,
-    render: (r: any) => r.indicators?.RSI?.toFixed(1) || '-' },
-]
-
-const sellColumns: DataTableColumns = [
-  { title: '代碼', key: 'code', width: 70, sorter: 'default',
-    render: (r: any) => h('span', { style: { fontWeight: 600 } }, r.code) },
-  { title: '名稱', key: 'name', width: 80 },
-  { title: '價格', key: 'price', width: 80,
-    render: (r: any) => r.price?.toFixed(2) || '-' },
-  { title: '漲跌%', key: 'price_change', width: 80, sorter: (a: any, b: any) => (a.price_change || 0) - (b.price_change || 0),
-    render: (r: any) => h('span', { style: { color: priceColor(r.price_change), fontWeight: 600 } }, fmtPct(r.price_change)) },
 ]
 </script>
 
 <template>
   <div>
-    <h2 style="margin: 0 0 16px">推薦股票 (V4 掃描)</h2>
+    <h2 style="margin: 0 0 16px">推薦股票 — Alpha Hunter</h2>
 
-    <NSpace style="margin-bottom: 16px">
-      <NButton type="primary" @click="rec.scan()" :loading="rec.isScanning">重新掃描</NButton>
-      <NTag v-if="rec.scanResults.length" size="small">
-        共 {{ rec.scanResults.length }} 隻 | BUY {{ buyResults().length }}
+    <NSpace style="margin-bottom: 16px" align="center">
+      <NButton type="primary" @click="rec.loadAlphaHunter()" :loading="rec.isLoadingAlpha">
+        刷新推薦
+      </NButton>
+      <NButton @click="rec.scan()" :loading="rec.isScanning" type="default">
+        完整掃描 (SSE)
+      </NButton>
+      <NTag v-if="alphaData" size="small">
+        {{ alphaData.total_buy || 0 }} BUY / {{ sectorGroups.length }} 板塊
       </NTag>
+      <span v-if="updatedAt" style="font-size: 11px; color: #999">{{ updatedAt }} 更新</span>
     </NSpace>
 
     <ProgressBar
@@ -76,60 +106,199 @@ const sellColumns: DataTableColumns = [
       :message="rec.progress.message"
     />
 
-    <NSpin :show="rec.isScanning && rec.progress.total === 0">
-      <!-- BUY 訊號 -->
-      <NCard v-if="buyResults().length" title="買進訊號" size="small" style="margin-bottom: 16px">
-        <NGrid :cols="cardCols" :x-gap="12" :y-gap="12">
-          <NGi v-for="r in buyResults()" :key="r.code">
-            <NCard size="small" hoverable style="cursor: pointer" @click="selectStock(r.code)">
+    <NSpin :show="rec.isLoadingAlpha">
+      <!-- High Confidence Picks -->
+      <NCard v-if="highConfidence.length" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">⭐ 高信心推薦 (C ≥ 1.0)</span>
+            <NTag type="error" size="small">{{ highConfidence.length }} 檔</NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="3" :x-gap="12" :y-gap="12">
+          <NGi v-for="stock in highConfidence" :key="stock.code">
+            <NCard size="small" hoverable style="cursor: pointer" @click="analyzeStock(stock.code)">
               <div style="display: flex; justify-content: space-between; align-items: center">
                 <div>
-                  <span style="font-weight: 700; font-size: 16px">{{ r.code }}</span>
-                  <span style="margin-left: 8px; color: var(--text-muted)">{{ r.name }}</span>
+                  <span style="font-weight: 700; font-size: 16px">{{ stock.code }}</span>
+                  <span style="margin-left: 8px; color: #666">{{ stock.name }}</span>
                 </div>
-                <SignalBadge :signal="r.signal" size="small" />
+                <NTag
+                  :color="{ textColor: '#fff', color: confidenceColor(stock.confidence), borderColor: confidenceColor(stock.confidence) }"
+                  size="small"
+                  style="font-weight: 700"
+                >
+                  C={{ stock.confidence.toFixed(2) }}
+                </NTag>
               </div>
-              <div style="margin-top: 8px; display: flex; gap: 16px; font-size: 13px">
-                <span>{{ r.price?.toFixed(2) }}</span>
-                <span :style="{ color: priceColor(r.price_change) }">{{ fmtPct(r.price_change) }}</span>
-                <span style="color: var(--text-muted)">{{ r.entry_type }}</span>
+              <!-- Maturity progress bar -->
+              <div style="margin-top: 8px">
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <NProgress
+                    type="line"
+                    :percentage="maturityProgress(stock.maturity)"
+                    :color="maturityColor(stock.maturity)"
+                    :height="8"
+                    :show-indicator="false"
+                    style="flex: 1"
+                  />
+                  <NTag :type="stock.maturity === 'Structural Shift' ? 'success' : stock.maturity === 'Trend Formation' ? 'warning' : 'error'" size="small">
+                    {{ stock.maturity }}
+                  </NTag>
+                </div>
               </div>
-              <div style="margin-top: 4px; font-size: 12px; color: var(--text-dimmed)">
-                趨勢 {{ r.uptrend_days }}天 | ADX {{ r.indicators?.ADX?.toFixed(1) || '-' }} | RSI {{ r.indicators?.RSI?.toFixed(1) || '-' }}
+              <!-- Sector + Leader -->
+              <div style="margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap">
+                <NTag size="small" :bordered="false" :type="momentumLabel(stock.momentum).type">
+                  {{ stock.sector }} {{ momentumLabel(stock.momentum).icon }}
+                </NTag>
+                <NTag v-if="stock.is_leader" type="warning" size="small" :bordered="false" style="font-weight: 700">
+                  ★ Leader ({{ stock.leader_score.toFixed(2) }})
+                </NTag>
+                <NButton
+                  v-if="!watchlistCodes.has(stock.code)"
+                  size="tiny"
+                  quaternary
+                  @click.stop="addToWatchlist(stock.code)"
+                  style="min-width: auto"
+                >+ 自選</NButton>
               </div>
-              <NButton size="tiny" quaternary style="margin-top: 4px" @click.stop="addToWatchlist(r.code)">加入自選</NButton>
             </NCard>
           </NGi>
         </NGrid>
       </NCard>
 
-      <!-- HOLD -->
-      <NCard v-if="holdResults().length" :title="`觀望 (${holdResults().length})`" size="small" style="margin-bottom: 16px">
+      <!-- Maturity Transitions -->
+      <NAlert v-if="transitions.length" type="info" style="margin-bottom: 16px">
+        <template #header>📊 近期成熟度躍遷</template>
+        <NSpace :size="6" style="flex-wrap: wrap">
+          <NTooltip v-for="(t, i) in transitions" :key="i" trigger="hover">
+            <template #trigger>
+              <NTag
+                :type="t.is_high_value ? 'error' : 'default'"
+                size="small"
+                style="cursor: pointer"
+                @click="analyzeStock(t.code)"
+              >
+                <template v-if="t.is_high_value">🔥 </template>
+                {{ t.code }} {{ t.name }}
+                <span style="font-size: 10px; margin-left: 4px">{{ t.from_maturity?.split(' ')[0] }} → {{ t.to_maturity?.split(' ')[0] }}</span>
+              </NTag>
+            </template>
+            <div>
+              <div>{{ t.from_maturity }} → {{ t.to_maturity }}</div>
+              <div>板塊: {{ t.sector }} ({{ t.momentum }})</div>
+              <div v-if="t.is_leader">Leader Score: {{ (t.leader_score || 0).toFixed(2) }}</div>
+            </div>
+          </NTooltip>
+        </NSpace>
+      </NAlert>
+
+      <!-- Sector Groups ("Battle Briefing") -->
+      <div v-for="group in sectorGroups" :key="group.sector" style="margin-bottom: 16px">
+        <NCard size="small">
+          <template #header>
+            <NSpace align="center" :size="8">
+              <span style="font-weight: 700">{{ group.sector }}</span>
+              <NTag :type="momentumLabel(group.momentum).type" size="small">
+                {{ momentumLabel(group.momentum).icon }} {{ momentumLabel(group.momentum).label }}
+              </NTag>
+              <NTag size="small" :bordered="false">{{ group.buy_count }}/{{ group.total }} BUY</NTag>
+              <NTooltip v-if="group.is_crowded" trigger="hover">
+                <template #trigger>
+                  <NTag size="small" :color="{ textColor: '#fff', color: '#9333ea', borderColor: '#9333ea' }">
+                    擁擠交易
+                  </NTag>
+                </template>
+                <div>加權熱度 {{ (group.weighted_heat * 100).toFixed(0) }}% > 80%，信心乘數自動衰減</div>
+              </NTooltip>
+              <NTooltip v-if="group.leader" trigger="hover">
+                <template #trigger>
+                  <NTag type="warning" size="small" :bordered="false" style="font-weight: 700">
+                    ★ {{ group.leader.code }} {{ group.leader.name }}
+                  </NTag>
+                </template>
+                <div>Leader Score: {{ group.leader.score.toFixed(2) }} | {{ group.leader.maturity }}</div>
+              </NTooltip>
+            </NSpace>
+          </template>
+          <template #header-extra>
+            <NProgress
+              type="line"
+              :percentage="Math.round(group.weighted_heat * 100)"
+              :color="group.weighted_heat >= 0.3 ? '#e53e3e' : group.weighted_heat >= 0.15 ? '#dd6b20' : '#38a169'"
+              :height="12"
+              :show-indicator="false"
+              style="width: 100px"
+            />
+            <span style="font-size: 11px; color: #888; margin-left: 8px">
+              {{ (group.weighted_heat * 100).toFixed(0) }}%
+            </span>
+          </template>
+
+          <NGrid :cols="3" :x-gap="8" :y-gap="8">
+            <NGi v-for="stock in group.stocks" :key="stock.code">
+              <div
+                style="padding: 8px; border: 1px solid #eee; border-radius: 6px; cursor: pointer; transition: background 0.15s"
+                @click="analyzeStock(stock.code)"
+                @mouseenter="($event.currentTarget as HTMLElement).style.background = '#f8f8f8'"
+                @mouseleave="($event.currentTarget as HTMLElement).style.background = ''"
+              >
+                <div style="display: flex; justify-content: space-between; align-items: center">
+                  <div>
+                    <span style="font-weight: 600">{{ stock.code }}</span>
+                    <span style="margin-left: 6px; font-size: 12px; color: #666">{{ stock.name }}</span>
+                  </div>
+                  <NTag
+                    :color="{ textColor: '#fff', color: confidenceColor(stock.confidence), borderColor: confidenceColor(stock.confidence) }"
+                    size="tiny"
+                    style="font-weight: 600"
+                  >
+                    C={{ stock.confidence.toFixed(2) }}
+                  </NTag>
+                </div>
+                <!-- Maturity mini progress -->
+                <div style="margin-top: 4px; display: flex; align-items: center; gap: 6px">
+                  <NProgress
+                    type="line"
+                    :percentage="maturityProgress(stock.maturity)"
+                    :color="maturityColor(stock.maturity)"
+                    :height="6"
+                    :show-indicator="false"
+                    style="flex: 1"
+                  />
+                  <span style="font-size: 10px; color: #888; min-width: 60px">{{ stock.maturity }}</span>
+                  <NTag v-if="stock.is_leader" type="warning" size="tiny" :bordered="false" style="font-weight: 700; font-size: 10px">★</NTag>
+                  <NButton
+                    v-if="!watchlistCodes.has(stock.code)"
+                    size="tiny"
+                    quaternary
+                    style="padding: 0 2px; min-width: auto"
+                    @click.stop="addToWatchlist(stock.code)"
+                  >+</NButton>
+                </div>
+              </div>
+            </NGi>
+          </NGrid>
+        </NCard>
+      </div>
+
+      <NEmpty v-if="!rec.isLoadingAlpha && !sectorGroups.length && !rec.scanResults.length"
+              description="尚無推薦數據，請先啟動 Worker 或點擊「完整掃描」"
+              style="margin: 40px 0" />
+
+      <!-- Traditional scan results (fallback) -->
+      <NCard v-if="rec.scanResults.length && !sectorGroups.length" title="V4 掃描結果 (傳統)" size="small" style="margin-top: 16px">
         <NDataTable
           :columns="holdColumns"
-          :data="holdResults()"
-          :pagination="{ pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 30] }"
-          :row-props="(r: any) => ({ style: { cursor: 'pointer' }, onClick: () => selectStock(r.code) })"
+          :data="rec.scanResults"
+          :pagination="{ pageSize: 20 }"
           size="small"
           :bordered="false"
           :single-line="false"
-          :scroll-x="510"
+          :scroll-x="390"
         />
       </NCard>
-
-      <!-- SELL -->
-      <NCard v-if="sellResults().length" :title="`賣出訊號 (${sellResults().length})`" size="small">
-        <NDataTable
-          :columns="sellColumns"
-          :data="sellResults()"
-          size="small"
-          :bordered="false"
-          :single-line="false"
-          :scroll-x="310"
-        />
-      </NCard>
-
-      <NEmpty v-if="!rec.isScanning && rec.scanResults.length === 0" description="無掃描結果，點擊「重新掃描」開始" style="margin: 40px 0" />
     </NSpin>
   </div>
 </template>

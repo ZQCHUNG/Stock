@@ -514,6 +514,20 @@ const btColumns: DataTableColumns = [
                     {{ sector.delta_heat > 0 ? '+' : '' }}{{ (sector.delta_heat * 100).toFixed(0) }}pp
                   </template>
                 </NTag>
+                <!-- Crowded trade warning (Gemini R24) -->
+                <NTooltip v-if="sector.weighted_heat > 0.8" trigger="hover">
+                  <template #trigger>
+                    <NTag size="small" :color="{ textColor: '#fff', color: '#9333ea', borderColor: '#9333ea' }">
+                      擁擠交易
+                    </NTag>
+                  </template>
+                  <div>
+                    <div style="font-weight: 600">擁擠交易警告 (Crowded Trade)</div>
+                    <div>加權熱度 {{ (sector.weighted_heat * 100).toFixed(0) }}% > 80%</div>
+                    <div>大量資金聚集，信心乘數自動衰減</div>
+                    <div style="font-size: 11px; color: #aaa; margin-top: 4px">板塊過熱時，即使訊號為 BUY，也應縮減部位</div>
+                  </div>
+                </NTooltip>
                 <!-- Leader badge -->
                 <NTooltip v-if="sector.leader" trigger="hover">
                   <template #trigger>

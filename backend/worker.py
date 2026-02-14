@@ -38,6 +38,7 @@ from data.cache import (
     get_stock_maturity_map,
     set_stock_maturity_map,
     add_transition_event,
+    clear_transition_events,
 )
 
 logging.basicConfig(
@@ -476,6 +477,7 @@ def main():
     logger.info("=" * 60)
 
     scan_count = 1
+    last_reset_date = None  # Track daily alert reset (Gemini R24)
 
     # Initial scan on startup (regardless of trading hours)
     logger.info("Running initial scan...")
@@ -487,6 +489,13 @@ def main():
         if not is_trading_hours():
             logger.debug("Outside trading hours, skipping scan")
             continue
+
+        # Daily reset: clear transition alerts at first scan of each new day
+        today = datetime.now().strftime("%Y-%m-%d")
+        if last_reset_date != today:
+            logger.info(f"New trading day {today}: resetting transition alerts")
+            clear_transition_events()
+            last_reset_date = today
 
         scan_count = run_scan_cycle(scan_count)
 

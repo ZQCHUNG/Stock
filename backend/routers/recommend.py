@@ -119,3 +119,109 @@ def scan_v4_stream(req: ScanRequest):
         yield sse_done(make_serializable(results))
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+@router.get("/alpha-hunter")
+def alpha_hunter():
+    """Alpha Hunter — 高信心推薦清單（Gemini R24）
+
+    Enriches BUY stocks from sector_heat with confidence multiplier,
+    sector momentum, leader status. Pre-computed from worker cache.
+    Returns data grouped by sector for "battle briefing" display.
+    """
+    from data.cache import get_cached_sector_heat, get_transition_events
+    from backend.dependencies import make_serializable
+
+    cached = get_cached_sector_heat()
+    if not cached:
+        return {"sectors": [], "high_confidence": [], "transitions": []}
+
+    sectors = cached.get("sectors", [])
+
+    # Build enriched BUY stock list with sector context
+    MATURITY_RANK = {"Speculative Spike": 1, "Trend Formation": 2, "Structural Shift": 3}
+    MOMENTUM_RANK = {"surge": 4, "heating": 3, "stable": 2, "cooling": 1, "new": 0}
+
+    # Confidence matrix (same as analysis.py)
+    MATRIX = {
+        "Structural Shift": {"surge": 1.3, "heating": 1.2, "stable": 0.9, "cooling": 0.6},
+        "Trend Formation": {"surge": 1.1, "heating": 0.9, "stable": 0.7, "cooling": 0.4},
+        "Speculative Spike": {"surge": 0.6, "heating": 0.6, "stable": 0.4, "cooling": 0.1},
+    }
+
+    sector_groups = []
+    all_buy = []
+
+    for sec in sectors:
+        if not sec.get("buy_stocks"):
+            continue
+
+        momentum = sec.get("momentum", "stable")
+        weighted_heat = sec.get("weighted_heat", 0)
+        leader = sec.get("leader")
+
+        enriched_stocks = []
+        for bs in sec["buy_stocks"]:
+            maturity = bs.get("maturity", "N/A")
+            is_leader = leader and leader.get("code") == bs["code"]
+            leader_score = bs.get("leader_score", 0)
+
+            # Quick confidence estimate (without LF — that needs per-stock data)
+            mat_row = MATRIX.get(maturity, MATRIX["Speculative Spike"])
+            base_c = mat_row.get(momentum, mat_row.get("stable", 0.5))
+            c = base_c + (0.2 if is_leader else 0)
+            # Overheat decay
+            if weighted_heat > 0.8:
+                decay = max(0.7, 1.0 - (weighted_heat - 0.8) * 1.5)
+                c *= decay
+            c = max(0.1, min(1.5, round(c, 2)))
+
+            stock_data = {
+                "code": bs["code"],
+                "name": bs["name"],
+                "maturity": maturity,
+                "maturity_rank": MATURITY_RANK.get(maturity, 0),
+                "is_leader": bool(is_leader),
+                "leader_score": leader_score,
+                "confidence": c,
+                "sector": sec["sector"],
+                "momentum": momentum,
+                "weighted_heat": weighted_heat,
+            }
+            enriched_stocks.append(stock_data)
+            all_buy.append(stock_data)
+
+        # Sort stocks within sector: leaders first, then confidence desc
+        enriched_stocks.sort(key=lambda x: (-x["is_leader"], -x["confidence"]))
+
+        sector_groups.append({
+            "sector": sec["sector"],
+            "momentum": momentum,
+            "weighted_heat": weighted_heat,
+            "momentum_rank": MOMENTUM_RANK.get(momentum, 0),
+            "leader": leader,
+            "buy_count": len(enriched_stocks),
+            "total": sec.get("total", 0),
+            "stocks": enriched_stocks,
+            "is_crowded": weighted_heat > 0.8,
+        })
+
+    # Sort sector groups: hot sectors first
+    sector_groups.sort(key=lambda x: (-x["momentum_rank"], -x["weighted_heat"]))
+
+    # High confidence picks: C >= 1.0
+    high_confidence = sorted(
+        [s for s in all_buy if s["confidence"] >= 1.0],
+        key=lambda x: (-x["confidence"], -x["leader_score"]),
+    )
+
+    # Recent transitions
+    transitions = get_transition_events(limit=10)
+
+    return make_serializable({
+        "sectors": sector_groups,
+        "high_confidence": high_confidence,
+        "transitions": list(reversed(transitions)),
+        "total_buy": len(all_buy),
+        "updated_at": cached.get("_updated_at"),
+    })
