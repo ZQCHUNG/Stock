@@ -229,6 +229,7 @@ function fmtReturn(val: number | undefined): string {
         <NButton size="tiny" :type="sourceFilter === 'backtest' ? 'primary' : 'default'" @click="setSource('backtest')">回測</NButton>
         <NDivider vertical />
         <NButton size="small" @click="runBackfill" :loading="isBackfilling" type="warning">歷史回測預填</NButton>
+        <NButton size="small" tag="a" :href="'/api/system/export/signals/csv' + (sourceFilter ? '?source=' + sourceFilter : '')" target="_blank">匯出 CSV</NButton>
         <NTag v-if="summary?.total" size="small">{{ summary.total }} 筆信號</NTag>
       </NSpace>
     </NCard>

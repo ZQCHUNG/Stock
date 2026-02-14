@@ -8,4 +8,7 @@ export const systemApi = {
   workerHeartbeat: () => client.get<any, any>('/system/worker-heartbeat'),
   v4Params: () => client.get<any, any>('/system/v4-params'),
   transitionAlerts: (limit: number = 20) => client.get<any, any[]>(`/system/transition-alerts?limit=${limit}`),
+  health: (includeSlow: boolean = false) => client.get<any, any>(`/system/health?include_slow=${includeSlow}`, { timeout: 30000 }),
+  runBackup: () => client.post<any, any>('/system/backup'),
+  listBackups: () => client.get<any, any[]>('/system/backups'),
 }

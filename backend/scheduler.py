@@ -353,6 +353,15 @@ def start_scheduler(interval_minutes: int = 5):
         replace_existing=True,
         max_instances=1,
     )
+    # R47-3: Daily backup job
+    _scheduler.add_job(
+        _run_daily_backup,
+        trigger=IntervalTrigger(hours=24),
+        id="daily_backup",
+        name="Daily Data Backup",
+        replace_existing=True,
+        max_instances=1,
+    )
 
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
@@ -388,6 +397,18 @@ def _update_tracked_returns():
             logger.info(f"Updated forward returns for {count} tracked signals")
     except Exception as e:
         logger.warning(f"Forward return update failed: {e}")
+
+
+def _run_daily_backup():
+    """R47-3: Scheduled job — daily backup of critical data files."""
+    try:
+        from backend.backup import run_backup
+        result = run_backup()
+        backed = len(result.get("backed_up", []))
+        removed = result.get("removed_old", 0)
+        logger.info(f"Daily backup completed: {backed} files backed up, {removed} old files removed")
+    except Exception as e:
+        logger.warning(f"Daily backup failed: {e}")
 
 
 def stop_scheduler():

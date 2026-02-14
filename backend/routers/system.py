@@ -1,12 +1,24 @@
-"""系統路由 — 快取狀態、最近股票"""
+"""系統路由 — 快取狀態、最近股票、健康檢查、備份"""
 
 import json
 from pathlib import Path
 from fastapi import APIRouter
+from fastapi.responses import Response
 
 router = APIRouter()
 
 RECENT_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "recent_stocks.json"
+
+
+@router.get("/health")
+def system_health(include_slow: bool = False):
+    """R47-2: 統一系統健康檢查
+
+    Fast checks: Redis, SQLite, Scheduler, data files.
+    Set include_slow=true to also check yfinance and FinMind (adds 2-10s).
+    """
+    from backend.health import get_system_health
+    return get_system_health(include_slow=include_slow)
 
 
 @router.get("/cache-stats")
@@ -83,3 +95,57 @@ def get_transition_alerts(limit: int = 20):
     events = get_transition_events(limit=limit)
     # Return most recent first
     return list(reversed(events))
+
+
+# ---------------------------------------------------------------------------
+# R47-3: Backup & Export
+# ---------------------------------------------------------------------------
+
+@router.post("/backup")
+def run_backup():
+    """R47-3: 執行資料備份（SQLite + JSON 設定檔）"""
+    from backend.backup import run_backup as _run
+    return _run()
+
+
+@router.get("/backups")
+def list_backups():
+    """R47-3: 列出所有備份檔案"""
+    from backend.backup import list_backups as _list
+    return _list()
+
+
+@router.get("/export/positions/csv")
+def export_positions_csv():
+    """R47-3: 匯出倉位資料為 CSV"""
+    from backend.backup import export_positions_csv as _export
+    content = _export()
+    if not content:
+        return Response(content="No data", media_type="text/plain")
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=positions.csv"},
+    )
+
+
+@router.get("/export/positions/json")
+def export_positions_json():
+    """R47-3: 匯出倉位資料為 JSON"""
+    from backend.backup import export_positions_json as _export
+    from backend.dependencies import make_serializable
+    return make_serializable(_export())
+
+
+@router.get("/export/signals/csv")
+def export_signals_csv(source: str | None = None):
+    """R47-3: 匯出 SQS 信號記錄為 CSV"""
+    from backend.backup import export_signals_csv as _export
+    content = _export(source=source)
+    if not content:
+        return Response(content="No data", media_type="text/plain")
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=signals.csv"},
+    )

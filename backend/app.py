@@ -49,10 +49,11 @@ async def global_exception_handler(request: Request, exc: Exception):
         },
     )
 
-# CORS — 開發模式允許 Vite dev server
+# CORS — 從環境變數讀取，開發模式預設允許 Vite dev server
+from backend.config import CORS_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -294,6 +294,9 @@ async function runRebalanceSim() {
       <NButton @click="showCsvModal = true" size="small">
         匯入 CSV
       </NButton>
+      <NButton size="small" tag="a" :href="'/api/system/export/positions/csv'" target="_blank">
+        匯出 CSV
+      </NButton>
       <NTag v-if="pf.summary.total_positions" size="small">
         {{ pf.summary.total_positions }} 檔持有
       </NTag>

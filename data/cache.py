@@ -121,10 +121,14 @@ def get_redis() -> redis.Redis | None:
         return None
 
     try:
+        import os
+        _redis_host = os.environ.get("REDIS_HOST", "localhost")
+        _redis_port = int(os.environ.get("REDIS_PORT", "6379"))
+        _redis_db = int(os.environ.get("REDIS_DB", "0"))
         _redis_client = redis.Redis(
-            host="localhost",
-            port=6379,
-            db=0,
+            host=_redis_host,
+            port=_redis_port,
+            db=_redis_db,
             decode_responses=True,
             socket_connect_timeout=1,
             socket_timeout=1,

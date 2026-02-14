@@ -6,6 +6,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { alertsApi, type AlertConfig, type SchedulerStatus } from '../api/alerts'
+import { systemApi } from '../api/system'
 import { useWatchlistStore } from '../stores/watchlist'
 
 const wl = useWatchlistStore()
@@ -27,6 +28,8 @@ const error = ref('')
 const notifPermission = ref(Notification?.permission || 'default')
 const schedulerStatus = ref<SchedulerStatus | null>(null)
 const healthData = ref<any>(null)
+const systemHealth = ref<any>(null)
+const isCheckingHealth = ref(false)
 
 async function loadConfig() {
   isLoading.value = true
@@ -119,6 +122,21 @@ function formatUptime(seconds: number | null): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
+async function loadSystemHealth(includeSlow: boolean = false) {
+  isCheckingHealth.value = true
+  try {
+    systemHealth.value = await systemApi.health(includeSlow)
+  } catch { /* ignore */ }
+  isCheckingHealth.value = false
+}
+
+function healthStatusType(status: string): 'success' | 'warning' | 'error' | 'default' {
+  if (status === 'healthy') return 'success'
+  if (status === 'degraded') return 'warning'
+  if (status === 'stopped') return 'error'
+  return 'default'
+}
+
 function useWatchlistAsFilter() {
   config.value.watch_codes = wl.watchlist.map(s => s.code)
 }
@@ -126,7 +144,7 @@ function useWatchlistAsFilter() {
 onMounted(async () => {
   await loadConfig()
   await loadAlerts()
-  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth()])
+  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth()])
 })
 
 const triggeredColumns: DataTableColumns = [
@@ -253,6 +271,64 @@ const historyColumns: DataTableColumns = [
         </NCard>
       </NGi>
     </NGrid>
+
+    <!-- System Health -->
+    <NCard size="small" style="margin-top: 16px">
+      <template #header>
+        <NSpace align="center" :size="8">
+          <span>系統健康狀態</span>
+          <NTag v-if="systemHealth" :type="healthStatusType(systemHealth.status)" size="small">
+            {{ systemHealth.status }}
+          </NTag>
+          <NButton size="tiny" @click="loadSystemHealth(true)" :loading="isCheckingHealth">
+            完整檢查（含數據源）
+          </NButton>
+        </NSpace>
+      </template>
+      <NGrid v-if="systemHealth?.components" :cols="4" :x-gap="12" :y-gap="8">
+        <NGi>
+          <NSpace align="center" :size="4">
+            <NTag :type="healthStatusType(systemHealth.components.redis?.status)" size="small">
+              Redis: {{ systemHealth.components.redis?.status }}
+            </NTag>
+            <span v-if="systemHealth.components.redis?.keys != null" style="font-size: 11px; color: #999">
+              {{ systemHealth.components.redis.keys }} keys
+            </span>
+          </NSpace>
+        </NGi>
+        <NGi>
+          <NTag :type="healthStatusType(systemHealth.components.database?.status)" size="small">
+            DB: {{ systemHealth.components.database?.status }}
+          </NTag>
+        </NGi>
+        <NGi>
+          <NTag :type="healthStatusType(systemHealth.components.scheduler?.status)" size="small">
+            Scheduler: {{ systemHealth.components.scheduler?.status }}
+          </NTag>
+        </NGi>
+        <NGi v-if="systemHealth.components.yfinance">
+          <NSpace align="center" :size="4">
+            <NTag :type="healthStatusType(systemHealth.components.yfinance?.status)" size="small">
+              yfinance: {{ systemHealth.components.yfinance?.status }}
+            </NTag>
+            <span v-if="systemHealth.components.yfinance?.latency_s" style="font-size: 11px; color: #999">
+              {{ systemHealth.components.yfinance.latency_s }}s
+            </span>
+          </NSpace>
+        </NGi>
+        <NGi v-if="systemHealth.components.finmind">
+          <NSpace align="center" :size="4">
+            <NTag :type="healthStatusType(systemHealth.components.finmind?.status)" size="small">
+              FinMind: {{ systemHealth.components.finmind?.status }}
+            </NTag>
+            <span v-if="systemHealth.components.finmind?.latency_s" style="font-size: 11px; color: #999">
+              {{ systemHealth.components.finmind.latency_s }}s
+            </span>
+          </NSpace>
+        </NGi>
+      </NGrid>
+      <div v-else style="padding: 8px; color: #999; font-size: 12px">載入中...</div>
+    </NCard>
 
     <!-- History -->
     <NCard title="警報歷史" size="small" style="margin-top: 16px">
