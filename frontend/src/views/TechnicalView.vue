@@ -32,6 +32,7 @@ async function loadData() {
   await tech.loadV4SignalsFull(code)
   tech.loadAdaptiveSignal(code)  // Non-blocking: load adaptive signal in background
   tech.loadRiskBudget(code)      // Non-blocking: load risk budget in background
+  tech.loadSignalSummary(code)   // Non-blocking: load forward testing data
   // Connect charts for crosshair + dataZoom sync after data renders
   nextTick(() => { try { connect('tech') } catch { /* charts not ready */ } })
 }
@@ -351,6 +352,45 @@ const institutionalColumns: DataTableColumns = [
           <NGi><MetricCard title="交易數" :value="quickBtResult.total_trades" /></NGi>
         </NGrid>
         <NText v-else depth="3" style="font-size: 12px">點擊「執行回測」查看 V4 策略在此股票的回測表現</NText>
+      </NCard>
+
+      <!-- 前瞻測試績效 (Gemini R41: Signal Performance Overlay) -->
+      <NCard v-if="tech.signalSummary?.has_data" title="前瞻測試績效" size="small" style="margin-bottom: 16px">
+        <template #header-extra>
+          <NTag size="small" :bordered="false" type="info">Forward Testing</NTag>
+        </template>
+        <NGrid :cols="cols(1, 3, 3)" :x-gap="12" :y-gap="12">
+          <NGi v-for="(info, strat) in tech.signalSummary.strategies" :key="strat">
+            <NCard size="small" :bordered="true">
+              <template #header>
+                <NSpace align="center" :size="4">
+                  <NTag :type="strat === 'V4' ? 'error' : strat === 'V5' ? 'info' : 'success'" size="small">{{ strat }}</NTag>
+                  <span style="font-size: 12px; color: var(--text-dimmed)">{{ info.sample_count }} 筆</span>
+                </NSpace>
+              </template>
+              <div style="font-size: 13px; line-height: 1.8">
+                <div>5日勝率: <b :style="{ color: (info.win_rate_5d || 0) >= 0.5 ? '#18a058' : '#e53e3e' }">{{ info.win_rate_5d != null ? (info.win_rate_5d * 100).toFixed(1) + '%' : '-' }}</b></div>
+                <div>5日均報酬: {{ info.avg_return_5d != null ? fmtPct(info.avg_return_5d) : '-' }}</div>
+                <div>20日均報酬: {{ info.avg_return_20d != null ? fmtPct(info.avg_return_20d) : '-' }}</div>
+                <div v-if="info.ev_5d != null">
+                  EV(5d): <span :style="{ color: info.ev_5d > 0 ? '#18a058' : '#e53e3e', fontWeight: 600 }">{{ (info.ev_5d * 100).toFixed(2) }}%</span>
+                </div>
+                <div v-if="info.ev_20d != null">
+                  EV(20d): <span :style="{ color: info.ev_20d > 0 ? '#18a058' : '#e53e3e', fontWeight: 600 }">{{ (info.ev_20d * 100).toFixed(2) }}%</span>
+                </div>
+              </div>
+              <!-- Recent signals -->
+              <div v-if="info.recent_signals?.length" style="margin-top: 8px; border-top: 1px solid var(--border-color); padding-top: 6px">
+                <div style="font-size: 11px; color: var(--text-dimmed); margin-bottom: 4px">近期信號</div>
+                <div v-for="sig in info.recent_signals" :key="sig.date" style="font-size: 12px; display: flex; gap: 8px">
+                  <span>{{ sig.date }}</span>
+                  <span v-if="sig.d5_return != null" :style="{ color: sig.d5_return > 0 ? '#18a058' : '#e53e3e' }">5d {{ fmtPct(sig.d5_return) }}</span>
+                  <span v-if="sig.d20_return != null" :style="{ color: sig.d20_return > 0 ? '#18a058' : '#e53e3e' }">20d {{ fmtPct(sig.d20_return) }}</span>
+                </div>
+              </div>
+            </NCard>
+          </NGi>
+        </NGrid>
       </NCard>
 
       <!-- 法人籌碼 -->

@@ -247,14 +247,29 @@ def signal_accuracy(days: int = 60):
 
 @router.get("/signal-tracker/decay")
 def signal_decay(days: int = 90):
-    """取得信號衰減曲線（Gemini R40: Signal Decay Analysis）
+    """取得信號衰減曲線（Gemini R40→R41: 1/3/5/10/20 天）
 
-    顯示信號發出後 1/3/5 日的平均報酬，揭示信號有效期。
+    顯示信號發出後 1/3/5/10/20 日的平均報酬 + EV，揭示信號有效期。
     """
     from analysis.signal_tracker import get_signal_decay
     from backend.dependencies import make_serializable
     try:
         result = get_signal_decay(days=days)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/signal-tracker/{code}/summary")
+def signal_stock_summary(code: str, days: int = 180):
+    """個股信號前瞻績效摘要（Gemini R41: TechnicalView overlay）
+
+    回傳該股各策略的勝率、EV、平均報酬、近期信號。
+    """
+    from analysis.signal_tracker import get_stock_signal_summary
+    from backend.dependencies import make_serializable
+    try:
+        result = get_stock_signal_summary(code, days=days)
         return make_serializable(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

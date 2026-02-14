@@ -298,8 +298,8 @@ const decayChartOption = computed(() => {
       nameLocation: 'center',
       nameGap: 30,
       min: 0,
-      max: 6,
-      interval: 1,
+      max: 21,
+      interval: 5,
     },
     yAxis: {
       type: 'value',
@@ -435,9 +435,21 @@ import { h } from 'vue'
                 </NTag>
                 <span style="margin-left: 8px; font-size: 12px">{{ info.sample_count }} 筆信號</span>
               </template>
-              <div style="font-size: 13px">
-                <div>平均最大漲幅: {{ info.avg_max_gain != null ? fmtPct(info.avg_max_gain) : '-' }}</div>
-                <div>平均最大回撤: {{ info.avg_max_dd != null ? fmtPct(info.avg_max_dd) : '-' }}</div>
+              <div style="font-size: 13px; line-height: 1.8">
+                <div><b>5日</b>: 漲幅 {{ info.avg_max_gain_5d != null ? fmtPct(info.avg_max_gain_5d) : '-' }} / 回撤 {{ info.avg_max_dd_5d != null ? fmtPct(info.avg_max_dd_5d) : '-' }}</div>
+                <div><b>20日</b>: 漲幅 {{ info.avg_max_gain_20d != null ? fmtPct(info.avg_max_gain_20d) : '-' }} / 回撤 {{ info.avg_max_dd_20d != null ? fmtPct(info.avg_max_dd_20d) : '-' }}</div>
+                <template v-if="info.ev?.d5">
+                  <div style="margin-top: 4px; border-top: 1px solid var(--border-color); padding-top: 4px">
+                    <b>EV(5d)</b>: <span :style="{ color: info.ev.d5.ev > 0 ? '#18a058' : '#e53e3e' }">{{ (info.ev.d5.ev * 100).toFixed(2) }}%</span>
+                    <span style="margin-left: 6px; color: var(--text-dimmed); font-size: 12px">勝率 {{ (info.ev.d5.win_pct * 100).toFixed(1) }}%</span>
+                  </div>
+                </template>
+                <template v-if="info.ev?.d20">
+                  <div>
+                    <b>EV(20d)</b>: <span :style="{ color: info.ev.d20.ev > 0 ? '#18a058' : '#e53e3e' }">{{ (info.ev.d20.ev * 100).toFixed(2) }}%</span>
+                    <span style="margin-left: 6px; color: var(--text-dimmed); font-size: 12px">勝率 {{ (info.ev.d20.win_pct * 100).toFixed(1) }}% (n={{ info.ev.d20.n }})</span>
+                  </div>
+                </template>
               </div>
             </NCard>
           </NSpace>

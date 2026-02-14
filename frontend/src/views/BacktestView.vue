@@ -11,6 +11,7 @@ import BacktestSimulation from '../components/BacktestSimulation.vue'
 import BacktestAdvanced from '../components/BacktestAdvanced.vue'
 import BacktestHistory from '../components/BacktestHistory.vue'
 import StrategyComparison from '../components/StrategyComparison.vue'
+import BacktestMetaStrategy from '../components/BacktestMetaStrategy.vue'
 import ConfigManager from '../components/ConfigManager.vue'
 import { parseUrlConfig } from '../utils/urlConfig'
 
@@ -75,6 +76,7 @@ onMounted(() => {
       <NTabPane name="portfolio" tab="投資組合" />
       <NTabPane name="simulation" tab="模擬交易" />
       <NTabPane name="comparison" tab="策略比較" />
+      <NTabPane name="meta" tab="Meta策略" />
       <NTabPane name="advanced" tab="進階分析" />
       <NTabPane name="history" tab="歷史結果" />
     </NTabs>
@@ -125,6 +127,7 @@ onMounted(() => {
       <BacktestPortfolio v-if="mode === 'portfolio'" :period-days="periodDays" :capital="capital" />
       <BacktestSimulation v-if="mode === 'simulation'" :period-days="periodDays" :capital="capital" />
       <StrategyComparison v-if="mode === 'comparison'" :period-days="periodDays" :capital="capital" />
+      <BacktestMetaStrategy v-if="mode === 'meta'" :period-days="periodDays" :capital="capital" />
       <BacktestAdvanced v-if="mode === 'advanced'" :period-days="periodDays" :capital="capital" />
       <BacktestHistory v-if="mode === 'history'" />
     </NSpin>

@@ -28,6 +28,14 @@ logger = logging.getLogger(__name__)
 DB_PATH = Path(__file__).parent.parent / "data" / "signal_tracker.db"
 
 
+def _find_date_index(df, date_str: str) -> int | None:
+    """Find the index of a date string in a DataFrame index."""
+    for i, d in enumerate(df.index):
+        if d.strftime("%Y-%m-%d") == date_str:
+            return i
+    return None
+
+
 def _init_db():
     """Initialize SQLite database with forward_signals table."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -46,8 +54,12 @@ def _init_db():
             d1_return REAL,
             d3_return REAL,
             d5_return REAL,
+            d10_return REAL,
+            d20_return REAL,
             max_gain_5d REAL,
             max_drawdown_5d REAL,
+            max_gain_20d REAL,
+            max_drawdown_20d REAL,
             filled_at TEXT,
             UNIQUE(signal_date, code, strategy)
         )
@@ -58,6 +70,12 @@ def _init_db():
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_forward_code ON forward_signals(code)
     """)
+    # Migration: add d10/d20 columns to existing tables (Gemini R41)
+    for col in ["d10_return", "d20_return", "max_gain_20d", "max_drawdown_20d"]:
+        try:
+            conn.execute(f"ALTER TABLE forward_signals ADD COLUMN {col} REAL")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
     conn.commit()
     conn.close()
 
@@ -217,11 +235,12 @@ def record_daily_signals(stocks: dict[str, str] | None = None, max_workers: int 
     }
 
 
-def fill_forward_returns(lookback_days: int = 10) -> dict:
+def fill_forward_returns(lookback_days: int = 45) -> dict:
     """Fill in forward returns for signals that have enough days elapsed.
 
-    Checks signals from the last `lookback_days` that haven't been filled yet,
-    and computes 1/3/5 day returns + max gain/drawdown.
+    Two-pass approach (Gemini R41: 20-day tracking):
+    - Pass 1: Fill d1/d3/d5 + max_gain/dd_5d for signals ≥8 calendar days old (unfilled)
+    - Pass 2: Fill d10/d20 + max_gain/dd_20d for signals ≥30 calendar days old (d20 still NULL)
 
     Returns:
         dict with fill results summary
@@ -231,44 +250,34 @@ def fill_forward_returns(lookback_days: int = 10) -> dict:
     conn.row_factory = sqlite3.Row
 
     cutoff = (datetime.now() - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    filled_short = 0
+    filled_long = 0
+    errors = 0
 
-    # Get unfilled signals that are at least 5 trading days old
-    min_date = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%d")  # ~5 trading days
-    rows = conn.execute("""
+    # === Pass 1: Fill d1/d3/d5 (signals ≥8 days old, not yet filled) ===
+    min_date_short = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%d")
+    short_rows = conn.execute("""
         SELECT id, signal_date, code, strategy, signal_price
         FROM forward_signals
         WHERE filled_at IS NULL AND signal_date >= ? AND signal_date <= ?
-    """, (cutoff, min_date)).fetchall()
+    """, (cutoff, min_date_short)).fetchall()
 
-    filled = 0
-    errors = 0
-
-    for row in rows:
+    for row in short_rows:
         try:
             from data.fetcher import get_stock_data
-            df = get_stock_data(row["code"], period_days=30)
+            df = get_stock_data(row["code"], period_days=60)
             if df is None or len(df) < 5:
                 continue
 
-            signal_date = row["signal_date"]
-            signal_price = row["signal_price"]
-
-            # Find signal date index
-            date_idx = None
-            for i, d in enumerate(df.index):
-                if d.strftime("%Y-%m-%d") == signal_date:
-                    date_idx = i
-                    break
-
+            date_idx = _find_date_index(df, row["signal_date"])
             if date_idx is None:
-                # Signal date not in data, try closest match
                 continue
 
             remaining = len(df) - date_idx - 1
             if remaining < 5:
-                continue  # Not enough days yet
+                continue
 
-            # Compute returns
+            signal_price = row["signal_price"]
             prices = df["close"].iloc[date_idx + 1: date_idx + 6].values
             highs = df["high"].iloc[date_idx + 1: date_idx + 6].values
             lows = df["low"].iloc[date_idx + 1: date_idx + 6].values
@@ -276,7 +285,6 @@ def fill_forward_returns(lookback_days: int = 10) -> dict:
             d1_ret = (prices[0] / signal_price - 1) if len(prices) >= 1 else None
             d3_ret = (prices[2] / signal_price - 1) if len(prices) >= 3 else None
             d5_ret = (prices[4] / signal_price - 1) if len(prices) >= 5 else None
-
             max_gain = (max(highs) / signal_price - 1) if len(highs) > 0 else 0
             max_dd = (min(lows) / signal_price - 1) if len(lows) > 0 else 0
 
@@ -288,18 +296,64 @@ def fill_forward_returns(lookback_days: int = 10) -> dict:
                 WHERE id = ?
             """, (d1_ret, d3_ret, d5_ret, round(max_gain, 6), round(max_dd, 6),
                   datetime.now().isoformat(), row["id"]))
-            filled += 1
-
+            filled_short += 1
         except Exception as e:
-            logger.warning(f"Fill failed for signal {row['id']}: {e}")
+            logger.warning(f"Fill (short) failed for signal {row['id']}: {e}")
+            errors += 1
+
+    # === Pass 2: Fill d10/d20 (signals ≥30 days old, d20 still NULL) ===
+    min_date_long = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    long_rows = conn.execute("""
+        SELECT id, signal_date, code, strategy, signal_price
+        FROM forward_signals
+        WHERE d20_return IS NULL AND filled_at IS NOT NULL
+              AND signal_date >= ? AND signal_date <= ?
+    """, (cutoff, min_date_long)).fetchall()
+
+    for row in long_rows:
+        try:
+            from data.fetcher import get_stock_data
+            df = get_stock_data(row["code"], period_days=60)
+            if df is None or len(df) < 20:
+                continue
+
+            date_idx = _find_date_index(df, row["signal_date"])
+            if date_idx is None:
+                continue
+
+            remaining = len(df) - date_idx - 1
+            if remaining < 20:
+                continue
+
+            signal_price = row["signal_price"]
+            prices_20 = df["close"].iloc[date_idx + 1: date_idx + 21].values
+            highs_20 = df["high"].iloc[date_idx + 1: date_idx + 21].values
+            lows_20 = df["low"].iloc[date_idx + 1: date_idx + 21].values
+
+            d10_ret = (prices_20[9] / signal_price - 1) if len(prices_20) >= 10 else None
+            d20_ret = (prices_20[19] / signal_price - 1) if len(prices_20) >= 20 else None
+            max_gain_20 = (max(highs_20) / signal_price - 1) if len(highs_20) > 0 else 0
+            max_dd_20 = (min(lows_20) / signal_price - 1) if len(lows_20) > 0 else 0
+
+            conn.execute("""
+                UPDATE forward_signals SET
+                    d10_return = ?, d20_return = ?,
+                    max_gain_20d = ?, max_drawdown_20d = ?
+                WHERE id = ?
+            """, (d10_ret, d20_ret, round(max_gain_20, 6), round(max_dd_20, 6), row["id"]))
+            filled_long += 1
+        except Exception as e:
+            logger.warning(f"Fill (long) failed for signal {row['id']}: {e}")
             errors += 1
 
     conn.commit()
     conn.close()
 
     return {
-        "checked": len(rows),
-        "filled": filled,
+        "checked_short": len(short_rows),
+        "filled_short": filled_short,
+        "checked_long": len(long_rows),
+        "filled_long": filled_long,
         "errors": errors,
     }
 
@@ -404,14 +458,32 @@ def get_strategy_accuracy(days: int = 60) -> dict:
     }
 
 
-def get_signal_decay(days: int = 90) -> dict:
-    """Compute signal decay curves: avg return at day 1, 3, 5 post-signal.
+def _avg(vals: list) -> float | None:
+    return round(sum(vals) / len(vals), 5) if vals else None
 
-    Groups by strategy. Returns data suitable for line chart visualization.
-    Gemini R40: "Signal Decay Analysis" — tells Joe when a signal's edge expires.
+
+def _decay_points(rows, signal_price_idx=None) -> list[dict]:
+    """Build decay curve data points from row tuples.
+
+    rows: list of tuples (d1, d3, d5, d10, d20, ...)
+    """
+    labels = [(0, 1, "d1"), (1, 3, "d3"), (2, 5, "d5"), (3, 10, "d10"), (4, 20, "d20")]
+    curve = []
+    for col_idx, day, _name in labels:
+        vals = [r[col_idx] for r in rows if r[col_idx] is not None]
+        if vals:
+            curve.append({"day": day, "avg_return": _avg(vals), "n": len(vals)})
+    return curve
+
+
+def get_signal_decay(days: int = 90) -> dict:
+    """Compute signal decay curves: avg return at day 1, 3, 5, 10, 20 post-signal.
+
+    Gemini R40→R41: Extended to 20-day tracking + EV calculation.
+    EV = (Win% × Avg_Gain) - (Loss% × Avg_Loss) at each time point.
 
     Returns:
-        dict with per-strategy decay curve data
+        dict with per-strategy decay curve data + EV
     """
     _init_db()
     conn = sqlite3.connect(str(DB_PATH))
@@ -421,7 +493,8 @@ def get_signal_decay(days: int = 90) -> dict:
     result = {}
     for strat in ["V4", "V5", "Adaptive"]:
         rows = conn.execute("""
-            SELECT d1_return, d3_return, d5_return, max_gain_5d, max_drawdown_5d,
+            SELECT d1_return, d3_return, d5_return, d10_return, d20_return,
+                   max_gain_5d, max_drawdown_5d, max_gain_20d, max_drawdown_20d,
                    bias_confirmed, regime
             FROM forward_signals
             WHERE signal_date >= ? AND strategy = ? AND filled_at IS NOT NULL
@@ -432,45 +505,128 @@ def get_signal_decay(days: int = 90) -> dict:
                 "sample_count": 0,
                 "decay_curve": [],
                 "bias_decay_curve": [],
+                "ev": {},
             }
             continue
 
-        # Compute avg return at each time point
-        d1 = [r[0] for r in rows if r[0] is not None]
-        d3 = [r[1] for r in rows if r[1] is not None]
-        d5 = [r[2] for r in rows if r[2] is not None]
-        gains = [r[3] for r in rows if r[3] is not None]
-        dds = [r[4] for r in rows if r[4] is not None]
+        # Decay curve (d1, d3, d5, d10, d20)
+        decay_curve = _decay_points(rows)
 
-        decay_curve = []
-        if d1:
-            decay_curve.append({"day": 1, "avg_return": round(sum(d1) / len(d1), 5), "n": len(d1)})
-        if d3:
-            decay_curve.append({"day": 3, "avg_return": round(sum(d3) / len(d3), 5), "n": len(d3)})
-        if d5:
-            decay_curve.append({"day": 5, "avg_return": round(sum(d5) / len(d5), 5), "n": len(d5)})
+        # 5d and 20d gain/dd
+        gains_5 = [r[5] for r in rows if r[5] is not None]
+        dds_5 = [r[6] for r in rows if r[6] is not None]
+        gains_20 = [r[7] for r in rows if r[7] is not None]
+        dds_20 = [r[8] for r in rows if r[8] is not None]
 
-        # BIAS-confirmed subset (V5 only meaningful)
-        bias_rows = [r for r in rows if r[5] == 1]
-        bias_decay = []
-        if bias_rows:
-            bd1 = [r[0] for r in bias_rows if r[0] is not None]
-            bd3 = [r[1] for r in bias_rows if r[1] is not None]
-            bd5 = [r[2] for r in bias_rows if r[2] is not None]
-            if bd1:
-                bias_decay.append({"day": 1, "avg_return": round(sum(bd1) / len(bd1), 5), "n": len(bd1)})
-            if bd3:
-                bias_decay.append({"day": 3, "avg_return": round(sum(bd3) / len(bd3), 5), "n": len(bd3)})
-            if bd5:
-                bias_decay.append({"day": 5, "avg_return": round(sum(bd5) / len(bd5), 5), "n": len(bd5)})
+        # Compute EV at d5 and d20 (Gemini R41)
+        ev = {}
+        for day_col, day_label in [(2, "d5"), (4, "d20")]:
+            rets = [r[day_col] for r in rows if r[day_col] is not None]
+            if rets:
+                wins = [r for r in rets if r > 0]
+                losses = [r for r in rets if r <= 0]
+                win_pct = len(wins) / len(rets)
+                avg_win = sum(wins) / len(wins) if wins else 0
+                avg_loss = abs(sum(losses) / len(losses)) if losses else 0
+                ev[day_label] = {
+                    "win_pct": round(win_pct, 4),
+                    "avg_win": round(avg_win, 5),
+                    "avg_loss": round(avg_loss, 5),
+                    "ev": round(win_pct * avg_win - (1 - win_pct) * avg_loss, 5),
+                    "n": len(rets),
+                }
+
+        # BIAS-confirmed subset
+        bias_rows = [r for r in rows if r[9] == 1]  # bias_confirmed col
+        bias_decay = _decay_points(bias_rows) if bias_rows else []
 
         result[strat] = {
             "sample_count": len(rows),
-            "avg_max_gain": round(sum(gains) / len(gains), 5) if gains else None,
-            "avg_max_dd": round(sum(dds) / len(dds), 5) if dds else None,
+            "avg_max_gain_5d": _avg(gains_5),
+            "avg_max_dd_5d": _avg(dds_5),
+            "avg_max_gain_20d": _avg(gains_20),
+            "avg_max_dd_20d": _avg(dds_20),
             "decay_curve": decay_curve,
             "bias_decay_curve": bias_decay,
+            "ev": ev,
         }
 
     conn.close()
     return {"period_days": days, "strategies": result}
+
+
+def get_stock_signal_summary(code: str, days: int = 180) -> dict:
+    """Per-stock signal performance summary for TechnicalView overlay (Gemini R41).
+
+    Returns win rate, EV, avg return at d5/d20, sample count per strategy.
+    """
+    _init_db()
+    conn = sqlite3.connect(str(DB_PATH))
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    rows = conn.execute("""
+        SELECT strategy, d5_return, d10_return, d20_return,
+               max_gain_5d, max_drawdown_5d, max_gain_20d, max_drawdown_20d,
+               signal_date, signal_price
+        FROM forward_signals
+        WHERE code = ? AND signal_date >= ? AND filled_at IS NOT NULL
+        ORDER BY signal_date DESC
+    """, (code, cutoff)).fetchall()
+
+    conn.close()
+
+    if not rows:
+        return {"code": code, "has_data": False, "strategies": {}}
+
+    result: dict = {}
+    for strat in ["V4", "V5", "Adaptive"]:
+        strat_rows = [r for r in rows if r[0] == strat]
+        if not strat_rows:
+            continue
+
+        d5_vals = [r[1] for r in strat_rows if r[1] is not None]
+        d20_vals = [r[3] for r in strat_rows if r[3] is not None]
+
+        # Win rate at d5
+        wins_5 = sum(1 for v in d5_vals if v > 0) if d5_vals else 0
+        win_rate_5 = wins_5 / len(d5_vals) if d5_vals else None
+
+        # EV at d5
+        ev_5 = None
+        if d5_vals:
+            w = [v for v in d5_vals if v > 0]
+            l = [v for v in d5_vals if v <= 0]
+            wp = len(w) / len(d5_vals)
+            aw = sum(w) / len(w) if w else 0
+            al = abs(sum(l) / len(l)) if l else 0
+            ev_5 = round(wp * aw - (1 - wp) * al, 5)
+
+        # EV at d20
+        ev_20 = None
+        if d20_vals:
+            w = [v for v in d20_vals if v > 0]
+            l = [v for v in d20_vals if v <= 0]
+            wp = len(w) / len(d20_vals)
+            aw = sum(w) / len(w) if w else 0
+            al = abs(sum(l) / len(l)) if l else 0
+            ev_20 = round(wp * aw - (1 - wp) * al, 5)
+
+        # Recent signals (last 5)
+        recent = [
+            {"date": r[8], "price": r[9], "d5_return": r[1], "d20_return": r[3]}
+            for r in strat_rows[:5]
+        ]
+
+        result[strat] = {
+            "sample_count": len(strat_rows),
+            "win_rate_5d": round(win_rate_5, 3) if win_rate_5 is not None else None,
+            "avg_return_5d": _avg(d5_vals),
+            "avg_return_20d": _avg(d20_vals),
+            "ev_5d": ev_5,
+            "ev_20d": ev_20,
+            "avg_max_gain_5d": _avg([r[4] for r in strat_rows if r[4] is not None]),
+            "avg_max_dd_5d": _avg([r[5] for r in strat_rows if r[5] is not None]),
+            "recent_signals": recent,
+        }
+
+    return {"code": code, "has_data": True, "strategies": result}

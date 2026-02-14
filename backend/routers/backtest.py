@@ -55,6 +55,12 @@ class StrategyComparisonRequest(BaseModel):
     v5_params: dict | None = None
 
 
+class MetaStrategyRequest(BaseModel):
+    stock_codes: list[str]
+    period_days: int = 730
+    initial_capital: float = 1_000_000
+
+
 def _serialize_backtest_result(result) -> dict:
     """BacktestResult → JSON-safe dict"""
     from backend.dependencies import series_to_response, make_serializable
@@ -386,5 +392,147 @@ def run_strategy_comparison(code: str, req: StrategyComparisonRequest):
             "comparison": comparison,
             "regime": regime_en,
         })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/meta-strategy")
+def run_meta_strategy_backtest(req: MetaStrategyRequest):
+    """Meta-Strategy 回測：按 Fitness Tag 自動選擇 V4/V5（Gemini R41）
+
+    根據每檔股票的 Strategy Fitness Tag 決定使用 V4 或 V5：
+    - Trend Preferred / Trend Only → V4
+    - Volatility Preferred / Reversion Only → V5
+    - Balanced / others → Adaptive
+
+    回傳等權重組合績效 + 個股選用策略明細。
+    """
+    from data.fetcher import get_stock_data
+    from data.stock_list import get_stock_name
+    from analysis.strategy_fitness import get_fitness_tags
+    from backtest.engine import BacktestEngine
+    from backend.dependencies import series_to_response, make_serializable
+    import pandas as pd
+    import numpy as np
+
+    try:
+        # Look up fitness tags
+        tags = get_fitness_tags(req.stock_codes)
+        tag_map = {t["code"]: t.get("fitness_tag", "") for t in tags}
+
+        n_stocks = len(req.stock_codes)
+        if n_stocks == 0:
+            raise HTTPException(status_code=400, detail="未提供股票代碼")
+
+        per_stock = req.initial_capital / n_stocks
+
+        stock_results = {}
+        stock_strategies = {}
+        stock_equity_curves = {}
+        total_trades = 0
+        winning_stocks = losing_stocks = 0
+
+        for code in req.stock_codes:
+            try:
+                df = get_stock_data(code, period_days=req.period_days)
+                if df is None or len(df) < 60:
+                    continue
+
+                tag = tag_map.get(code, "")
+                engine = BacktestEngine(initial_capital=per_stock)
+
+                # Select strategy by fitness tag
+                if tag in ("Trend Preferred (V4)", "Trend Only (V4)"):
+                    bt = engine.run_v4(df)
+                    chosen = "V4"
+                elif tag in ("Volatility Preferred (V5)", "Reversion Only (V5)"):
+                    bt = engine.run_v5(df)
+                    chosen = "V5"
+                else:
+                    # Balanced, Insufficient Data, No Signal → Adaptive
+                    try:
+                        from backend.routers.portfolio import get_market_regime
+                        regime_data = get_market_regime()
+                        regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
+                    except Exception:
+                        regime_en = "range_quiet"
+                    bt = engine.run_adaptive(df, regime=regime_en)
+                    chosen = "Adaptive"
+
+                stock_strategies[code] = {
+                    "fitness_tag": tag or "N/A",
+                    "chosen_strategy": chosen,
+                    "total_return": bt.total_return,
+                    "sharpe_ratio": bt.sharpe_ratio,
+                    "total_trades": bt.total_trades,
+                    "win_rate": bt.win_rate,
+                    "name": get_stock_name(code),
+                }
+                stock_results[code] = _serialize_backtest_result(bt)
+                if not bt.equity_curve.empty:
+                    stock_equity_curves[code] = bt.equity_curve
+                total_trades += bt.total_trades
+                if bt.total_return > 0:
+                    winning_stocks += 1
+                elif bt.total_return < 0:
+                    losing_stocks += 1
+            except Exception:
+                continue
+
+        if not stock_equity_curves:
+            raise HTTPException(status_code=400, detail="無法取得任何回測結果")
+
+        # Merge equity curves
+        eq_df = pd.DataFrame(stock_equity_curves)
+        eq_df = eq_df.ffill().bfill()
+        portfolio_equity = eq_df.sum(axis=1)
+        portfolio_returns = portfolio_equity.pct_change().dropna()
+
+        total_return = (portfolio_equity.iloc[-1] - req.initial_capital) / req.initial_capital
+        trading_days = len(portfolio_equity)
+        annual_return = (1 + total_return) ** (252 / trading_days) - 1 if trading_days > 1 else 0
+
+        peak = portfolio_equity.expanding().max()
+        max_drawdown = float(((portfolio_equity - peak) / peak).min())
+
+        sharpe = 0.0
+        if len(portfolio_returns) > 1 and portfolio_returns.std() > 0:
+            rf_daily = 0.015 / 252
+            excess = portfolio_returns - rf_daily
+            sharpe = float(excess.mean() / excess.std() * np.sqrt(252))
+
+        # Compare with pure-V4 portfolio
+        v4_total_return = None
+        try:
+            from backtest.engine import run_portfolio_backtest_v4
+            v4_stock_data = {}
+            for code in req.stock_codes:
+                try:
+                    v4_stock_data[code] = get_stock_data(code, period_days=req.period_days)
+                except Exception:
+                    pass
+            if v4_stock_data:
+                v4_result = run_portfolio_backtest_v4(
+                    v4_stock_data, initial_capital=req.initial_capital)
+                v4_total_return = v4_result.total_return
+        except Exception:
+            pass
+
+        return make_serializable({
+            "total_return": total_return,
+            "annual_return": annual_return,
+            "max_drawdown": max_drawdown,
+            "sharpe_ratio": sharpe,
+            "total_trades": total_trades,
+            "winning_stocks": winning_stocks,
+            "losing_stocks": losing_stocks,
+            "stock_strategies": stock_strategies,
+            "stock_results": stock_results,
+            "equity_curve": series_to_response(portfolio_equity),
+            "v4_baseline_return": v4_total_return,
+            "alpha_vs_v4": total_return - v4_total_return if v4_total_return is not None else None,
+        })
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

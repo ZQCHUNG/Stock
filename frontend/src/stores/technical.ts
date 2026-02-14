@@ -29,6 +29,7 @@ export const useTechnicalStore = defineStore('technical', () => {
   const stockData = ref<TimeSeriesData | null>(null)
   const adaptiveSignal = ref<any>(null)
   const riskBudget = ref<any>(null)
+  const signalSummary = ref<any>(null)
   const isLoading = ref(false)
   const error = ref('')
 
@@ -145,6 +146,17 @@ export const useTechnicalStore = defineStore('technical', () => {
     }
   }
 
+  async function loadSignalSummary(code: string) {
+    const seq = _loadSeq
+    try {
+      const data = await analysisApi.signalStockSummary(code)
+      if (seq !== _loadSeq) return
+      signalSummary.value = data
+    } catch {
+      signalSummary.value = null
+    }
+  }
+
   async function loadV4SignalsFull(code: string) {
     // v4SignalsFull is cleared in loadAll on stock switch, so this only skips
     // if the data was already restored from cache for the same stock
@@ -160,8 +172,8 @@ export const useTechnicalStore = defineStore('technical', () => {
   }
 
   return {
-    indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, riskBudget,
+    indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, riskBudget, signalSummary,
     supportResistance, volumePatterns, institutional, stockData,
-    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadRiskBudget,
+    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadRiskBudget, loadSignalSummary,
   }
 })

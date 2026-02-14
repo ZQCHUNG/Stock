@@ -33,4 +33,10 @@ export const backtestApi = {
     client.post<any, any>(`/backtest/${code}/alpha-beta`, req),
   strategyComparison: (code: string, req: StrategyComparisonParams = {}) =>
     client.post<any, any>(`/backtest/${code}/strategy-comparison`, req),
+  metaStrategy: (stockCodes: string[], periodDays = 730, initialCapital = 1_000_000) =>
+    client.post<any, any>('/backtest/meta-strategy', {
+      stock_codes: stockCodes,
+      period_days: periodDays,
+      initial_capital: initialCapital,
+    }, { timeout: 300_000 }),
 }
