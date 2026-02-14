@@ -58,6 +58,12 @@ const router = createRouter({
       component: () => import('../views/AlertsView.vue'),
       meta: { title: 'SQS 警報' },
     },
+    {
+      path: '/sqs-performance',
+      name: 'sqs-performance',
+      component: () => import('../views/SqsPerformanceView.vue'),
+      meta: { title: 'SQS 績效' },
+    },
   ],
 })
 

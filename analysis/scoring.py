@@ -136,13 +136,10 @@ def _score_maturity(signal_maturity: str) -> float:
 
 
 def _score_institutional(inst_net_ratio: float | None) -> float:
-    """Score: 法人動向（0-100）（Gemini R44）
+    """Score: 法人動向（0-100）（Gemini R44, backward-compatible single ratio）
 
     inst_net_ratio: 近 5 日法人淨買賣超佔成交量比例（正=買超, 負=賣超）
     Typical range: -0.3 to +0.3 (30% of volume)
-
-    三大法人持續買超 → 強烈認同信號
-    三大法人賣超 → 可能反向風險
     """
     if inst_net_ratio is None:
         return 50.0  # No data → neutral
@@ -158,6 +155,64 @@ def _score_institutional(inst_net_ratio: float | None) -> float:
         return 10.0
 
 
+# R45-3: Market cap tiers for institutional weight distribution
+MCAP_LARGE = 50e9   # 500億 TWD — 大型股
+MCAP_MID = 10e9     # 100億 TWD — 中型股
+
+# Weights: (foreign, trust, dealer) — must sum to 1.0
+INST_WEIGHTS_LARGE = (0.70, 0.20, 0.10)  # 大型股: 外資主導
+INST_WEIGHTS_MID = (0.45, 0.35, 0.20)    # 中型股: 較均衡
+INST_WEIGHTS_SMALL = (0.25, 0.50, 0.25)  # 小型股: 投信影響大
+
+
+def _get_inst_weights(market_cap: float | None) -> tuple[float, float, float]:
+    """Get institutional weight distribution based on market cap tier."""
+    if market_cap is None or market_cap <= 0:
+        return INST_WEIGHTS_MID  # Default: balanced
+    if market_cap >= MCAP_LARGE:
+        return INST_WEIGHTS_LARGE
+    elif market_cap >= MCAP_MID:
+        return INST_WEIGHTS_MID
+    else:
+        return INST_WEIGHTS_SMALL
+
+
+def _ratio_to_score(ratio: float | None) -> float:
+    """Convert a single institutional net ratio to a 0-100 score."""
+    if ratio is None:
+        return 50.0
+    if ratio >= 0.2:
+        return 95.0
+    elif ratio >= 0:
+        return 50.0 + (ratio / 0.2) * 45.0
+    elif ratio >= -0.2:
+        return max(10.0, 50.0 + (ratio / 0.2) * 40.0)
+    else:
+        return 10.0
+
+
+def _score_institutional_weighted(
+    foreign_ratio: float | None,
+    trust_ratio: float | None,
+    dealer_ratio: float | None,
+    market_cap: float | None,
+) -> float:
+    """Score: 法人動向 — 市值分層加權版（Gemini R45-3）
+
+    大型股: 外資 70% + 投信 20% + 自營 10%
+    中型股: 外資 45% + 投信 35% + 自營 20%
+    小型股: 外資 25% + 投信 50% + 自營 25%
+
+    Returns 0-100 score.
+    """
+    w_f, w_t, w_d = _get_inst_weights(market_cap)
+    s_foreign = _ratio_to_score(foreign_ratio)
+    s_trust = _ratio_to_score(trust_ratio)
+    s_dealer = _ratio_to_score(dealer_ratio)
+
+    return s_foreign * w_f + s_trust * w_t + s_dealer * w_d
+
+
 def calculate_sqs(
     fitness_tag: str = "",
     signal_strategy: str = "V4",
@@ -168,10 +223,15 @@ def calculate_sqs(
     sector_momentum: str = "stable",
     signal_maturity: str = "N/A",
     inst_net_ratio: float | None = None,
+    # R45-3: Market cap weighted institutional breakdown
+    foreign_ratio: float | None = None,
+    trust_ratio: float | None = None,
+    dealer_ratio: float | None = None,
+    market_cap: float | None = None,
 ) -> dict:
     """Calculate Signal Quality Score (SQS).
 
-    6 dimensions (Gemini R44: added Institutional Flow):
+    6 dimensions (R44→R45: Market-cap-weighted Institutional Flow):
     - Fitness 25%, Regime 20%, EV 15%, Heat 10%, Maturity 10%, Institutional 20%
 
     Returns:
@@ -183,7 +243,12 @@ def calculate_sqs(
     s_ev = _score_net_ev(raw_ev_20d, ev_sample_count)
     s_heat = _score_heat(sector_weighted_heat, sector_momentum)
     s_maturity = _score_maturity(signal_maturity)
-    s_inst = _score_institutional(inst_net_ratio)
+
+    # R45-3: Use weighted institutional if breakdown available, else fallback to combined
+    if foreign_ratio is not None or trust_ratio is not None or dealer_ratio is not None:
+        s_inst = _score_institutional_weighted(foreign_ratio, trust_ratio, dealer_ratio, market_cap)
+    else:
+        s_inst = _score_institutional(inst_net_ratio)
 
     # Weighted sum (R44: rebalanced with institutional flow)
     sqs = (
@@ -213,6 +278,17 @@ def calculate_sqs(
     net_ev = (raw_ev_20d - TRANSACTION_COST) if raw_ev_20d is not None else None
     cost_trap = raw_ev_20d is not None and raw_ev_20d > 0 and net_ev is not None and net_ev < 0
 
+    # Determine market cap tier label
+    if market_cap is not None and market_cap > 0:
+        if market_cap >= MCAP_LARGE:
+            mcap_tier = "large"
+        elif market_cap >= MCAP_MID:
+            mcap_tier = "mid"
+        else:
+            mcap_tier = "small"
+    else:
+        mcap_tier = None
+
     return {
         "sqs": round(sqs, 1),
         "grade": grade,
@@ -221,6 +297,7 @@ def calculate_sqs(
         "raw_ev": round(raw_ev_20d, 5) if raw_ev_20d is not None else None,
         "cost_drag": TRANSACTION_COST,
         "cost_trap": cost_trap,
+        "mcap_tier": mcap_tier,
         "breakdown": {
             "fitness": round(s_fitness, 1),
             "regime": round(s_regime, 1),
@@ -293,20 +370,37 @@ def compute_sqs_for_signal(
     except Exception:
         pass
 
-    # 5. Institutional flow (R44: 法人動向)
+    # 5. Institutional flow (R45-3: market-cap-weighted breakdown)
     inst_net_ratio = None
+    foreign_ratio = None
+    trust_ratio = None
+    dealer_ratio = None
+    market_cap = None
     try:
-        from data.fetcher import get_institutional_data
+        from data.fetcher import get_institutional_data, get_stock_data
         inst_df = get_institutional_data(code, days=5)
         if inst_df is not None and len(inst_df) >= 3:
-            total_net = inst_df["total_net"].sum()
-            # Estimate avg daily volume from stock data
-            from data.fetcher import get_stock_data
             df = get_stock_data(code, period_days=10)
             if df is not None and len(df) >= 5:
                 avg_vol = float(df["volume"].tail(5).mean())
                 if avg_vol > 0:
-                    inst_net_ratio = total_net / (avg_vol * 5)  # net / total volume over 5 days
+                    total_vol_5d = avg_vol * 5
+                    inst_net_ratio = inst_df["total_net"].sum() / total_vol_5d
+                    # Per-institution ratios
+                    if "foreign_net" in inst_df.columns:
+                        foreign_ratio = inst_df["foreign_net"].sum() / total_vol_5d
+                    if "trust_net" in inst_df.columns:
+                        trust_ratio = inst_df["trust_net"].sum() / total_vol_5d
+                    if "dealer_net" in inst_df.columns:
+                        dealer_ratio = inst_df["dealer_net"].sum() / total_vol_5d
+    except Exception:
+        pass
+
+    # 6. Market cap for institutional weighting
+    try:
+        from data.fetcher import get_stock_info
+        info = get_stock_info(code)
+        market_cap = info.get("market_cap", 0) or None
     except Exception:
         pass
 
@@ -320,10 +414,15 @@ def compute_sqs_for_signal(
         sector_momentum=sector_momentum,
         signal_maturity=signal_maturity,
         inst_net_ratio=inst_net_ratio,
+        foreign_ratio=foreign_ratio,
+        trust_ratio=trust_ratio,
+        dealer_ratio=dealer_ratio,
+        market_cap=market_cap,
     )
     sqs_result["code"] = code
     sqs_result["fitness_tag"] = fitness_tag
     sqs_result["inst_net_ratio"] = round(inst_net_ratio, 4) if inst_net_ratio is not None else None
+    sqs_result["market_cap"] = market_cap
     return sqs_result
 
 

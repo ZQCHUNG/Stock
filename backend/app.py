@@ -18,11 +18,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts
+from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="台股技術分析系統 API", version="2.0")
+
+
+@app.on_event("startup")
+def startup_scheduler():
+    """R45: Start APScheduler for background alert checks."""
+    try:
+        from backend.scheduler import start_scheduler
+        start_scheduler(interval_minutes=5)
+    except Exception as e:
+        logger.warning(f"Failed to start scheduler: {e}")
 
 
 @app.exception_handler(Exception)
@@ -61,6 +71,7 @@ app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(bt_results.router, prefix="/api/backtest-results", tags=["backtest-results"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
 app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
+app.include_router(sqs_performance.router, prefix="/api/sqs-performance", tags=["sqs-performance"])
 
 # Production: 伺服 Vue build 靜態檔
 DIST_DIR = PROJECT_ROOT / "frontend" / "dist"

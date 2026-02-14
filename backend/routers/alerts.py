@@ -1,9 +1,7 @@
-"""SQS 警報系統路由（Gemini R44）
+"""SQS 警報系統路由（Gemini R44 → R45 升級）
 
-提供:
-1. 警報設定 CRUD (SQS 閾值, 通知方式)
-2. 檢查當前觸發的警報
-3. LINE Notify webhook 推播
+R44: 基礎 CRUD + 前端輪詢
+R45: 後端 APScheduler + 去重推播 + 排程狀態 API
 """
 
 import json
@@ -26,6 +24,7 @@ class AlertConfig(BaseModel):
     notify_line: bool = False
     line_token: str = ""
     watch_codes: list[str] = []  # Empty = watch all BUY signals
+    scheduler_interval: int = 5  # R45: minutes between checks
 
 
 def _load_config() -> AlertConfig:
@@ -55,20 +54,10 @@ def _load_history() -> list[dict]:
     return []
 
 
-def _save_history(history: list[dict]):
-    ALERT_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # Keep last 200 entries
-    ALERT_HISTORY_PATH.write_text(
-        json.dumps(history[-200:], ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
 @router.get("/config")
 def get_alert_config():
     """取得當前警報設定"""
     config = _load_config()
-    # Mask LINE token for security
     masked = config.model_dump()
     if masked["line_token"]:
         masked["line_token"] = masked["line_token"][:8] + "***"
@@ -78,7 +67,6 @@ def get_alert_config():
 @router.post("/config")
 def save_alert_config(config: AlertConfig):
     """儲存警報設定"""
-    # If token is masked (unchanged), preserve original
     if config.line_token.endswith("***"):
         original = _load_config()
         config.line_token = original.line_token
@@ -88,33 +76,51 @@ def save_alert_config(config: AlertConfig):
 
 @router.get("/check")
 def check_alerts():
-    """檢查當前觸發的警報（前端定期輪詢）
+    """取得最新的警報觸發結果（R45: 由後端排程產生，前端僅讀取）
 
-    掃描 Alpha Hunter 數據，找出 SQS >= threshold 的信號。
+    如果排程器未啟動，fallback 為即時計算。
     """
+    from backend.scheduler import get_last_check, get_scheduler_status
+
+    status = get_scheduler_status()
+    config = _load_config()
+
+    if status["running"] and status["last_check"]["timestamp"]:
+        # Return cached result from scheduler
+        last = status["last_check"]
+        return {
+            "triggered": last["triggered"],
+            "threshold": config.sqs_threshold,
+            "notify_browser": config.notify_browser,
+            "notify_line": config.notify_line,
+            "source": "scheduler",
+            "last_check_time": last["timestamp"],
+        }
+
+    # Fallback: compute on-demand (scheduler not running)
+    return _check_alerts_fallback(config)
+
+
+def _check_alerts_fallback(config: AlertConfig) -> dict:
+    """Fallback alert check when scheduler is not running."""
     from datetime import datetime
 
-    config = _load_config()
     triggered = []
-
     try:
         from data.cache import get_cached_alpha_hunter
         alpha = get_cached_alpha_hunter()
         if not alpha or not alpha.get("sectors"):
             return {"triggered": [], "threshold": config.sqs_threshold}
 
-        # Collect all BUY stocks
         all_stocks = []
         for sector in alpha["sectors"]:
             for stock in sector.get("stocks", []):
                 all_stocks.append(stock)
 
-        # Filter by watch list if specified
         if config.watch_codes:
             watch_set = set(config.watch_codes)
             all_stocks = [s for s in all_stocks if s["code"] in watch_set]
 
-        # Compute SQS for each
         from analysis.scoring import compute_sqs_for_signal
         for stock in all_stocks:
             try:
@@ -136,29 +142,33 @@ def check_alerts():
             except Exception:
                 pass
 
-        # Sort by SQS descending
         triggered.sort(key=lambda x: x["sqs"], reverse=True)
-
-        # Record in history
-        if triggered:
-            history = _load_history()
-            history.append({
-                "timestamp": datetime.now().isoformat(),
-                "count": len(triggered),
-                "top_stocks": [t["code"] for t in triggered[:5]],
-                "threshold": config.sqs_threshold,
-            })
-            _save_history(history)
-
     except Exception as e:
-        logger.warning(f"Alert check failed: {e}")
+        logger.warning(f"Alert check fallback failed: {e}")
 
     return {
         "triggered": triggered,
         "threshold": config.sqs_threshold,
         "notify_browser": config.notify_browser,
         "notify_line": config.notify_line,
+        "source": "fallback",
+        "last_check_time": datetime.now().isoformat(),
     }
+
+
+@router.post("/trigger-check")
+def trigger_manual_check():
+    """手動觸發一次警報檢查（R45: 調用排程器的 check 函數）"""
+    from backend.scheduler import run_alert_check, get_last_check
+    run_alert_check()
+    return get_last_check()
+
+
+@router.get("/scheduler-status")
+def scheduler_status():
+    """取得排程器運行狀態"""
+    from backend.scheduler import get_scheduler_status
+    return get_scheduler_status()
 
 
 @router.post("/send-line")
@@ -173,6 +183,7 @@ def send_line_notification(payload: dict):
         raise HTTPException(status_code=400, detail="Message is required")
 
     try:
+        from backend.scheduler import _send_line_notify
         _send_line_notify(config.line_token, message)
         return {"status": "ok"}
     except Exception as e:
@@ -183,6 +194,7 @@ def send_line_notification(payload: dict):
 def notify_triggered_alerts():
     """檢查 + 推播觸發的警報到 LINE"""
     from datetime import datetime
+    from backend.scheduler import _send_line_notify
 
     config = _load_config()
     result = check_alerts()
@@ -191,7 +203,6 @@ def notify_triggered_alerts():
     if not triggered:
         return {"status": "no alerts", "count": 0}
 
-    # Build message
     lines = [f"\n📊 SQS Alert (≥{config.sqs_threshold})"]
     lines.append(f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     lines.append(f"共 {len(triggered)} 檔觸發:\n")
@@ -201,36 +212,16 @@ def notify_triggered_alerts():
 
     message = "\n".join(lines)
 
-    # Send via LINE if configured
     if config.notify_line and config.line_token:
         try:
             _send_line_notify(config.line_token, message)
         except Exception as e:
             logger.warning(f"LINE notify failed: {e}")
 
-    return {
-        "status": "ok",
-        "count": len(triggered),
-        "message": message,
-    }
+    return {"status": "ok", "count": len(triggered), "message": message}
 
 
 @router.get("/history")
 def get_alert_history():
     """取得警報歷史紀錄"""
     return _load_history()
-
-
-def _send_line_notify(token: str, message: str):
-    """Send LINE Notify message."""
-    import urllib.request
-    import urllib.parse
-
-    url = "https://notify-api.line.me/api/notify"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    data = urllib.parse.urlencode({"message": message}).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    urllib.request.urlopen(req, timeout=10)

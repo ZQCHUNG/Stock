@@ -1,15 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import {
   NCard, NButton, NSpace, NInputNumber, NSwitch, NInput, NTag, NAlert,
-  NDataTable, NGrid, NGi, NSpin, NDivider,
+  NDataTable, NGrid, NGi, NSpin, NDivider, NStatistic,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { alertsApi, type AlertConfig } from '../api/alerts'
-import { useAppStore } from '../stores/app'
+import { alertsApi, type AlertConfig, type SchedulerStatus } from '../api/alerts'
 import { useWatchlistStore } from '../stores/watchlist'
 
-const app = useAppStore()
 const wl = useWatchlistStore()
 
 const config = ref<AlertConfig>({
@@ -18,6 +16,7 @@ const config = ref<AlertConfig>({
   notify_line: false,
   line_token: '',
   watch_codes: [],
+  scheduler_interval: 5,
 })
 const isLoading = ref(false)
 const isSaving = ref(false)
@@ -26,7 +25,7 @@ const triggered = ref<any[]>([])
 const history = ref<any[]>([])
 const error = ref('')
 const notifPermission = ref(Notification?.permission || 'default')
-let pollTimer: ReturnType<typeof setInterval> | null = null
+const schedulerStatus = ref<SchedulerStatus | null>(null)
 
 async function loadConfig() {
   isLoading.value = true
@@ -48,13 +47,13 @@ async function saveConfig() {
   isSaving.value = false
 }
 
-async function checkAlerts() {
+async function loadAlerts() {
   isChecking.value = true
   try {
     const result = await alertsApi.checkAlerts()
     triggered.value = result.triggered || []
 
-    // Browser notification
+    // Browser notification for new triggers
     if (result.notify_browser && triggered.value.length > 0 && Notification?.permission === 'granted') {
       const top = triggered.value[0]
       new Notification(`SQS Alert: ${triggered.value.length} stocks`, {
@@ -63,6 +62,18 @@ async function checkAlerts() {
       })
     }
   } catch { /* ignore */ }
+  isChecking.value = false
+}
+
+async function triggerManualCheck() {
+  isChecking.value = true
+  try {
+    const result = await alertsApi.triggerCheck()
+    triggered.value = result.triggered || []
+    await loadSchedulerStatus()
+  } catch (e: any) {
+    error.value = e?.message || 'Check failed'
+  }
   isChecking.value = false
 }
 
@@ -84,7 +95,13 @@ async function requestNotifPermission() {
 async function loadHistory() {
   try {
     history.value = await alertsApi.getHistory()
-    history.value.reverse()  // Most recent first
+    history.value.reverse()
+  } catch { /* ignore */ }
+}
+
+async function loadSchedulerStatus() {
+  try {
+    schedulerStatus.value = await alertsApi.getSchedulerStatus()
   } catch { /* ignore */ }
 }
 
@@ -94,14 +111,8 @@ function useWatchlistAsFilter() {
 
 onMounted(async () => {
   await loadConfig()
-  await checkAlerts()
-  await loadHistory()
-  // Poll every 5 minutes
-  pollTimer = setInterval(checkAlerts, 5 * 60 * 1000)
-})
-
-onUnmounted(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  await loadAlerts()
+  await Promise.all([loadHistory(), loadSchedulerStatus()])
 })
 
 const triggeredColumns: DataTableColumns = [
@@ -116,7 +127,9 @@ const triggeredColumns: DataTableColumns = [
 const historyColumns: DataTableColumns = [
   { title: '時間', key: 'timestamp', width: 180, render: (r: any) => r.timestamp?.slice(0, 19).replace('T', ' ') || '' },
   { title: '觸發數', key: 'count', width: 60 },
+  { title: '新觸發', key: 'new_count', width: 60, render: (r: any) => r.new_count ?? '-' },
   { title: '閾值', key: 'threshold', width: 60 },
+  { title: '來源', key: 'source', width: 80, render: (r: any) => r.source || 'manual' },
   { title: 'Top 股票', key: 'top_stocks', render: (r: any) => (r.top_stocks || []).join(', ') },
 ]
 </script>
@@ -128,6 +141,18 @@ const historyColumns: DataTableColumns = [
     <NAlert v-if="error" type="error" style="margin-bottom: 12px" closable @close="error = ''">
       {{ error }}
     </NAlert>
+
+    <!-- Scheduler Status Bar -->
+    <NCard size="small" style="margin-bottom: 12px">
+      <NSpace align="center" :size="20">
+        <NStatistic label="排程器" :value="schedulerStatus?.running ? '運行中' : '未啟動'" />
+        <NStatistic label="上次檢查" :value="schedulerStatus?.last_check?.timestamp?.slice(11, 19) || '-'" />
+        <NStatistic label="觸發數" :value="schedulerStatus?.last_check?.triggered_count ?? 0" />
+        <NStatistic v-if="schedulerStatus?.next_run" label="下次檢查" :value="schedulerStatus?.next_run?.slice(11, 19) || '-'" />
+        <NTag v-if="schedulerStatus?.running" type="success" size="small">APScheduler</NTag>
+        <NTag v-else type="warning" size="small">Fallback</NTag>
+      </NSpace>
+    </NCard>
 
     <NGrid :cols="2" :x-gap="16" :y-gap="16">
       <!-- Settings -->
@@ -172,7 +197,7 @@ const historyColumns: DataTableColumns = [
               <NDivider style="margin: 8px 0" />
               <NSpace>
                 <NButton type="primary" @click="saveConfig" :loading="isSaving" size="small">儲存設定</NButton>
-                <NButton @click="checkAlerts" :loading="isChecking" size="small">立即檢查</NButton>
+                <NButton @click="triggerManualCheck" :loading="isChecking" size="small">立即檢查</NButton>
                 <NButton v-if="config.notify_line" @click="sendLineNotify" size="small" type="warning">發送 LINE 通知</NButton>
               </NSpace>
             </NSpace>
@@ -202,7 +227,7 @@ const historyColumns: DataTableColumns = [
           />
           <div v-else style="padding: 20px; text-align: center; color: #999">
             目前沒有 SQS ≥ {{ config.sqs_threshold }} 的信號。
-            每 5 分鐘自動輪詢。
+            {{ schedulerStatus?.running ? '排程器每 5 分鐘自動檢查。' : '點擊「立即檢查」手動觸發。' }}
           </div>
         </NCard>
       </NGi>
