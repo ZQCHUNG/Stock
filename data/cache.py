@@ -1,4 +1,4 @@
-"""Redis 快取層
+"""快取層 — Redis（主）+ In-Memory（備援）
 
 快取策略（市場感知）：
 - 股價資料：盤中 15 分鐘，收盤後 60 分鐘
@@ -6,16 +6,81 @@
 - 推薦掃描結果：TTL 10 分鐘
 - 法人籌碼資料：TTL 60 分鐘
 - 股票清單：TTL 24 小時
+
+Redis 不可用時自動降級為 in-memory TTL 快取，
+確保即使沒裝 Redis 系統仍有快取效果。
 """
 
 import json
+import time as _time
+import threading
 import redis
 import pandas as pd
 import numpy as np
 from datetime import datetime
 
 
-# Redis 連線（lazy init + cooldown）
+# ===== In-Memory TTL Cache (Redis 備援) =====
+
+class _MemoryCache:
+    """Thread-safe in-memory TTL cache，Redis 不可用時的備援方案
+
+    - 最多保存 max_entries 筆，超過時淘汰過期 → 最舊
+    - TTL 到期自動失效
+    - 用於 Redis 無法連線時仍提供快取效果
+    """
+
+    def __init__(self, max_entries: int = 200):
+        self._store: dict[str, tuple[float, str]] = {}  # key → (expiry_ts, value)
+        self._lock = threading.Lock()
+        self._max_entries = max_entries
+
+    def get(self, key: str) -> str | None:
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            expiry, value = entry
+            if _time.time() > expiry:
+                del self._store[key]
+                return None
+            return value
+
+    def setex(self, key: str, ttl: int, value: str) -> None:
+        with self._lock:
+            if len(self._store) >= self._max_entries:
+                self._evict()
+            self._store[key] = (_time.time() + ttl, value)
+
+    def delete(self, key: str) -> None:
+        with self._lock:
+            self._store.pop(key, None)
+
+    def flushdb(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+    def dbsize(self) -> int:
+        with self._lock:
+            now = _time.time()
+            return sum(1 for exp, _ in self._store.values() if now <= exp)
+
+    def _evict(self) -> None:
+        """淘汰：先清過期，仍不足則移除最舊"""
+        now = _time.time()
+        expired = [k for k, (exp, _) in self._store.items() if now > exp]
+        for k in expired:
+            del self._store[k]
+        if len(self._store) >= self._max_entries:
+            oldest = min(self._store, key=lambda k: self._store[k][0])
+            del self._store[oldest]
+
+
+_memory_cache = _MemoryCache()
+
+
+# ===== Redis 連線（lazy init + cooldown） =====
+
 _redis_client: redis.Redis | None = None
 _redis_last_fail: float = 0
 _REDIS_COOLDOWN = 30  # 連線失敗後 30 秒內不重試
@@ -54,6 +119,30 @@ def get_redis() -> redis.Redis | None:
         _redis_client = None
         _redis_last_fail = time.time()
         return None
+
+
+def _cache_get(key: str) -> str | None:
+    """從快取讀取：Redis 優先，memory 備援"""
+    r = get_redis()
+    if r is not None:
+        try:
+            val = r.get(key)
+            if val is not None:
+                return val
+        except Exception:
+            pass
+    return _memory_cache.get(key)
+
+
+def _cache_set(key: str, value: str, ttl: int) -> None:
+    """寫入快取：Redis + memory 雙寫（確保 memory 始終溫暖）"""
+    r = get_redis()
+    if r is not None:
+        try:
+            r.setex(key, ttl, value)
+        except Exception:
+            pass
+    _memory_cache.setex(key, ttl, value)
 
 
 def _df_to_json(df: pd.DataFrame) -> str:
@@ -101,69 +190,47 @@ def _market_aware_ttl(ttl_open: int = 900, ttl_closed: int = 3600) -> int:
 
 def get_cached_stock_data(stock_code: str, period_days: int) -> pd.DataFrame | None:
     """從快取讀取股價資料"""
-    r = get_redis()
-    if r is None:
-        return None
-
     key = f"stock_data:{stock_code}:{period_days}"
-    try:
-        cached = r.get(key)
-        if cached:
+    cached = _cache_get(key)
+    if cached:
+        try:
             return _json_to_df(cached)
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
 def set_cached_stock_data(stock_code: str, period_days: int, df: pd.DataFrame, ttl: int | None = None) -> None:
     """寫入股價資料快取（預設使用市場感知 TTL）"""
-    r = get_redis()
-    if r is None:
-        return
-
     if ttl is None:
         ttl = _market_aware_ttl(ttl_open=900, ttl_closed=3600)
-
     key = f"stock_data:{stock_code}:{period_days}"
-    try:
-        r.setex(key, ttl, _df_to_json(df))
-    except Exception:
-        pass
+    _cache_set(key, _df_to_json(df), ttl)
 
 
 # ===== 分析結果快取 =====
 
 def get_cached_analysis(stock_code: str) -> dict | None:
     """從快取讀取分析結果"""
-    r = get_redis()
-    if r is None:
-        return None
-
     key = f"analysis:{stock_code}"
-    try:
-        cached = r.get(key)
-        if cached:
+    cached = _cache_get(key)
+    if cached:
+        try:
             data = json.loads(cached)
-            # 還原 date 欄位
             if "date" in data:
                 data["date"] = pd.Timestamp(data["date"])
             return data
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
 def set_cached_analysis(stock_code: str, analysis: dict, ttl: int = 300) -> None:
     """寫入分析結果快取"""
-    r = get_redis()
-    if r is None:
-        return
-
     key = f"analysis:{stock_code}"
     try:
-        # 序列化 Timestamp 和 numpy 類型
         serializable = _make_serializable(analysis)
-        r.setex(key, ttl, json.dumps(serializable, ensure_ascii=False))
+        _cache_set(key, json.dumps(serializable, ensure_ascii=False), ttl)
     except Exception:
         pass
 
@@ -172,32 +239,24 @@ def set_cached_analysis(stock_code: str, analysis: dict, ttl: int = 300) -> None
 
 def get_cached_scan_results() -> list[dict] | None:
     """從快取讀取推薦掃描結果"""
-    r = get_redis()
-    if r is None:
-        return None
-
-    try:
-        cached = r.get("scan_results")
-        if cached:
+    cached = _cache_get("scan_results")
+    if cached:
+        try:
             results = json.loads(cached)
             for item in results:
                 if "date" in item:
                     item["date"] = pd.Timestamp(item["date"])
             return results
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
 def set_cached_scan_results(results: list[dict], ttl: int = 600) -> None:
     """寫入推薦掃描結果快取"""
-    r = get_redis()
-    if r is None:
-        return
-
     try:
         serializable = [_make_serializable(item) for item in results]
-        r.setex("scan_results", ttl, json.dumps(serializable, ensure_ascii=False))
+        _cache_set("scan_results", json.dumps(serializable, ensure_ascii=False), ttl)
     except Exception:
         pass
 
@@ -206,29 +265,21 @@ def set_cached_scan_results(results: list[dict], ttl: int = 600) -> None:
 
 def get_cached_screener_results(conditions_hash: str) -> list[dict] | None:
     """從快取讀取條件選股結果"""
-    r = get_redis()
-    if r is None:
-        return None
-
     key = f"screener:{conditions_hash}"
-    try:
-        cached = r.get(key)
-        if cached:
+    cached = _cache_get(key)
+    if cached:
+        try:
             return json.loads(cached)
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
 def set_cached_screener_results(conditions_hash: str, results: list[dict], ttl: int = 1800) -> None:
     """寫入條件選股結果快取（預設 30 分鐘）"""
-    r = get_redis()
-    if r is None:
-        return
-
     try:
         serializable = [_make_serializable(item) for item in results]
-        r.setex(key=f"screener:{conditions_hash}", time=ttl, value=json.dumps(serializable, ensure_ascii=False))
+        _cache_set(f"screener:{conditions_hash}", json.dumps(serializable, ensure_ascii=False), ttl)
     except Exception:
         pass
 
@@ -237,27 +288,19 @@ def set_cached_screener_results(conditions_hash: str, results: list[dict], ttl: 
 
 def get_cached_stock_list() -> dict[str, dict] | None:
     """從快取讀取股票清單"""
-    r = get_redis()
-    if r is None:
-        return None
-
-    try:
-        cached = r.get("stock_list")
-        if cached:
+    cached = _cache_get("stock_list")
+    if cached:
+        try:
             return json.loads(cached)
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
 def set_cached_stock_list(stocks: dict[str, dict], ttl: int = 86400) -> None:
     """寫入股票清單快取（預設 24 小時）"""
-    r = get_redis()
-    if r is None:
-        return
-
     try:
-        r.setex("stock_list", ttl, json.dumps(stocks, ensure_ascii=False))
+        _cache_set("stock_list", json.dumps(stocks, ensure_ascii=False), ttl)
     except Exception:
         pass
 
@@ -266,31 +309,20 @@ def set_cached_stock_list(stocks: dict[str, dict], ttl: int = 86400) -> None:
 
 def get_cached_institutional_data(stock_code: str) -> pd.DataFrame | None:
     """從快取讀取法人籌碼資料"""
-    r = get_redis()
-    if r is None:
-        return None
-
     key = f"institutional:{stock_code}"
-    try:
-        cached = r.get(key)
-        if cached:
+    cached = _cache_get(key)
+    if cached:
+        try:
             return _json_to_df(cached)
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
 def set_cached_institutional_data(stock_code: str, df: pd.DataFrame, ttl: int = 3600) -> None:
     """寫入法人籌碼資料快取（預設 60 分鐘）"""
-    r = get_redis()
-    if r is None:
-        return
-
     key = f"institutional:{stock_code}"
-    try:
-        r.setex(key, ttl, _df_to_json(df))
-    except Exception:
-        pass
+    _cache_set(key, _df_to_json(df), ttl)
 
 
 # ===== 工具函式 =====
@@ -320,9 +352,6 @@ def _make_serializable(obj):
 
 def set_worker_heartbeat(scan_count: int, stocks_scanned: int, buy_signals: int = 0) -> None:
     """Worker 更新心跳資訊"""
-    r = get_redis()
-    if r is None:
-        return
     try:
         data = {
             "last_scan_time": datetime.now().isoformat(),
@@ -331,51 +360,55 @@ def set_worker_heartbeat(scan_count: int, stocks_scanned: int, buy_signals: int 
             "buy_signals": buy_signals,
             "status": "running",
         }
-        r.setex("worker:heartbeat", 1800, json.dumps(data))  # 30 min TTL
+        _cache_set("worker:heartbeat", json.dumps(data), 1800)
     except Exception:
         pass
 
 
 def get_worker_heartbeat() -> dict | None:
     """讀取 Worker 心跳資訊"""
-    r = get_redis()
-    if r is None:
-        return None
-    try:
-        cached = r.get("worker:heartbeat")
-        if cached:
+    cached = _cache_get("worker:heartbeat")
+    if cached:
+        try:
             return json.loads(cached)
-    except Exception:
-        pass
+        except Exception:
+            pass
     return None
 
 
 def get_cache_stats() -> dict:
     """取得快取統計"""
     r = get_redis()
-    if r is None:
-        return {"status": "disconnected"}
+    if r is not None:
+        try:
+            info = r.info("memory")
+            keys = r.dbsize()
+            return {
+                "status": "connected",
+                "keys": keys,
+                "memory_used": info.get("used_memory_human", "N/A"),
+                "memory_peak": info.get("used_memory_peak_human", "N/A"),
+            }
+        except Exception:
+            pass
 
-    try:
-        info = r.info("memory")
-        keys = r.dbsize()
-        return {
-            "status": "connected",
-            "keys": keys,
-            "memory_used": info.get("used_memory_human", "N/A"),
-            "memory_peak": info.get("used_memory_peak_human", "N/A"),
-        }
-    except Exception:
-        return {"status": "error"}
+    # Memory cache fallback stats
+    mem_keys = _memory_cache.dbsize()
+    return {
+        "status": "memory_fallback",
+        "keys": mem_keys,
+        "memory_used": "in-process",
+        "memory_peak": "N/A",
+    }
 
 
 def flush_cache() -> bool:
-    """清空所有快取"""
+    """清空所有快取（Redis + memory）"""
+    _memory_cache.flushdb()
     r = get_redis()
-    if r is None:
-        return False
-    try:
-        r.flushdb()
-        return True
-    except Exception:
-        return False
+    if r is not None:
+        try:
+            r.flushdb()
+        except Exception:
+            pass
+    return True
