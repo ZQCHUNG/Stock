@@ -178,6 +178,124 @@ def get_v4_analysis(df: pd.DataFrame) -> dict:
     }
 
 
+def generate_v4_enhanced_signals(df: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
+    """v4 增強訊號 — 含縮量回調（第三種進場模式）
+
+    在原有 v4 訊號基礎上，新增「縮量回調」進場模式：
+    - close > MA20（仍在上升趨勢）
+    - close < MA5 * 1.02（價格靠近短期均線，已回調）
+    - volume < vol_ma5 * 0.6（極致縮量，賣壓枯竭）
+    - uptrend_days >= min_uptrend_days（趨勢確認）
+    - ADX >= adx_min, RSI 在合理範圍
+
+    不修改原有 generate_v4_signals() 邏輯，只在 HOLD 訊號上疊加新進場。
+    """
+    p = dict(STRATEGY_V4_PARAMS)
+    if params:
+        p.update(params)
+
+    result = generate_v4_signals(df, params)
+
+    signals = result["v4_signal"].tolist()
+    entry_types = result["v4_entry_type"].tolist()
+
+    for i in range(2, len(result)):
+        if signals[i] != "HOLD":
+            continue
+
+        row = result.iloc[i]
+        ma20 = row.get("ma20", np.nan)
+        ma5 = row.get("ma5", np.nan)
+        vol = row.get("volume", np.nan)
+        vol_ma5 = row.get("volume_ma5", np.nan)
+        close = row["close"]
+        adx = row.get("adx", np.nan)
+        rsi = row.get("rsi", np.nan)
+        ut = row.get("uptrend_days", 0)
+
+        if any(pd.isna([ma20, ma5, vol, vol_ma5, adx, rsi])):
+            continue
+
+        if (close > ma20
+                and close < ma5 * 1.02
+                and vol < vol_ma5 * 0.6
+                and ut >= p["min_uptrend_days"]
+                and adx >= p["adx_min"]
+                and p["rsi_low"] <= rsi <= p["rsi_high"]):
+            signals[i] = "BUY"
+            entry_types[i] = "pullback"
+
+    result["v4_signal"] = signals
+    result["v4_entry_type"] = entry_types
+
+    return result
+
+
+def get_v4_enhanced_analysis(df: pd.DataFrame, inst_df: pd.DataFrame | None = None) -> dict:
+    """取得 v4 增強分析（含法人 Gatekeeper + 信心分數 + 縮量回調）
+
+    Gatekeeper 邏輯（來自 Gemini R9 討論，我的判斷：合理但需注意 T+1 延遲）：
+    - 5 日法人合計淨買超 < 0 且賣超佔成交量 > 5% → 擋下 BUY 訊號
+    - 注意：法人資料為 T+1 延遲，gatekeeper 可能誤擋反彈
+
+    信心分數（我調整過 Gemini 的建議，2x 部位太激進改為 1.5x）：
+    - Score 1.0: 純技術訊號
+    - Score 1.5: 技術 + 法人淨買入
+    - Score 2.0: 技術 + 法人連 3 日買超（強確認）
+    """
+    signals_df = generate_v4_enhanced_signals(df)
+    latest = signals_df.iloc[-1]
+
+    result = {
+        "date": signals_df.index[-1],
+        "close": latest["close"],
+        "signal": latest["v4_signal"],
+        "entry_type": latest["v4_entry_type"],
+        "uptrend_days": latest.get("uptrend_days", 0),
+        "dist_ma20": latest.get("dist_ma20", 0),
+        "indicators": {
+            "ADX": latest.get("adx"),
+            "+DI": latest.get("plus_di"),
+            "-DI": latest.get("minus_di"),
+            "RSI": latest.get("rsi"),
+            "ROC": latest.get("roc"),
+            "MA5": latest.get("ma5"),
+            "MA20": latest.get("ma20"),
+            "MA60": latest.get("ma60"),
+        },
+        "gatekeeper_passed": True,
+        "gatekeeper_blocked": False,
+        "confidence_score": 1.0,
+        "is_pullback": latest["v4_entry_type"] == "pullback",
+    }
+
+    # 法人 Gatekeeper + 信心分數
+    if inst_df is not None and not inst_df.empty:
+        recent_inst = inst_df.tail(5)
+        inst_5d_net = recent_inst["total_net"].sum()
+        recent_vol = df["volume"].tail(5).sum()
+        inst_vol_ratio = inst_5d_net / recent_vol if recent_vol > 0 else 0
+
+        # Gatekeeper：法人大量賣出時擋下 BUY
+        if result["signal"] == "BUY" and inst_5d_net < 0 and abs(inst_vol_ratio) > 0.05:
+            result["gatekeeper_passed"] = False
+            result["gatekeeper_blocked"] = True
+            result["signal"] = "HOLD"
+            result["entry_type"] = ""
+
+        # 信心分數
+        if result["signal"] == "BUY" and inst_5d_net > 0:
+            if len(recent_inst) >= 3 and all(recent_inst["total_net"].tail(3) > 0):
+                result["confidence_score"] = 2.0
+            else:
+                result["confidence_score"] = 1.5
+
+        result["institutional_net_5d"] = int(inst_5d_net)
+        result["institutional_vol_ratio"] = round(inst_vol_ratio, 4)
+
+    return result
+
+
 def get_v4_analysis_with_institutional(df: pd.DataFrame, inst_df: pd.DataFrame | None = None) -> dict:
     """取得 v4 分析結果 + 法人確認訊號
 

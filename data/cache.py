@@ -316,6 +316,40 @@ def _make_serializable(obj):
     return obj
 
 
+# ===== Worker 心跳 =====
+
+def set_worker_heartbeat(scan_count: int, stocks_scanned: int, buy_signals: int = 0) -> None:
+    """Worker 更新心跳資訊"""
+    r = get_redis()
+    if r is None:
+        return
+    try:
+        data = {
+            "last_scan_time": datetime.now().isoformat(),
+            "scan_count": scan_count,
+            "stocks_scanned": stocks_scanned,
+            "buy_signals": buy_signals,
+            "status": "running",
+        }
+        r.setex("worker:heartbeat", 1800, json.dumps(data))  # 30 min TTL
+    except Exception:
+        pass
+
+
+def get_worker_heartbeat() -> dict | None:
+    """讀取 Worker 心跳資訊"""
+    r = get_redis()
+    if r is None:
+        return None
+    try:
+        cached = r.get("worker:heartbeat")
+        if cached:
+            return json.loads(cached)
+    except Exception:
+        pass
+    return None
+
+
 def get_cache_stats() -> dict:
     """取得快取統計"""
     r = get_redis()

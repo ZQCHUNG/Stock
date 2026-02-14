@@ -9,7 +9,7 @@ import pandas as pd
 from config import SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, RISK_PARAMS, STRATEGY_V4_PARAMS
 from data.fetcher import get_stock_data, populate_ticker_cache
 from data.stock_list import get_all_stocks, get_stock_name
-from data.cache import get_cache_stats, flush_cache
+from data.cache import get_cache_stats, flush_cache, get_worker_heartbeat
 
 # 頁面模組
 from pages import page_technical, page_backtest
@@ -182,6 +182,25 @@ with st.sidebar:
         v4_trail = st.slider("移動停利 (%)", 1, 10, int(STRATEGY_V4_PARAMS["trailing_stop_pct"] * 100), 1)
         v4_hold = st.number_input("最短持有天數", min_value=0, max_value=15, value=STRATEGY_V4_PARAMS["min_hold_days"])
         v4_adx = st.slider("ADX 最低要求", 10, 35, STRATEGY_V4_PARAMS["adx_min"], 1)
+
+    # Worker 狀態
+    _heartbeat = get_worker_heartbeat()
+    if _heartbeat:
+        _last_scan = _heartbeat.get("last_scan_time", "")
+        _scan_count = _heartbeat.get("scan_count", 0)
+        _buy_signals = _heartbeat.get("buy_signals", 0)
+        # 判斷是否在線（30 分鐘內有心跳）
+        try:
+            from datetime import datetime as _dt
+            _last_dt = _dt.fromisoformat(_last_scan)
+            _mins_ago = (_dt.now() - _last_dt).total_seconds() / 60
+            if _mins_ago < 30:
+                st.success(f"Worker 運作中（{_mins_ago:.0f} 分鐘前掃描）")
+            else:
+                st.warning(f"Worker 離線（{_mins_ago:.0f} 分鐘前最後掃描）")
+        except Exception:
+            st.info(f"Worker: 掃描 {_scan_count} 次")
+        st.caption(f"掃描 {_scan_count} 次 | 買入訊號 {_buy_signals} 檔")
 
     # Redis 快取狀態
     with st.expander("快取狀態 (Redis)", expanded=False):

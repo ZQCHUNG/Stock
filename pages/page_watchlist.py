@@ -125,6 +125,54 @@ def render(all_stocks, initial_capital, load_data_fn):
         st.warning("無法載入自選股資料，請稍後重試。")
         return
 
+    # --- 風險管理 ---
+    if len(dashboard_rows) >= 2 and _wl_data:
+        with st.expander("風險管理", expanded=False):
+            from analysis.risk import (
+                calculate_correlation_matrix,
+                calculate_portfolio_var,
+                check_risk_alerts,
+            )
+            import plotly.express as px
+
+            # 相關性矩陣
+            corr_matrix = calculate_correlation_matrix(_wl_data, days=60)
+            var_info = calculate_portfolio_var(_wl_data, confidence=0.95)
+
+            if not corr_matrix.empty:
+                st.subheader("相關性矩陣（60 日對數報酬率）")
+                fig_corr = px.imshow(
+                    corr_matrix,
+                    text_auto=".2f",
+                    color_continuous_scale="RdBu_r",
+                    zmin=-1, zmax=1,
+                    aspect="auto",
+                )
+                fig_corr.update_layout(
+                    height=max(300, len(corr_matrix) * 50),
+                    template="plotly_dark",
+                )
+                st.plotly_chart(fig_corr, use_container_width=True)
+
+            if var_info.get("stocks_used", 0) > 0:
+                st.subheader("Historical VaR（95% 信心水準）")
+                var_cols = st.columns(3)
+                with var_cols[0]:
+                    st.metric("日 VaR%", f"{var_info['var_pct']:.2%}")
+                with var_cols[1]:
+                    st.metric("日 VaR 金額", f"${abs(var_info['var_amount']):,.0f}")
+                with var_cols[2]:
+                    st.metric("使用股票數", var_info["stocks_used"])
+                st.caption("假設等權重 100 萬組合，95% 信心水準下單日最大虧損。")
+
+            # 風險警報
+            alerts = check_risk_alerts(corr_matrix, var_info)
+            if alerts:
+                for alert in alerts:
+                    st.warning(alert)
+            elif not corr_matrix.empty:
+                st.success("目前無風險警報")
+
     # --- 法人資料（從 cache 讀取，不額外 API call）---
     _inst_loaded = st.session_state.get("_wl_inst_loaded", False)
     if _inst_loaded:
