@@ -76,6 +76,86 @@ class BacktestEngine:
         self.commission_rate = commission_rate or BACKTEST_PARAMS["commission_rate"]
         self.tax_rate = tax_rate or BACKTEST_PARAMS["tax_rate"]
         self.slippage = slippage if slippage is not None else BACKTEST_PARAMS.get("slippage", 0.001)
+        self._rf_daily = (1 + 0.015) ** (1 / 252) - 1  # 年化 1.5% 無風險利率
+
+    # ===== 共用交易執行方法（消除 run/run_v4 重複） =====
+
+    def _open_position(self, price: float, high: float, volume: float,
+                       cash: float, max_pos_pct: float,
+                       date: pd.Timestamp) -> tuple[Trade | None, int, float]:
+        """開倉：計算滑價、股數、手續費，建立 Trade
+
+        Returns:
+            (trade, shares, remaining_cash) — trade 為 None 表示資金不足
+        """
+        buy_price = price * (1 + self.slippage)
+        available = cash * max_pos_pct
+        max_shares = int(available / (buy_price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
+        if max_shares < TRADE_UNIT:
+            return None, 0, cash
+
+        cost = max_shares * buy_price
+        commission = cost * self.commission_rate
+        remaining_cash = cash - cost - commission
+
+        trade = Trade(
+            date_open=date,
+            side="BUY",
+            shares=max_shares,
+            price_open=buy_price,
+            commission=commission,
+        )
+
+        # 流動性警告：交易金額佔當日成交額 > 5%
+        if volume > 0:
+            daily_amount = volume * price
+            trade_amount = max_shares * buy_price
+            if daily_amount > 0 and trade_amount > daily_amount * 0.05:
+                pct = trade_amount / daily_amount
+                trade.liquidity_warning = f"佔當日成交額 {pct:.1%}"
+
+        return trade, max_shares, remaining_cash
+
+    def _close_position(self, position: int, exit_price: float,
+                        current_trade: Trade, date: pd.Timestamp,
+                        exit_reason: str) -> float:
+        """平倉：計算滑價、手續費、稅、損益，完成 Trade 紀錄
+
+        Args:
+            exit_price: 觸發出場的價格（尚未含滑價）
+
+        Returns:
+            cash_gained: 扣除手續費和稅後的現金
+        """
+        actual_exit = exit_price * (1 - self.slippage)
+        revenue = position * actual_exit
+        commission = revenue * self.commission_rate
+        tax = revenue * self.tax_rate
+
+        current_trade.date_close = date
+        current_trade.price_close = actual_exit
+        current_trade.commission += commission
+        current_trade.tax = tax
+        current_trade.pnl = (
+            (actual_exit - current_trade.price_open) * position
+            - current_trade.commission
+            - current_trade.tax
+        )
+        current_trade.return_pct = (
+            current_trade.pnl / (current_trade.price_open * position)
+        )
+        current_trade.exit_reason = exit_reason
+
+        return revenue - commission - tax
+
+    @staticmethod
+    def _build_equity_curve(equity_history: list[dict]) -> pd.Series:
+        """從歷史紀錄建立權益曲線"""
+        if not equity_history:
+            return pd.Series(dtype=float)
+        equity_df = pd.DataFrame(equity_history)
+        equity_df.set_index("date", inplace=True)
+        return equity_df["equity"]
 
     def run(self, df: pd.DataFrame) -> BacktestResult:
         """執行回測（v3：ATR 動態停損停利 + 部位管理 + 最短持有期）
@@ -98,14 +178,13 @@ class BacktestEngine:
         min_hold_days = RISK_PARAMS.get("min_hold_days", 0)
 
         cash = self.initial_capital
-        position = 0  # 持有股數
+        position = 0
         trades: list[Trade] = []
         current_trade: Trade | None = None
         equity_history = []
-        highest_since_entry = 0.0  # 進場後最高價（用於移動停利）
-        entry_atr = 0.0  # 進場時的 ATR（v3）
-        hold_day_count = 0  # 持有天數計數（v3）
-        _rf_daily = (1 + 0.015) ** (1 / 252) - 1  # 年化 1.5% 無風險利率
+        highest_since_entry = 0.0
+        entry_atr = 0.0
+        hold_day_count = 0
 
         _has_high = "high" in signals_df.columns
         _has_atr = "atr" in signals_df.columns
@@ -117,7 +196,6 @@ class BacktestEngine:
             signal = row.signal
             current_atr = row.atr if _has_atr else 0.0
 
-            # 更新持倉期間最高價（用當日最高價）
             if position > 0:
                 highest_since_entry = max(highest_since_entry, high)
                 hold_day_count += 1
@@ -129,164 +207,64 @@ class BacktestEngine:
             if position > 0 and current_trade is not None:
                 entry_price = current_trade.price_open
 
-                # v3: 最短持有期檢查
                 if hold_day_count <= min_hold_days:
-                    pass  # 持有天數不足，不觸發停損停利
+                    pass
                 elif use_atr and entry_atr > 0:
-                    # v3: ATR 動態停損停利
                     sl_distance = entry_atr * atr_sl_mult
                     ts_distance = entry_atr * atr_ts_mult
-
                     if price <= entry_price - sl_distance:
-                        force_sell = True
-                        exit_reason = "stop_loss"
+                        force_sell, exit_reason = True, "stop_loss"
                     elif highest_since_entry > entry_price and \
                          price <= highest_since_entry - ts_distance:
-                        force_sell = True
-                        exit_reason = "trailing_stop"
+                        force_sell, exit_reason = True, "trailing_stop"
                 else:
-                    # v2 fallback: 固定百分比
                     if price <= entry_price * (1 - stop_loss_pct):
-                        force_sell = True
-                        exit_reason = "stop_loss"
+                        force_sell, exit_reason = True, "stop_loss"
                     elif highest_since_entry > entry_price and \
                          price <= highest_since_entry * (1 - trailing_stop_pct):
-                        force_sell = True
-                        exit_reason = "trailing_stop"
+                        force_sell, exit_reason = True, "trailing_stop"
 
-            # 執行強制賣出（停損/停利）
             if force_sell and position > 0 and current_trade is not None:
-                sell_price = price * (1 - self.slippage)  # 滑價
-                revenue = position * sell_price
-                commission = revenue * self.commission_rate
-                tax = revenue * self.tax_rate
-                cash += revenue - commission - tax
-
-                current_trade.date_close = date
-                current_trade.price_close = sell_price
-                current_trade.commission += commission
-                current_trade.tax = tax
-                current_trade.pnl = (
-                    (sell_price - current_trade.price_open) * position
-                    - current_trade.commission
-                    - current_trade.tax
-                )
-                current_trade.return_pct = (
-                    current_trade.pnl / (current_trade.price_open * position)
-                )
-                current_trade.exit_reason = exit_reason
-
+                cash += self._close_position(position, price, current_trade, date, exit_reason)
                 trades.append(current_trade)
-                position = 0
-                current_trade = None
-                highest_since_entry = 0.0
-                entry_atr = 0.0
-                hold_day_count = 0
+                position, current_trade = 0, None
+                highest_since_entry = entry_atr = hold_day_count = 0
 
-            # 現金利息：未持倉時以 Rf 計息（消除 Cash Drag 偏誤）
             if position == 0 and cash > 0:
-                cash *= (1 + _rf_daily)
+                cash *= (1 + self._rf_daily)
 
-            # 計算當前權益
-            equity = cash + position * price
-            equity_history.append({"date": date, "equity": equity})
+            equity_history.append({"date": date, "equity": cash + position * price})
 
             # ===== 正常訊號交易 =====
             if signal == "BUY" and position == 0:
-                buy_price = price * (1 + self.slippage)  # 滑價
-                # v2 部位管理：最多用 max_position_pct 的資金
-                available = cash * max_position_pct
-                max_shares = int(available / (buy_price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
-                if max_shares >= TRADE_UNIT:
-                    shares = max_shares
-                    cost = shares * buy_price
-                    commission = cost * self.commission_rate
-                    cash -= cost + commission
+                volume = row.volume if _has_volume else 0
+                trade, shares, cash = self._open_position(
+                    price, high, volume, cash, max_position_pct, date)
+                if trade is not None:
                     position = shares
+                    current_trade = trade
                     highest_since_entry = high
-                    entry_atr = current_atr  # v3: 記錄進場 ATR
-                    hold_day_count = 0       # v3: 重置持有天數
-
-                    current_trade = Trade(
-                        date_open=date,
-                        side="BUY",
-                        shares=shares,
-                        price_open=buy_price,
-                        commission=commission,
-                    )
-                    # 流動性警告：交易金額佔當日成交額 > 5%
-                    if _has_volume:
-                        _daily_amount = row.volume * price
-                        _trade_amount = shares * buy_price
-                        if _daily_amount > 0 and _trade_amount > _daily_amount * 0.05:
-                            _pct = _trade_amount / _daily_amount
-                            current_trade.liquidity_warning = f"佔當日成交額 {_pct:.1%}"
+                    entry_atr = current_atr
+                    hold_day_count = 0
 
             elif signal == "SELL" and position > 0 and current_trade is not None:
-                sell_price = price * (1 - self.slippage)  # 滑價
-                # 賣出：全部出清
-                revenue = position * sell_price
-                commission = revenue * self.commission_rate
-                tax = revenue * self.tax_rate
-                cash += revenue - commission - tax
-
-                current_trade.date_close = date
-                current_trade.price_close = sell_price
-                current_trade.commission += commission
-                current_trade.tax = tax
-                current_trade.pnl = (
-                    (sell_price - current_trade.price_open) * position
-                    - current_trade.commission
-                    - current_trade.tax
-                )
-                current_trade.return_pct = (
-                    current_trade.pnl / (current_trade.price_open * position)
-                )
-                current_trade.exit_reason = "signal"
-
+                cash += self._close_position(position, price, current_trade, date, "signal")
                 trades.append(current_trade)
-                position = 0
-                current_trade = None
-                highest_since_entry = 0.0
-                entry_atr = 0.0
-                hold_day_count = 0
+                position, current_trade = 0, None
+                highest_since_entry = entry_atr = hold_day_count = 0
 
-        # 如果最後還有持倉，以最後收盤價平倉
+        # 期末平倉
         if position > 0 and current_trade is not None:
-            last_date = signals_df.index[-1]
-            last_price = signals_df.iloc[-1]["close"] * (1 - self.slippage)  # 滑價
-            revenue = position * last_price
-            commission = revenue * self.commission_rate
-            tax = revenue * self.tax_rate
-            cash += revenue - commission - tax
-
-            current_trade.date_close = last_date
-            current_trade.price_close = last_price
-            current_trade.commission += commission
-            current_trade.tax = tax
-            current_trade.pnl = (
-                (last_price - current_trade.price_open) * position
-                - current_trade.commission
-                - current_trade.tax
-            )
-            current_trade.return_pct = (
-                current_trade.pnl / (current_trade.price_open * position)
-            )
-            current_trade.exit_reason = "end_of_period"
+            last_price = signals_df.iloc[-1]["close"]
+            cash += self._close_position(position, last_price, current_trade,
+                                         signals_df.index[-1], "end_of_period")
             trades.append(current_trade)
 
-        # 建立權益曲線
-        equity_df = pd.DataFrame(equity_history)
-        if not equity_df.empty:
-            equity_df.set_index("date", inplace=True)
-            equity_curve = equity_df["equity"]
-        else:
-            equity_curve = pd.Series(dtype=float)
-
-        # 計算績效指標
-        result = BacktestResult(trades=trades, equity_curve=equity_curve)
+        result = BacktestResult(
+            trades=trades,
+            equity_curve=self._build_equity_curve(equity_history),
+        )
         self._calculate_metrics(result)
-
         return result
 
     def run_v4(self, df: pd.DataFrame, params: dict | None = None,
@@ -314,9 +292,7 @@ class BacktestEngine:
         if params:
             p.update(params)
 
-        # 記錄參數快照
         _params_desc = StrategyV4Config.from_dict(p).describe()
-
         signals_df = generate_v4_signals(df, params=p)
 
         tp_pct = p.get("take_profit_pct", 0.10)
@@ -325,9 +301,7 @@ class BacktestEngine:
         max_pos_pct = p.get("max_position_pct", 0.9)
         min_hold = p.get("min_hold_days", 5)
 
-        # 建立除息日查詢集合（僅供估算，不影響 P&L）
-        # 注意：auto_adjust=True 的調整後股價已包含除權息，
-        # 此處僅追蹤持倉期間的估計股利收入供報表顯示
+        # 除息追蹤（僅供報表顯示，不影響 P&L）
         div_map = {}
         if dividends is not None and not dividends.empty:
             for d, v in dividends.items():
@@ -340,11 +314,8 @@ class BacktestEngine:
         equity_history = []
         hold_days = 0
         highest_since_entry = 0.0
-        tp_price = 0.0
-        sl_price = 0.0
-        original_sl_price = 0.0
+        tp_price = sl_price = original_sl_price = 0.0
         total_dividend_income = 0.0
-        _rf_daily = (1 + 0.015) ** (1 / 252) - 1  # 年化 1.5% 無風險利率（消除 Cash Drag）
 
         _has_high = "high" in signals_df.columns
         _has_low = "low" in signals_df.columns
@@ -352,14 +323,13 @@ class BacktestEngine:
         _has_volume = "volume" in signals_df.columns
         for row in signals_df.itertuples():
             date = row.Index
+
             # 估算除息收入（僅追蹤，不加入 cash）
-            # 報酬率已透過 yfinance auto_adjust=True 的調整後股價包含除權息
             if position > 0 and div_map:
                 _norm_date = pd.Timestamp(date).normalize()
                 if _norm_date in div_map:
-                    _div_per_share = div_map[_norm_date]
-                    _div_income = position * _div_per_share
-                    total_dividend_income += _div_income
+                    total_dividend_income += position * div_map[_norm_date]
+
             price = row.close
             high = row.high if _has_high else price
             low = row.low if _has_low else price
@@ -381,128 +351,59 @@ class BacktestEngine:
             exit_price = 0.0
 
             if position > 0 and current_trade is not None and hold_days >= min_hold:
-                # 當日同時觸及 TP 和 SL：以收盤方向判斷
                 if tp_pct > 0 and high >= tp_price and low <= sl_price:
+                    # 當日同時觸及 TP 和 SL：以收盤方向判斷
+                    force_sell = True
                     if price >= current_trade.price_open:
-                        force_sell = True
-                        exit_reason = "take_profit"
-                        exit_price = tp_price
+                        exit_reason, exit_price = "take_profit", tp_price
                     else:
-                        force_sell = True
                         exit_reason = "trailing_stop" if sl_price > original_sl_price else "stop_loss"
                         exit_price = sl_price
                 elif tp_pct > 0 and high >= tp_price:
-                    force_sell = True
-                    exit_reason = "take_profit"
-                    exit_price = tp_price
+                    force_sell, exit_reason, exit_price = True, "take_profit", tp_price
                 elif low <= sl_price:
                     force_sell = True
                     exit_reason = "trailing_stop" if sl_price > original_sl_price else "stop_loss"
                     exit_price = sl_price
 
             if force_sell and position > 0 and current_trade is not None:
-                actual_exit = exit_price * (1 - self.slippage)  # 滑價
-                revenue = position * actual_exit
-                commission = revenue * self.commission_rate
-                tax = revenue * self.tax_rate
-                cash += revenue - commission - tax
-
-                current_trade.date_close = date
-                current_trade.price_close = actual_exit
-                current_trade.commission += commission
-                current_trade.tax = tax
-                current_trade.pnl = (
-                    (actual_exit - current_trade.price_open) * position
-                    - current_trade.commission
-                    - current_trade.tax
-                )
-                current_trade.return_pct = (
-                    current_trade.pnl / (current_trade.price_open * position)
-                )
-                current_trade.exit_reason = exit_reason
-
+                cash += self._close_position(position, exit_price, current_trade, date, exit_reason)
                 trades.append(current_trade)
-                position = 0
-                current_trade = None
-                hold_days = 0
+                position, current_trade, hold_days = 0, None, 0
 
-            # 現金利息：未持倉時以 Rf 計息（消除 Cash Drag 偏誤）
             if position == 0 and cash > 0:
-                cash *= (1 + _rf_daily)
+                cash *= (1 + self._rf_daily)
 
-            # 當前權益
-            equity = cash + position * price
-            equity_history.append({"date": date, "equity": equity})
+            equity_history.append({"date": date, "equity": cash + position * price})
 
             # ===== 進場 =====
             if signal == "BUY" and position == 0:
-                buy_price = price * (1 + self.slippage)  # 滑價
-                available = cash * max_pos_pct
-                max_shares = int(available / (buy_price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
-                if max_shares >= TRADE_UNIT:
-                    shares = max_shares
-                    cost = shares * buy_price
-                    commission = cost * self.commission_rate
-                    cash -= cost + commission
+                volume = row.volume if _has_volume else 0
+                trade, shares, cash = self._open_position(
+                    price, high, volume, cash, max_pos_pct, date)
+                if trade is not None:
                     position = shares
+                    current_trade = trade
                     highest_since_entry = high
                     hold_days = 0
-                    tp_price = buy_price * (1 + tp_pct) if tp_pct > 0 else float("inf")
-                    sl_price = buy_price * (1 - sl_pct)
+                    tp_price = trade.price_open * (1 + tp_pct) if tp_pct > 0 else float("inf")
+                    sl_price = trade.price_open * (1 - sl_pct)
                     original_sl_price = sl_price
-
-                    current_trade = Trade(
-                        date_open=date,
-                        side="BUY",
-                        shares=shares,
-                        price_open=buy_price,
-                        commission=commission,
-                    )
-                    # 流動性警告：交易金額佔當日成交額 > 5%
-                    if _has_volume:
-                        _daily_amount = row.volume * price
-                        _trade_amount = shares * buy_price
-                        if _daily_amount > 0 and _trade_amount > _daily_amount * 0.05:
-                            _pct = _trade_amount / _daily_amount
-                            current_trade.liquidity_warning = f"佔當日成交額 {_pct:.1%}"
 
         # 期末平倉
         if position > 0 and current_trade is not None:
-            last_date = signals_df.index[-1]
-            last_price = signals_df.iloc[-1]["close"] * (1 - self.slippage)  # 滑價
-            revenue = position * last_price
-            commission = revenue * self.commission_rate
-            tax = revenue * self.tax_rate
-            cash += revenue - commission - tax
-
-            current_trade.date_close = last_date
-            current_trade.price_close = last_price
-            current_trade.commission += commission
-            current_trade.tax = tax
-            current_trade.pnl = (
-                (last_price - current_trade.price_open) * position
-                - current_trade.commission
-                - current_trade.tax
-            )
-            current_trade.return_pct = (
-                current_trade.pnl / (current_trade.price_open * position)
-            )
-            current_trade.exit_reason = "end_of_period"
+            last_price = signals_df.iloc[-1]["close"]
+            cash += self._close_position(position, last_price, current_trade,
+                                         signals_df.index[-1], "end_of_period")
             trades.append(current_trade)
 
-        # 權益曲線
-        equity_df = pd.DataFrame(equity_history)
-        if not equity_df.empty:
-            equity_df.set_index("date", inplace=True)
-            equity_curve = equity_df["equity"]
-        else:
-            equity_curve = pd.Series(dtype=float)
-
-        result = BacktestResult(trades=trades, equity_curve=equity_curve,
-                                dividend_income=total_dividend_income,
-                                params_description=_params_desc)
+        result = BacktestResult(
+            trades=trades,
+            equity_curve=self._build_equity_curve(equity_history),
+            dividend_income=total_dividend_income,
+            params_description=_params_desc,
+        )
         self._calculate_metrics(result)
-
         return result
 
     def _calculate_metrics(self, result: BacktestResult) -> None:
