@@ -138,18 +138,27 @@ def get_market_regime():
 
 
 @router.get("/sector-heat")
-def get_sector_heat():
+def get_sector_heat(force_refresh: bool = False):
     """產業熱度分析（Gemini R21 P1: Sector Rotation Monitor）
 
-    掃描 SCAN_STOCKS 池，計算每個產業的 V4 訊號密度。
+    優先讀取 Worker 快取的數據，無快取時 fallback 到即時計算。
+    ?force_refresh=true 強制即時重算。
     """
+    from data.cache import get_cached_sector_heat, set_cached_sector_heat
+    from backend.dependencies import make_serializable
+
+    # 1. Try Redis cache first (worker-populated)
+    if not force_refresh:
+        cached = get_cached_sector_heat()
+        if cached:
+            return cached
+
+    # 2. Fallback: live computation (same logic as worker)
     from concurrent.futures import ThreadPoolExecutor
     from config import SCAN_STOCKS
     from data.fetcher import get_stock_data, get_stock_info
     from analysis.strategy_v4 import get_v4_analysis
-    from backend.dependencies import make_serializable
 
-    # Gemini R21: Weighted maturity scores for heat calculation
     MATURITY_WEIGHTS = {
         "Speculative Spike": 1.0,
         "Trend Formation": 1.5,
@@ -181,7 +190,6 @@ def get_sector_heat():
 
     valid = [r for r in results if r is not None]
 
-    # Group by sector
     sectors: dict[str, list] = {}
     for s in valid:
         sec = s["sector"]
@@ -194,7 +202,6 @@ def get_sector_heat():
         buy_count = len(buy_stocks)
         heat = buy_count / total if total > 0 else 0
 
-        # Weighted heat: Structural Shift counts 2x, Trend Formation 1.5x
         weighted_sum = sum(MATURITY_WEIGHTS.get(s["signal_maturity"], 1.0) for s in buy_stocks)
         weighted_heat = weighted_sum / total if total > 0 else 0
 
@@ -210,11 +217,16 @@ def get_sector_heat():
 
     heat_data.sort(key=lambda x: x["weighted_heat"], reverse=True)
 
-    return make_serializable({
+    result = {
         "sectors": heat_data,
         "scanned": len(valid),
         "total_buy": sum(h["buy_count"] for h in heat_data),
-    })
+    }
+
+    # Cache the live result for subsequent requests
+    set_cached_sector_heat(result)
+
+    return make_serializable(result)
 
 
 @router.get("/{code}/risk-factors")

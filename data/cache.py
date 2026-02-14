@@ -367,6 +367,52 @@ def _make_serializable(obj):
 
 # ===== Worker 心跳 =====
 
+# ===== 產業熱度快取（Worker 專用） =====
+
+def get_cached_sector_heat() -> dict | None:
+    """讀取 Worker 計算的產業熱度數據
+
+    Returns dict with keys: data (sector heat JSON), updated_at (ISO str), status (ok/error:...)
+    """
+    cached = _cache_get("sector_heat:data")
+    if cached:
+        try:
+            data = json.loads(cached)
+            # 附加 metadata
+            updated_at = _cache_get("sector_heat:updated_at")
+            status = _cache_get("sector_heat:status") or "ok"
+            data["_updated_at"] = updated_at
+            data["_status"] = status
+            return data
+        except Exception:
+            pass
+    return None
+
+
+def set_cached_sector_heat(data: dict, ttl: int = 86400) -> None:
+    """寫入產業熱度數據（Worker 呼叫）
+
+    Args:
+        data: sector heat result dict (sectors, scanned, total_buy)
+        ttl: 預設 24 小時
+    """
+    try:
+        serializable = _make_serializable(data)
+        _cache_set("sector_heat:data", json.dumps(serializable, ensure_ascii=False), ttl)
+        _cache_set("sector_heat:updated_at", datetime.now().isoformat(), ttl)
+        _cache_set("sector_heat:status", "ok", ttl)
+    except Exception:
+        pass
+
+
+def set_sector_heat_error(error_msg: str) -> None:
+    """標記產業熱度掃描失敗（不清除舊數據）"""
+    try:
+        _cache_set("sector_heat:status", f"error:{error_msg}", 86400)
+    except Exception:
+        pass
+
+
 def set_worker_heartbeat(scan_count: int, stocks_scanned: int, buy_signals: int = 0) -> None:
     """Worker 更新心跳資訊"""
     try:

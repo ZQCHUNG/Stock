@@ -127,6 +127,30 @@ const sectorHeatChartOption = computed(() => {
   }
 })
 
+// Sector heat data freshness
+const sectorHeatUpdatedAt = computed(() => {
+  const ts = wl.sectorHeat?._updated_at
+  if (!ts) return null
+  return new Date(ts)
+})
+
+const sectorHeatStale = computed(() => {
+  const dt = sectorHeatUpdatedAt.value
+  if (!dt) return false
+  const diffMin = (Date.now() - dt.getTime()) / 60000
+  return diffMin > 60 // Stale if > 1 hour old
+})
+
+const sectorHeatStatus = computed(() => wl.sectorHeat?._status || 'ok')
+
+const sectorHeatTimeLabel = computed(() => {
+  const dt = sectorHeatUpdatedAt.value
+  if (!dt) return '即時計算'
+  const hh = String(dt.getHours()).padStart(2, '0')
+  const mm = String(dt.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm} 更新`
+})
+
 const overviewPagination = reactive({ page: 1, pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] })
 const btPagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25] })
 
@@ -217,7 +241,12 @@ const btColumns: DataTableColumns = [
       <!-- Sector heat bar chart (market-wide V4 signal density) -->
       <NCard v-if="sectorHeatChartOption" title="產業熱度（全市場 V4 訊號密度）" size="small" style="margin-bottom: 16px">
         <template #header-extra>
-          <NButton size="tiny" quaternary @click="wl.loadSectorHeat()" :loading="wl.isSectorHeatLoading">更新</NButton>
+          <NSpace align="center" :size="8">
+            <NTag v-if="sectorHeatStale" type="warning" size="small">數據可能過期</NTag>
+            <NTag v-else-if="sectorHeatStatus !== 'ok'" type="error" size="small">掃描異常</NTag>
+            <span style="font-size: 11px; color: #999">{{ sectorHeatTimeLabel }}</span>
+            <NButton size="tiny" quaternary @click="wl.loadSectorHeat()" :loading="wl.isSectorHeatLoading">更新</NButton>
+          </NSpace>
         </template>
         <VChart :option="sectorHeatChartOption" style="height: 280px" autoresize />
         <div style="font-size: 11px; color: #888; margin-top: 4px">
