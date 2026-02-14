@@ -65,6 +65,41 @@ def save_config(config_type: str, req: SaveConfigRequest):
     return {"ok": True}
 
 
+class RenameConfigRequest(BaseModel):
+    new_name: str
+
+
+@router.patch("/{config_type}/{name}")
+def rename_config(config_type: str, name: str, req: RenameConfigRequest):
+    """重新命名配置"""
+    if config_type not in ("backtest", "screener"):
+        raise HTTPException(400, "config_type must be 'backtest' or 'screener'")
+    if not req.new_name.strip():
+        raise HTTPException(400, "new_name is required")
+
+    data = _load_all()
+    configs = data.get(config_type, [])
+
+    # Check new name doesn't already exist
+    if any(c.get("name") == req.new_name for c in configs):
+        raise HTTPException(409, f"配置名稱「{req.new_name}」已存在")
+
+    found = False
+    for c in configs:
+        if c.get("name") == name:
+            c["name"] = req.new_name
+            c["updatedAt"] = datetime.now().isoformat()
+            found = True
+            break
+
+    if not found:
+        raise HTTPException(404, f"配置「{name}」不存在")
+
+    data[config_type] = configs
+    _save_all(data)
+    return {"ok": True}
+
+
 @router.delete("/{config_type}/{name}")
 def delete_config(config_type: str, name: str):
     """刪除配置"""

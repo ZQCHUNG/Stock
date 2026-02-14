@@ -13,6 +13,9 @@ export const configsApi = {
   save(type: 'backtest' | 'screener', name: string, config: Record<string, any>) {
     return client.post(`/configs/${type}`, { name, config }) as any
   },
+  rename(type: 'backtest' | 'screener', name: string, newName: string) {
+    return client.patch(`/configs/${type}/${encodeURIComponent(name)}`, { new_name: newName }) as any
+  },
   remove(type: 'backtest' | 'screener', name: string) {
     return client.delete(`/configs/${type}/${encodeURIComponent(name)}`) as any
   },

@@ -11,11 +11,22 @@ import { useChartTheme } from '../composables/useChartTheme'
 
 use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, ToolboxComponent, CanvasRenderer])
 
+export interface TradeMarker {
+  date_open: string
+  date_close: string
+  price_open: number
+  price_close: number
+  pnl: number
+  return_pct?: number
+  exit_reason?: string
+}
+
 const props = defineProps<{
   data: TimeSeriesData | null
   supports?: { price: number; source: string }[]
   resistances?: { price: number; source: string }[]
   signals?: TimeSeriesData | null
+  trades?: TradeMarker[]
   group?: string
 }>()
 
@@ -55,6 +66,27 @@ const option = computed(() => {
     })
   }
 
+  // Trade markers (from backtest results)
+  const tradeBuyScatter: any[] = []
+  const tradeSellScatter: any[] = []
+  if (props.trades?.length) {
+    const dateIdx: Record<string, number> = {}
+    dates.forEach((d: string, i: number) => { dateIdx[d.slice(0, 10)] = i })
+
+    props.trades.forEach((t) => {
+      const openDate = t.date_open?.slice(0, 10)
+      const closeDate = t.date_close?.slice(0, 10)
+      if (openDate && dateIdx[openDate] !== undefined) {
+        const idx = dateIdx[openDate]
+        tradeBuyScatter.push([idx, t.price_open])
+      }
+      if (closeDate && dateIdx[closeDate] !== undefined) {
+        const idx = dateIdx[closeDate]
+        tradeSellScatter.push([idx, t.price_close])
+      }
+    })
+  }
+
   // Support/Resistance lines
   const markLines: any[] = []
   for (const s of props.supports || []) {
@@ -82,11 +114,23 @@ const option = computed(() => {
           if (ma5[idx] != null) html += ` MA5 ${fmtPrice(ma5[idx])}`
           if (ma20[idx] != null) html += ` MA20 ${fmtPrice(ma20[idx])}`
         }
+        // Trade marker info
+        params.forEach((p: any) => {
+          if (p.seriesName === '買入點') html += `<br/><span style="color:#e53e3e">▲ 買入</span> $${fmtPrice(p.value[1])}`
+          else if (p.seriesName === '賣出點') html += `<br/><span style="color:#38a169">▼ 賣出</span> $${fmtPrice(p.value[1])}`
+        })
         return html + '</div>'
       },
     },
     toolbox: toolboxConfig.value,
-    legend: { data: ['K線', 'MA5', 'MA20', 'MA60', 'BB上', 'BB下'], top: 0, left: 0, textStyle: { fontSize: 11, color: c.legendText } },
+    legend: {
+      data: [
+        'K線', 'MA5', 'MA20', 'MA60', 'BB上', 'BB下',
+        ...(tradeBuyScatter.length ? ['買入點'] : []),
+        ...(tradeSellScatter.length ? ['賣出點'] : []),
+      ],
+      top: 0, left: 0, textStyle: { fontSize: 11, color: c.legendText },
+    },
     grid: [
       { left: 60, right: 20, top: 40, height: '55%' },
       { left: 60, right: 20, top: '72%', height: '18%' },
@@ -100,8 +144,8 @@ const option = computed(() => {
       { scale: true, gridIndex: 1, splitLine: { show: false } },
     ],
     dataZoom: [
-      { type: 'inside', xAxisIndex: [0, 1], start: 60, end: 100 },
-      { type: 'slider', xAxisIndex: [0, 1], start: 60, end: 100, top: '95%', height: 16 },
+      { type: 'inside', xAxisIndex: [0, 1], start: props.trades?.length ? 0 : 60, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1], start: props.trades?.length ? 0 : 60, end: 100, top: '95%', height: 16 },
     ],
     series: [
       {
@@ -127,6 +171,20 @@ const option = computed(() => {
         })),
         xAxisIndex: 1, yAxisIndex: 1,
       },
+      // Trade markers (backtest buy/sell points)
+      ...(tradeBuyScatter.length ? [{
+        name: '買入點', type: 'scatter' as const,
+        data: tradeBuyScatter, symbol: 'triangle', symbolSize: 12,
+        itemStyle: { color: '#e53e3e' },
+        xAxisIndex: 0, yAxisIndex: 0, z: 20,
+      }] : []),
+      ...(tradeSellScatter.length ? [{
+        name: '賣出點', type: 'scatter' as const,
+        data: tradeSellScatter, symbol: 'pin', symbolSize: 14,
+        symbolRotate: 180,
+        itemStyle: { color: '#38a169' },
+        xAxisIndex: 0, yAxisIndex: 0, z: 20,
+      }] : []),
     ],
   }
 })

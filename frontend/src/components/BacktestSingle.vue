@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import {
-  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput,
+  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput, NSpin,
 } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart, PieChart, BarChart, ScatterChart } from 'echarts/charts'
@@ -14,7 +14,10 @@ import { useChartTheme } from '../composables/useChartTheme'
 import { useResponsive } from '../composables/useResponsive'
 import MetricCard from './MetricCard.vue'
 import ChartContainer from './ChartContainer.vue'
+import CandlestickChart from './CandlestickChart.vue'
 import { btResultsApi } from '../api/btResults'
+import { analysisApi } from '../api/analysis'
+import type { TimeSeriesData } from '../api/stocks'
 import { message } from '../utils/discrete'
 
 use([LineChart, PieChart, BarChart, ScatterChart, GridComponent, TooltipComponent, ToolboxComponent, DataZoomComponent, MarkPointComponent, LegendComponent, CanvasRenderer])
@@ -27,9 +30,24 @@ const { colors: chartColors, tooltipStyle, toolboxConfig } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
+// K-line data for trade chart tab
+const klineData = ref<TimeSeriesData | null>(null)
+const klineLoading = ref(false)
+
 async function runBacktest() {
   await bt.runSingle(app.currentStockCode, { period_days: props.periodDays, initial_capital: props.capital })
 }
+
+// Auto-fetch K-line data when backtest result is available
+watch(() => bt.singleResult, async (r) => {
+  if (r?.trades?.length) {
+    klineLoading.value = true
+    try {
+      klineData.value = await analysisApi.indicators(app.currentStockCode, props.periodDays, 0)
+    } catch { /* silent */ }
+    klineLoading.value = false
+  }
+})
 
 const equityOption = computed(() => {
   const r = bt.singleResult
@@ -265,6 +283,20 @@ const tradeColumns = [
       <NTabs type="line">
         <NTabPane name="equity" tab="權益曲線">
           <NCard size="small"><ChartContainer :option="equityOption" height="350px" /></NCard>
+        </NTabPane>
+        <NTabPane name="kline-trades" tab="K線交易">
+          <NCard size="small">
+            <NSpin :show="klineLoading">
+              <CandlestickChart
+                v-if="klineData"
+                :data="klineData"
+                :trades="bt.singleResult?.trades"
+              />
+              <div v-else style="text-align: center; padding: 40px; color: var(--text-muted)">
+                載入中...
+              </div>
+            </NSpin>
+          </NCard>
         </NTabPane>
         <NTabPane name="drawdown" tab="回撤曲線">
           <NCard size="small"><ChartContainer :option="drawdownOption" height="300px" aria-label="回撤曲線" /></NCard>

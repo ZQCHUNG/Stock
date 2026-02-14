@@ -21,6 +21,8 @@ const showSave = ref(false)
 const showLoad = ref(false)
 const searchQuery = ref('')
 const sortBy = ref<'name' | 'date'>('date')
+const editingName = ref('')
+const editNewName = ref('')
 
 const filteredConfigs = computed(() => {
   let list = [...configs.value]
@@ -65,6 +67,29 @@ function load(config: Record<string, any>) {
   emit('load', config)
   showLoad.value = false
   message.success('已載入配置')
+}
+
+function startRename(name: string) {
+  editingName.value = name
+  editNewName.value = name
+}
+
+async function confirmRename(oldName: string) {
+  const newName = editNewName.value.trim()
+  if (!newName || newName === oldName) {
+    editingName.value = ''
+    return
+  }
+  try {
+    await configsApi.rename(props.configType, oldName, newName)
+    message.success(`已重命名為「${newName}」`)
+    editingName.value = ''
+    await loadList()
+  } catch { /* handled by interceptor */ }
+}
+
+function cancelRename() {
+  editingName.value = ''
 }
 
 function share() {
@@ -120,14 +145,31 @@ onMounted(loadList)
           </NSpace>
           <NEmpty v-if="!filteredConfigs.length" description="無匹配結果" style="padding: 12px 0" />
           <NList v-else hoverable clickable :show-divider="false">
-            <NListItem v-for="c in filteredConfigs" :key="c.name" @click="load(c.config)">
+            <NListItem v-for="c in filteredConfigs" :key="c.name" @click="editingName !== c.name && load(c.config)">
               <div style="display: flex; justify-content: space-between; align-items: center">
-                <div>
-                  <NText strong style="font-size: 13px">{{ c.name }}</NText>
-                  <br />
-                  <NText depth="3" style="font-size: 11px">{{ c.updatedAt?.slice(0, 16).replace('T', ' ') }}</NText>
+                <div style="flex: 1; min-width: 0">
+                  <template v-if="editingName === c.name">
+                    <NInput
+                      v-model:value="editNewName"
+                      size="tiny"
+                      autofocus
+                      style="width: 100%"
+                      @keyup.enter="confirmRename(c.name)"
+                      @keyup.escape="cancelRename"
+                      @blur="confirmRename(c.name)"
+                      @click.stop
+                    />
+                  </template>
+                  <template v-else>
+                    <NText strong style="font-size: 13px">{{ c.name }}</NText>
+                    <br />
+                    <NText depth="3" style="font-size: 11px">{{ c.updatedAt?.slice(0, 16).replace('T', ' ') }}</NText>
+                  </template>
                 </div>
-                <NButton size="tiny" quaternary type="error" @click.stop="remove(c.name)">刪除</NButton>
+                <NSpace :size="0" style="flex-shrink: 0; margin-left: 8px">
+                  <NButton size="tiny" quaternary @click.stop="startRename(c.name)">改名</NButton>
+                  <NButton size="tiny" quaternary type="error" @click.stop="remove(c.name)">刪除</NButton>
+                </NSpace>
               </div>
             </NListItem>
           </NList>
