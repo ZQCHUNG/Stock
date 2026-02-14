@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { h, onMounted, reactive, computed } from 'vue'
-import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty, NAlert, NGrid, NGi } from 'naive-ui'
+import { h, ref, onMounted, reactive, computed } from 'vue'
+import { NCard, NButton, NDataTable, NSpin, NSpace, NTag, NEmpty, NAlert, NGrid, NGi, NCollapse, NCollapseItem, NTooltip, NProgress } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -99,14 +99,19 @@ const sectorHeatChartOption = computed(() => {
       formatter: (params: any) => {
         const d = params[0]
         const sector = filtered[d.dataIndex]
-        const buyList = (sector.buy_stocks || []).map((s: any) => `${s.code} ${s.name} (${s.maturity})`).join('<br/>')
+        const buyList = (sector.buy_stocks || []).map((s: any) => {
+          const leaderMark = s.leader_score && s.leader_score > 0.6 ? ' ★' : ''
+          return `${s.code} ${s.name} (${s.maturity})${leaderMark}`
+        }).join('<br/>')
         const momLabels: Record<string, string> = { surge: '🔥 Surge', heating: '↑ Heating', cooling: '↓ Cooling', stable: '→ Stable', new: '🆕 New' }
         const momLabel = momLabels[sector.momentum] || ''
         const deltaStr = sector.delta_heat ? ` (${sector.delta_heat > 0 ? '+' : ''}${(sector.delta_heat * 100).toFixed(0)}pp)` : ''
+        const leaderStr = sector.leader ? `<br/>Leader: ${sector.leader.code} ${sector.leader.name} (Score ${sector.leader.score.toFixed(2)})` : ''
         return `<b>${sector.sector}</b>${momLabel ? ' ' + momLabel : ''}<br/>` +
           `訊號密度: ${(sector.heat * 100).toFixed(0)}% (${sector.buy_count}/${sector.total})<br/>` +
-          `加權熱度: ${(sector.weighted_heat * 100).toFixed(0)}%${deltaStr}<br/>` +
-          (buyList ? `<br/>BUY 標的:<br/>${buyList}` : '')
+          `加權熱度: ${(sector.weighted_heat * 100).toFixed(0)}%${deltaStr}` +
+          leaderStr +
+          (buyList ? `<br/><br/>BUY 標的:<br/>${buyList}` : '')
       },
     },
     grid: { left: 100, right: 30, top: 10, bottom: 30 },
@@ -164,6 +169,39 @@ const sectorHeatTimeLabel = computed(() => {
   const mm = String(dt.getMinutes()).padStart(2, '0')
   return `${hh}:${mm} 更新`
 })
+
+// L1/L2 drill-down data
+const sectorHeatSectors = computed(() => {
+  const data = wl.sectorHeat?.sectors || []
+  return data.filter((s: any) => s.total >= 2)
+})
+
+// Expanded sector state
+const expandedSectors = ref<string[]>([])
+
+// Momentum display helpers
+function momentumTag(mom: string) {
+  switch (mom) {
+    case 'surge': return { label: 'Surge', type: 'error' as const, icon: '🔥' }
+    case 'heating': return { label: 'Heating', type: 'warning' as const, icon: '↑' }
+    case 'cooling': return { label: 'Cooling', type: 'info' as const, icon: '↓' }
+    case 'stable': return { label: 'Stable', type: 'default' as const, icon: '→' }
+    case 'new': return { label: 'New', type: 'default' as const, icon: '🆕' }
+    default: return { label: '', type: 'default' as const, icon: '' }
+  }
+}
+
+function heatColor(heat: number): string {
+  if (heat >= 0.3) return '#e53e3e'
+  if (heat >= 0.15) return '#dd6b20'
+  return '#38a169'
+}
+
+function maturityColor(m: string): string {
+  if (m === 'Structural Shift') return '#18a058'
+  if (m === 'Trend Formation') return '#f0a020'
+  return '#e53e3e'
+}
 
 const overviewPagination = reactive({ page: 1, pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] })
 const btPagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25] })
@@ -266,6 +304,108 @@ const btColumns: DataTableColumns = [
         <div style="font-size: 11px; color: #888; margin-top: 4px">
           * 標記為自選股持有的產業。紅色 >= 30%（熱點板塊），橘色 >= 15%，綠色 &lt; 15%。掃描池: {{ wl.sectorHeat?.scanned || 0 }} 股
         </div>
+      </NCard>
+
+      <!-- L1/L2 Sector Drill-down (Gemini R22) -->
+      <NCard v-if="sectorHeatSectors.length" title="產業板塊下鑽" size="small" style="margin-bottom: 16px">
+        <template #header-extra>
+          <span style="font-size: 11px; color: #999">{{ sectorHeatSectors.length }} 板塊 / {{ wl.sectorHeat?.total_buy || 0 }} BUY</span>
+        </template>
+        <NCollapse v-model:expanded-names="expandedSectors" accordion>
+          <NCollapseItem v-for="sector in sectorHeatSectors" :key="sector.sector" :name="sector.sector">
+            <template #header>
+              <div style="display: flex; align-items: center; gap: 8px; width: 100%">
+                <!-- Sector name -->
+                <span style="font-weight: 600; min-width: 80px">{{ sector.sector }}</span>
+                <!-- Heat bar -->
+                <NProgress
+                  type="line"
+                  :percentage="Math.round(sector.weighted_heat * 100)"
+                  :color="heatColor(sector.weighted_heat)"
+                  :rail-color="'#f0f0f0'"
+                  :height="14"
+                  :show-indicator="false"
+                  style="width: 120px"
+                />
+                <span style="font-size: 12px; min-width: 36px; color: #666">{{ (sector.weighted_heat * 100).toFixed(0) }}%</span>
+                <!-- BUY count -->
+                <NTag :type="sector.buy_count > 0 ? 'error' : 'default'" size="small">
+                  {{ sector.buy_count }}/{{ sector.total }}
+                </NTag>
+                <!-- Momentum -->
+                <NTag v-if="sector.momentum && sector.momentum !== 'stable'" :type="momentumTag(sector.momentum).type" size="small">
+                  {{ momentumTag(sector.momentum).icon }} {{ momentumTag(sector.momentum).label }}
+                  <template v-if="sector.delta_heat">
+                    {{ sector.delta_heat > 0 ? '+' : '' }}{{ (sector.delta_heat * 100).toFixed(0) }}pp
+                  </template>
+                </NTag>
+                <!-- Leader badge -->
+                <NTooltip v-if="sector.leader" trigger="hover">
+                  <template #trigger>
+                    <NTag type="warning" size="small" :bordered="false" style="font-weight: 700">
+                      ★ {{ sector.leader.code }} {{ sector.leader.name }}
+                    </NTag>
+                  </template>
+                  <div>
+                    <div style="font-weight: 600; margin-bottom: 4px">Leader Score: {{ sector.leader.score.toFixed(2) }}</div>
+                    <div>成熟度: {{ sector.leader.maturity }}</div>
+                  </div>
+                </NTooltip>
+              </div>
+            </template>
+
+            <!-- Expanded: L2 Subsector breakdown -->
+            <div style="padding: 4px 0">
+              <!-- L2 subsector list -->
+              <div v-if="sector.subsectors?.length" style="margin-bottom: 12px">
+                <div style="font-size: 11px; color: #999; margin-bottom: 6px">子產業熱度</div>
+                <div v-for="sub in sector.subsectors" :key="sub.sector" style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px; padding: 2px 0">
+                  <span style="font-size: 12px; min-width: 80px; color: #555">{{ sub.sector }}</span>
+                  <NProgress
+                    type="line"
+                    :percentage="Math.round(sub.heat * 100)"
+                    :color="heatColor(sub.heat)"
+                    :rail-color="'#f5f5f5'"
+                    :height="10"
+                    :show-indicator="false"
+                    style="width: 100px"
+                  />
+                  <span style="font-size: 11px; color: #888; min-width: 60px">
+                    {{ (sub.heat * 100).toFixed(0) }}% ({{ sub.buy_count }}/{{ sub.total }})
+                  </span>
+                </div>
+              </div>
+
+              <!-- BUY stocks detail -->
+              <div v-if="sector.buy_stocks?.length">
+                <div style="font-size: 11px; color: #999; margin-bottom: 6px">BUY 標的</div>
+                <NSpace :size="6" style="flex-wrap: wrap">
+                  <NTooltip v-for="bs in sector.buy_stocks" :key="bs.code" trigger="hover">
+                    <template #trigger>
+                      <NTag
+                        :type="bs.leader_score && bs.leader_score > 0.6 ? 'warning' : 'default'"
+                        size="small"
+                        style="cursor: pointer"
+                        @click="selectStock(bs.code)"
+                      >
+                        <template v-if="bs.leader_score && bs.leader_score > 0.6">★ </template>
+                        {{ bs.code }} {{ bs.name }}
+                      </NTag>
+                    </template>
+                    <div>
+                      <div>{{ bs.code }} {{ bs.name }}</div>
+                      <div :style="{ color: maturityColor(bs.maturity) }">{{ bs.maturity }}</div>
+                      <div v-if="bs.leader_score">Leader Score: {{ bs.leader_score.toFixed(2) }}</div>
+                    </div>
+                  </NTooltip>
+                </NSpace>
+              </div>
+
+              <!-- No BUY stocks -->
+              <div v-else style="font-size: 12px; color: #aaa">目前無 BUY 訊號</div>
+            </div>
+          </NCollapseItem>
+        </NCollapse>
       </NCard>
 
       <NCard v-if="wl.overview.length" title="即時總覽" size="small" style="margin-bottom: 16px">
