@@ -309,7 +309,10 @@ const btColumns: DataTableColumns = [
       <!-- L1/L2 Sector Drill-down (Gemini R22) -->
       <NCard v-if="sectorHeatSectors.length" title="產業板塊下鑽" size="small" style="margin-bottom: 16px">
         <template #header-extra>
-          <span style="font-size: 11px; color: #999">{{ sectorHeatSectors.length }} 板塊 / {{ wl.sectorHeat?.total_buy || 0 }} BUY</span>
+          <NSpace align="center" :size="8">
+            <span style="font-size: 11px; color: #999">{{ sectorHeatSectors.length }} 板塊 / {{ wl.sectorHeat?.total_buy || 0 }} BUY</span>
+            <span v-if="sectorHeatUpdatedAt" style="font-size: 11px; color: #aaa">{{ sectorHeatTimeLabel }}</span>
+          </NSpace>
         </template>
         <NCollapse v-model:expanded-names="expandedSectors" accordion>
           <NCollapseItem v-for="sector in sectorHeatSectors" :key="sector.sector" :name="sector.sector">
@@ -327,7 +330,18 @@ const btColumns: DataTableColumns = [
                   :show-indicator="false"
                   style="width: 120px"
                 />
-                <span style="font-size: 12px; min-width: 36px; color: #666">{{ (sector.weighted_heat * 100).toFixed(0) }}%</span>
+                <NTooltip trigger="hover">
+                  <template #trigger>
+                    <span style="font-size: 12px; min-width: 36px; color: #666">{{ (sector.weighted_heat * 100).toFixed(0) }}%</span>
+                  </template>
+                  <div>
+                    <div>加權熱度: {{ (sector.weighted_heat * 100).toFixed(0) }}%</div>
+                    <div>原始熱度: {{ (sector.heat * 100).toFixed(0) }}%</div>
+                    <div v-if="sector.weighted_heat !== sector.heat" style="font-size: 11px; color: #aaa; margin-top: 2px">
+                      差異來自成熟度加權 (Structural Shift ×2)
+                    </div>
+                  </div>
+                </NTooltip>
                 <!-- BUY count -->
                 <NTag :type="sector.buy_count > 0 ? 'error' : 'default'" size="small">
                   {{ sector.buy_count }}/{{ sector.total }}
@@ -349,6 +363,9 @@ const btColumns: DataTableColumns = [
                   <div>
                     <div style="font-weight: 600; margin-bottom: 4px">Leader Score: {{ sector.leader.score.toFixed(2) }}</div>
                     <div>成熟度: {{ sector.leader.maturity }}</div>
+                    <div v-if="sector.total < 5" style="font-size: 11px; color: #f0a020; margin-top: 2px">
+                      (樣本數: {{ sector.total }}，僅供參考)
+                    </div>
                   </div>
                 </NTooltip>
               </div>
@@ -373,6 +390,7 @@ const btColumns: DataTableColumns = [
                   <span style="font-size: 11px; color: #888; min-width: 60px">
                     {{ (sub.heat * 100).toFixed(0) }}% ({{ sub.buy_count }}/{{ sub.total }})
                   </span>
+                  <NTag v-if="sub.total < 3" size="tiny" :bordered="false" style="font-size: 10px; color: #bbb">小樣本</NTag>
                 </div>
               </div>
 
