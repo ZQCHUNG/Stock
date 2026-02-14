@@ -10,6 +10,7 @@ from config import SCAN_STOCKS, BACKTEST_PARAMS, STRATEGY_PARAMS, RISK_PARAMS, S
 from data.fetcher import get_stock_data, populate_ticker_cache
 from data.stock_list import get_all_stocks, get_stock_name
 from data.cache import get_cache_stats, flush_cache, get_worker_heartbeat
+from analysis.market_regime import detect_market_regime, get_regime_color, get_regime_emoji
 
 # 頁面模組
 from pages import page_technical, page_backtest
@@ -201,6 +202,26 @@ with st.sidebar:
         except Exception:
             st.info(f"Worker: 掃描 {_scan_count} 次")
         st.caption(f"掃描 {_scan_count} 次 | 買入訊號 {_buy_signals} 檔")
+
+    # 市場環境偵測
+    try:
+        from data.fetcher import get_taiex_data as _get_taiex
+        _taiex_df = _get_taiex(period_days=120)
+        if _taiex_df is not None and len(_taiex_df) >= 60:
+            _regime = detect_market_regime(_taiex_df)
+            _r_emoji = get_regime_emoji(_regime["regime"])
+            _r_label = _regime["regime_label"]
+            _r_mult = _regime["position_multiplier"]
+            if _regime["regime"] == "bull":
+                st.success(f"{_r_emoji} 大盤環境：{_r_label}（建議部位 {_r_mult:.0%}）")
+            elif _regime["regime"] == "bear":
+                st.error(f"{_r_emoji} 大盤環境：{_r_label}（建議部位 {_r_mult:.0%}）")
+            else:
+                st.warning(f"{_r_emoji} 大盤環境：{_r_label}（建議部位 {_r_mult:.0%}）")
+            st.caption(_regime["detail"])
+            st.session_state["_market_regime"] = _regime
+    except Exception:
+        pass
 
     # Redis 快取狀態
     with st.expander("快取狀態 (Redis)", expanded=False):

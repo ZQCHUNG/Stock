@@ -143,12 +143,18 @@ def run_rolling_backtest(
     positive = sum(1 for r in returns if r > 0)
 
     # 一致性分數 (0-100)
-    # 考量：正報酬視窗比例 + 報酬穩定度 + 最大回撤控制
+    # 權重：回撤控制 50%（存活優先）+ 正報酬視窗 30% + 報酬穩定度 20%
+    # 回撤懲罰：任何視窗 MaxDD > -15% 時扣分（動量策略回撤容忍度低）
     win_pct = positive / len(windows)
     stability = max(0, 1 - return_std / max(abs(avg_return), 0.01))
     dd_control = max(0, 1 + np.mean(drawdowns) / 0.3)  # 回撤 < 30% 得分
 
-    consistency = (win_pct * 40 + stability * 30 + dd_control * 30)
+    # 回撤懲罰機制：超過 -15% 的視窗數量越多，扣分越重
+    severe_dd_count = sum(1 for d in drawdowns if d < -0.15)
+    dd_penalty = severe_dd_count / len(windows)  # 0~1
+
+    consistency = (win_pct * 30 + stability * 20 + dd_control * 50)
+    consistency *= (1 - dd_penalty * 0.5)  # 每個嚴重回撤視窗扣 50%/N
     consistency = max(0, min(100, consistency))
 
     return RollingBacktestResult(
