@@ -327,6 +327,45 @@ def batch_sqs(payload: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/sqs-distribution")
+def get_sqs_distribution():
+    """取得當前所有 BUY 信號的 SQS 分佈 + 自適應百分位等級（Gemini R43）"""
+    from analysis.scoring import compute_sqs_for_signal, compute_sqs_distribution
+    from backend.dependencies import make_serializable
+    try:
+        # Get current alpha hunter data for all BUY stocks
+        from data.cache import get_cached_alpha_hunter
+        alpha = get_cached_alpha_hunter()
+        if not alpha or not alpha.get("sectors"):
+            return {"count": 0, "error": "No alpha hunter data available"}
+
+        all_stocks = []
+        for sector in alpha["sectors"]:
+            for stock in sector.get("stocks", []):
+                all_stocks.append(stock)
+
+        if not all_stocks:
+            return {"count": 0, "error": "No BUY signals found"}
+
+        # Compute SQS for each stock
+        sqs_scores = []
+        for s in all_stocks:
+            try:
+                sqs = compute_sqs_for_signal(
+                    s["code"],
+                    signal_strategy="V4",
+                    signal_maturity=s.get("maturity", "N/A"),
+                )
+                sqs_scores.append(sqs)
+            except Exception:
+                pass
+
+        result = compute_sqs_distribution(sqs_scores)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/strategy-fitness")
 def get_strategy_fitness(codes: str = ""):
     """取得策略適配度標籤（Gemini R38: Strategy Fitness Engine）

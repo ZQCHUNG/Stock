@@ -276,3 +276,69 @@ def compute_sqs_for_signal(
     sqs_result["code"] = code
     sqs_result["fitness_tag"] = fitness_tag
     return sqs_result
+
+
+def compute_sqs_distribution(sqs_scores: list[dict]) -> dict:
+    """Compute SQS score distribution and adaptive percentile grades.
+
+    Args:
+        sqs_scores: List of dicts with at least 'code' and 'sqs' keys.
+
+    Returns:
+        dict with percentiles, histogram, and adaptive grades per stock.
+    """
+    import numpy as np
+
+    if not sqs_scores:
+        return {"count": 0, "percentiles": {}, "histogram": [], "adaptive_grades": {}}
+
+    scores = [s["sqs"] for s in sqs_scores]
+    arr = np.array(scores)
+
+    percentiles = {
+        "p10": round(float(np.percentile(arr, 10)), 1),
+        "p25": round(float(np.percentile(arr, 25)), 1),
+        "p50": round(float(np.percentile(arr, 50)), 1),
+        "p75": round(float(np.percentile(arr, 75)), 1),
+        "p90": round(float(np.percentile(arr, 90)), 1),
+        "mean": round(float(np.mean(arr)), 1),
+        "std": round(float(np.std(arr)), 1),
+        "min": round(float(np.min(arr)), 1),
+        "max": round(float(np.max(arr)), 1),
+    }
+
+    # Histogram (10 bins)
+    counts, edges = np.histogram(arr, bins=10, range=(0, 100))
+    histogram = [
+        {"range": f"{int(edges[i])}-{int(edges[i + 1])}", "count": int(counts[i])}
+        for i in range(len(counts))
+    ]
+
+    # Adaptive percentile grading: top 20% = diamond, 20-50% = gold, 50-80% = silver, bottom 20% = noise
+    n = len(scores)
+    sorted_codes = sorted(sqs_scores, key=lambda s: s["sqs"], reverse=True)
+    adaptive_grades = {}
+    for rank, item in enumerate(sorted_codes):
+        pct = rank / n  # 0 = highest score
+        if pct < 0.2:
+            grade = "diamond"
+        elif pct < 0.5:
+            grade = "gold"
+        elif pct < 0.8:
+            grade = "silver"
+        else:
+            grade = "noise"
+        adaptive_grades[item["code"]] = {
+            "sqs": item["sqs"],
+            "rank": rank + 1,
+            "percentile_rank": round(pct * 100, 1),
+            "adaptive_grade": grade,
+            "fixed_grade": item.get("grade", ""),
+        }
+
+    return {
+        "count": n,
+        "percentiles": percentiles,
+        "histogram": histogram,
+        "adaptive_grades": adaptive_grades,
+    }

@@ -45,4 +45,5 @@ export const analysisApi = {
   sqs: (code: string) => client.get<any, any>(`/analysis/${code}/sqs`),
   batchSqs: (stocks: { code: string; strategy: string; maturity: string }[]) =>
     client.post<any, any>('/analysis/batch-sqs', { stocks }),
+  sqsDistribution: () => client.get<any, any>('/analysis/sqs-distribution'),
 }

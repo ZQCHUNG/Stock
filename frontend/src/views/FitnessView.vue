@@ -17,6 +17,8 @@ const isScanRunning = ref(false)
 const error = ref('')
 const mode = ref('fitness')
 const tagFilter = ref<string | null>(null)
+const sqsDistData = ref<any>(null)
+const isSqsLoading = ref(false)
 
 // Load fitness data
 async function loadFitness() {
@@ -54,6 +56,14 @@ async function recordSignals() {
     await analysisApi.fillForwardReturns()
     await loadFitness()
   } catch { /* ignore */ }
+}
+
+async function loadSqsDistribution() {
+  isSqsLoading.value = true
+  try {
+    sqsDistData.value = await analysisApi.sqsDistribution()
+  } catch { sqsDistData.value = null }
+  isSqsLoading.value = false
 }
 
 onMounted(loadFitness)
@@ -325,6 +335,7 @@ import { h } from 'vue'
       <NTabPane name="fitness" tab="適配度矩陣" />
       <NTabPane name="accuracy" tab="信號準確率" />
       <NTabPane name="decay" tab="信號衰減" />
+      <NTabPane name="sqs-dist" tab="SQS 分佈" />
     </NTabs>
 
     <NSpin :show="isLoading">
@@ -466,6 +477,79 @@ import { h } from 'vue'
             尚無衰減數據。先「記錄今日信號」，待信號累積後系統會計算衰減曲線。
           </div>
         </NCard>
+      </template>
+
+      <!-- SQS Distribution Tab -->
+      <template v-if="mode === 'sqs-dist'">
+        <NSpace style="margin-bottom: 12px">
+          <NButton type="primary" @click="loadSqsDistribution" :loading="isSqsLoading" size="small">
+            載入 SQS 分佈
+          </NButton>
+          <span style="font-size: 12px; color: #999">分析當前所有 BUY 信號的 SQS 分數分佈 + 自適應等級</span>
+        </NSpace>
+
+        <NSpin :show="isSqsLoading">
+          <template v-if="sqsDistData && sqsDistData.count > 0">
+            <!-- Percentile stats -->
+            <NCard size="small" style="margin-bottom: 12px">
+              <template #header>分佈統計 ({{ sqsDistData.count }} 筆信號)</template>
+              <NSpace :size="16">
+                <span>Min: <b>{{ sqsDistData.percentiles?.min }}</b></span>
+                <span>P25: <b>{{ sqsDistData.percentiles?.p25 }}</b></span>
+                <span>Median: <b>{{ sqsDistData.percentiles?.p50 }}</b></span>
+                <span>Mean: <b>{{ sqsDistData.percentiles?.mean }}</b></span>
+                <span>P75: <b>{{ sqsDistData.percentiles?.p75 }}</b></span>
+                <span>Max: <b>{{ sqsDistData.percentiles?.max }}</b></span>
+                <span>Std: <b>{{ sqsDistData.percentiles?.std }}</b></span>
+              </NSpace>
+            </NCard>
+
+            <!-- Histogram chart -->
+            <NCard size="small" style="margin-bottom: 12px">
+              <VChart :option="{
+                title: { text: 'SQS 分數直方圖', left: 'center', textStyle: { fontSize: 14 } },
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: sqsDistData.histogram?.map((h: any) => h.range) || [], name: 'SQS 區間' },
+                yAxis: { type: 'value', name: '信號數' },
+                series: [{ type: 'bar', data: sqsDistData.histogram?.map((h: any) => h.count) || [],
+                  itemStyle: { color: (p: any) => p.dataIndex >= 8 ? '#18a058' : p.dataIndex >= 6 ? '#2080f0' : p.dataIndex >= 4 ? '#f0a020' : '#999' }
+                }],
+                grid: { left: 50, right: 20, bottom: 30, top: 40 },
+              }" style="height: 260px" autoresize />
+            </NCard>
+
+            <!-- Adaptive grades table -->
+            <NCard size="small" style="margin-bottom: 12px">
+              <template #header>
+                <NSpace align="center" :size="8">
+                  <span>自適應等級排名</span>
+                  <NTag size="small" type="success">Top 20% = Diamond</NTag>
+                  <NTag size="small" type="warning">20-50% = Gold</NTag>
+                  <NTag size="small" type="info">50-80% = Silver</NTag>
+                  <NTag size="small">Bottom 20% = Noise</NTag>
+                </NSpace>
+              </template>
+              <NDataTable
+                :columns="[
+                  { title: '排名', key: 'rank', width: 60, sorter: (a: any, b: any) => a.rank - b.rank },
+                  { title: '代碼', key: 'code', width: 80 },
+                  { title: 'SQS', key: 'sqs', width: 70, sorter: (a: any, b: any) => a.sqs - b.sqs },
+                  { title: '百分位', key: 'percentile_rank', width: 80 },
+                  { title: '自適應等級', key: 'adaptive_grade', width: 100 },
+                  { title: '固定等級', key: 'fixed_grade', width: 100 },
+                ]"
+                :data="Object.entries(sqsDistData.adaptive_grades || {}).map(([code, v]: [string, any]) => ({ code, ...v }))"
+                :pagination="{ pageSize: 20 }"
+                size="small"
+                :bordered="false"
+                :single-line="false"
+              />
+            </NCard>
+          </template>
+          <div v-else-if="sqsDistData && sqsDistData.count === 0" style="padding: 40px; text-align: center; color: #999">
+            {{ sqsDistData.error || '尚無 BUY 信號數據。請先執行 Worker 產生 Alpha Hunter 數據。' }}
+          </div>
+        </NSpin>
       </template>
     </NSpin>
   </div>

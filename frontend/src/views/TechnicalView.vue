@@ -17,6 +17,7 @@ import KdChart from '../components/KdChart.vue'
 import RsiChart from '../components/RsiChart.vue'
 import BiasChart from '../components/BiasChart.vue'
 import PositionCalculator from '../components/PositionCalculator.vue'
+import VChart from 'vue-echarts'
 
 const app = useAppStore()
 const tech = useTechnicalStore()
@@ -33,6 +34,7 @@ async function loadData() {
   tech.loadAdaptiveSignal(code)  // Non-blocking: load adaptive signal in background
   tech.loadRiskBudget(code)      // Non-blocking: load risk budget in background
   tech.loadSignalSummary(code)   // Non-blocking: load forward testing data
+  tech.loadSqs(code)             // Non-blocking: load SQS data
   // Connect charts for crosshair + dataZoom sync after data renders
   nextTick(() => { try { connect('tech') } catch { /* charts not ready */ } })
 }
@@ -99,6 +101,43 @@ const institutionalColumns: DataTableColumns = [
   { title: '合計', key: 'total_net', width: 100, sorter: (a: any, b: any) => a.total_net - b.total_net,
     render: (r: any) => h('span', { style: { color: netColor(r.total_net), fontWeight: 600 } }, fmtNum(r.total_net)) },
 ]
+
+// SQS radar chart option
+const sqsRadarOption = computed(() => {
+  const sqs = tech.sqsData
+  if (!sqs?.breakdown) return null
+  const b = sqs.breakdown
+  return {
+    tooltip: {},
+    radar: {
+      indicator: [
+        { name: '性格匹配', max: 100 },
+        { name: '市場環境', max: 100 },
+        { name: '期望值', max: 100 },
+        { name: '板塊熱度', max: 100 },
+        { name: '成熟度', max: 100 },
+      ],
+      radius: '65%',
+    },
+    series: [{
+      type: 'radar',
+      data: [{
+        value: [b.fitness, b.regime, b.net_ev, b.heat, b.maturity],
+        name: `SQS ${sqs.sqs}`,
+        areaStyle: { opacity: 0.3 },
+        lineStyle: { width: 2 },
+        itemStyle: { color: sqs.sqs >= 80 ? '#18a058' : sqs.sqs >= 60 ? '#2080f0' : sqs.sqs >= 40 ? '#f0a020' : '#999' },
+      }],
+    }],
+  }
+})
+
+function sqsGradeIcon(grade: string): string {
+  if (grade === 'diamond') return '\uD83D\uDC8E'
+  if (grade === 'gold') return '\uD83E\uDD47'
+  if (grade === 'noise') return '\u26AA'
+  return ''
+}
 </script>
 
 <template>
@@ -192,6 +231,46 @@ const institutionalColumns: DataTableColumns = [
               :color="(tech.adaptiveSignal.adaptive?.composite_score || 0) >= 0.5 ? '#e53e3e' :
                       (tech.adaptiveSignal.adaptive?.composite_score || 0) <= -0.5 ? '#38a169' : undefined"
             />
+          </NGi>
+        </NGrid>
+      </NCard>
+
+      <!-- SQS 信號品質分數 (Gemini R43) -->
+      <NCard v-if="tech.sqsData" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">SQS 信號品質</span>
+            <NTag
+              size="small"
+              :type="tech.sqsData.grade === 'diamond' ? 'success' : tech.sqsData.grade === 'gold' ? 'warning' : tech.sqsData.grade === 'noise' ? 'default' : 'info'"
+            >
+              {{ sqsGradeIcon(tech.sqsData.grade) }} {{ tech.sqsData.sqs }} — {{ tech.sqsData.grade_label }}
+            </NTag>
+            <NTag v-if="tech.sqsData.cost_trap" size="small" :color="{ textColor: '#fff', color: '#f0a020', borderColor: '#f0a020' }">
+              成本陷阱
+            </NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="2" :x-gap="12">
+          <NGi>
+            <VChart v-if="sqsRadarOption" :option="sqsRadarOption" style="height: 220px" autoresize />
+          </NGi>
+          <NGi>
+            <div style="padding: 8px 0; font-size: 13px">
+              <div v-for="(score, dim) in tech.sqsData.breakdown" :key="dim" style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f0f0f0">
+                <span>{{ dim === 'fitness' ? '性格匹配' : dim === 'regime' ? '市場環境' : dim === 'net_ev' ? '期望值' : dim === 'heat' ? '板塊熱度' : '成熟度' }}</span>
+                <span :style="{ fontWeight: 600, color: score >= 70 ? '#18a058' : score >= 40 ? '#333' : '#e53e3e' }">{{ score }}</span>
+              </div>
+              <div v-if="tech.sqsData.net_ev != null" style="margin-top: 8px; display: flex; justify-content: space-between">
+                <span>Net EV (20d)</span>
+                <span :style="{ fontWeight: 700, color: tech.sqsData.net_ev >= 0 ? '#18a058' : '#e53e3e' }">
+                  {{ (tech.sqsData.net_ev * 100).toFixed(2) }}%
+                </span>
+              </div>
+              <div v-if="tech.sqsData.fitness_tag" style="margin-top: 4px; color: #888; font-size: 11px">
+                Fitness Tag: {{ tech.sqsData.fitness_tag }}
+              </div>
+            </div>
           </NGi>
         </NGrid>
       </NCard>

@@ -39,4 +39,11 @@ export const backtestApi = {
       period_days: periodDays,
       initial_capital: initialCapital,
     }, { timeout: 300_000 }),
+  sqsBacktest: (stockCodes?: string[], periodDays = 730, thresholds = [40, 60, 80]) =>
+    client.post<any, any>('/backtest/sqs-backtest', {
+      stock_codes: stockCodes || null,
+      period_days: periodDays,
+      thresholds,
+      max_workers: 4,
+    }, { timeout: 600_000 }),
 }

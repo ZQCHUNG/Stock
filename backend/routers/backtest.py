@@ -61,6 +61,13 @@ class MetaStrategyRequest(BaseModel):
     initial_capital: float = 1_000_000
 
 
+class SqsBacktestRequest(BaseModel):
+    stock_codes: list[str] | None = None
+    period_days: int = 730
+    max_workers: int = 4
+    thresholds: list[float] = [40, 60, 80]
+
+
 def _serialize_backtest_result(result) -> dict:
     """BacktestResult → JSON-safe dict"""
     from backend.dependencies import series_to_response, make_serializable
@@ -534,5 +541,21 @@ def run_meta_strategy_backtest(req: MetaStrategyRequest):
         })
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/sqs-backtest")
+def run_sqs_backtest_endpoint(req: SqsBacktestRequest):
+    """SQS effectiveness backtest: compare filtered vs all signals."""
+    try:
+        from backtest.sqs_backtest import run_sqs_backtest
+        result = run_sqs_backtest(
+            stock_codes=req.stock_codes,
+            period_days=req.period_days,
+            max_workers=req.max_workers,
+            thresholds=req.thresholds,
+        )
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
