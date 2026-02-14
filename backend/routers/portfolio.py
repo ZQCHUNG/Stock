@@ -377,6 +377,7 @@ def get_analytics():
 
     confidence_accuracy = db.get_confidence_accuracy()
     best, worst = db.get_best_worst_trades()
+    discipline = db.get_discipline_score()
 
     return make_serializable({
         "has_data": True,
@@ -392,6 +393,7 @@ def get_analytics():
         "confidence_accuracy": confidence_accuracy,
         "best_trade": best,
         "worst_trade": worst,
+        "discipline": discipline,
     })
 
 
@@ -490,7 +492,22 @@ def get_briefing():
             })
             break
 
-    # 6. If no insights, add a neutral one
+    # 6. Post-mortem: analyze recent closed trades (Gemini R29)
+    recent_closed = db.get_recent_closed(limit=5)
+    if len(recent_closed) >= 3:
+        manual_exits = [c for c in recent_closed if c.get("exit_reason") == "manual" and (c.get("net_pnl") or 0) < 0]
+        if len(manual_exits) >= 2:
+            insights.append({
+                "type": "post_mortem",
+                "severity": "high",
+                "icon": "📝",
+                "message": (
+                    f"戰後檢討：最近 {len(manual_exits)} 筆虧損為手動出場（非系統停損），"
+                    f"可能過早恐慌出場，建議信任移動停利邏輯"
+                ),
+            })
+
+    # 7. If no insights, add a neutral one
     if not insights:
         insights.append({
             "type": "neutral",

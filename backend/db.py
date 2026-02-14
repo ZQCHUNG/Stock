@@ -33,10 +33,13 @@ def _ensure_db():
 
 def _run_migrations(conn: sqlite3.Connection):
     """Run incremental schema migrations (idempotent)."""
-    # R28: Add tags column if missing
     cols = {r[1] for r in conn.execute("PRAGMA table_info(positions)").fetchall()}
+    # R28: Add tags column
     if "tags" not in cols:
         conn.execute("ALTER TABLE positions ADD COLUMN tags TEXT DEFAULT ''")
+    # R29: Add lessons column (post-mortem)
+    if "lessons" not in cols:
+        conn.execute("ALTER TABLE positions ADD COLUMN lessons TEXT DEFAULT ''")
 
 
 
@@ -520,6 +523,57 @@ def get_confidence_accuracy() -> list[dict]:
                     "win_rate": round((row["wins"] or 0) / row["cnt"], 4),
                 })
     return result
+
+
+def get_discipline_score() -> dict:
+    """Calculate discipline score based on confidence at entry time.
+
+    Scoring:
+    - C >= 1.0: 100 pts (high confidence, system-aligned)
+    - 0.5 <= C < 1.0: 70 pts (medium confidence)
+    - C < 0.5: 30 pts (low confidence, FOMO-risk)
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT confidence, net_pnl FROM positions WHERE status='closed'"
+        ).fetchall()
+
+    if not rows:
+        return {"score": 0, "total_trades": 0, "breakdown": []}
+
+    scores = []
+    breakdown = {"high_c": 0, "mid_c": 0, "low_c": 0}
+    for r in rows:
+        c = r["confidence"] or 0.7
+        if c >= 1.0:
+            scores.append(100)
+            breakdown["high_c"] += 1
+        elif c >= 0.5:
+            scores.append(70)
+            breakdown["mid_c"] += 1
+        else:
+            scores.append(30)
+            breakdown["low_c"] += 1
+
+    avg_score = sum(scores) / len(scores) if scores else 0
+
+    return {
+        "score": round(avg_score, 0),
+        "total_trades": len(rows),
+        "high_c_trades": breakdown["high_c"],
+        "mid_c_trades": breakdown["mid_c"],
+        "low_c_trades": breakdown["low_c"],
+    }
+
+
+def get_recent_closed(limit: int = 5) -> list[dict]:
+    """Get most recent closed trades for post-mortem analysis."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT * FROM positions WHERE status='closed' ORDER BY exit_date DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return _rows_to_list(rows)
 
 
 def get_best_worst_trades() -> tuple[dict | None, dict | None]:

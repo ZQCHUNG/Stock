@@ -387,7 +387,7 @@ const perfData = computed(() => pf.performance)
             <NTag size="small" :bordered="false">Win-Loss Analytics</NTag>
           </NSpace>
         </template>
-        <NGrid :cols="4" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
+        <NGrid :cols="5" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
           <NGi>
             <MetricCard
               title="勝率"
@@ -413,6 +413,13 @@ const perfData = computed(() => pf.performance)
             <MetricCard
               title="平均持有天數"
               :value="analyticsData.avg_days_held?.toFixed(1) || '-'"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="紀律分數"
+              :value="analyticsData.discipline?.score || '-'"
+              :color="(analyticsData.discipline?.score || 0) >= 80 ? '#18a058' : (analyticsData.discipline?.score || 0) >= 60 ? '#f0a020' : '#e53e3e'"
             />
           </NGi>
         </NGrid>
