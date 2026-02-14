@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system
+from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs
 
 app = FastAPI(title="台股技術分析系統 API", version="2.0")
 
@@ -37,6 +37,7 @@ app.include_router(recommend.router, prefix="/api/recommend", tags=["recommend"]
 app.include_router(screener.router, prefix="/api/screener", tags=["screener"])
 app.include_router(watchlist.router, prefix="/api/watchlist", tags=["watchlist"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 
 # Production: 伺服 Vue build 靜態檔
 DIST_DIR = PROJECT_ROOT / "frontend" / "dist"

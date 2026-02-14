@@ -1,0 +1,78 @@
+"""配置持久化路由 — 保存/載入回測與選股器配置"""
+
+import json
+from datetime import datetime
+from pathlib import Path
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+router = APIRouter()
+
+CONFIGS_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "configs.json"
+
+
+def _load_all() -> dict:
+    try:
+        if CONFIGS_FILE.exists():
+            return json.loads(CONFIGS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return {"backtest": [], "screener": []}
+
+
+def _save_all(data: dict):
+    CONFIGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CONFIGS_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+class SaveConfigRequest(BaseModel):
+    name: str
+    config: dict
+
+
+@router.get("/{config_type}")
+def list_configs(config_type: str):
+    """列出某類型的所有配置"""
+    if config_type not in ("backtest", "screener"):
+        raise HTTPException(400, "config_type must be 'backtest' or 'screener'")
+    data = _load_all()
+    return data.get(config_type, [])
+
+
+@router.post("/{config_type}")
+def save_config(config_type: str, req: SaveConfigRequest):
+    """保存配置（同名覆蓋）"""
+    if config_type not in ("backtest", "screener"):
+        raise HTTPException(400, "config_type must be 'backtest' or 'screener'")
+    if not req.name.strip():
+        raise HTTPException(400, "name is required")
+
+    data = _load_all()
+    configs = data.get(config_type, [])
+
+    # Remove existing config with same name
+    configs = [c for c in configs if c.get("name") != req.name]
+
+    configs.insert(0, {
+        "name": req.name,
+        "config": req.config,
+        "updatedAt": datetime.now().isoformat(),
+    })
+
+    # Keep max 20 configs per type
+    data[config_type] = configs[:20]
+    _save_all(data)
+    return {"ok": True}
+
+
+@router.delete("/{config_type}/{name}")
+def delete_config(config_type: str, name: str):
+    """刪除配置"""
+    if config_type not in ("backtest", "screener"):
+        raise HTTPException(400, "config_type must be 'backtest' or 'screener'")
+
+    data = _load_all()
+    configs = data.get(config_type, [])
+    data[config_type] = [c for c in configs if c.get("name") != name]
+    _save_all(data)
+    return {"ok": True}

@@ -1,0 +1,19 @@
+import client from './client'
+
+export interface SavedConfig {
+  name: string
+  config: Record<string, any>
+  updatedAt: string
+}
+
+export const configsApi = {
+  list(type: 'backtest' | 'screener'): Promise<SavedConfig[]> {
+    return client.get(`/configs/${type}`) as any
+  },
+  save(type: 'backtest' | 'screener', name: string, config: Record<string, any>) {
+    return client.post(`/configs/${type}`, { name, config }) as any
+  },
+  remove(type: 'backtest' | 'screener', name: string) {
+    return client.delete(`/configs/${type}/${encodeURIComponent(name)}`) as any
+  },
+}

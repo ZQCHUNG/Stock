@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, ref, reactive } from 'vue'
+import { h, ref, reactive, onMounted } from 'vue'
 import { NCard, NButton, NGrid, NGi, NInputNumber, NSwitch, NSelect, NTag, NText, NDataTable } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
@@ -8,6 +8,8 @@ import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
 import ProgressBar from '../components/ProgressBar.vue'
+import ConfigManager from '../components/ConfigManager.vue'
+import { parseUrlConfig } from '../utils/urlConfig'
 
 const app = useAppStore()
 const scr = useScreenerStore()
@@ -61,6 +63,42 @@ const resultColumns: DataTableColumns = [
   { title: '操作', key: 'actions', width: 80,
     render: (r: any) => h(NButton, { size: 'tiny', quaternary: true, onClick: (e: Event) => { e.stopPropagation(); wl.add(r.code) } }, () => '加入自選') },
 ]
+
+function getScreenerConfig() {
+  return {
+    minPrice: minPrice.value,
+    maxPrice: maxPrice.value,
+    minVolume: minVolume.value,
+    minAdx: minAdx.value,
+    minRsi: minRsi.value,
+    maxRsi: maxRsi.value,
+    ma20AboveMa60: ma20AboveMa60.value,
+    minUptrendDays: minUptrendDays.value,
+    signalFilter: signalFilter.value,
+    marketFilter: marketFilter.value,
+  }
+}
+
+function loadScreenerConfig(config: Record<string, any>) {
+  minPrice.value = config.minPrice ?? null
+  maxPrice.value = config.maxPrice ?? null
+  minVolume.value = config.minVolume ?? null
+  minAdx.value = config.minAdx ?? null
+  minRsi.value = config.minRsi ?? null
+  maxRsi.value = config.maxRsi ?? null
+  ma20AboveMa60.value = config.ma20AboveMa60 ?? false
+  minUptrendDays.value = config.minUptrendDays ?? null
+  signalFilter.value = config.signalFilter ?? null
+  marketFilter.value = config.marketFilter ?? null
+}
+
+onMounted(() => {
+  const urlCfg = parseUrlConfig()
+  if (urlCfg?.type === 'screener') {
+    loadScreenerConfig(urlCfg.config)
+    window.history.replaceState({}, '', window.location.pathname)
+  }
+})
 
 function runScreener() {
   pagination.page = 1
@@ -126,9 +164,10 @@ function runScreener() {
           <NInputNumber v-model:value="minUptrendDays" :min="0" :max="999" size="small" placeholder="不限" clearable style="width: 100%" />
         </NGi>
       </NGrid>
-      <NButton type="primary" style="margin-top: 12px" @click="runScreener" :loading="scr.isLoading">
-        開始篩選
-      </NButton>
+      <NSpace align="center" style="margin-top: 12px">
+        <NButton type="primary" @click="runScreener" :loading="scr.isLoading">開始篩選</NButton>
+        <ConfigManager config-type="screener" :get-current-config="getScreenerConfig" @load="loadScreenerConfig" />
+      </NSpace>
     </NCard>
 
     <ProgressBar

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import {
   NTabs, NTabPane, NInputNumber, NSpace, NSpin, NAlert,
 } from 'naive-ui'
@@ -9,6 +9,8 @@ import BacktestSingle from '../components/BacktestSingle.vue'
 import BacktestPortfolio from '../components/BacktestPortfolio.vue'
 import BacktestSimulation from '../components/BacktestSimulation.vue'
 import BacktestAdvanced from '../components/BacktestAdvanced.vue'
+import ConfigManager from '../components/ConfigManager.vue'
+import { parseUrlConfig } from '../utils/urlConfig'
 
 const app = useAppStore()
 const bt = useBacktestStore()
@@ -16,6 +18,31 @@ const bt = useBacktestStore()
 const mode = ref('single')
 const periodDays = ref(1095)
 const capital = ref(1_000_000)
+
+function getBacktestConfig() {
+  return {
+    stockCode: app.currentStockCode,
+    periodDays: periodDays.value,
+    capital: capital.value,
+    mode: mode.value,
+  }
+}
+
+function loadBacktestConfig(config: Record<string, any>) {
+  if (config.stockCode) app.selectStock(config.stockCode)
+  if (config.periodDays) periodDays.value = config.periodDays
+  if (config.capital) capital.value = config.capital
+  if (config.mode) mode.value = config.mode
+}
+
+onMounted(() => {
+  const urlCfg = parseUrlConfig()
+  if (urlCfg?.type === 'backtest') {
+    loadBacktestConfig(urlCfg.config)
+    // Clean URL
+    window.history.replaceState({}, '', window.location.pathname)
+  }
+})
 </script>
 
 <template>
@@ -36,6 +63,7 @@ const capital = ref(1_000_000)
       <NInputNumber v-model:value="periodDays" :min="180" :max="3650" :step="30" size="small" placeholder="180~3650" style="width: 130px" />
       <span style="font-size: 12px; color: var(--text-muted)">初始資金</span>
       <NInputNumber v-model:value="capital" :min="100000" :max="100000000" :step="100000" size="small" placeholder="10萬~1億" style="width: 160px" />
+      <ConfigManager config-type="backtest" :get-current-config="getBacktestConfig" @load="loadBacktestConfig" />
     </NSpace>
 
     <NSpin :show="bt.isLoading">
