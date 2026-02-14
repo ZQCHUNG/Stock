@@ -197,16 +197,22 @@ def get_risk_factors(code: str, period_days: int = 365):
             warnings.append("生技股：部位 ×0.5")
 
         if cash_runway is not None:
-            eff_runway = min(
-                cash_runway.get("runway_quarters", 99),
-                cash_runway.get("total_runway_quarters", 99),
-            )
+            op_runway = cash_runway.get("runway_quarters", 99)
+            total_runway = cash_runway.get("total_runway_quarters", 99)
+            # 生技股：最嚴格，取 min(op, total)
+            # 非生技：只看營業現金流（投資支出不算核心損耗）
+            eff_runway = min(op_runway, total_runway) if is_biotech else op_runway
+
             if eff_runway < 4:
                 liquidity_factor *= 0.25
                 warnings.append(f"現金跑道 {eff_runway:.1f} 季（<4）：部位 ×0.25")
             elif eff_runway < 8:
                 liquidity_factor *= 0.5
                 warnings.append(f"現金跑道 {eff_runway:.1f} 季（<8）：部位 ×0.5")
+
+            # 非生技的 Total Runway 警告（Capital Strain，不觸發 hard gatekeeper）
+            if not is_biotech and total_runway < 8:
+                warnings.append(f"資本支出壓力：總跑道 {total_runway:.1f} 季（僅提示）")
 
         if inst_result.get("visibility") == "ghost_town":
             liquidity_factor = 0

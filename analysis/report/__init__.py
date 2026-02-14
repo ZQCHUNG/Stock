@@ -286,6 +286,10 @@ def generate_report(stock_code: str, period_days: int = 730,
         industry_risks, tech_conflicts_result["technical_bias"],
         fundamentals_raw,
         cash_runway=cash_runway,
+        is_biotech=_is_biotech_industry(
+            company_info.get("industry", ""),
+            company_info.get("sector", ""),
+        ),
     )
 
     # 評等與行動建議一致性修正：避免「中性」評等卻建議「避開」的矛盾

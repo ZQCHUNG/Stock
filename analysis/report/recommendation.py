@@ -262,14 +262,17 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
         if cur_idx > max_idx:
             rating = "中性"
 
-    # === Cash Runway Gatekeeper (Gemini R20: 生技股財務風險) ===
-    # 現金跑道 < 4 季（撐不過一年）→ 強制降階至「賣出」
-    # 現金跑道 < 8 季（撐不過兩年）→ 最高「中性」
+    # === Cash Runway Gatekeeper (Gemini R20: 產業分級處理) ===
+    # 生技股：effective = min(operational, total) — 最嚴格
+    # 非生技：effective = operational — 投資支出不算核心損耗
     if cash_runway is not None:
-        effective_runway = min(
-            cash_runway.get("runway_quarters", 99),
-            cash_runway.get("total_runway_quarters", 99),
-        )
+        op_runway = cash_runway.get("runway_quarters", 99)
+        total_runway = cash_runway.get("total_runway_quarters", 99)
+        if is_biotech:
+            effective_runway = min(op_runway, total_runway)
+        else:
+            effective_runway = op_runway  # 非生技只看營業現金流
+
         if effective_runway < 4:
             cur_idx = _RATING_ORDER.index(rating)
             sell_idx = _RATING_ORDER.index("賣出")
@@ -397,6 +400,7 @@ def _generate_actionable_recommendation(
     current_price: float, industry_risks: list,
     technical_bias: str, fundamentals: dict,
     cash_runway: dict | None = None,
+    is_biotech: bool = False,
 ) -> dict:
     """產生具體行動建議（Gemini 項目 1+2: 投資論點 + 操作建議）"""
     rr = risk_data.get("risk_reward_ratio", 1.0)
@@ -483,12 +487,12 @@ def _generate_actionable_recommendation(
             parts.append("多空訊號不明確，等待方向確認")
         thesis_parts.extend(parts)
 
-    # Cash Runway 警告（Gemini R20: 生技股財務風險）
+    # Cash Runway 警告（Gemini R20: 產業分級處理）
     if cash_runway is not None:
-        eff_runway = min(
-            cash_runway.get("runway_quarters", 99),
-            cash_runway.get("total_runway_quarters", 99),
-        )
+        op_runway = cash_runway.get("runway_quarters", 99)
+        total_runway = cash_runway.get("total_runway_quarters", 99)
+        # 生技：取 min(營業, 總計) 最嚴格；非生技：只看營業現金流
+        eff_runway = min(op_runway, total_runway) if is_biotech else op_runway
         if eff_runway < 4:
             thesis_parts.append(
                 f"極高財務風險：現金僅可維持約 {eff_runway:.1f} 季，"
@@ -498,6 +502,11 @@ def _generate_actionable_recommendation(
         elif eff_runway < 8:
             thesis_parts.append(
                 f"注意現金跑道：約 {eff_runway:.1f} 季"
+            )
+        # 非生技：總跑道偏低 → Capital Strain 提示
+        if not is_biotech and total_runway < 8:
+            thesis_parts.append(
+                f"資本支出壓力：總現金跑道 {total_runway:.1f} 季（非核心營運損耗）"
             )
 
     thesis = "，".join(thesis_parts) + "。"
