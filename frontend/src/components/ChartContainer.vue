@@ -8,9 +8,11 @@ const props = withDefaults(defineProps<{
   height?: string
   loading?: boolean
   group?: string
+  ariaLabel?: string
 }>(), {
   height: '350px',
   loading: false,
+  ariaLabel: '圖表',
 })
 
 const hasData = computed(() => {
@@ -20,7 +22,7 @@ const hasData = computed(() => {
 </script>
 
 <template>
-  <div class="chart-container" :style="{ height }">
+  <div class="chart-container" :style="{ height }" role="img" :aria-label="ariaLabel">
     <NSkeleton v-if="loading" :height="height" :sharp="false" text />
     <div v-else-if="!hasData" class="chart-empty">
       <NEmpty description="暫無數據" />

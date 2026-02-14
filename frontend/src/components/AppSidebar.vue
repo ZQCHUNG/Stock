@@ -31,12 +31,12 @@ function onSearchSelect(code: string) {
 }
 
 const menuItems = [
-  { label: '技術分析', key: 'technical' },
-  { label: '自選股總覽', key: 'watchlist' },
-  { label: '回測報告', key: 'backtest' },
-  { label: '推薦股票', key: 'recommend' },
-  { label: '分析報告', key: 'report' },
-  { label: '條件選股', key: 'screener' },
+  { label: '1  技術分析', key: 'technical' },
+  { label: '2  自選股總覽', key: 'watchlist' },
+  { label: '3  回測報告', key: 'backtest' },
+  { label: '4  推薦股票', key: 'recommend' },
+  { label: '5  分析報告', key: 'report' },
+  { label: '6  條件選股', key: 'screener' },
 ]
 
 const activeKey = computed(() => route.name as string)
@@ -47,11 +47,11 @@ function onMenuUpdate(key: string) {
 </script>
 
 <template>
-  <div>
+  <nav aria-label="側邊欄導航">
     <NAutoComplete
       v-model:value="searchValue"
       :options="searchOptions"
-      placeholder="搜尋股票（代碼/名稱）"
+      placeholder="搜尋股票  Ctrl+K"
       :on-select="onSearchSelect"
       clearable
     />
@@ -107,5 +107,5 @@ function onMenuUpdate(key: string) {
         <NSwitch :value="themeStore.isDark" @update:value="themeStore.toggle()" size="small" />
       </NSpace>
     </NSpace>
-  </div>
+  </nav>
 </template>

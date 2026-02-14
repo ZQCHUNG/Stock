@@ -4,12 +4,14 @@ import { NLayout, NLayoutSider, NLayoutContent, NConfigProvider } from 'naive-ui
 import { useAppStore } from './stores/app'
 import { useThemeStore } from './stores/theme'
 import { useResponsive } from './composables/useResponsive'
+import { useKeyboardShortcuts } from './composables/useKeyboardShortcuts'
 import AppSidebar from './components/AppSidebar.vue'
 
 const app = useAppStore()
 const theme = useThemeStore()
 const { isMobile } = useResponsive()
 const collapsed = ref(false)
+useKeyboardShortcuts()
 
 // Auto-collapse sidebar on mobile
 watch(isMobile, (mobile) => { if (mobile) collapsed.value = true })
@@ -39,7 +41,7 @@ onMounted(async () => {
       >
         <AppSidebar />
       </NLayoutSider>
-      <NLayoutContent content-style="padding: 16px 24px; overflow-y: auto;">
+      <NLayoutContent content-style="padding: 16px 24px; overflow-y: auto;" role="main">
         <router-view />
       </NLayoutContent>
     </NLayout>
