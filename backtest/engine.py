@@ -105,6 +105,7 @@ class BacktestEngine:
         highest_since_entry = 0.0  # 進場後最高價（用於移動停利）
         entry_atr = 0.0  # 進場時的 ATR（v3）
         hold_day_count = 0  # 持有天數計數（v3）
+        _rf_daily = (1 + 0.015) ** (1 / 252) - 1  # 年化 1.5% 無風險利率
 
         _has_high = "high" in signals_df.columns
         _has_atr = "atr" in signals_df.columns
@@ -181,6 +182,10 @@ class BacktestEngine:
                 highest_since_entry = 0.0
                 entry_atr = 0.0
                 hold_day_count = 0
+
+            # 現金利息：未持倉時以 Rf 計息（消除 Cash Drag 偏誤）
+            if position == 0 and cash > 0:
+                cash *= (1 + _rf_daily)
 
             # 計算當前權益
             equity = cash + position * price
@@ -339,6 +344,7 @@ class BacktestEngine:
         sl_price = 0.0
         original_sl_price = 0.0
         total_dividend_income = 0.0
+        _rf_daily = (1 + 0.015) ** (1 / 252) - 1  # 年化 1.5% 無風險利率（消除 Cash Drag）
 
         _has_high = "high" in signals_df.columns
         _has_low = "low" in signals_df.columns
@@ -419,6 +425,10 @@ class BacktestEngine:
                 position = 0
                 current_trade = None
                 hold_days = 0
+
+            # 現金利息：未持倉時以 Rf 計息（消除 Cash Drag 偏誤）
+            if position == 0 and cash > 0:
+                cash *= (1 + _rf_daily)
 
             # 當前權益
             equity = cash + position * price

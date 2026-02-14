@@ -45,8 +45,8 @@ class TestBacktestEngine:
         if result.trades:
             total_pnl = sum(t.pnl for t in result.trades)
             equity_change = result.equity_curve.iloc[-1] - 1_000_000
-            # 扣掉未平倉部分，應大致一致
-            assert abs(total_pnl - equity_change) < 1_000
+            # 差值包含未持倉期間的現金利息（Rf ~1.5%/year），容許較大誤差
+            assert abs(total_pnl - equity_change) < 10_000
 
     def test_flat_price_no_crash(self, flat_price_df):
         engine = BacktestEngine(initial_capital=1_000_000)
