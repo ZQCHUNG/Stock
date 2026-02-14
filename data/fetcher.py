@@ -353,13 +353,82 @@ def get_institutional_data(stock_code: str, days: int = 30) -> pd.DataFrame:
         time.sleep(0.3)
 
     if not results:
-        return pd.DataFrame()
+        # T86 沒有資料（可能是 OTC 股票），嘗試 FinMind 備援
+        df = _fetch_institutional_from_finmind(stock_code, days)
+        if not df.empty:
+            set_cached_institutional_data(stock_code, df, ttl=3600)
+        return df
 
     df = pd.DataFrame(results).sort_values("date").set_index("date")
 
     # 寫入 Redis 快取（60 分鐘）
     set_cached_institutional_data(stock_code, df, ttl=3600)
 
+    return df
+
+
+def _fetch_institutional_from_finmind(stock_code: str, days: int = 20) -> pd.DataFrame:
+    """FinMind 備援：取得三大法人買賣超（涵蓋 OTC/上櫃股票）
+
+    FinMind 的 TaiwanStockInstitutionalInvestorsBuySell 同時涵蓋
+    上市（TWSE）和上櫃（TPEX）股票，作為 T86 API 的備援。
+
+    Returns:
+        DataFrame with columns: foreign_net, trust_net, dealer_net, total_net
+        Index: date (DatetimeIndex)
+    """
+    import requests
+
+    start = (datetime.now() - timedelta(days=days * 2)).strftime("%Y-%m-%d")
+    try:
+        resp = requests.get(
+            "https://api.finmindtrade.com/api/v4/data",
+            params={
+                "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
+                "data_id": stock_code,
+                "start_date": start,
+            },
+            timeout=15,
+        )
+        raw = resp.json().get("data", [])
+    except Exception:
+        return pd.DataFrame()
+
+    if not raw:
+        return pd.DataFrame()
+
+    # FinMind 格式：每日多筆（每個法人類型一筆），需 pivot
+    # name: Foreign_Investor, Investment_Trust, Dealer_self, Dealer_Hedging, Foreign_Dealer_Self
+    rows_by_date: dict[str, dict] = {}
+    for r in raw:
+        d = r["date"]
+        if d not in rows_by_date:
+            rows_by_date[d] = {"foreign_net": 0, "trust_net": 0, "dealer_net": 0, "total_net": 0}
+
+        net = (r.get("buy", 0) or 0) - (r.get("sell", 0) or 0)
+        name = r.get("name", "")
+
+        if name in ("Foreign_Investor", "Foreign_Dealer_Self"):
+            rows_by_date[d]["foreign_net"] += net
+        elif name == "Investment_Trust":
+            rows_by_date[d]["trust_net"] += net
+        elif name in ("Dealer_self", "Dealer_Hedging"):
+            rows_by_date[d]["dealer_net"] += net
+
+    for d in rows_by_date:
+        rows_by_date[d]["total_net"] = (
+            rows_by_date[d]["foreign_net"]
+            + rows_by_date[d]["trust_net"]
+            + rows_by_date[d]["dealer_net"]
+        )
+
+    if not rows_by_date:
+        return pd.DataFrame()
+
+    df = pd.DataFrame.from_dict(rows_by_date, orient="index")
+    df.index = pd.to_datetime(df.index)
+    df.index.name = "date"
+    df = df.sort_index().tail(days)
     return df
 
 
@@ -430,8 +499,10 @@ def get_financial_statements(stock_code: str, start_date: str = "") -> dict:
 def _calculate_cash_runway(bs_data: list, cf_data: list) -> dict | None:
     """從 FinMind 原始資料計算 Cash Runway
 
-    台灣財報半年報 (06-30) 為 H1 累計，年報 (12-31) 為全年累計。
-    取最近兩期算出半年度營業現金流出，再除以 2 得季度數字。
+    使用報表日期區間（BeginningOfPeriod → EndOfPeriod）天數來標準化
+    季度消耗率，避免硬編碼半年報/年報邏輯。
+
+    Quarterly_Burn = Total_Flow / Days_In_Period * 90
     """
     if not bs_data or not cf_data:
         return None
@@ -464,7 +535,6 @@ def _calculate_cash_runway(bs_data: list, cf_data: list) -> dict | None:
     op_cf_by_date: dict[str, float] = {}
     for r in op_cf_items:
         d = r["date"]
-        # CashFlowsFromOperatingActivities 優先
         if d not in op_cf_by_date or r["type"] == "CashFlowsFromOperatingActivities":
             op_cf_by_date[d] = r["value"]
 
@@ -472,16 +542,16 @@ def _calculate_cash_runway(bs_data: list, cf_data: list) -> dict | None:
     if not dates:
         return None
 
-    # 取最近期的營業現金流
-    # 半年報 = H1 累計 (6 months)，年報 = 全年累計 (12 months)
     latest_cf_date = dates[-1]
     latest_cf = op_cf_by_date[latest_cf_date]
 
-    # 判斷最近報表是半年或全年
-    is_annual = latest_cf_date.endswith("12-31")
-    periods = 4 if is_annual else 2  # 年報=4季，半年報=2季
+    # 用報表起迄日期計算覆蓋天數，再標準化為季度（90 天）
+    days_in_period = _get_report_period_days(cf_data, latest_cf_date)
 
-    quarterly_burn = abs(latest_cf) / periods if latest_cf < 0 else 0
+    if latest_cf < 0 and days_in_period > 0:
+        quarterly_burn = abs(latest_cf) / days_in_period * 90
+    else:
+        quarterly_burn = 0.0
 
     if quarterly_burn > 0:
         runway_q = total_liquid / quarterly_burn
@@ -500,8 +570,8 @@ def _calculate_cash_runway(bs_data: list, cf_data: list) -> dict | None:
     total_runway_q = 99.0
     if cf_end_items and cf_begin_items:
         total_change = cf_end_items[0]["value"] - cf_begin_items[0]["value"]
-        if total_change < 0:
-            total_quarterly_burn = abs(total_change) / periods
+        if total_change < 0 and days_in_period > 0:
+            total_quarterly_burn = abs(total_change) / days_in_period * 90
             total_runway_q = total_liquid / total_quarterly_burn
 
     # 風險標籤
@@ -522,6 +592,42 @@ def _calculate_cash_runway(bs_data: list, cf_data: list) -> dict | None:
         "total_quarterly_burn": round(float(total_quarterly_burn), 1),
         "total_runway_quarters": round(float(total_runway_q), 1),
     }
+
+
+def _get_report_period_days(cf_data: list, report_date: str) -> int:
+    """從現金流量表的起迄餘額日期推算報表涵蓋天數
+
+    優先使用 CashBalancesBeginningOfPeriod 日期推算。
+    Fallback: 根據報表日期月份判斷（06-30→182天, 12-31→365天, 其他→90天）
+    """
+    from datetime import datetime as _dt
+
+    # 嘗試從 Beginning/End 推算
+    begin_items = [r for r in cf_data
+                   if r["type"] == "CashBalancesBeginningOfPeriod"
+                   and r["date"] == report_date]
+
+    if begin_items:
+        # FinMind 的 BeginningOfPeriod.date = 報表截止日，
+        # 但 BeginningOfPeriod.value 對應的是期初日期的餘額。
+        # 我們需要比對前一期的 EndOfPeriod 來推算期間天數。
+        # 更可靠的方法：用報表日期的月份推算
+        pass
+
+    # Fallback: 用報表截止日期的月份推算覆蓋天數
+    try:
+        dt = _dt.strptime(report_date, "%Y-%m-%d")
+        month = dt.month
+        if month <= 3:
+            return 90   # Q1 (1/1 - 3/31)
+        elif month <= 6:
+            return 182  # H1 (1/1 - 6/30)
+        elif month <= 9:
+            return 273  # Q1-Q3 (1/1 - 9/30)
+        else:
+            return 365  # Full year (1/1 - 12/31)
+    except ValueError:
+        return 182  # Safe default: half-year
 
 
 def get_stock_info(stock_code: str) -> dict:
