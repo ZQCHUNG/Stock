@@ -31,6 +31,7 @@ class ScreenerFilter(BaseModel):
     max_pe: float | None = None
     min_dividend_yield: float | None = None
     min_roe: float | None = None
+    min_market_cap: float | None = None  # R52 P1: e.g. 10_000_000_000
     # 市場
     market_filter: str | None = None  # "上市" / "上櫃"
     # 股票池
@@ -117,7 +118,8 @@ def _run_screener_logic(filters: ScreenerFilter, progress_callback=None):
                     continue
 
             fundamentals = None
-            if any([filters.min_pe, filters.max_pe, filters.min_dividend_yield, filters.min_roe]):
+            if any([filters.min_pe, filters.max_pe, filters.min_dividend_yield,
+                    filters.min_roe, filters.min_market_cap]):
                 fundamentals = get_stock_fundamentals_safe(code)
                 if fundamentals is None:
                     continue
@@ -134,6 +136,10 @@ def _run_screener_logic(filters: ScreenerFilter, progress_callback=None):
 
                 roe = fundamentals.get("return_on_equity")
                 if filters.min_roe and (roe is None or roe < filters.min_roe):
+                    continue
+
+                mcap = fundamentals.get("market_cap")
+                if filters.min_market_cap and (mcap is None or mcap < filters.min_market_cap):
                     continue
 
             item = {
@@ -155,6 +161,7 @@ def _run_screener_logic(filters: ScreenerFilter, progress_callback=None):
                 item["pe"] = fundamentals.get("trailing_pe")
                 item["dividend_yield"] = fundamentals.get("dividend_yield")
                 item["roe"] = fundamentals.get("return_on_equity")
+                item["market_cap"] = fundamentals.get("market_cap")
 
             results.append(item)
         except Exception:

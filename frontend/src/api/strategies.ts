@@ -11,6 +11,10 @@ export interface StrategyParams {
   min_hold_days: number
   min_volume: number
   confidence_weight: number
+  // R52 P1: Fundamental filters (null = disabled)
+  min_roe: number | null
+  max_pe: number | null
+  min_market_cap: number | null
 }
 
 export interface Strategy {
@@ -36,4 +40,6 @@ export const strategiesApi = {
     client.post<any, any>(`/strategies/${id}/backtest/${code}`, {}, { timeout: 60000 }),
   adaptiveRecommendation: () =>
     client.get<any, any>('/strategies/adaptive-recommendation'),
+  adaptiveBacktest: (code: string, params?: { period_days?: number; rebalance_days?: number; regime_lookback?: number }) =>
+    client.post<any, any>(`/strategies/adaptive-backtest/${code}`, params || {}, { timeout: 120000 }),
 }

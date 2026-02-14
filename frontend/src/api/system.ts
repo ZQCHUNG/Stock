@@ -18,4 +18,5 @@ export const systemApi = {
   omsRunNow: () => client.post<any, any>('/system/oms-run', {}, { timeout: 60000 }),
   omsEfficiency: () => client.get<any, any>('/system/oms-efficiency'),
   performanceAttribution: () => client.get<any, any>('/system/performance-attribution'),
+  dashboard: () => client.get<any, any>('/system/dashboard', { timeout: 30000 }),
 }

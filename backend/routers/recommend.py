@@ -7,24 +7,35 @@ from pydantic import BaseModel
 router = APIRouter()
 
 
+class FundamentalFilter(BaseModel):
+    """R52 P1: Optional fundamental filters for scan."""
+    min_roe: float | None = None       # e.g. 0.15
+    max_pe: float | None = None        # e.g. 20
+    min_market_cap: float | None = None # e.g. 10_000_000_000
+
+
 class ScanRequest(BaseModel):
     stock_codes: list[str] | None = None
     params: dict | None = None
+    fundamental_filter: FundamentalFilter | None = None
 
 
 @router.post("/scan-v4")
 def scan_v4(req: ScanRequest):
     """v4 策略掃描 — 尋找 BUY 訊號"""
-    from data.fetcher import get_stock_data
+    from data.fetcher import get_stock_data, get_stock_fundamentals_safe
     from data.stock_list import get_stock_name
     from analysis.strategy_v4 import get_v4_analysis
     from data.cache import get_cached_scan_results, set_cached_scan_results
     from config import SCAN_STOCKS
     from backend.dependencies import make_serializable
 
-    # 嘗試快取
+    ff = req.fundamental_filter
+    has_ff = ff and any([ff.min_roe, ff.max_pe, ff.min_market_cap])
+
+    # 嘗試快取（只在無基本面過濾時）
     cached = get_cached_scan_results()
-    if cached and not req.stock_codes:
+    if cached and not req.stock_codes and not has_ff:
         return make_serializable(cached)
 
     stock_pool = req.stock_codes or list(SCAN_STOCKS.keys())
@@ -49,12 +60,38 @@ def scan_v4(req: ScanRequest):
                 "dist_ma20": analysis.get("dist_ma20", 0),
                 "indicators": analysis.get("indicators", {}),
             }
+
+            # R52 P1: Apply fundamental filter on BUY signals
+            if has_ff and analysis["signal"] == "BUY":
+                fundamentals = get_stock_fundamentals_safe(code)
+                if fundamentals:
+                    roe = fundamentals.get("return_on_equity")
+                    pe = fundamentals.get("trailing_pe")
+                    mcap = fundamentals.get("market_cap")
+
+                    if ff.min_roe and (roe is None or roe < ff.min_roe):
+                        item["signal"] = "HOLD"
+                        item["filter_reason"] = f"ROE {(roe or 0)*100:.1f}% < {ff.min_roe*100:.0f}%"
+                    elif ff.max_pe and pe is not None and pe > ff.max_pe:
+                        item["signal"] = "HOLD"
+                        item["filter_reason"] = f"PE {pe:.1f} > {ff.max_pe:.0f}"
+                    elif ff.min_market_cap and (mcap is None or mcap < ff.min_market_cap):
+                        item["signal"] = "HOLD"
+                        item["filter_reason"] = f"市值不足 ({(mcap or 0)/1e8:.0f}億)"
+                    else:
+                        item["roe"] = roe
+                        item["pe"] = pe
+                        item["market_cap"] = mcap
+                else:
+                    item["signal"] = "HOLD"
+                    item["filter_reason"] = "基本面資料不可用"
+
             results.append(item)
         except Exception:
             continue
 
-    # 只快取預設股票池結果
-    if not req.stock_codes:
+    # 只快取預設股票池結果（無基本面過濾時）
+    if not req.stock_codes and not has_ff:
         set_cached_scan_results(results, ttl=600)
 
     # 排序：BUY 訊號排前面
@@ -67,7 +104,7 @@ def scan_v4(req: ScanRequest):
 @router.post("/scan-v4-stream")
 def scan_v4_stream(req: ScanRequest):
     """v4 策略掃描 — SSE 串流進度"""
-    from data.fetcher import get_stock_data
+    from data.fetcher import get_stock_data, get_stock_fundamentals_safe
     from data.stock_list import get_stock_name
     from analysis.strategy_v4 import get_v4_analysis
     from data.cache import get_cached_scan_results, set_cached_scan_results
@@ -75,10 +112,13 @@ def scan_v4_stream(req: ScanRequest):
     from backend.dependencies import make_serializable
     from backend.sse import sse_progress, sse_done, sse_error
 
+    ff = req.fundamental_filter
+    has_ff = ff and any([ff.min_roe, ff.max_pe, ff.min_market_cap])
+
     def generate():
-        # 嘗試快取
+        # 嘗試快取（只在無基本面過濾時）
         cached = get_cached_scan_results()
-        if cached and not req.stock_codes:
+        if cached and not req.stock_codes and not has_ff:
             yield sse_done(make_serializable(cached))
             return
 
@@ -106,11 +146,37 @@ def scan_v4_stream(req: ScanRequest):
                     "dist_ma20": analysis.get("dist_ma20", 0),
                     "indicators": analysis.get("indicators", {}),
                 }
+
+                # R52 P1: Apply fundamental filter on BUY signals
+                if has_ff and analysis["signal"] == "BUY":
+                    fundamentals = get_stock_fundamentals_safe(code)
+                    if fundamentals:
+                        roe = fundamentals.get("return_on_equity")
+                        pe = fundamentals.get("trailing_pe")
+                        mcap = fundamentals.get("market_cap")
+
+                        if ff.min_roe and (roe is None or roe < ff.min_roe):
+                            item["signal"] = "HOLD"
+                            item["filter_reason"] = f"ROE {(roe or 0)*100:.1f}% < {ff.min_roe*100:.0f}%"
+                        elif ff.max_pe and pe is not None and pe > ff.max_pe:
+                            item["signal"] = "HOLD"
+                            item["filter_reason"] = f"PE {pe:.1f} > {ff.max_pe:.0f}"
+                        elif ff.min_market_cap and (mcap is None or mcap < ff.min_market_cap):
+                            item["signal"] = "HOLD"
+                            item["filter_reason"] = f"市值不足 ({(mcap or 0)/1e8:.0f}億)"
+                        else:
+                            item["roe"] = roe
+                            item["pe"] = pe
+                            item["market_cap"] = mcap
+                    else:
+                        item["signal"] = "HOLD"
+                        item["filter_reason"] = "基本面資料不可用"
+
                 results.append(item)
             except Exception:
                 continue
 
-        if not req.stock_codes:
+        if not req.stock_codes and not has_ff:
             set_cached_scan_results(results, ttl=600)
 
         signal_order = {"BUY": 0, "HOLD": 1, "SELL": 2}

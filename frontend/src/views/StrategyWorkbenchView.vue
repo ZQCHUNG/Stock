@@ -3,11 +3,11 @@ import { h, ref, onMounted, computed } from 'vue'
 import {
   NCard, NButton, NSpace, NGrid, NGi, NTag, NInput, NInputNumber,
   NDataTable, NSpin, NDivider, NStatistic, NAlert, NModal, NForm,
-  NFormItem, NSelect, useMessage,
+  NFormItem, useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
-import { strategiesApi, type Strategy, type StrategyParams } from '../api/strategies'
+import { strategiesApi, type Strategy } from '../api/strategies'
 import { analysisApi } from '../api/analysis'
 import { useAppStore } from '../stores/app'
 
@@ -25,6 +25,9 @@ const btLoading = ref(false)
 const selectedStrategy = ref<Strategy | null>(null)
 const adaptive = ref<any>(null)
 const adaptiveLoading = ref(false)
+const showAdaptiveBt = ref(false)
+const adaptiveBtResult = ref<any>(null)
+const adaptiveBtLoading = ref(false)
 
 // Create form
 const createForm = ref({
@@ -37,6 +40,10 @@ const createForm = ref({
   trailing_stop_pct: 0.02,
   min_hold_days: 5,
   min_volume: 500,
+  // R52 P1: Fundamental filters
+  min_roe: null as number | null,
+  max_pe: null as number | null,
+  min_market_cap: null as number | null,
 })
 
 async function loadStrategies() {
@@ -81,6 +88,9 @@ async function createStrategy() {
         min_hold_days: f.min_hold_days,
         min_volume: f.min_volume,
         confidence_weight: 1.0,
+        min_roe: f.min_roe,
+        max_pe: f.max_pe,
+        min_market_cap: f.min_market_cap ? f.min_market_cap * 1e8 : null,  // 億 → raw
       },
     })
     msg.success('策略已建立')
@@ -129,6 +139,23 @@ async function runBacktest(strategy: Strategy) {
   btLoading.value = false
 }
 
+async function runAdaptiveBacktest() {
+  const code = app.currentStockCode
+  if (!code) {
+    msg.warning('請先選擇股票')
+    return
+  }
+  showAdaptiveBt.value = true
+  adaptiveBtLoading.value = true
+  adaptiveBtResult.value = null
+  try {
+    adaptiveBtResult.value = await strategiesApi.adaptiveBacktest(code)
+  } catch (e: any) {
+    msg.error(e?.message || '自適應回測失敗')
+  }
+  adaptiveBtLoading.value = false
+}
+
 function regimeTagType(suit: string): 'success' | 'warning' | 'error' | 'info' | 'default' {
   if (suit === 'excellent') return 'success'
   if (suit === 'good') return 'info'
@@ -158,6 +185,48 @@ const monthlyChartOption = computed(() => {
 
 // R51-3: Regime breakdown table columns
 const regimeColumns: DataTableColumns = [
+  { title: '市場情境', key: 'regime', width: 120 },
+  { title: '交易數', key: 'count', width: 70, sorter: (a: any, b: any) => a.count - b.count },
+  { title: '勝率', key: 'win_rate', width: 80,
+    render: (r: any) => `${((r.win_rate || 0) * 100).toFixed(1)}%`,
+    sorter: (a: any, b: any) => a.win_rate - b.win_rate },
+  { title: '平均報酬', key: 'avg_return', width: 100,
+    render: (r: any) => h('span', { style: { color: (r.avg_return || 0) >= 0 ? '#18a058' : '#e53e3e' } },
+      `${((r.avg_return || 0) * 100).toFixed(2)}%`),
+    sorter: (a: any, b: any) => a.avg_return - b.avg_return },
+  { title: '累計損益', key: 'total_pnl', width: 110,
+    render: (r: any) => h('span', { style: { color: (r.total_pnl || 0) >= 0 ? '#18a058' : '#e53e3e' } },
+      `$${(r.total_pnl || 0).toLocaleString()}`),
+    sorter: (a: any, b: any) => a.total_pnl - b.total_pnl },
+]
+
+// R52 P0: Adaptive vs Baseline equity curve comparison chart
+const adaptiveEquityChartOption = computed(() => {
+  const r = adaptiveBtResult.value
+  if (!r?.adaptive?.equity_curve?.dates?.length) return {}
+  const aDates = r.adaptive.equity_curve.dates
+  const aVals = r.adaptive.equity_curve.values
+  const bDates = r.baseline?.equity_curve?.dates || []
+  const bVals = r.baseline?.equity_curve?.values || []
+  return {
+    tooltip: { trigger: 'axis', formatter: (p: any) => {
+      let s = p[0]?.axisValue || ''
+      for (const item of p) s += `<br/>${item.marker}${item.seriesName}: $${(item.value || 0).toLocaleString()}`
+      return s
+    }},
+    legend: { data: ['自適應策略', 'V4 標準'], top: 0, textStyle: { fontSize: 11 } },
+    grid: { left: 60, right: 16, top: 30, bottom: 24 },
+    xAxis: { type: 'category', data: aDates, axisLabel: { fontSize: 10, rotate: 30 } },
+    yAxis: { type: 'value', axisLabel: { fontSize: 10, formatter: (v: number) => `$${(v / 1e6).toFixed(2)}M` } },
+    series: [
+      { name: '自適應策略', type: 'line', data: aVals, lineStyle: { width: 2 }, symbol: 'none', itemStyle: { color: '#18a058' } },
+      { name: 'V4 標準', type: 'line', data: bVals.length === aDates.length ? bVals : bDates.map((_: any, i: number) => bVals[i]), lineStyle: { width: 2, type: 'dashed' }, symbol: 'none', itemStyle: { color: '#666' } },
+    ],
+  }
+})
+
+// R52 P0: Regime performance table columns for adaptive backtest
+const adaptiveRegimeColumns: DataTableColumns = [
   { title: '市場情境', key: 'regime', width: 120 },
   { title: '交易數', key: 'count', width: 70, sorter: (a: any, b: any) => a.count - b.count },
   { title: '勝率', key: 'win_rate', width: 80,
@@ -284,6 +353,21 @@ onMounted(async () => {
       </NAlert>
     </NCard>
 
+    <!-- Adaptive Backtest Button -->
+    <NCard size="small" style="margin-bottom: 16px">
+      <NSpace align="center" justify="space-between">
+        <div>
+          <strong>自適應策略回測 (R52)</strong>
+          <span style="color: #999; margin-left: 8px; font-size: 12px">
+            模擬 ML 情境動態切換策略 vs 固定 V4，驗證自適應的實際價值
+          </span>
+        </div>
+        <NButton type="primary" @click="runAdaptiveBacktest" :loading="adaptiveBtLoading">
+          回測 {{ app.currentStockCode || '...' }} (3年)
+        </NButton>
+      </NSpace>
+    </NCard>
+
     <!-- Strategy List -->
     <NCard size="small">
       <template #header>
@@ -315,6 +399,9 @@ onMounted(async () => {
                     <NTag size="small" type="warning">TS {{ (s.params.trailing_stop_pct * 100).toFixed(1) }}%</NTag>
                     <NTag size="small">持有 ≥ {{ s.params.min_hold_days }}d</NTag>
                     <NTag size="small">量 ≥ {{ s.params.min_volume }}</NTag>
+                    <NTag v-if="s.params.min_roe" size="small" type="success">ROE ≥ {{ (s.params.min_roe * 100).toFixed(0) }}%</NTag>
+                    <NTag v-if="s.params.max_pe" size="small" type="info">PE ≤ {{ s.params.max_pe }}</NTag>
+                    <NTag v-if="s.params.min_market_cap" size="small">市值 ≥ {{ (s.params.min_market_cap / 1e8).toFixed(0) }}億</NTag>
                   </NSpace>
                 </NGi>
                 <NGi :span="3" style="text-align: right">
@@ -383,6 +470,27 @@ onMounted(async () => {
             </NFormItem>
           </NGi>
         </NGrid>
+        <NDivider style="margin: 12px 0">基本面篩選 (R52)</NDivider>
+        <NGrid :cols="3" :x-gap="12">
+          <NGi>
+            <NFormItem label="ROE ≥">
+              <NInputNumber v-model:value="createForm.min_roe" :min="0" :max="1" :step="0.01" size="small"
+                            placeholder="e.g. 0.15" clearable />
+            </NFormItem>
+          </NGi>
+          <NGi>
+            <NFormItem label="PE ≤">
+              <NInputNumber v-model:value="createForm.max_pe" :min="1" :max="200" :step="1" size="small"
+                            placeholder="e.g. 20" clearable />
+            </NFormItem>
+          </NGi>
+          <NGi>
+            <NFormItem label="市值 ≥ (億)">
+              <NInputNumber v-model:value="createForm.min_market_cap" :min="0" :step="10" size="small"
+                            placeholder="e.g. 100" clearable />
+            </NFormItem>
+          </NGi>
+        </NGrid>
       </NForm>
       <template #action>
         <NSpace>
@@ -390,6 +498,104 @@ onMounted(async () => {
           <NButton type="primary" @click="createStrategy" :disabled="!createForm.name">建立</NButton>
         </NSpace>
       </template>
+    </NModal>
+
+    <!-- Adaptive Backtest Result Modal (R52 P0) -->
+    <NModal v-model:show="showAdaptiveBt" preset="card" style="width: 900px"
+            :title="`自適應策略回測 — ${app.currentStockCode || ''}`">
+      <NSpin :show="adaptiveBtLoading">
+        <template v-if="adaptiveBtResult?.adaptive">
+          <!-- Comparison Metrics -->
+          <NGrid :cols="3" :x-gap="12" :y-gap="8" style="margin-bottom: 12px">
+            <NGi>
+              <NStatistic label="Alpha (自適應 - V4)">
+                <template #default>
+                  <span :style="{ color: (adaptiveBtResult.comparison?.alpha || 0) >= 0 ? '#18a058' : '#e53e3e', fontSize: '18px' }">
+                    {{ ((adaptiveBtResult.comparison?.alpha || 0) * 100).toFixed(2) }}%
+                  </span>
+                </template>
+              </NStatistic>
+            </NGi>
+            <NGi>
+              <NStatistic label="Sharpe Delta">
+                <template #default>
+                  <span :style="{ color: (adaptiveBtResult.comparison?.sharpe_delta || 0) >= 0 ? '#18a058' : '#e53e3e' }">
+                    {{ (adaptiveBtResult.comparison?.sharpe_delta || 0) > 0 ? '+' : '' }}{{ (adaptiveBtResult.comparison?.sharpe_delta || 0).toFixed(3) }}
+                  </span>
+                </template>
+              </NStatistic>
+            </NGi>
+            <NGi>
+              <NStatistic label="Drawdown Delta">
+                <template #default>
+                  <span :style="{ color: (adaptiveBtResult.comparison?.drawdown_delta || 0) >= 0 ? '#18a058' : '#e53e3e' }">
+                    {{ ((adaptiveBtResult.comparison?.drawdown_delta || 0) * 100).toFixed(2) }}%
+                  </span>
+                </template>
+              </NStatistic>
+            </NGi>
+          </NGrid>
+
+          <!-- Side-by-side metrics -->
+          <NGrid :cols="2" :x-gap="12">
+            <NGi>
+              <NCard size="small" title="自適應策略" :bordered="true">
+                <NGrid :cols="2" :x-gap="8" :y-gap="4">
+                  <NGi><NStatistic label="總報酬" :value="`${((adaptiveBtResult.adaptive?.total_return || 0) * 100).toFixed(2)}%`" /></NGi>
+                  <NGi><NStatistic label="年化" :value="`${((adaptiveBtResult.adaptive?.annual_return || 0) * 100).toFixed(2)}%`" /></NGi>
+                  <NGi><NStatistic label="最大回撤" :value="`${((adaptiveBtResult.adaptive?.max_drawdown || 0) * 100).toFixed(2)}%`" /></NGi>
+                  <NGi><NStatistic label="Sharpe" :value="(adaptiveBtResult.adaptive?.sharpe_ratio || 0).toFixed(2)" /></NGi>
+                  <NGi><NStatistic label="勝率" :value="`${((adaptiveBtResult.adaptive?.win_rate || 0) * 100).toFixed(1)}%`" /></NGi>
+                  <NGi><NStatistic label="交易數" :value="adaptiveBtResult.adaptive?.total_trades || 0" /></NGi>
+                </NGrid>
+              </NCard>
+            </NGi>
+            <NGi>
+              <NCard size="small" title="V4 標準 (Baseline)" :bordered="true">
+                <NGrid :cols="2" :x-gap="8" :y-gap="4">
+                  <NGi><NStatistic label="總報酬" :value="`${((adaptiveBtResult.baseline?.total_return || 0) * 100).toFixed(2)}%`" /></NGi>
+                  <NGi><NStatistic label="年化" :value="`${((adaptiveBtResult.baseline?.annual_return || 0) * 100).toFixed(2)}%`" /></NGi>
+                  <NGi><NStatistic label="最大回撤" :value="`${((adaptiveBtResult.baseline?.max_drawdown || 0) * 100).toFixed(2)}%`" /></NGi>
+                  <NGi><NStatistic label="Sharpe" :value="(adaptiveBtResult.baseline?.sharpe_ratio || 0).toFixed(2)" /></NGi>
+                  <NGi><NStatistic label="勝率" :value="`${((adaptiveBtResult.baseline?.win_rate || 0) * 100).toFixed(1)}%`" /></NGi>
+                  <NGi><NStatistic label="交易數" :value="adaptiveBtResult.baseline?.total_trades || 0" /></NGi>
+                </NGrid>
+              </NCard>
+            </NGi>
+          </NGrid>
+
+          <!-- Equity Curve Comparison -->
+          <NDivider style="margin: 12px 0">資金曲線對比</NDivider>
+          <VChart :option="adaptiveEquityChartOption" style="height: 250px" autoresize />
+
+          <!-- Regime Performance Breakdown -->
+          <template v-if="adaptiveBtResult.regime_performance?.length">
+            <NDivider style="margin: 12px 0">各情境表現分解</NDivider>
+            <NDataTable
+              :columns="adaptiveRegimeColumns"
+              :data="adaptiveBtResult.regime_performance"
+              size="small"
+              :bordered="false"
+              :pagination="false"
+            />
+          </template>
+
+          <!-- Regime Log Summary -->
+          <template v-if="adaptiveBtResult.regime_log?.length">
+            <NDivider style="margin: 12px 0">情境切換日誌 (最近 {{ adaptiveBtResult.regime_log.length }} 次)</NDivider>
+            <div style="max-height: 150px; overflow-y: auto; font-size: 12px; color: #666">
+              <div v-for="(rt, idx) in adaptiveBtResult.regime_log" :key="idx" style="padding: 2px 0">
+                <NTag size="tiny" style="margin-right: 4px">{{ rt.date?.substring(0, 10) || '' }}</NTag>
+                {{ rt.label || rt.regime }}
+                <span style="margin-left: 8px; color: #999">信心 {{ ((rt.confidence || 0) * 100).toFixed(0) }}% / Kelly {{ (rt.kelly || 0).toFixed(2) }}</span>
+              </div>
+            </div>
+          </template>
+        </template>
+        <div v-else-if="!adaptiveBtLoading" style="padding: 20px; text-align: center; color: #999">
+          無回測結果
+        </div>
+      </NSpin>
     </NModal>
 
     <!-- Backtest Result Modal (R51-3 Enhanced) -->

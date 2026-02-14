@@ -31,6 +31,7 @@ function onSearchSelect(code: string) {
 }
 
 const menuItems = [
+  { label: '0  Dashboard', key: 'dashboard' },
   { label: '1  技術分析', key: 'technical' },
   { label: '2  自選股總覽', key: 'watchlist' },
   { label: '3  回測報告', key: 'backtest' },

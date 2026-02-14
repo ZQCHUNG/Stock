@@ -7,6 +7,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import { alertsApi, type AlertConfig, type SchedulerStatus } from '../api/alerts'
 import { systemApi } from '../api/system'
+import { portfolioApi } from '../api/portfolio'
 import { useWatchlistStore } from '../stores/watchlist'
 
 const wl = useWatchlistStore()
@@ -38,6 +39,9 @@ const omsLoading = ref(false)
 const omsRunning = ref(false)
 const omsEfficiency = ref<any>(null)
 const effLoading = ref(false)
+// R52 P2: Portfolio correlation alert
+const corrData = ref<any>(null)
+const corrLoading = ref(false)
 
 async function loadConfig() {
   isLoading.value = true
@@ -176,6 +180,14 @@ async function loadOmsEfficiency() {
   effLoading.value = false
 }
 
+async function loadCorrelation() {
+  corrLoading.value = true
+  try {
+    corrData.value = await portfolioApi.correlation()
+  } catch { corrData.value = null }
+  corrLoading.value = false
+}
+
 function healthStatusType(status: string): 'success' | 'warning' | 'error' | 'default' {
   if (status === 'healthy') return 'success'
   if (status === 'degraded') return 'warning'
@@ -190,7 +202,7 @@ function useWatchlistAsFilter() {
 onMounted(async () => {
   await loadConfig()
   await loadAlerts()
-  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality(), loadOms(), loadOmsEfficiency()])
+  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality(), loadOms(), loadOmsEfficiency(), loadCorrelation()])
 })
 
 const triggeredColumns: DataTableColumns = [
@@ -537,6 +549,44 @@ const historyColumns: DataTableColumns = [
         :single-line="false"
       />
       <div v-else style="padding: 20px; text-align: center; color: #999">尚無歷史紀錄</div>
+    </NCard>
+
+    <!-- R52 P2: Portfolio Correlation Alert -->
+    <NCard size="small" style="margin-top: 16px" v-if="corrData?.has_data">
+      <template #header>
+        <NSpace align="center" :size="8">
+          <span>Portfolio Correlation Monitor</span>
+          <NTag v-if="corrData.high_corr_alert" type="error" size="small">HIGH CORRELATION</NTag>
+          <NButton size="tiny" @click="loadCorrelation" :loading="corrLoading">Refresh</NButton>
+        </NSpace>
+      </template>
+      <NSpin :show="corrLoading">
+        <NAlert v-if="corrData.high_corr_alert" type="error" style="margin-bottom: 8px">
+          High correlation detected among {{ corrData.high_corr_group?.length || 0 }} stocks
+          ({{ corrData.high_corr_group?.join(', ') }}).
+          Consider reducing exposure to correlated positions.
+        </NAlert>
+        <template v-if="corrData.high_corr_pairs?.length">
+          <NDataTable
+            :columns="[
+              { title: 'Stock A', key: 'code_a', width: 80 },
+              { title: '', key: 'name_a', width: 100 },
+              { title: 'Stock B', key: 'code_b', width: 80 },
+              { title: '', key: 'name_b', width: 100 },
+              { title: 'Correlation', key: 'correlation', width: 100,
+                render: (row: any) => h('span', { style: { color: Math.abs(row.correlation) > 0.8 ? '#e53e3e' : '#f0a020', fontWeight: 'bold' } }, row.correlation.toFixed(3)),
+                sorter: (a: any, b: any) => Math.abs(b.correlation) - Math.abs(a.correlation) },
+            ]"
+            :data="corrData.high_corr_pairs"
+            size="small"
+            :bordered="false"
+            :pagination="false"
+          />
+        </template>
+        <div v-else style="padding: 12px; text-align: center; color: #18a058">
+          No high-correlation pairs detected (threshold: |p| > 0.7). Portfolio is well-diversified.
+        </div>
+      </NSpin>
     </NCard>
   </div>
 </template>

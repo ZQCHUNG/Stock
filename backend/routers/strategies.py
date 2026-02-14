@@ -33,6 +33,10 @@ class StrategyParams(BaseModel):
     min_hold_days: int = 5
     min_volume: int = 500
     confidence_weight: float = 1.0
+    # R52 P1: Fundamental filters (None = disabled)
+    min_roe: float | None = None       # e.g. 0.15 for ROE >= 15%
+    max_pe: float | None = None        # e.g. 20 for PE <= 20
+    min_market_cap: float | None = None # e.g. 10_000_000_000 for >= 100億
 
 
 class CreateStrategyRequest(BaseModel):
@@ -325,6 +329,75 @@ def _compute_regime_breakdown(result, df) -> list[dict]:
 
     breakdown.sort(key=lambda x: x["count"], reverse=True)
     return breakdown
+
+
+class AdaptiveBacktestRequest(BaseModel):
+    period_days: int = 1095  # 3 years default
+    initial_capital: float = 1_000_000
+    rebalance_days: int = 5
+    regime_lookback: int = 60
+
+
+@router.post("/adaptive-backtest/{code}")
+def run_adaptive_backtest_endpoint(code: str, req: AdaptiveBacktestRequest):
+    """R52 P0: 自適應策略回測 — 動態策略切換 vs 純 V4
+
+    模擬歷史上根據 ML 市場情境動態調整策略參數，與固定 V4 比較。
+    """
+    from data.fetcher import get_stock_data
+    from backtest.adaptive import run_adaptive_backtest
+    from backend.dependencies import make_serializable, series_to_response
+
+    try:
+        df = get_stock_data(code, period_days=req.period_days)
+        if df is None or len(df) < 120:
+            raise HTTPException(400, f"{code} 數據不足 (需要至少 120 天)")
+
+        result = run_adaptive_backtest(
+            df,
+            initial_capital=req.initial_capital,
+            rebalance_days=req.rebalance_days,
+            regime_lookback=req.regime_lookback,
+        )
+
+        return make_serializable({
+            "code": code,
+            "adaptive": {
+                "total_return": result.adaptive.total_return,
+                "annual_return": result.adaptive.annual_return,
+                "max_drawdown": result.adaptive.max_drawdown,
+                "sharpe_ratio": result.adaptive.sharpe_ratio,
+                "sortino_ratio": result.adaptive.sortino_ratio,
+                "win_rate": result.adaptive.win_rate,
+                "profit_factor": result.adaptive.profit_factor,
+                "total_trades": result.adaptive.total_trades,
+                "max_consecutive_losses": result.adaptive.max_consecutive_losses,
+                "equity_curve": series_to_response(result.adaptive.equity_curve),
+            },
+            "baseline": {
+                "total_return": result.baseline.total_return,
+                "annual_return": result.baseline.annual_return,
+                "max_drawdown": result.baseline.max_drawdown,
+                "sharpe_ratio": result.baseline.sharpe_ratio,
+                "sortino_ratio": result.baseline.sortino_ratio,
+                "win_rate": result.baseline.win_rate,
+                "profit_factor": result.baseline.profit_factor,
+                "total_trades": result.baseline.total_trades,
+                "max_consecutive_losses": result.baseline.max_consecutive_losses,
+                "equity_curve": series_to_response(result.baseline.equity_curve),
+            },
+            "comparison": {
+                "alpha": result.alpha,
+                "sharpe_delta": result.sharpe_delta,
+                "drawdown_delta": result.drawdown_delta,
+            },
+            "regime_performance": result.regime_performance,
+            "regime_log": result.regime_log[:50],  # Limit log size
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @router.get("/adaptive-recommendation")

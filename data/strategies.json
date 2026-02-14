@@ -1,0 +1,62 @@
+[
+  {
+    "id": "v4-default",
+    "name": "V4 Standard",
+    "description": "V4 標準參數 — 適合多數市場環境",
+    "params": {
+      "adx_threshold": 18,
+      "ma_short": 20,
+      "ma_long": 60,
+      "ma_trend_days": 10,
+      "take_profit_pct": 0.1,
+      "stop_loss_pct": -0.07,
+      "trailing_stop_pct": 0.02,
+      "min_hold_days": 5,
+      "min_volume": 500,
+      "confidence_weight": 1.0
+    },
+    "is_default": true,
+    "created_at": "2026-02-15T07:02:13.028973",
+    "updated_at": "2026-02-15T07:02:13.028973"
+  },
+  {
+    "id": "v4-conservative",
+    "name": "V4 Conservative",
+    "description": "保守版 — 更高 ADX 門檻、更緊停損",
+    "params": {
+      "adx_threshold": 25.0,
+      "ma_short": 20,
+      "ma_long": 60,
+      "ma_trend_days": 10,
+      "take_profit_pct": 0.1,
+      "stop_loss_pct": -0.05,
+      "trailing_stop_pct": 0.015,
+      "min_hold_days": 5,
+      "min_volume": 800,
+      "confidence_weight": 1.0
+    },
+    "is_default": false,
+    "created_at": "2026-02-15T07:02:13.028973",
+    "updated_at": "2026-02-15T07:02:13.028973"
+  },
+  {
+    "id": "v4-aggressive",
+    "name": "V4 Aggressive",
+    "description": "積極版 — 較低門檻、更寬停損、更大獲利空間",
+    "params": {
+      "adx_threshold": 15.0,
+      "ma_short": 20,
+      "ma_long": 60,
+      "ma_trend_days": 10,
+      "take_profit_pct": 0.15,
+      "stop_loss_pct": -0.1,
+      "trailing_stop_pct": 0.025,
+      "min_hold_days": 5,
+      "min_volume": 300,
+      "confidence_weight": 1.0
+    },
+    "is_default": false,
+    "created_at": "2026-02-15T07:02:13.028973",
+    "updated_at": "2026-02-15T07:02:13.028973"
+  }
+]

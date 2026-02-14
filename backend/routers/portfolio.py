@@ -529,6 +529,16 @@ def get_portfolio_correlation():
                     "correlation": round(rho, 3),
                 })
 
+    # R52 P2: Detect high-correlation groups (|ρ| > 0.8, 3+ stocks)
+    high_corr_group_alert = False
+    high_corr_group_stocks = set()
+    for pair in high_corr_pairs:
+        if abs(pair["correlation"]) > 0.8:
+            high_corr_group_stocks.add(pair["code_a"])
+            high_corr_group_stocks.add(pair["code_b"])
+    if len(high_corr_group_stocks) >= 3:
+        high_corr_group_alert = True
+
     return make_serializable({
         "has_data": True,
         "codes": valid_codes,
@@ -536,6 +546,9 @@ def get_portfolio_correlation():
         "matrix": [[round(float(v), 3) for v in row] for row in corr_matrix],
         "high_corr_pairs": sorted(high_corr_pairs, key=lambda x: -abs(x["correlation"])),
         "data_points": len(ret_df),
+        # R52 P2: Correlation alert
+        "high_corr_alert": high_corr_group_alert,
+        "high_corr_group": sorted(high_corr_group_stocks) if high_corr_group_alert else [],
     })
 
 

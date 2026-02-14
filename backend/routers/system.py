@@ -329,3 +329,132 @@ def performance_attribution():
         "by_holding_period": period_stats,
         "monthly_pnl": monthly_sorted[-12:],  # Last 12 months
     })
+
+
+@router.get("/dashboard")
+def dashboard_summary():
+    """R52 P1: Dashboard summary — aggregates key data for the homepage.
+
+    Returns positions summary, P&L, market regime, OMS efficiency, alerts.
+    """
+    from backend.dependencies import make_serializable
+
+    result = {
+        "positions": _dashboard_positions(),
+        "pnl": _dashboard_pnl(),
+        "regime": _dashboard_regime(),
+        "oms": _dashboard_oms(),
+        "alerts": _dashboard_alerts(),
+    }
+    return make_serializable(result)
+
+
+def _dashboard_positions():
+    """Open positions summary for dashboard."""
+    try:
+        from backend import db
+        positions = db.get_open_positions()
+        if not positions:
+            return {"count": 0, "total_value": 0, "total_pnl": 0, "total_pnl_pct": 0}
+
+        total_value = sum(p.get("market_value", 0) for p in positions)
+        total_cost = sum(p.get("entry_price", 0) * p.get("lots", 0) * 1000 for p in positions)
+        total_pnl = sum(p.get("pnl", 0) for p in positions)
+        pnl_pct = total_pnl / total_cost if total_cost > 0 else 0
+
+        return {
+            "count": len(positions),
+            "total_value": round(total_value, 0),
+            "total_pnl": round(total_pnl, 0),
+            "total_pnl_pct": round(pnl_pct, 4),
+            "top_positions": [
+                {"code": p.get("code"), "name": p.get("name", ""),
+                 "pnl": p.get("pnl", 0), "pnl_pct": p.get("pnl_pct", 0)}
+                for p in sorted(positions, key=lambda x: abs(x.get("pnl", 0)), reverse=True)[:5]
+            ],
+        }
+    except Exception:
+        return {"count": 0, "total_value": 0, "total_pnl": 0, "total_pnl_pct": 0}
+
+
+def _dashboard_pnl():
+    """Monthly P&L summary from closed trades."""
+    try:
+        from backend import db
+        closed = db.get_closed_positions(limit=500)
+        if not closed:
+            return {"total_closed": 0, "cumulative_pnl": 0, "monthly": []}
+
+        cumulative = sum(c.get("net_pnl", 0) for c in closed)
+        monthly: dict[str, float] = {}
+        for c in closed:
+            exit_date = c.get("exit_date", "")
+            if len(exit_date) >= 7:
+                month = exit_date[:7]
+                monthly[month] = monthly.get(month, 0) + (c.get("net_pnl") or 0)
+
+        monthly_list = [{"month": m, "pnl": round(v, 0)} for m, v in sorted(monthly.items())]
+
+        return {
+            "total_closed": len(closed),
+            "cumulative_pnl": round(cumulative, 0),
+            "monthly": monthly_list[-6:],  # Last 6 months for compact view
+        }
+    except Exception:
+        return {"total_closed": 0, "cumulative_pnl": 0, "monthly": []}
+
+
+def _dashboard_regime():
+    """Current ML market regime (fast — uses cached data if available)."""
+    try:
+        from backend.ml_regime import classify_market_regime
+        from data.fetcher import get_stock_data
+
+        df = get_stock_data("0050", period_days=250)
+        if df is None or len(df) < 60:
+            return {"regime": "unknown", "label": "N/A", "confidence": 0}
+
+        rd = classify_market_regime(
+            close=df["close"].values,
+            high=df["high"].values,
+            low=df["low"].values,
+            volume=df["volume"].values.astype(float),
+        )
+        return {
+            "regime": rd.get("regime", "unknown"),
+            "label": rd.get("regime_label", "N/A"),
+            "confidence": rd.get("confidence", 0),
+            "kelly": rd.get("kelly_multiplier", 0.5),
+            "v4_suitability": rd.get("v4_suitability", "unknown"),
+            "advice": rd.get("strategy_advice", ""),
+        }
+    except Exception:
+        return {"regime": "unknown", "label": "N/A", "confidence": 0}
+
+
+def _dashboard_oms():
+    """OMS efficiency summary."""
+    try:
+        from backend.order_manager import get_oms_efficiency
+        eff = get_oms_efficiency()
+        return {
+            "auto_coverage": eff.get("auto_coverage", 0),
+            "max_consecutive_losses": eff.get("max_consecutive_losses", 0),
+            "total_auto_exits": eff.get("total_auto_exits", 0),
+        }
+    except Exception:
+        return {"auto_coverage": 0, "max_consecutive_losses": 0, "total_auto_exits": 0}
+
+
+def _dashboard_alerts():
+    """Recent system alerts from alert history."""
+    try:
+        alert_history = Path(__file__).resolve().parent.parent.parent / "data" / "alert_history.json"
+        if not alert_history.exists():
+            return []
+        data = json.loads(alert_history.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data[-5:]  # Last 5 alerts
+        return []
+    except Exception:
+        return []
