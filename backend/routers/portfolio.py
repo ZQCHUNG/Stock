@@ -388,6 +388,27 @@ def get_performance():
                 "data_points": len(port_rets),
             }
 
+    # Sortino & Calmar Ratios (Gemini R34: Downside Risk Metrics)
+    sortino = None
+    calmar = None
+    actual_daily = [r for r in daily_returns[1:] if r != 0]  # Skip first zero
+    if len(actual_daily) >= 10:
+        import numpy as np
+        rf_daily = 0.015 / 252  # Taiwan 1-year rate ~1.5%
+        excess = [r - rf_daily for r in actual_daily]
+        downside = [min(0, r) for r in excess]
+        downside_sq = [d ** 2 for d in downside]
+        downside_dev = (sum(downside_sq) / len(downside_sq)) ** 0.5
+        mean_excess = sum(excess) / len(excess)
+
+        # Annualize
+        sortino = float(mean_excess * 252 ** 0.5 / downside_dev) if downside_dev > 0 else 0
+
+        # Calmar: annualized return / max drawdown
+        n_days = len(actual_daily)
+        annual_return = (1 + total_return) ** (252 / n_days) - 1 if n_days > 0 else 0
+        calmar = float(annual_return / max_dd) if max_dd > 0 else 0
+
     return make_serializable({
         "has_data": True,
         "dates": dates,
@@ -398,6 +419,10 @@ def get_performance():
         "shadow_dates": shadow_dates,
         "shadow_equity": shadow_equity,
         "alpha_beta": alpha_beta,
+        "risk_ratios": {
+            "sortino": round(sortino, 3) if sortino is not None else None,
+            "calmar": round(calmar, 3) if calmar is not None else None,
+        },
         "summary": {
             "total_return": round(total_return, 4),
             "max_drawdown": round(max_dd, 4),
@@ -621,6 +646,177 @@ def get_stress_test():
     })
 
 
+@router.get("/optimal-exposure")
+def get_optimal_exposure():
+    """Kelly Criterion 建議最佳曝險比例（Gemini R34）
+
+    Half-Kelly with market breadth multiplier for Taiwan stock retail context.
+    """
+    from data.cache import get_cached_sector_heat
+    from backend.dependencies import make_serializable
+
+    stats = db.get_closed_stats()
+    shadow_stats = db.get_shadow_stats_recent(days=30)
+
+    # Prefer shadow stats (pure system), fall back to user stats
+    if shadow_stats["total"] >= 5:
+        win_rate = shadow_stats["win_rate"]
+    elif stats["total"] >= 5:
+        win_rate = stats["win_rate"]
+    else:
+        return make_serializable({"has_data": False, "reason": "需至少 5 筆已平倉交易"})
+
+    avg_win = stats["avg_win"] if stats["avg_win"] > 0 else 1
+    avg_loss = stats["avg_loss"] if stats["avg_loss"] > 0 else 1
+    payoff_ratio = avg_win / avg_loss
+
+    # Kelly formula: f* = (p*b - q) / b
+    p = win_rate
+    b = payoff_ratio
+    q = 1 - p
+    kelly_full = (p * b - q) / b if b > 0 else 0
+
+    # Half-Kelly for safety (industry standard)
+    kelly_half = max(0, min(1, kelly_full * 0.5))
+
+    # Market breadth adjustment
+    heat = get_cached_sector_heat()
+    breadth = heat.get("market_breadth", 0.5) if heat else 0.5
+
+    if breadth > 0.40:
+        breadth_mult = 1.0
+        regime = "攻擊"
+    elif breadth > 0.20:
+        breadth_mult = 0.6
+        regime = "盤整"
+    else:
+        breadth_mult = 0.3
+        regime = "防禦"
+
+    suggested_exposure = min(0.95, kelly_half * breadth_mult)
+    suggested_cash = 1 - suggested_exposure
+
+    # Current actual exposure
+    positions = db.get_open_positions()
+    pos_value = sum(
+        p["lots"] * 1000 * (p.get("current_price") or p["entry_price"])
+        for p in positions
+    )
+    snapshots = db.get_equity_snapshots(limit=1)
+    total_eq = snapshots[-1].get("total_equity", 0) if snapshots else 0
+    current_exposure = pos_value / total_eq if total_eq > 0 else 0
+
+    # Over/under-exposed
+    delta = current_exposure - suggested_exposure
+    if delta > 0.15:
+        advice = f"過度曝險 {delta:.0%}，建議減倉至 {suggested_exposure:.0%}"
+    elif delta < -0.15:
+        advice = f"低於最佳曝險 {abs(delta):.0%}，可適度加碼至 {suggested_exposure:.0%}"
+    else:
+        advice = "曝險水位適當"
+
+    return make_serializable({
+        "has_data": True,
+        "kelly_full": round(kelly_full, 4),
+        "kelly_half": round(kelly_half, 4),
+        "win_rate": round(win_rate, 4),
+        "payoff_ratio": round(payoff_ratio, 2),
+        "market_breadth": round(breadth, 4),
+        "breadth_multiplier": breadth_mult,
+        "regime": regime,
+        "suggested_exposure": round(suggested_exposure, 4),
+        "suggested_cash": round(suggested_cash, 4),
+        "current_exposure": round(current_exposure, 4),
+        "total_equity": round(total_eq, 0),
+        "position_value": round(pos_value, 0),
+        "advice": advice,
+    })
+
+
+class SimulateRebalanceRequest(BaseModel):
+    codes: list[str]
+
+
+@router.post("/simulate-rebalance")
+def simulate_rebalance(req: SimulateRebalanceRequest):
+    """模擬重組預覽 — 計算假設持倉的相關性與壓力測試（Gemini R34）
+
+    Takes a list of stock codes and returns what-if correlation matrix + stress test.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from data.fetcher import get_stock_data
+    from backend.dependencies import make_serializable
+    import numpy as np
+    import pandas as pd
+
+    codes = list(dict.fromkeys(req.codes))  # dedupe preserving order
+    if len(codes) < 2:
+        return make_serializable({"has_data": False, "reason": "至少需要 2 檔標的"})
+
+    def _fetch(code):
+        try:
+            df = get_stock_data(code, period_days=90)
+            if len(df) < 30:
+                return code, None, None, None
+            returns = df["close"].pct_change().dropna().tail(60)
+            current = float(df["close"].iloc[-1])
+            # ATR for stress test
+            high, low, close = df["high"], df["low"], df["close"]
+            tr = (high - low).combine(abs(high - close.shift(1)), max).combine(abs(low - close.shift(1)), max)
+            atr = float(tr.tail(14).mean())
+            return code, returns, current, atr
+        except Exception:
+            return code, None, None, None
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        results = list(ex.map(_fetch, codes))
+
+    valid = [(c, r, p, a) for c, r, p, a in results if r is not None and len(r) >= 20]
+    if len(valid) < 2:
+        return make_serializable({"has_data": False, "reason": "數據不足"})
+
+    # Correlation matrix
+    ret_df = pd.DataFrame({c: r for c, r, _, _ in valid}).dropna()
+    if len(ret_df) < 20:
+        return make_serializable({"has_data": False, "reason": "共同交易日不足"})
+
+    corr = ret_df.corr().values
+    v_codes = list(ret_df.columns)
+
+    high_corr = []
+    n = len(v_codes)
+    for i in range(n):
+        for j in range(i + 1, n):
+            rho = float(corr[i][j])
+            if abs(rho) > 0.7:
+                high_corr.append({"code_a": v_codes[i], "code_b": v_codes[j], "correlation": round(rho, 3)})
+
+    # Simple stress test (equal-weight 1 lot each)
+    prices = {c: p for c, _, p, _ in valid}
+    atrs = {c: a for c, _, _, a in valid}
+    total_value = sum(prices[c] * 1000 for c in v_codes)
+    base_loss = -total_value * 0.03
+    swan_loss = -total_value * 0.07
+    atr_loss = sum(-atrs[c] * 2 * 1000 for c in v_codes)
+
+    return make_serializable({
+        "has_data": True,
+        "codes": v_codes,
+        "matrix": [[round(float(v), 3) for v in row] for row in corr],
+        "high_corr_pairs": sorted(high_corr, key=lambda x: -abs(x["correlation"])),
+        "data_points": len(ret_df),
+        "stress_test": {
+            "total_value": round(total_value),
+            "base_loss": round(base_loss),
+            "base_pct": round(base_loss / total_value, 4) if total_value > 0 else 0,
+            "swan_loss": round(swan_loss),
+            "swan_pct": round(swan_loss / total_value, 4) if total_value > 0 else 0,
+            "atr_loss": round(atr_loss),
+            "atr_pct": round(atr_loss / total_value, 4) if total_value > 0 else 0,
+        },
+    })
+
+
 @router.get("/briefing")
 def get_briefing():
     """今日戰略簡報 — AI Briefing（Gemini R26-R27: with self-correction）"""
@@ -826,7 +1022,35 @@ def get_briefing():
                 if len(insights) >= 5:
                     break
 
-    # 11. If no insights, add a neutral one
+    # 11. Kelly exposure advice (Gemini R34)
+    stats = db.get_closed_stats()
+    if stats["total"] >= 5:
+        from data.cache import get_cached_sector_heat as _gsh
+        _heat = _gsh()
+        _breadth = _heat.get("market_breadth", 0.5) if _heat else 0.5
+        _wr = shadow_stats["win_rate"] if shadow_stats["total"] >= 5 else stats["win_rate"]
+        _avg_w = stats["avg_win"] if stats["avg_win"] > 0 else 1
+        _avg_l = stats["avg_loss"] if stats["avg_loss"] > 0 else 1
+        _b = _avg_w / _avg_l
+        _kelly = max(0, (_wr * _b - (1 - _wr)) / _b * 0.5) if _b > 0 else 0
+        _bm = 1.0 if _breadth > 0.40 else (0.6 if _breadth > 0.20 else 0.3)
+        _sug = min(0.95, _kelly * _bm)
+        _pos_val = sum(p["lots"] * 1000 * (p.get("current_price") or p["entry_price"]) for p in positions) if positions else 0
+        _snaps = db.get_equity_snapshots(limit=1)
+        _teq = _snaps[-1].get("total_equity", 0) if _snaps else 0
+        _cur_exp = _pos_val / _teq if _teq > 0 else 0
+        if _cur_exp > _sug + 0.15:
+            insights.append({
+                "type": "kelly_overexposed",
+                "severity": "high",
+                "icon": "💰",
+                "message": (
+                    f"現金管理：目前曝險 {_cur_exp:.0%} 超出 Kelly 建議 {_sug:.0%}，"
+                    f"建議提高現金儲備（勝率 {_wr:.0%}，賠率 {_b:.1f}x，寬度 {_breadth:.0%}）"
+                ),
+            })
+
+    # 12. If no insights, add a neutral one
     if not insights:
         insights.append({
             "type": "neutral",
@@ -844,6 +1068,7 @@ def get_briefing():
         "hidden_exposure": 85,
         "concentration": 80,
         "market_regime": 75,
+        "kelly_overexposed": 72,
         "shadow_comparison": 70,
         "self_correction": 65,
         "sector_surge": 55,
@@ -861,6 +1086,7 @@ def get_briefing():
         "hidden_exposure": "曝險警告",
         "concentration": "組合優化",
         "market_regime": "風險防禦",
+        "kelly_overexposed": "現金管理",
         "shadow_comparison": "績效檢視",
         "self_correction": "自我修正",
         "sector_surge": "進場機會",

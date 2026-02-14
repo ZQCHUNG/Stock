@@ -34,4 +34,7 @@ export const portfolioApi = {
   briefing: () => client.get<any, any>('/portfolio/briefing'),
   stressTest: () => client.get<any, any>('/portfolio/stress-test'),
   correlation: () => client.get<any, any>('/portfolio/correlation'),
+  optimalExposure: () => client.get<any, any>('/portfolio/optimal-exposure'),
+  simulateRebalance: (codes: string[]) =>
+    client.post<any, any>('/portfolio/simulate-rebalance', { codes }),
 }

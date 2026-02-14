@@ -28,6 +28,7 @@ onMounted(() => {
   pf.loadBriefing()
   pf.loadStressTest()
   pf.loadCorrelation()
+  pf.loadOptimalExposure()
 })
 
 function analyzeStock(code: string) {
@@ -198,6 +199,32 @@ const corrData = computed(() => pf.correlation)
 const priorityActions = computed(() => pf.briefing?.priority_actions || [])
 
 const actionSeverityType = (s: string) => s === 'high' ? 'error' : s === 'medium' ? 'warning' : 'info'
+
+// Kelly Criterion / Optimal Exposure (Gemini R34)
+const kellyData = computed(() => pf.optimalExposure)
+
+// Risk ratios (Gemini R34)
+const riskRatios = computed(() => perfData.value?.risk_ratios)
+
+// Rebalancing simulator (Gemini R34)
+const simData = computed(() => pf.rebalanceSim)
+const simLoading = ref(false)
+
+async function runRebalanceSim() {
+  // Collect current position codes + rotation suggestion targets
+  const currentCodes = pf.positions.map((p: any) => p.code)
+  // Extract rotation suggestion target codes from briefing
+  const rotationInsights = briefingInsights.value.filter((i: any) => i.type === 'rotation')
+  const newCodes = new Set(currentCodes)
+  for (const ins of rotationInsights) {
+    // Parse "轉進 XXXX" from message
+    const m = ins.message.match(/轉進\s+(\d{4})/)
+    if (m) newCodes.add(m[1])
+  }
+  simLoading.value = true
+  await pf.simulateRebalance([...newCodes])
+  simLoading.value = false
+}
 </script>
 
 <template>
@@ -317,6 +344,52 @@ const actionSeverityType = (s: string) => s === 'high' ? 'error' : s === 'medium
         </NGi>
       </NGrid>
 
+      <!-- Kelly Optimal Exposure (Gemini R34) -->
+      <NCard v-if="kellyData?.has_data" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">曝險水位</span>
+            <NTag size="small" :bordered="false">Kelly Criterion</NTag>
+            <NTag size="small" :type="kellyData.regime === '攻擊' ? 'success' : kellyData.regime === '盤整' ? 'warning' : 'error'">
+              {{ kellyData.regime }}模式
+            </NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="4" :x-gap="12" :y-gap="12">
+          <NGi>
+            <MetricCard title="建議曝險" :value="fmtPct(kellyData.suggested_exposure)" />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="目前曝險"
+              :value="fmtPct(kellyData.current_exposure)"
+              :color="Math.abs(kellyData.current_exposure - kellyData.suggested_exposure) > 0.15 ? '#e53e3e' : '#18a058'"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard title="建議現金" :value="fmtPct(kellyData.suggested_cash)" />
+          </NGi>
+          <NGi>
+            <MetricCard title="勝率/賠率" :value="`${fmtPct(kellyData.win_rate)} / ${kellyData.payoff_ratio}x`" />
+          </NGi>
+        </NGrid>
+        <div style="margin-top: 8px; font-size: 12px">
+          <NProgress
+            type="line"
+            :percentage="Math.min(100, kellyData.current_exposure * 100)"
+            :color="Math.abs(kellyData.current_exposure - kellyData.suggested_exposure) > 0.15 ? '#e53e3e' : '#18a058'"
+            :height="10"
+            :show-indicator="false"
+          />
+          <div style="display: flex; justify-content: space-between; margin-top: 2px; color: #999">
+            <span>0%</span>
+            <span style="color: #2080f0; font-weight: 600">Kelly: {{ fmtPct(kellyData.suggested_exposure) }}</span>
+            <span>100%</span>
+          </div>
+          <div style="margin-top: 4px; font-weight: 500">{{ kellyData.advice }}</div>
+        </div>
+      </NCard>
+
       <!-- Equity Curve + MDD (Gemini R28) -->
       <NCard v-if="perfData?.has_data" size="small" style="margin-bottom: 16px">
         <template #header>
@@ -337,6 +410,16 @@ const actionSeverityType = (s: string) => s === 'high' ? 'error' : s === 'medium
               </NTag>
               <NTag size="small" :bordered="false">
                 Beta {{ perfData.alpha_beta.beta?.toFixed(2) }}
+              </NTag>
+            </template>
+            <template v-if="riskRatios?.sortino != null">
+              <NTag size="small" :type="(riskRatios.sortino || 0) >= 1.5 ? 'success' : (riskRatios.sortino || 0) >= 0.5 ? 'warning' : 'error'">
+                Sortino {{ riskRatios.sortino?.toFixed(2) }}
+              </NTag>
+            </template>
+            <template v-if="riskRatios?.calmar != null">
+              <NTag size="small" :bordered="false">
+                Calmar {{ riskRatios.calmar?.toFixed(2) }}
               </NTag>
             </template>
           </NSpace>
@@ -452,6 +535,70 @@ const actionSeverityType = (s: string) => s === 'high' ? 'error' : s === 'medium
               {{ pair.code_a }} × {{ pair.code_b }} = {{ pair.correlation.toFixed(3) }}
             </NTag>
           </NSpace>
+        </div>
+      </NCard>
+
+      <!-- Rebalancing Simulator (Gemini R34) -->
+      <NCard v-if="pf.positions.length >= 2" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">模擬重組</span>
+            <NTag size="small" :bordered="false">What-If Simulator</NTag>
+            <NButton size="tiny" type="primary" :loading="simLoading" @click="runRebalanceSim">
+              執行模擬
+            </NButton>
+          </NSpace>
+        </template>
+        <div v-if="!simData" style="font-size: 12px; color: #999">
+          點擊「執行模擬」，系統將以目前持股 + 換股建議標的計算新的相關性矩陣與壓力測試
+        </div>
+        <div v-if="simData?.has_data">
+          <NGrid :cols="2" :x-gap="12" :y-gap="12">
+            <NGi>
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px">重組後相關性</div>
+              <CorrelationHeatmap
+                :codes="simData.codes"
+                :names="simData.codes"
+                :matrix="simData.matrix"
+              />
+              <NSpace v-if="simData.high_corr_pairs?.length" :size="4" style="margin-top: 4px; flex-wrap: wrap">
+                <NTag
+                  v-for="(p, i) in simData.high_corr_pairs"
+                  :key="i"
+                  :type="p.correlation > 0.85 ? 'error' : 'warning'"
+                  size="small"
+                >
+                  {{ p.code_a }} × {{ p.code_b }} = {{ p.correlation }}
+                </NTag>
+              </NSpace>
+              <div v-else style="font-size: 12px; color: #18a058; margin-top: 4px">
+                無高相關配對 — 分散度良好
+              </div>
+            </NGi>
+            <NGi>
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px">重組後壓力測試</div>
+              <div v-if="simData.stress_test" style="display: flex; flex-direction: column; gap: 8px">
+                <div style="border: 1px solid var(--n-border-color); border-radius: 6px; padding: 8px">
+                  <div style="font-size: 11px; color: #999">基準回調 (-3%)</div>
+                  <div style="font-size: 18px; font-weight: 700; color: #e53e3e">
+                    ${{ fmtNum(simData.stress_test.base_loss, 0) }}
+                  </div>
+                </div>
+                <div style="border: 1px solid var(--n-border-color); border-radius: 6px; padding: 8px">
+                  <div style="font-size: 11px; color: #999">黑天鵝 (-7%)</div>
+                  <div style="font-size: 18px; font-weight: 700; color: #e53e3e">
+                    ${{ fmtNum(simData.stress_test.swan_loss, 0) }}
+                  </div>
+                </div>
+                <div style="border: 1px solid var(--n-border-color); border-radius: 6px; padding: 8px">
+                  <div style="font-size: 11px; color: #999">ATR 殺盤 (-2×ATR)</div>
+                  <div style="font-size: 18px; font-weight: 700; color: #e53e3e">
+                    ${{ fmtNum(simData.stress_test.atr_loss, 0) }}
+                  </div>
+                </div>
+              </div>
+            </NGi>
+          </NGrid>
         </div>
       </NCard>
 

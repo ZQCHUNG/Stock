@@ -15,6 +15,8 @@ export const usePortfolioStore = defineStore('portfolio', () => {
   const briefing = ref<any>(null)
   const stressTest = ref<any>(null)
   const correlation = ref<any>(null)
+  const optimalExposure = ref<any>(null)
+  const rebalanceSim = ref<any>(null)
   const isLoading = ref(false)
 
   async function load() {
@@ -130,9 +132,27 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     }
   }
 
+  async function loadOptimalExposure() {
+    try {
+      optimalExposure.value = await portfolioApi.optimalExposure()
+    } catch {
+      optimalExposure.value = null
+    }
+  }
+
+  async function simulateRebalance(codes: string[]) {
+    try {
+      rebalanceSim.value = await portfolioApi.simulateRebalance(codes)
+    } catch {
+      rebalanceSim.value = null
+    }
+  }
+
   return {
-    positions, closed, summary, health, exitAlerts, equityLedger, analytics, performance, briefing, stressTest, correlation, isLoading,
+    positions, closed, summary, health, exitAlerts, equityLedger, analytics, performance,
+    briefing, stressTest, correlation, optimalExposure, rebalanceSim, isLoading,
     load, openPosition, closePosition, updatePosition, deletePosition,
-    loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadPerformance, loadBriefing, loadStressTest, loadCorrelation,
+    loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadPerformance,
+    loadBriefing, loadStressTest, loadCorrelation, loadOptimalExposure, simulateRebalance,
   }
 })
