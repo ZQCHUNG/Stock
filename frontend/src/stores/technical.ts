@@ -30,6 +30,9 @@ export const useTechnicalStore = defineStore('technical', () => {
   const isLoading = ref(false)
   const error = ref('')
 
+  // Race condition guard: discard stale responses when stock switches mid-flight
+  let _loadSeq = 0
+
   // Cross-page cache: keeps data for previously viewed stocks
   const _cache = new Map<string, TechCacheEntry>()
 
@@ -66,6 +69,11 @@ export const useTechnicalStore = defineStore('technical', () => {
   }
 
   async function loadAll(code: string) {
+    const seq = ++_loadSeq
+
+    // Clear v4SignalsFull so loadV4SignalsFull won't skip with stale data
+    v4SignalsFull.value = null
+
     // Check cache first — instant switch for previously viewed stocks
     const cached = _getCached(code)
     if (cached) {
@@ -92,6 +100,10 @@ export const useTechnicalStore = defineStore('technical', () => {
         stocksApi.institutional(code, 20).catch(() => ({ dates: [], columns: {} })),
         stocksApi.data(code, 365),
       ])
+
+      // Discard stale response if another loadAll was called while we were fetching
+      if (seq !== _loadSeq) return
+
       indicators.value = ind
       v4Signal.value = v4s
       v4Enhanced.value = v4e
@@ -102,18 +114,24 @@ export const useTechnicalStore = defineStore('technical', () => {
 
       _saveToCache(code)
     } catch (e: any) {
+      if (seq !== _loadSeq) return
       error.value = e.message || '載入失敗'
     } finally {
-      isLoading.value = false
+      if (seq === _loadSeq) isLoading.value = false
     }
   }
 
   async function loadV4SignalsFull(code: string) {
+    // v4SignalsFull is cleared in loadAll on stock switch, so this only skips
+    // if the data was already restored from cache for the same stock
     if (v4SignalsFull.value) return
+    const seq = _loadSeq
     try {
-      v4SignalsFull.value = await analysisApi.v4SignalsFull(code, 200)
+      const data = await analysisApi.v4SignalsFull(code, 200)
+      if (seq !== _loadSeq) return // stock changed while fetching
+      v4SignalsFull.value = data
       const entry = _cache.get(code)
-      if (entry) entry.v4SignalsFull = v4SignalsFull.value
+      if (entry) entry.v4SignalsFull = data
     } catch { /* ignore */ }
   }
 

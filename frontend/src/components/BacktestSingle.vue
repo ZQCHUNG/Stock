@@ -64,7 +64,7 @@ const expectancy = computed(() => {
   const avgW = r.avg_win || 0
   const avgL = r.avg_loss || 0
   const exp = wr * avgW + (1 - wr) * avgL
-  return fmtNum(exp, 0)
+  return fmtPct(exp)
 })
 
 const equityOption = computed(() => {
@@ -346,7 +346,7 @@ const tradeColumns = [
         <NGi><MetricCard title="最大連勝" :value="bt.singleResult.max_consecutive_wins" /></NGi>
         <NGi><MetricCard title="最大連敗" :value="bt.singleResult.max_consecutive_losses" /></NGi>
         <NGi>
-          <MetricCard title="期望值" :value="expectancy" :color="priceColor(Number(expectancy) || 0)" subtitle="每筆交易期望損益" />
+          <MetricCard title="期望值" :value="expectancy" :color="priceColor(parseFloat(String(expectancy)) || 0)" subtitle="每筆交易期望報酬率" />
         </NGi>
         <NGi v-if="bt.singleResult.total_costs">
           <MetricCard title="總交易成本" :value="'$' + fmtNum(bt.singleResult.total_costs, 0)" color="#e53e3e" />
