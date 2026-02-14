@@ -1,5 +1,58 @@
 """台股技術分析系統 - 設定檔"""
 
+from dataclasses import dataclass, asdict
+
+
+@dataclass(frozen=True)
+class StrategyV4Config:
+    """v4 策略參數 — frozen dataclass 確保回測可復現性
+
+    每次回測結果都可精確對應到一組參數，避免參數散落在 UI 和邏輯層之間。
+    """
+    # 進場過濾
+    adx_min: int = 18
+    rsi_low: int = 30
+    rsi_high: int = 80
+    min_uptrend_days: int = 10
+    support_max_dist: float = 0.05
+    min_volume_ratio: float = 0.7
+    # 出場
+    take_profit_pct: float = 0.10
+    stop_loss_pct: float = 0.07
+    trailing_stop_pct: float = 0.02
+    min_hold_days: int = 5
+    # 部位
+    max_position_pct: float = 0.9
+
+    def to_dict(self) -> dict:
+        """轉成 dict（與現有 API 相容）"""
+        return asdict(self)
+
+    def with_overrides(self, **kwargs) -> "StrategyV4Config":
+        """建立新的 config（因為 frozen 不能直接改）"""
+        d = asdict(self)
+        d.update(kwargs)
+        return StrategyV4Config(**d)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "StrategyV4Config":
+        """從 dict 建立（忽略不認識的 key）"""
+        valid_keys = {f.name for f in cls.__dataclass_fields__.values()}
+        filtered = {k: v for k, v in d.items() if k in valid_keys}
+        return cls(**filtered)
+
+    def describe(self) -> str:
+        """人類可讀的參數摘要（用於回測報告紀錄）"""
+        return (f"ADX≥{self.adx_min} | RSI {self.rsi_low}-{self.rsi_high} | "
+                f"上升趨勢≥{self.min_uptrend_days}天 | "
+                f"TP {self.take_profit_pct:.0%} SL {self.stop_loss_pct:.0%} "
+                f"Trail {self.trailing_stop_pct:.0%} | 最短持有 {self.min_hold_days}天")
+
+
+# 預設 v4 config 實例
+DEFAULT_V4_CONFIG = StrategyV4Config()
+
+
 # 預設股票清單（台股熱門股，含上市與上櫃）
 DEFAULT_STOCKS = {
     "2330": "台積電",

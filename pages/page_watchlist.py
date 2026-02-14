@@ -132,46 +132,166 @@ def render(all_stocks, initial_capital, load_data_fn):
                 calculate_correlation_matrix,
                 calculate_portfolio_var,
                 check_risk_alerts,
+                analyze_industry_concentration,
+                calculate_portfolio_beta,
             )
             import plotly.express as px
 
-            # 相關性矩陣
-            corr_matrix = calculate_correlation_matrix(_wl_data, days=60)
-            var_info = calculate_portfolio_var(_wl_data, confidence=0.95)
+            _risk_tab1, _risk_tab2, _risk_tab3 = st.tabs(
+                ["相關性 & VaR", "產業集中度", "Beta 曝險"])
 
-            if not corr_matrix.empty:
-                st.subheader("相關性矩陣（60 日對數報酬率）")
-                fig_corr = px.imshow(
-                    corr_matrix,
-                    text_auto=".2f",
-                    color_continuous_scale="RdBu_r",
-                    zmin=-1, zmax=1,
-                    aspect="auto",
-                )
-                fig_corr.update_layout(
-                    height=max(300, len(corr_matrix) * 50),
-                    template="plotly_dark",
-                )
-                st.plotly_chart(fig_corr, use_container_width=True)
+            with _risk_tab1:
+                # 相關性矩陣
+                corr_matrix = calculate_correlation_matrix(_wl_data, days=60)
+                var_info = calculate_portfolio_var(_wl_data, confidence=0.95)
 
-            if var_info.get("stocks_used", 0) > 0:
-                st.subheader("Historical VaR（95% 信心水準）")
-                var_cols = st.columns(3)
-                with var_cols[0]:
-                    st.metric("日 VaR%", f"{var_info['var_pct']:.2%}")
-                with var_cols[1]:
-                    st.metric("日 VaR 金額", f"${abs(var_info['var_amount']):,.0f}")
-                with var_cols[2]:
-                    st.metric("使用股票數", var_info["stocks_used"])
-                st.caption("假設等權重 100 萬組合，95% 信心水準下單日最大虧損。")
+                if not corr_matrix.empty:
+                    st.subheader("相關性矩陣（60 日對數報酬率）")
+                    fig_corr = px.imshow(
+                        corr_matrix,
+                        text_auto=".2f",
+                        color_continuous_scale="RdBu_r",
+                        zmin=-1, zmax=1,
+                        aspect="auto",
+                    )
+                    fig_corr.update_layout(
+                        height=max(300, len(corr_matrix) * 50),
+                        template="plotly_dark",
+                    )
+                    st.plotly_chart(fig_corr, use_container_width=True)
 
-            # 風險警報
-            alerts = check_risk_alerts(corr_matrix, var_info)
-            if alerts:
-                for alert in alerts:
-                    st.warning(alert)
-            elif not corr_matrix.empty:
-                st.success("目前無風險警報")
+                if var_info.get("stocks_used", 0) > 0:
+                    st.subheader("Historical VaR（95% 信心水準）")
+                    var_cols = st.columns(3)
+                    with var_cols[0]:
+                        st.metric("日 VaR%", f"{var_info['var_pct']:.2%}")
+                    with var_cols[1]:
+                        st.metric("日 VaR 金額", f"${abs(var_info['var_amount']):,.0f}")
+                    with var_cols[2]:
+                        st.metric("使用股票數", var_info["stocks_used"])
+                    st.caption("假設等權重 100 萬組合，95% 信心水準下單日最大虧損。")
+
+                # 風險警報
+                alerts = check_risk_alerts(corr_matrix, var_info)
+                if alerts:
+                    for alert in alerts:
+                        st.warning(alert)
+                elif not corr_matrix.empty:
+                    st.success("目前無風險警報")
+
+            with _risk_tab2:
+                st.subheader("產業集中度分析")
+                # 取得各股產業分類
+                _sector_cache_key = "_wl_sector_data"
+                _sector_data = st.session_state.get(_sector_cache_key)
+
+                if _sector_data is None:
+                    if st.button("載入產業分類", key="wl_load_sectors",
+                                 help="從 yfinance 取得各股票的產業分類"):
+                        with st.spinner("載入產業分類..."):
+                            from data.fetcher import get_stock_info
+                            _sector_data = {}
+                            for code in wl:
+                                try:
+                                    _info = get_stock_info(code)
+                                    _sector_data[code] = _info.get("sector", "N/A")
+                                except Exception:
+                                    _sector_data[code] = "N/A"
+                            st.session_state[_sector_cache_key] = _sector_data
+                            st.rerun()
+                    st.caption("點擊載入按鈕以取得產業分類資訊。")
+                else:
+                    conc_result = analyze_industry_concentration(_sector_data)
+
+                    if conc_result["total_stocks"] > 0:
+                        # 圓餅圖
+                        _sectors = conc_result["sectors"]
+                        _pcts = conc_result["sector_pcts"]
+                        _labels = list(_pcts.keys())
+                        _values = [len(_sectors[s]) for s in _labels]
+
+                        fig_pie = go.Figure(data=go.Pie(
+                            labels=_labels, values=_values,
+                            hole=0.4,
+                            textinfo="label+percent+value",
+                        ))
+                        fig_pie.update_layout(
+                            height=350, template="plotly_dark",
+                            margin=dict(t=20, b=20),
+                        )
+                        st.plotly_chart(fig_pie, use_container_width=True)
+
+                        # 明細表
+                        _sec_rows = []
+                        for sector, codes in _sectors.items():
+                            _names = [get_stock_name(c, all_stocks) for c in codes]
+                            _sec_rows.append({
+                                "產業": sector,
+                                "股數": len(codes),
+                                "佔比": f"{_pcts[sector]:.0%}",
+                                "股票": ", ".join([f"{c} {n}" for c, n in zip(codes, _names)]),
+                            })
+                        st.dataframe(pd.DataFrame(_sec_rows), width="stretch", hide_index=True)
+
+                        # 警報
+                        if conc_result["alerts"]:
+                            for alert in conc_result["alerts"]:
+                                st.warning(alert)
+                        else:
+                            st.success("產業分散良好，無集中度警報")
+
+            with _risk_tab3:
+                st.subheader("Beta 曝險分析")
+                try:
+                    from data.fetcher import get_taiex_data
+                    _taiex = get_taiex_data(period_days=180)
+                    betas = calculate_portfolio_beta(_wl_data, _taiex, days=120)
+
+                    if betas:
+                        _beta_rows = []
+                        for code, beta in sorted(betas.items(), key=lambda x: x[1], reverse=True):
+                            _name = get_stock_name(code, all_stocks)
+                            _beta_rows.append({
+                                "代碼": code,
+                                "名稱": _name,
+                                "Beta": beta,
+                            })
+
+                        _avg_beta = np.mean(list(betas.values()))
+                        st.metric("組合平均 Beta", f"{_avg_beta:.2f}",
+                                   delta="高風險" if _avg_beta > 1.2 else (
+                                       "低風險" if _avg_beta < 0.8 else "中等"),
+                                   delta_color="inverse" if _avg_beta > 1.2 else "normal")
+
+                        _beta_df = pd.DataFrame(_beta_rows)
+
+                        def _color_beta(val):
+                            if isinstance(val, (int, float)):
+                                if val > 1.3:
+                                    return "color: #FF1744; font-weight: bold"
+                                elif val > 1.0:
+                                    return "color: #FF9800"
+                                elif val < 0.7:
+                                    return "color: #2196F3"
+                            return ""
+
+                        st.dataframe(
+                            _beta_df.style.map(_color_beta, subset=["Beta"]),
+                            width="stretch", hide_index=True)
+
+                        # 市場環境警告
+                        _regime = st.session_state.get("_market_regime")
+                        if _regime and _regime.get("regime") == "bear" and _avg_beta > 1.0:
+                            st.error(
+                                f"空頭市場 + 高 Beta（{_avg_beta:.2f}）= 高風險組合。"
+                                f"建議降低高 Beta 股票持倉或增加防禦性配置。"
+                            )
+                        st.caption("Beta > 1：波動大於大盤 | Beta < 1：波動小於大盤 | "
+                                   "Beta ≈ 0：與大盤無關（如生技股）")
+                    else:
+                        st.info("大盤資料不足，無法計算 Beta。")
+                except Exception:
+                    st.info("無法取得大盤資料以計算 Beta。")
 
     # --- 法人資料（從 cache 讀取，不額外 API call）---
     _inst_loaded = st.session_state.get("_wl_inst_loaded", False)

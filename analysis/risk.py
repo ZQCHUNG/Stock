@@ -1,9 +1,9 @@
-"""風險管理模組 — 組合相關性分析 + Historical VaR
+"""風險管理模組 — 組合相關性 + VaR + 產業集中度
 
-設計來源：Gemini R9 技術總監建議
 - 相關性：60 天日對數報酬率的 Pearson Correlation
-- VaR：Historical VaR (95% 信心水準)，取組合每日總盈虧的第 5 百分位數
-- 警報：任意兩檔相關性 > 0.75，或 VaR 超過單日最大可承受虧損
+- VaR：Historical VaR (95% 信心水準)
+- 產業集中度：偵測單一產業過度暴露 + Beta 曝險
+- 警報：高相關、VaR 超限、產業集中
 """
 
 import numpy as np
@@ -139,3 +139,99 @@ def check_risk_alerts(
         )
 
     return alerts
+
+
+def analyze_industry_concentration(
+    sector_data: dict[str, str],
+    concentration_threshold: float = 0.35,
+) -> dict:
+    """分析產業集中度
+
+    Args:
+        sector_data: {stock_code: sector_name} 對照表
+        concentration_threshold: 單一產業佔比警報閾值（預設 35%）
+
+    Returns:
+        dict with keys:
+        - sectors: {sector: [codes]} 產業分組
+        - sector_pcts: {sector: pct} 各產業佔比
+        - concentrated: list of (sector, pct) 超過閾值的產業
+        - total_stocks: 總股數
+        - alerts: 警報訊息列表
+    """
+    if not sector_data:
+        return {"sectors": {}, "sector_pcts": {}, "concentrated": [],
+                "total_stocks": 0, "alerts": []}
+
+    # 分組
+    sectors: dict[str, list[str]] = {}
+    for code, sector in sector_data.items():
+        if not sector or sector == "N/A":
+            sector = "未分類"
+        sectors.setdefault(sector, []).append(code)
+
+    total = len(sector_data)
+    sector_pcts = {s: len(codes) / total for s, codes in sectors.items()}
+
+    # 超過閾值的產業
+    concentrated = [(s, pct) for s, pct in sector_pcts.items()
+                    if pct >= concentration_threshold and s != "未分類"]
+    concentrated.sort(key=lambda x: x[1], reverse=True)
+
+    # 警報
+    alerts = []
+    for sector, pct in concentrated:
+        codes = sectors[sector]
+        alerts.append(
+            f"產業集中：{sector} 佔比 {pct:.0%}（{len(codes)} 檔：{', '.join(codes)}），"
+            f"超過 {concentration_threshold:.0%} 閾值。若該產業基本面轉向，損失將集中爆發。"
+        )
+
+    return {
+        "sectors": sectors,
+        "sector_pcts": sector_pcts,
+        "concentrated": concentrated,
+        "total_stocks": total,
+        "alerts": alerts,
+    }
+
+
+def calculate_portfolio_beta(
+    stock_data: dict[str, pd.DataFrame],
+    market_df: pd.DataFrame,
+    days: int = 120,
+) -> dict[str, float]:
+    """計算各股票對大盤的 Beta 值
+
+    Beta = Cov(Ri, Rm) / Var(Rm)
+
+    Args:
+        stock_data: {stock_code: DataFrame} 包含 close
+        market_df: 大盤（TAIEX）DataFrame 包含 close
+        days: 計算天數
+
+    Returns:
+        {stock_code: beta} 對照表
+    """
+    if market_df is None or len(market_df) < 30:
+        return {}
+
+    market_ret = market_df["close"].tail(days + 1).pct_change().dropna()
+
+    betas = {}
+    for code, df in stock_data.items():
+        if df is None or len(df) < 30:
+            continue
+        stock_ret = df["close"].tail(days + 1).pct_change().dropna()
+
+        # 對齊日期
+        aligned = pd.DataFrame({"stock": stock_ret, "market": market_ret}).dropna()
+        if len(aligned) < 20:
+            continue
+
+        cov = aligned["stock"].cov(aligned["market"])
+        var_m = aligned["market"].var()
+        if var_m > 0:
+            betas[code] = round(float(cov / var_m), 2)
+
+    return betas

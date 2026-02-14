@@ -246,3 +246,71 @@ class TestRiskAlerts:
         from analysis.risk import check_risk_alerts
         alerts = check_risk_alerts(pd.DataFrame(), {"var_amount": 0})
         assert isinstance(alerts, list)
+
+
+class TestIndustryConcentration:
+    """analyze_industry_concentration 測試"""
+
+    def test_no_concentration(self):
+        from analysis.risk import analyze_industry_concentration
+        data = {"A": "Technology", "B": "Financial", "C": "Healthcare"}
+        result = analyze_industry_concentration(data)
+        assert result["total_stocks"] == 3
+        assert len(result["concentrated"]) == 0
+        assert len(result["alerts"]) == 0
+
+    def test_high_concentration(self):
+        from analysis.risk import analyze_industry_concentration
+        data = {"A": "Technology", "B": "Technology", "C": "Technology", "D": "Financial"}
+        result = analyze_industry_concentration(data, concentration_threshold=0.35)
+        assert len(result["concentrated"]) >= 1
+        assert result["concentrated"][0][0] == "Technology"
+        assert len(result["alerts"]) >= 1
+
+    def test_empty_input(self):
+        from analysis.risk import analyze_industry_concentration
+        result = analyze_industry_concentration({})
+        assert result["total_stocks"] == 0
+        assert len(result["alerts"]) == 0
+
+    def test_na_sectors(self):
+        from analysis.risk import analyze_industry_concentration
+        data = {"A": "N/A", "B": "N/A", "C": "Technology"}
+        result = analyze_industry_concentration(data)
+        assert "未分類" in result["sectors"]
+
+
+class TestPortfolioBeta:
+    """calculate_portfolio_beta 測試"""
+
+    def test_beta_calculation(self):
+        from analysis.risk import calculate_portfolio_beta
+        np.random.seed(42)
+        n = 200
+        dates = pd.bdate_range("2024-01-01", periods=n)
+        market_ret = np.random.normal(0.001, 0.01, n)
+        market = pd.DataFrame({
+            "close": 100 * np.cumprod(1 + market_ret),
+        }, index=dates)
+
+        # 高 Beta 股票（放大市場波動）
+        stock_high = pd.DataFrame({
+            "close": 100 * np.cumprod(1 + market_ret * 1.5 + np.random.normal(0, 0.005, n)),
+        }, index=dates)
+
+        betas = calculate_portfolio_beta({"HIGH": stock_high}, market, days=120)
+        assert "HIGH" in betas
+        assert betas["HIGH"] > 1.0  # 高 Beta
+
+    def test_beta_empty_market(self):
+        from analysis.risk import calculate_portfolio_beta
+        betas = calculate_portfolio_beta({"A": pd.DataFrame()}, None)
+        assert betas == {}
+
+    def test_beta_short_data(self):
+        from analysis.risk import calculate_portfolio_beta
+        dates = pd.bdate_range("2024-01-01", periods=10)
+        market = pd.DataFrame({"close": range(10, 20)}, index=dates, dtype=float)
+        stock = pd.DataFrame({"close": range(10, 20)}, index=dates, dtype=float)
+        betas = calculate_portfolio_beta({"A": stock}, market, days=120)
+        assert len(betas) == 0  # 資料太短

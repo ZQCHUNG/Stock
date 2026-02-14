@@ -101,6 +101,17 @@ def render(stock_code, stock_name, raw_df, use_v4, all_stocks,
 
         # --- 下單計算機 ---
         with st.expander("下單計算機", expanded=False):
+            # 市場環境自動調整
+            _regime = st.session_state.get("_market_regime")
+            _regime_mult = 1.0
+            if _regime:
+                _regime_mult = _regime.get("position_multiplier", 1.0)
+                _r_label = _regime.get("regime_label", "未知")
+                if _regime.get("regime") == "bear":
+                    st.warning(f"大盤環境：{_r_label}（部位自動降至 {_regime_mult:.0%}）")
+                elif _regime.get("regime") == "sideways":
+                    st.info(f"大盤環境：{_r_label}（部位建議降至 {_regime_mult:.0%}）")
+
             _calc_cols = st.columns(3)
             with _calc_cols[0]:
                 _total_capital = st.number_input(
@@ -113,9 +124,14 @@ def render(stock_code, stock_name, raw_df, use_v4, all_stocks,
                     help="單筆交易最多虧損總資金的百分比",
                 )
             with _calc_cols[2]:
+                # 空頭市場時信心分數上限鎖定
+                _conf_options = [1.0, 1.5, 1.7, 2.0]
+                if _regime and _regime.get("regime") == "bear":
+                    _conf_options = [0.5, 1.0]
+                    st.caption("空頭市場：信心分數上限鎖定")
                 _confidence = st.selectbox(
-                    "信心分數", [1.0, 1.5, 2.0], index=0, key="calc_confidence",
-                    help="1.0=純技術, 1.5=技術+法人買入, 2.0=技術+法人連3買",
+                    "信心分數", _conf_options, index=0, key="calc_confidence",
+                    help="1.0=純技術, 1.5=法人買入, 1.7=投信連買, 2.0=全法人連3買",
                 )
 
             _price = analysis["close"]
@@ -123,10 +139,10 @@ def render(stock_code, stock_name, raw_df, use_v4, all_stocks,
             _sl_price = _price * (1 - _sl_pct)
             _loss_per_share = _price - _sl_price
 
-            # 風險金額 = 總資金 * 風險比例 * 信心倍數
-            _risk_amount = _total_capital * (_risk_pct / 100) * _confidence
+            # 風險金額 = 總資金 * 風險比例 * 信心倍數 * 市場環境倍率
+            _effective_risk = _total_capital * (_risk_pct / 100) * _confidence * _regime_mult
             # 可買股數（向下取整到 1000 股 = 1 張）
-            _shares = int(_risk_amount / _loss_per_share) if _loss_per_share > 0 else 0
+            _shares = int(_effective_risk / _loss_per_share) if _loss_per_share > 0 else 0
             _lots = _shares // 1000
             _shares_rounded = _lots * 1000
             _cost = _shares_rounded * _price
@@ -142,15 +158,21 @@ def render(stock_code, stock_name, raw_df, use_v4, all_stocks,
             with _r_cols[3]:
                 st.metric("最大虧損", f"${_max_loss:,.0f}")
 
+            # 購買力檢查
             if _cost > _total_capital:
-                st.warning(f"買入成本 (${_cost:,.0f}) 超過總資金 (${_total_capital:,.0f})")
+                st.error(f"買入成本 (${_cost:,.0f}) 超過總資金 (${_total_capital:,.0f})，無法執行。")
+            elif _cost > _total_capital * 0.9:
+                st.warning(f"買入成本佔總資金 {_cost/_total_capital*100:.0f}%，集中度過高。")
             elif _lots > 0:
                 _cost_pct = _cost / _total_capital * 100
+                _loss_pct = _max_loss / _total_capital * 100
                 st.caption(
                     f"佔總資金 {_cost_pct:.1f}% | "
                     f"停損 -{_sl_pct:.0%} = ${_sl_price:.2f} | "
-                    f"最大虧損佔總資金 {_max_loss / _total_capital * 100:.1f}%"
+                    f"最大虧損佔總資金 {_loss_pct:.1f}%"
                 )
+                if _regime_mult < 1.0:
+                    st.caption(f"市場環境倍率 {_regime_mult:.0%} 已自動調整部位大小")
 
     else:
         # v2 分析
