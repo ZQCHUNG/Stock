@@ -6,7 +6,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, ToolboxComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useBacktestStore } from '../stores/backtest'
@@ -16,13 +16,13 @@ import { useResponsive } from '../composables/useResponsive'
 import MetricCard from './MetricCard.vue'
 import ChartContainer from './ChartContainer.vue'
 
-use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
+use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, ToolboxComponent, CanvasRenderer])
 
 const props = defineProps<{ periodDays: number; capital: number }>()
 
 const app = useAppStore()
 const bt = useBacktestStore()
-const { colors: chartColors, tooltipStyle } = useChartTheme()
+const { colors: chartColors, tooltipStyle, toolboxConfig } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
@@ -50,7 +50,8 @@ const rollingBarOption = computed(() => {
       const p = params[0]
       return `${p.name}<br/>報酬率: ${fmtPct(p.value)}`
     }},
-    grid: { left: 60, right: 20, top: 20, bottom: 40 },
+    toolbox: { ...toolboxConfig.value, feature: { saveAsImage: toolboxConfig.value.feature.saveAsImage } },
+    grid: { left: 60, right: 20, top: 30, bottom: 40 },
     xAxis: { type: 'category', data: names, axisLabel: { color: cc.axisLabel, rotate: 45, fontSize: 10 } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtPct(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
     series: [{
@@ -93,7 +94,8 @@ const alphaBetaChartOption = computed(() => {
   const cc = chartColors.value
   return {
     tooltip: { trigger: 'axis', ...tooltipStyle.value },
-    legend: { data: ['Rolling Alpha', 'EMA20'], textStyle: { color: cc.legendText } },
+    toolbox: { ...toolboxConfig.value, feature: { restore: toolboxConfig.value.feature.restore, saveAsImage: toolboxConfig.value.feature.saveAsImage } },
+    legend: { data: ['Rolling Alpha', 'EMA20'], left: 0, textStyle: { color: cc.legendText } },
     grid: { left: 80, right: 20, top: 30, bottom: 30 },
     xAxis: { type: 'category', data: r.rolling_alpha.dates, axisLabel: { color: cc.axisLabel } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtPct(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },

@@ -30,11 +30,24 @@ export function useChartTheme() {
     textStyle: { color: colors.value.tooltipText, fontSize: 12 },
   }))
 
+  /** Toolbox config with zoom reset + save image */
+  const toolboxConfig = computed(() => ({
+    show: true,
+    right: 10,
+    top: 0,
+    feature: {
+      dataZoom: { yAxisIndex: 'none', title: { zoom: '框選縮放', back: '還原' } },
+      restore: { title: '重置' },
+      saveAsImage: { title: '存圖', pixelRatio: 2 },
+    },
+    iconStyle: { borderColor: colors.value.axisLabel },
+  }))
+
   /** Base chart options that should be merged into all chart configs */
   const baseOption = computed(() => ({
     backgroundColor: 'transparent',
     textStyle: { color: colors.value.legendText },
   }))
 
-  return { colors, tooltipStyle, baseOption, isDark: computed(() => theme.isDark) }
+  return { colors, tooltipStyle, toolboxConfig, baseOption, isDark: computed(() => theme.isDark) }
 }

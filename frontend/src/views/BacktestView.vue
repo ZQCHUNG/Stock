@@ -31,9 +31,11 @@ const capital = ref(1_000_000)
     </NTabs>
 
     <!-- Shared Params -->
-    <NSpace style="margin-bottom: 16px">
-      <NInputNumber v-model:value="periodDays" :min="180" :max="3650" size="small" placeholder="天數" style="width: 120px" />
-      <NInputNumber v-model:value="capital" :min="100000" :step="100000" size="small" placeholder="資金" style="width: 160px" />
+    <NSpace align="center" style="margin-bottom: 16px">
+      <span style="font-size: 12px; color: var(--text-muted)">回測天數</span>
+      <NInputNumber v-model:value="periodDays" :min="180" :max="3650" :step="30" size="small" placeholder="180~3650" style="width: 130px" />
+      <span style="font-size: 12px; color: var(--text-muted)">初始資金</span>
+      <NInputNumber v-model:value="capital" :min="100000" :max="100000000" :step="100000" size="small" placeholder="10萬~1億" style="width: 160px" />
     </NSpace>
 
     <NSpin :show="bt.isLoading">

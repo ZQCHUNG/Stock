@@ -3,12 +3,12 @@ import { computed } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CandlestickChart as Candle, LineChart, BarChart, ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, ToolboxComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { TimeSeriesData } from '../api/stocks'
 import { useChartTheme } from '../composables/useChartTheme'
 
-use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, CanvasRenderer])
+use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, ToolboxComponent, CanvasRenderer])
 
 const props = defineProps<{
   data: TimeSeriesData | null
@@ -18,7 +18,7 @@ const props = defineProps<{
   group?: string
 }>()
 
-const { colors, tooltipStyle } = useChartTheme()
+const { colors, tooltipStyle, toolboxConfig } = useChartTheme()
 
 const option = computed(() => {
   const d = props.data
@@ -84,7 +84,8 @@ const option = computed(() => {
         return html + '</div>'
       },
     },
-    legend: { data: ['K線', 'MA5', 'MA20', 'MA60', 'BB上', 'BB下'], top: 0, textStyle: { fontSize: 11, color: c.legendText } },
+    toolbox: toolboxConfig.value,
+    legend: { data: ['K線', 'MA5', 'MA20', 'MA60', 'BB上', 'BB下'], top: 0, left: 0, textStyle: { fontSize: 11, color: c.legendText } },
     grid: [
       { left: 60, right: 20, top: 40, height: '55%' },
       { left: 60, right: 20, top: '72%', height: '18%' },

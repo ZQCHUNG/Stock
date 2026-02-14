@@ -11,4 +11,15 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'naive-ui': ['naive-ui'],
+          'echarts': ['echarts', 'vue-echarts'],
+          'vendor': ['vue', 'vue-router', 'pinia', 'axios'],
+        },
+      },
+    },
+  },
 })

@@ -3,19 +3,19 @@ import { computed } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { LineChart, BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, AxisPointerComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, AxisPointerComponent, ToolboxComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { TimeSeriesData } from '../api/stocks'
 import { useChartTheme } from '../composables/useChartTheme'
 
-use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, AxisPointerComponent, CanvasRenderer])
+use([LineChart, BarChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, AxisPointerComponent, ToolboxComponent, CanvasRenderer])
 
 const props = defineProps<{
   data: TimeSeriesData | null
   group?: string
 }>()
 
-const { colors, tooltipStyle } = useChartTheme()
+const { colors, tooltipStyle, toolboxConfig } = useChartTheme()
 
 const option = computed(() => {
   const d = props.data
@@ -37,7 +37,8 @@ const option = computed(() => {
         return `<div style="font-size:12px"><b>${date}</b><br/>MACD ${macd[idx]?.toFixed(2) ?? '-'} Signal ${signal[idx]?.toFixed(2) ?? '-'} Hist ${hist[idx]?.toFixed(2) ?? '-'}</div>`
       },
     },
-    legend: { data: ['MACD', 'Signal', 'Histogram'], textStyle: { fontSize: 11, color: c.legendText } },
+    toolbox: { ...toolboxConfig.value, feature: { restore: toolboxConfig.value.feature.restore, saveAsImage: toolboxConfig.value.feature.saveAsImage } },
+    legend: { data: ['MACD', 'Signal', 'Histogram'], left: 0, textStyle: { fontSize: 11, color: c.legendText } },
     grid: { left: 60, right: 20, top: 30, bottom: 20 },
     xAxis: { type: 'category', data: d.dates, axisLabel: { fontSize: 10, show: false } },
     yAxis: { scale: true, splitLine: { lineStyle: { type: 'dashed', color: c.splitLine } } },

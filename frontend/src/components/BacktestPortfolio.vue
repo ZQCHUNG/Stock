@@ -6,7 +6,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, ToolboxComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useBacktestStore } from '../stores/backtest'
@@ -17,14 +17,14 @@ import { useResponsive } from '../composables/useResponsive'
 import MetricCard from './MetricCard.vue'
 import ChartContainer from './ChartContainer.vue'
 
-use([LineChart, GridComponent, TooltipComponent, CanvasRenderer])
+use([LineChart, GridComponent, TooltipComponent, ToolboxComponent, CanvasRenderer])
 
 const props = defineProps<{ periodDays: number; capital: number }>()
 
 const app = useAppStore()
 const bt = useBacktestStore()
 const wl = useWatchlistStore()
-const { colors: chartColors, tooltipStyle } = useChartTheme()
+const { colors: chartColors, tooltipStyle, toolboxConfig } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
@@ -53,7 +53,8 @@ const portfolioEquityOption = computed(() => {
   const cc = chartColors.value
   return {
     tooltip: { trigger: 'axis', ...tooltipStyle.value },
-    grid: { left: 80, right: 20, top: 20, bottom: 30 },
+    toolbox: { ...toolboxConfig.value, feature: { restore: toolboxConfig.value.feature.restore, saveAsImage: toolboxConfig.value.feature.saveAsImage } },
+    grid: { left: 80, right: 20, top: 30, bottom: 30 },
     xAxis: { type: 'category', data: r.equity_curve.dates, axisLabel: { color: cc.axisLabel } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
     series: [{ type: 'line', data: r.equity_curve.values, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#7c3aed' } }],

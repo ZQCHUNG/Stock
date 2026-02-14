@@ -87,27 +87,27 @@ function runScreener() {
       <NGrid :cols="filterCols" :x-gap="12" :y-gap="8">
         <NGi>
           <NText depth="3" style="font-size: 12px">最低價格</NText>
-          <NInputNumber v-model:value="minPrice" size="small" placeholder="不限" clearable style="width: 100%" />
+          <NInputNumber v-model:value="minPrice" :min="0" :max="99999" size="small" placeholder="不限" clearable style="width: 100%" />
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">最高價格</NText>
-          <NInputNumber v-model:value="maxPrice" size="small" placeholder="不限" clearable style="width: 100%" />
+          <NInputNumber v-model:value="maxPrice" :min="0" :max="99999" size="small" placeholder="不限" clearable style="width: 100%" />
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">最低成交量(張)</NText>
-          <NInputNumber v-model:value="minVolume" size="small" placeholder="500" clearable style="width: 100%" />
+          <NInputNumber v-model:value="minVolume" :min="0" :step="100" size="small" placeholder="500" clearable style="width: 100%" />
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">最低 ADX</NText>
-          <NInputNumber v-model:value="minAdx" size="small" placeholder="18" clearable style="width: 100%" />
+          <NInputNumber v-model:value="minAdx" :min="0" :max="100" size="small" placeholder="18" clearable style="width: 100%" />
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">RSI 下限</NText>
-          <NInputNumber v-model:value="minRsi" size="small" placeholder="不限" clearable style="width: 100%" />
+          <NInputNumber v-model:value="minRsi" :min="0" :max="100" size="small" placeholder="不限" clearable style="width: 100%" />
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">RSI 上限</NText>
-          <NInputNumber v-model:value="maxRsi" size="small" placeholder="不限" clearable style="width: 100%" />
+          <NInputNumber v-model:value="maxRsi" :min="0" :max="100" size="small" placeholder="不限" clearable style="width: 100%" />
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">訊號</NText>
@@ -123,7 +123,7 @@ function runScreener() {
         </NGi>
         <NGi>
           <NText depth="3" style="font-size: 12px">最低趨勢天數</NText>
-          <NInputNumber v-model:value="minUptrendDays" size="small" placeholder="不限" clearable style="width: 100%" />
+          <NInputNumber v-model:value="minUptrendDays" :min="0" :max="999" size="small" placeholder="不限" clearable style="width: 100%" />
         </NGi>
       </NGrid>
       <NButton type="primary" style="margin-top: 12px" @click="runScreener" :loading="scr.isLoading">
