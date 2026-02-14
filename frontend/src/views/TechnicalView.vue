@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { h, watch, onMounted, nextTick, computed } from 'vue'
+import { h, ref, watch, onMounted, nextTick, computed } from 'vue'
 import { connect } from 'echarts/core'
-import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NText, NDataTable } from 'naive-ui'
+import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NText, NDataTable, NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useTechnicalStore } from '../stores/technical'
-import { fmtNum } from '../utils/format'
+import { fmtNum, fmtPct, priceColor } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
+import { backtestApi } from '../api/backtest'
 import MetricCard from '../components/MetricCard.vue'
 import SignalBadge from '../components/SignalBadge.vue'
 import CandlestickChart from '../components/CandlestickChart.vue'
@@ -46,6 +47,19 @@ const institutionalData = computed(() => {
 })
 
 function netColor(v: number) { return v > 0 ? '#e53e3e' : v < 0 ? '#38a169' : undefined }
+
+// Quick backtest
+const quickBtResult = ref<any>(null)
+const quickBtLoading = ref(false)
+const quickBtCols = cols(2, 4, 6)
+
+async function runQuickBacktest() {
+  quickBtLoading.value = true
+  try {
+    quickBtResult.value = await backtestApi.v4(app.currentStockCode, { period_days: 730 })
+  } catch { /* silent */ }
+  quickBtLoading.value = false
+}
 
 const institutionalColumns: DataTableColumns = [
   { title: '日期', key: 'date', width: 100 },
@@ -165,6 +179,24 @@ const institutionalColumns: DataTableColumns = [
           <NDescriptionsItem label="近20日縮量">{{ tech.volumePatterns.recent_pullbacks || 0 }} 次</NDescriptionsItem>
           <NDescriptionsItem label="活躍序列">{{ tech.volumePatterns.has_active_sequence ? '是' : '否' }}</NDescriptionsItem>
         </NDescriptions>
+      </NCard>
+
+      <!-- 快速回測 -->
+      <NCard title="快速回測 (2年)" size="small" style="margin-bottom: 16px">
+        <template #header-extra>
+          <NButton size="tiny" type="primary" @click="runQuickBacktest" :loading="quickBtLoading">
+            {{ quickBtResult ? '重新回測' : '執行回測' }}
+          </NButton>
+        </template>
+        <NGrid v-if="quickBtResult" :cols="quickBtCols" :x-gap="8" :y-gap="8">
+          <NGi><MetricCard title="總報酬" :value="fmtPct(quickBtResult.total_return)" :color="priceColor(quickBtResult.total_return)" /></NGi>
+          <NGi><MetricCard title="年化報酬" :value="fmtPct(quickBtResult.annual_return)" :color="priceColor(quickBtResult.annual_return)" /></NGi>
+          <NGi><MetricCard title="最大回撤" :value="fmtPct(quickBtResult.max_drawdown)" color="#e53e3e" /></NGi>
+          <NGi><MetricCard title="Sharpe" :value="quickBtResult.sharpe_ratio?.toFixed(2) || '-'" /></NGi>
+          <NGi><MetricCard title="勝率" :value="fmtPct(quickBtResult.win_rate)" /></NGi>
+          <NGi><MetricCard title="交易數" :value="quickBtResult.total_trades" /></NGi>
+        </NGrid>
+        <NText v-else depth="3" style="font-size: 12px">點擊「執行回測」查看 V4 策略在此股票的回測表現</NText>
       </NCard>
 
       <!-- 法人籌碼 -->

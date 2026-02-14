@@ -57,6 +57,16 @@ watch(() => bt.singleResult, async (r) => {
   }
 })
 
+const expectancy = computed(() => {
+  const r = bt.singleResult
+  if (!r || !r.total_trades) return '-'
+  const wr = r.win_rate || 0
+  const avgW = r.avg_win || 0
+  const avgL = r.avg_loss || 0
+  const exp = wr * avgW + (1 - wr) * avgL
+  return fmtNum(exp, 0)
+})
+
 const equityOption = computed(() => {
   const r = bt.singleResult
   if (!r?.equity_curve?.dates?.length) return {}
@@ -223,6 +233,41 @@ function exportEquityCurve() {
   ], `backtest_${app.currentStockCode}_equity.csv`)
 }
 
+function exportMetrics() {
+  const r = bt.singleResult
+  if (!r) return
+  const rows = [{
+    stock: `${app.currentStockCode} ${app.currentStockName}`,
+    total_return: r.total_return,
+    annual_return: r.annual_return,
+    max_drawdown: r.max_drawdown,
+    sharpe: r.sharpe_ratio,
+    sortino: r.sortino_ratio,
+    calmar: r.calmar_ratio,
+    win_rate: r.win_rate,
+    profit_factor: r.profit_factor,
+    total_trades: r.total_trades,
+    avg_holding: r.avg_holding_days,
+    max_wins: r.max_consecutive_wins,
+    max_losses: r.max_consecutive_losses,
+  }]
+  downloadCsv(rows, [
+    { key: 'stock', label: '股票' },
+    { key: 'total_return', label: '總報酬率' },
+    { key: 'annual_return', label: '年化報酬' },
+    { key: 'max_drawdown', label: '最大回撤' },
+    { key: 'sharpe', label: 'Sharpe' },
+    { key: 'sortino', label: 'Sortino' },
+    { key: 'calmar', label: 'Calmar' },
+    { key: 'win_rate', label: '勝率' },
+    { key: 'profit_factor', label: '盈虧比' },
+    { key: 'total_trades', label: '交易次數' },
+    { key: 'avg_holding', label: '平均持有天數' },
+    { key: 'max_wins', label: '最大連勝' },
+    { key: 'max_losses', label: '最大連敗' },
+  ], `backtest_${app.currentStockCode}_metrics.csv`)
+}
+
 const tradePagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25, 50] })
 
 const saveResultName = ref('')
@@ -274,6 +319,7 @@ const tradeColumns = [
   <div>
     <NSpace style="margin-bottom: 16px">
       <NButton type="primary" @click="runBacktest" :loading="bt.isLoading">執行回測</NButton>
+      <NButton v-if="bt.singleResult" size="small" quaternary @click="exportMetrics">匯出指標</NButton>
       <NPopover v-if="bt.singleResult" v-model:show="showSaveResult" trigger="click" placement="bottom">
         <template #trigger>
           <NButton size="small" quaternary>保存結果</NButton>
@@ -299,6 +345,12 @@ const tradeColumns = [
         <NGi><MetricCard title="Calmar" :value="bt.singleResult.calmar_ratio?.toFixed(2) || '-'" /></NGi>
         <NGi><MetricCard title="最大連勝" :value="bt.singleResult.max_consecutive_wins" /></NGi>
         <NGi><MetricCard title="最大連敗" :value="bt.singleResult.max_consecutive_losses" /></NGi>
+        <NGi>
+          <MetricCard title="期望值" :value="expectancy" :color="priceColor(Number(expectancy) || 0)" subtitle="每筆交易期望損益" />
+        </NGi>
+        <NGi v-if="bt.singleResult.total_costs">
+          <MetricCard title="總交易成本" :value="'$' + fmtNum(bt.singleResult.total_costs, 0)" color="#e53e3e" />
+        </NGi>
       </NGrid>
 
       <NTabs type="line">

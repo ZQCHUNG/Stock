@@ -65,6 +65,9 @@ def _serialize_backtest_result(result) -> dict:
             "liquidity_warning": t.liquidity_warning,
         })
 
+    total_commission = sum(t.commission for t in result.trades)
+    total_tax = sum(t.tax for t in result.trades)
+
     return {
         "total_return": result.total_return,
         "annual_return": result.annual_return,
@@ -82,6 +85,9 @@ def _serialize_backtest_result(result) -> dict:
         "max_consecutive_losses": result.max_consecutive_losses,
         "dividend_income": result.dividend_income,
         "params_description": result.params_description,
+        "total_commission": round(total_commission, 0),
+        "total_tax": round(total_tax, 0),
+        "total_costs": round(total_commission + total_tax, 0),
         "equity_curve": series_to_response(result.equity_curve),
         "daily_returns": series_to_response(result.daily_returns),
         "trades": trades,
