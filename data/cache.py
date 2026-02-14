@@ -413,6 +413,30 @@ def set_sector_heat_error(error_msg: str) -> None:
         pass
 
 
+def get_sector_heat_previous() -> dict | None:
+    """讀取前次掃描的熱度數據（用於 Momentum 計算）"""
+    cached = _cache_get("sector_heat:previous")
+    if cached:
+        try:
+            return json.loads(cached)
+        except Exception:
+            pass
+    return None
+
+
+def set_sector_heat_previous(heat_map: dict, ttl: int = 86400) -> None:
+    """儲存當前熱度作為下次比對的基準
+
+    Args:
+        heat_map: {sector_name: weighted_heat_value}
+        ttl: 24 小時
+    """
+    try:
+        _cache_set("sector_heat:previous", json.dumps(heat_map, ensure_ascii=False), ttl)
+    except Exception:
+        pass
+
+
 def set_worker_heartbeat(scan_count: int, stocks_scanned: int, buy_signals: int = 0) -> None:
     """Worker 更新心跳資訊"""
     try:

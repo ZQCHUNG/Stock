@@ -100,9 +100,12 @@ const sectorHeatChartOption = computed(() => {
         const d = params[0]
         const sector = filtered[d.dataIndex]
         const buyList = (sector.buy_stocks || []).map((s: any) => `${s.code} ${s.name} (${s.maturity})`).join('<br/>')
-        return `<b>${sector.sector}</b><br/>` +
+        const momLabels: Record<string, string> = { surge: '🔥 Surge', heating: '↑ Heating', cooling: '↓ Cooling', stable: '→ Stable', new: '🆕 New' }
+        const momLabel = momLabels[sector.momentum] || ''
+        const deltaStr = sector.delta_heat ? ` (${sector.delta_heat > 0 ? '+' : ''}${(sector.delta_heat * 100).toFixed(0)}pp)` : ''
+        return `<b>${sector.sector}</b>${momLabel ? ' ' + momLabel : ''}<br/>` +
           `訊號密度: ${(sector.heat * 100).toFixed(0)}% (${sector.buy_count}/${sector.total})<br/>` +
-          `加權熱度: ${(sector.weighted_heat * 100).toFixed(0)}%<br/>` +
+          `加權熱度: ${(sector.weighted_heat * 100).toFixed(0)}%${deltaStr}<br/>` +
           (buyList ? `<br/>BUY 標的:<br/>${buyList}` : '')
       },
     },
@@ -122,7 +125,18 @@ const sectorHeatChartOption = computed(() => {
         value: s.heat,
         itemStyle: { color: s.heat >= 0.3 ? '#e53e3e' : s.heat >= 0.15 ? '#dd6b20' : '#38a169' },
       })),
-      label: { show: true, position: 'right', formatter: (p: any) => `${(p.value * 100).toFixed(0)}%` },
+      label: {
+        show: true, position: 'right',
+        formatter: (p: any) => {
+          const sector = filtered[p.dataIndex]
+          const pct = `${(p.value * 100).toFixed(0)}%`
+          const mom = sector?.momentum
+          if (mom === 'surge') return `${pct} 🔥`
+          if (mom === 'heating') return `${pct} ↑`
+          if (mom === 'cooling') return `${pct} ↓`
+          return pct
+        },
+      },
     }],
   }
 })

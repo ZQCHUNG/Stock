@@ -33,6 +33,8 @@ from data.cache import (
     set_cached_sector_heat,
     set_sector_heat_error,
     set_worker_heartbeat,
+    get_sector_heat_previous,
+    set_sector_heat_previous,
 )
 
 logging.basicConfig(
@@ -142,11 +144,60 @@ def scan_sector_heat() -> dict:
 
     heat_data.sort(key=lambda x: x["weighted_heat"], reverse=True)
 
+    # === Sector Momentum (Gemini R21 P1) ===
+    # Compare current heat with previous scan
+    previous = get_sector_heat_previous() or {}
+    current_heat_map = {}
+
+    for sector_data in heat_data:
+        sector_name = sector_data["sector"]
+        current_wh = sector_data["weighted_heat"]
+        current_heat_map[sector_name] = current_wh
+
+        prev_wh = previous.get(sector_name)
+        if prev_wh is None:
+            sector_data["momentum"] = "new"
+            sector_data["delta_heat"] = 0
+            sector_data["jump_ratio"] = 0
+            continue
+
+        delta = current_wh - prev_wh
+        jump = current_wh / max(prev_wh, 0.05)
+
+        # Classify momentum
+        if delta >= 0.10 and jump >= 2.0:
+            momentum = "surge"
+        elif delta >= 0.10:
+            momentum = "heating"
+        elif delta <= -0.10:
+            momentum = "cooling"
+        else:
+            momentum = "stable"
+
+        sector_data["momentum"] = momentum
+        sector_data["delta_heat"] = round(delta, 3)
+        sector_data["jump_ratio"] = round(jump, 2)
+
+    # Save current heat as "previous" for next scan
+    set_sector_heat_previous(current_heat_map)
+
     total_buy = sum(h["buy_count"] for h in heat_data)
+
+    # Log momentum changes
+    momentum_changes = [
+        h for h in heat_data if h.get("momentum") in ("surge", "heating", "cooling")
+    ]
+    if momentum_changes:
+        for mc in momentum_changes:
+            logger.info(
+                f"  Momentum [{mc['momentum'].upper()}]: {mc['sector']} "
+                f"ΔHeat={mc['delta_heat']:+.1%} Jump={mc['jump_ratio']:.1f}x"
+            )
+
     logger.info(
-        f"Results: {len(heat_data)} sectors, {total_buy} BUY signals, "
-        f"top sector: {heat_data[0]['sector'] if heat_data else 'N/A'} "
-        f"({heat_data[0]['weighted_heat']:.1%} weighted heat)" if heat_data else ""
+        f"Results: {len(heat_data)} sectors, {total_buy} BUY signals"
+        + (f", top: {heat_data[0]['sector']} ({heat_data[0]['weighted_heat']:.1%})"
+           if heat_data else "")
     )
 
     return {
