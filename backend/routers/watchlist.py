@@ -1,56 +1,34 @@
-"""自選股路由"""
+"""自選股路由（Gemini R27: SQLite-backed）"""
 
-import json
-from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from backend import db
+
 router = APIRouter()
-
-WATCHLIST_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "watchlist.json"
-
-
-def _load_watchlist() -> list[str]:
-    try:
-        if WATCHLIST_FILE.exists():
-            return json.loads(WATCHLIST_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    return []
-
-
-def _save_watchlist(codes: list[str]):
-    WATCHLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
-    WATCHLIST_FILE.write_text(json.dumps(codes, ensure_ascii=False), encoding="utf-8")
 
 
 @router.get("/")
 def get_watchlist():
     """取得自選股清單"""
     from data.stock_list import get_stock_name
-    codes = _load_watchlist()
+    codes = db.get_watchlist()
     return [{"code": c, "name": get_stock_name(c)} for c in codes]
 
 
 @router.post("/{code}")
 def add_to_watchlist(code: str):
     """新增自選股"""
-    codes = _load_watchlist()
-    if code not in codes:
-        codes.append(code)
-        _save_watchlist(codes)
-    return {"ok": True, "watchlist": codes}
+    db.add_to_watchlist(code)
+    return {"ok": True, "watchlist": db.get_watchlist()}
 
 
 @router.delete("/{code}")
 def remove_from_watchlist(code: str):
     """移除自選股"""
-    codes = _load_watchlist()
-    if code in codes:
-        codes.remove(code)
-        _save_watchlist(codes)
-    return {"ok": True, "watchlist": codes}
+    db.remove_from_watchlist(code)
+    return {"ok": True, "watchlist": db.get_watchlist()}
 
 
 class BatchAddRequest(BaseModel):
@@ -60,11 +38,7 @@ class BatchAddRequest(BaseModel):
 @router.post("/batch-add")
 def batch_add(req: BatchAddRequest):
     """批次新增自選股"""
-    codes = _load_watchlist()
-    for c in req.codes:
-        if c not in codes:
-            codes.append(c)
-    _save_watchlist(codes)
+    codes = db.batch_add_watchlist(req.codes)
     return {"ok": True, "watchlist": codes}
 
 
@@ -77,7 +51,7 @@ def watchlist_overview():
     from analysis.strategy_v4 import get_v4_analysis
     from backend.dependencies import make_serializable
 
-    codes = _load_watchlist()
+    codes = db.get_watchlist()
     if not codes:
         return []
 
@@ -118,8 +92,6 @@ def watchlist_overview():
         except Exception:
             return {"code": code, "name": get_stock_name(code), "error": True}
 
-    # yf.Ticker().history() 是 thread-safe（已從 yf.download 遷移）
-    # 可安全並行載入
     with ThreadPoolExecutor(max_workers=6) as executor:
         results = list(executor.map(_load_stock, codes))
 
@@ -141,7 +113,7 @@ def batch_backtest(req: BatchBacktestRequest):
     from backtest.engine import run_backtest_v4
     from backend.dependencies import make_serializable
 
-    codes = _load_watchlist()
+    codes = db.get_watchlist()
     if not codes:
         return []
 
@@ -163,7 +135,6 @@ def batch_backtest(req: BatchBacktestRequest):
         except Exception:
             return {"code": code, "name": get_stock_name(code), "error": True}
 
-    # yf.Ticker().history() 是 thread-safe（已從 yf.download 遷移）
     with ThreadPoolExecutor(max_workers=4) as executor:
         results = list(executor.map(_bt_stock, codes))
 
@@ -180,7 +151,7 @@ def batch_backtest_stream(req: BatchBacktestRequest):
     from backend.sse import sse_progress, sse_done
 
     def generate():
-        codes = _load_watchlist()
+        codes = db.get_watchlist()
         if not codes:
             yield sse_done([])
             return
@@ -214,11 +185,7 @@ def batch_backtest_stream(req: BatchBacktestRequest):
 
 @router.get("/risk-audit")
 def risk_audit(capital: float = 1_000_000, risk_pct: float = 2.0):
-    """全自選股風險審計（Gemini R21: Risk Audit Export）
-
-    並行載入每支股票的技術訊號 + 風險因子，
-    返回結構化 JSON 供前端 CSV 下載。
-    """
+    """全自選股風險審計（Gemini R21: Risk Audit Export）"""
     from concurrent.futures import ThreadPoolExecutor
     from data.fetcher import (
         get_stock_data, get_stock_info_and_fundamentals,
@@ -231,13 +198,12 @@ def risk_audit(capital: float = 1_000_000, risk_pct: float = 2.0):
     )
     from backend.dependencies import make_serializable
 
-    codes = _load_watchlist()
+    codes = db.get_watchlist()
     if not codes:
         return {"stocks": [], "summary": {}}
 
     def _audit_stock(code):
         try:
-            # 並行取得所有資料
             with ThreadPoolExecutor(max_workers=4) as ex:
                 fut_data = ex.submit(get_stock_data, code, period_days=365)
                 fut_info = ex.submit(get_stock_info_and_fundamentals, code)
@@ -258,12 +224,10 @@ def risk_audit(capital: float = 1_000_000, risk_pct: float = 2.0):
                 except Exception:
                     fin_data = None
 
-            # V4 分析
             v4 = get_v4_analysis(df)
             latest = df.iloc[-1]
             current_price = float(latest["close"])
 
-            # 風險因子
             sector = company_info.get("sector", "")
             industry = company_info.get("industry", "")
             is_biotech = _is_biotech_industry(industry, sector)
@@ -279,7 +243,6 @@ def risk_audit(capital: float = 1_000_000, risk_pct: float = 2.0):
 
             avg_volume_20d = float(df["volume"].tail(20).mean()) if len(df) >= 20 else 0
 
-            # Liquidity Factor 計算（與 risk-factors API 一致）
             lf = 1.0
             warnings = []
             if is_biotech:
@@ -301,7 +264,6 @@ def risk_audit(capital: float = 1_000_000, risk_pct: float = 2.0):
                 lf *= vol_f
                 warnings.append(f"低量 ×{vol_f:.2f}")
 
-            # 建議張數 + 停損價 + 最大虧損
             risk_amount = capital * (risk_pct / 100) * lf
             stop_loss_pct = 0.07
             stop_loss_price = round(current_price * (1 - stop_loss_pct), 2)
@@ -340,7 +302,6 @@ def risk_audit(capital: float = 1_000_000, risk_pct: float = 2.0):
     with ThreadPoolExecutor(max_workers=4) as executor:
         stocks = list(executor.map(_audit_stock, codes))
 
-    # 組合層級摘要
     valid = [s for s in stocks if "error" not in s]
     sector_counts: dict[str, int] = {}
     for s in valid:
@@ -355,7 +316,6 @@ def risk_audit(capital: float = 1_000_000, risk_pct: float = 2.0):
     biotech_count = sum(1 for s in valid if s.get("is_biotech"))
     biotech_pct = (biotech_count / len(valid) * 100) if valid else 0
 
-    # 組合風險警告
     portfolio_warnings = []
     if biotech_pct >= 30:
         portfolio_warnings.append(f"生技板塊曝險過高：{biotech_pct:.0f}%（{biotech_count}/{len(valid)}）")

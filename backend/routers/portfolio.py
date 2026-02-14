@@ -1,35 +1,17 @@
-"""模擬倉位管理路由（Gemini R25: Portfolio Commander）
+"""模擬倉位管理路由（Gemini R25→R27: SQLite-backed）
 
-JSON-file-backed simulated position management.
-Supports open/close positions, live P&L tracking, portfolio health audit.
+SQLite-backed simulated position management.
+Supports open/close positions, live P&L tracking, portfolio health audit,
+win-loss analytics, and AI strategic briefing.
 """
 
-import json
-import uuid
-from pathlib import Path
 from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend import db
+
 router = APIRouter()
-
-PORTFOLIO_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "portfolio.json"
-
-
-def _load_portfolio() -> dict:
-    try:
-        if PORTFOLIO_FILE.exists():
-            return json.loads(PORTFOLIO_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
-    return {"positions": [], "closed": []}
-
-
-def _save_portfolio(data: dict):
-    PORTFOLIO_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PORTFOLIO_FILE.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
 
 
 class OpenPositionRequest(BaseModel):
@@ -62,13 +44,13 @@ def list_positions():
     from data.fetcher import get_stock_data
     from backend.dependencies import make_serializable
 
-    portfolio = _load_portfolio()
-    positions = portfolio.get("positions", [])
+    positions = db.get_open_positions()
+    closed = db.get_closed_positions(limit=20)
 
     if not positions:
         return make_serializable({
             "positions": [],
-            "closed": portfolio.get("closed", [])[-20:],
+            "closed": closed,
             "summary": _empty_summary(),
         })
 
@@ -119,11 +101,11 @@ def list_positions():
     # Sort: exit signals first, then by P&L
     enriched.sort(key=lambda x: (-len(x.get("exit_signals", [])), x.get("pnl", 0)))
 
-    summary = _calculate_summary(enriched, portfolio.get("closed", []))
+    summary = _calculate_summary(enriched, closed)
 
     return make_serializable({
         "positions": enriched,
-        "closed": portfolio.get("closed", [])[-20:],
+        "closed": closed,
         "summary": summary,
     })
 
@@ -134,117 +116,65 @@ def open_position(req: OpenPositionRequest):
     if req.lots <= 0 or req.entry_price <= 0:
         raise HTTPException(400, "張數和買入價必須大於 0")
 
-    portfolio = _load_portfolio()
+    try:
+        position = db.create_position({
+            "code": req.code,
+            "name": req.name,
+            "entry_price": req.entry_price,
+            "lots": req.lots,
+            "stop_loss": req.stop_loss,
+            "trailing_stop": req.trailing_stop,
+            "confidence": req.confidence,
+            "sector": req.sector,
+            "note": req.note,
+        })
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
-    # Check if already has open position for same code
-    existing = [p for p in portfolio["positions"] if p["code"] == req.code]
-    if existing:
-        raise HTTPException(400, f"已有 {req.code} 的未平倉部位，請先平倉")
-
-    position = {
-        "id": str(uuid.uuid4())[:8],
-        "code": req.code,
-        "name": req.name,
-        "entry_date": datetime.now().strftime("%Y-%m-%d"),
-        "entry_price": req.entry_price,
-        "lots": req.lots,
-        "stop_loss": req.stop_loss,
-        "trailing_stop": req.trailing_stop,
-        "confidence": req.confidence,
-        "sector": req.sector,
-        "note": req.note,
-    }
-
-    portfolio["positions"].append(position)
-    _save_portfolio(portfolio)
     return {"ok": True, "position": position}
 
 
 @router.post("/{position_id}/close")
 def close_position(position_id: str, req: ClosePositionRequest):
     """平倉模擬倉位"""
-    portfolio = _load_portfolio()
-
-    pos = None
-    for i, p in enumerate(portfolio["positions"]):
-        if p["id"] == position_id:
-            pos = portfolio["positions"].pop(i)
-            break
-
-    if not pos:
+    result = db.close_position(position_id, req.exit_price, req.exit_reason)
+    if not result:
         raise HTTPException(404, f"找不到倉位 {position_id}")
-
-    shares = pos["lots"] * 1000
-    entry_cost = pos["entry_price"] * shares
-    exit_value = req.exit_price * shares
-    pnl = exit_value - entry_cost
-    # Transaction costs: commission 0.1425% × 2 + tax 0.3% + slippage already in prices
-    commission = (entry_cost + exit_value) * 0.001425
-    tax = exit_value * 0.003
-    net_pnl = pnl - commission - tax
-
-    closed = {
-        **pos,
-        "exit_date": datetime.now().strftime("%Y-%m-%d"),
-        "exit_price": req.exit_price,
-        "exit_reason": req.exit_reason,
-        "pnl": round(pnl, 0),
-        "net_pnl": round(net_pnl, 0),
-        "return_pct": round((req.exit_price / pos["entry_price"] - 1), 4),
-        "commission": round(commission, 0),
-        "tax": round(tax, 0),
-        "days_held": (datetime.now() - datetime.fromisoformat(pos["entry_date"])).days,
-    }
-
-    portfolio["closed"].append(closed)
-    _save_portfolio(portfolio)
-    return {"ok": True, "closed": closed}
+    return {"ok": True, "closed": result}
 
 
 @router.put("/{position_id}")
 def update_position(position_id: str, req: UpdateStopRequest):
     """更新倉位停損/停利"""
-    portfolio = _load_portfolio()
+    updates = {}
+    if req.stop_loss is not None:
+        updates["stop_loss"] = req.stop_loss
+    if req.trailing_stop is not None:
+        updates["trailing_stop"] = req.trailing_stop
+    if req.note is not None:
+        updates["note"] = req.note
 
-    for p in portfolio["positions"]:
-        if p["id"] == position_id:
-            if req.stop_loss is not None:
-                p["stop_loss"] = req.stop_loss
-            if req.trailing_stop is not None:
-                p["trailing_stop"] = req.trailing_stop
-            if req.note is not None:
-                p["note"] = req.note
-            _save_portfolio(portfolio)
-            return {"ok": True, "position": p}
-
-    raise HTTPException(404, f"找不到倉位 {position_id}")
+    result = db.update_position(position_id, updates)
+    if not result:
+        raise HTTPException(404, f"找不到倉位 {position_id}")
+    return {"ok": True, "position": result}
 
 
 @router.delete("/{position_id}")
 def delete_position(position_id: str):
     """刪除倉位（不計入已平倉記錄）"""
-    portfolio = _load_portfolio()
-
-    for i, p in enumerate(portfolio["positions"]):
-        if p["id"] == position_id:
-            portfolio["positions"].pop(i)
-            _save_portfolio(portfolio)
-            return {"ok": True}
-
-    raise HTTPException(404, f"找不到倉位 {position_id}")
+    if not db.delete_position(position_id):
+        raise HTTPException(404, f"找不到倉位 {position_id}")
+    return {"ok": True}
 
 
 @router.get("/health")
 def portfolio_health():
-    """組合健康檢查（Gemini R25: Risk Audit）
-
-    Returns sector concentration, momentum divergence, and risk warnings.
-    """
+    """組合健康檢查（Gemini R25-R26: Risk Audit + Correlation Audit）"""
     from data.cache import get_cached_sector_heat
     from backend.dependencies import make_serializable
 
-    portfolio = _load_portfolio()
-    positions = portfolio.get("positions", [])
+    positions = db.get_open_positions()
 
     if not positions:
         return make_serializable({"warnings": [], "sector_allocation": [], "total_positions": 0})
@@ -300,7 +230,6 @@ def portfolio_health():
                 })
 
     # L1 Hidden Exposure (Gemini R26: Correlation Audit)
-    # Even if L2 subsectors differ, high L1 concentration = correlated risk
     if total_lots > 0:
         max_sector = max(sector_allocation, key=lambda x: x["pct"])
         if max_sector["pct"] >= 60 and max_sector["count"] >= 2:
@@ -338,11 +267,11 @@ def get_exit_alerts():
 
 @router.get("/equity-ledger")
 def get_equity_ledger():
-    """每日資產快照歷史（Gemini R25）"""
-    from data.cache import get_equity_ledger as _get_ledger
+    """每日資產快照歷史（Gemini R25→R27: from SQLite）"""
     from backend.dependencies import make_serializable
 
-    ledger = _get_ledger()
+    ledger = db.get_equity_snapshots()
+
     if not ledger:
         return {"ledger": [], "delta_equity": None}
 
@@ -365,103 +294,37 @@ def get_equity_ledger():
 
 @router.get("/analytics")
 def get_analytics():
-    """勝率與賠率統計 — Win-Loss Analytics（Gemini R26）
-
-    Validates whether our Confidence Multiplier actually works:
-    - Win rate, Profit Factor, Expectancy
-    - Confidence Accuracy: avg return by C-value bracket
-    - Best/worst trades
-    """
+    """勝率與賠率統計 — Win-Loss Analytics（Gemini R26→R27: SQL-powered）"""
     from backend.dependencies import make_serializable
 
-    portfolio = _load_portfolio()
-    closed = portfolio.get("closed", [])
+    stats = db.get_closed_stats()
 
-    if not closed:
+    if stats["total"] == 0:
         return make_serializable({"has_data": False})
 
-    wins = [c for c in closed if c.get("net_pnl", 0) > 0]
-    losses = [c for c in closed if c.get("net_pnl", 0) <= 0]
-    total_gain = sum(c.get("net_pnl", 0) for c in wins)
-    total_loss = abs(sum(c.get("net_pnl", 0) for c in losses))
-
-    win_rate = len(wins) / len(closed) if closed else 0
-    profit_factor = total_gain / total_loss if total_loss > 0 else float("inf")
-    avg_win = total_gain / len(wins) if wins else 0
-    avg_loss = total_loss / len(losses) if losses else 0
-
-    # Expectancy = (Win% × Avg Win) - (Loss% × Avg Loss)
-    expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
-
-    # Confidence Accuracy: group by C-value brackets
-    c_brackets = {
-        "C >= 1.2 (高信心)": [],
-        "1.0 <= C < 1.2 (中高)": [],
-        "0.5 <= C < 1.0 (中)": [],
-        "C < 0.5 (低信心)": [],
-    }
-    for c in closed:
-        cv = c.get("confidence", 0.7)
-        ret = c.get("return_pct", 0)
-        if cv >= 1.2:
-            c_brackets["C >= 1.2 (高信心)"].append(ret)
-        elif cv >= 1.0:
-            c_brackets["1.0 <= C < 1.2 (中高)"].append(ret)
-        elif cv >= 0.5:
-            c_brackets["0.5 <= C < 1.0 (中)"].append(ret)
-        else:
-            c_brackets["C < 0.5 (低信心)"].append(ret)
-
-    confidence_accuracy = []
-    for bracket, returns in c_brackets.items():
-        if returns:
-            avg_ret = sum(returns) / len(returns)
-            w = sum(1 for r in returns if r > 0)
-            confidence_accuracy.append({
-                "bracket": bracket,
-                "count": len(returns),
-                "avg_return": round(avg_ret, 4),
-                "win_rate": round(w / len(returns), 4),
-            })
-
-    # Best/worst trades
-    sorted_by_pnl = sorted(closed, key=lambda x: x.get("net_pnl", 0))
-    best = sorted_by_pnl[-1] if sorted_by_pnl else None
-    worst = sorted_by_pnl[0] if sorted_by_pnl else None
-
-    # Avg holding days
-    avg_days = sum(c.get("days_held", 0) for c in closed) / len(closed) if closed else 0
+    confidence_accuracy = db.get_confidence_accuracy()
+    best, worst = db.get_best_worst_trades()
 
     return make_serializable({
         "has_data": True,
-        "total_trades": len(closed),
-        "win_rate": round(win_rate, 4),
-        "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else 999,
-        "expectancy": round(expectancy, 0),
-        "avg_win": round(avg_win, 0),
-        "avg_loss": round(avg_loss, 0),
-        "total_gain": round(total_gain, 0),
-        "total_loss": round(total_loss, 0),
-        "avg_days_held": round(avg_days, 1),
+        "total_trades": stats["total"],
+        "win_rate": stats["win_rate"],
+        "profit_factor": stats["profit_factor"],
+        "expectancy": stats["expectancy"],
+        "avg_win": stats["avg_win"],
+        "avg_loss": stats["avg_loss"],
+        "total_gain": stats["total_gain"],
+        "total_loss": stats["total_loss"],
+        "avg_days_held": stats["avg_days"],
         "confidence_accuracy": confidence_accuracy,
-        "best_trade": {
-            "code": best["code"], "name": best.get("name", ""),
-            "net_pnl": best.get("net_pnl", 0), "return_pct": best.get("return_pct", 0),
-        } if best else None,
-        "worst_trade": {
-            "code": worst["code"], "name": worst.get("name", ""),
-            "net_pnl": worst.get("net_pnl", 0), "return_pct": worst.get("return_pct", 0),
-        } if worst else None,
+        "best_trade": best,
+        "worst_trade": worst,
     })
 
 
 @router.get("/briefing")
 def get_briefing():
-    """今日戰略簡報 — AI Briefing（Gemini R26）
-
-    Aggregates: sector heat, transitions, health warnings, exit alerts
-    into top 3 actionable insights.
-    """
+    """今日戰略簡報 — AI Briefing（Gemini R26-R27: with self-correction）"""
     from data.cache import (
         get_cached_sector_heat, get_transition_events,
         get_portfolio_exit_alerts,
@@ -521,10 +384,9 @@ def get_briefing():
         })
 
     # 4. Portfolio health warnings
-    portfolio = _load_portfolio()
-    positions = portfolio.get("positions", [])
+    positions = db.get_open_positions()
     if positions:
-        sectors = {}
+        sectors: dict[str, int] = {}
         for p in positions:
             sec = p.get("sector") or "未分類"
             sectors[sec] = sectors.get(sec, 0) + p["lots"]
@@ -540,7 +402,22 @@ def get_briefing():
                 })
                 break
 
-    # 5. If no insights, add a neutral one
+    # 5. Self-correction advice from Analytics (Gemini R27)
+    confidence_accuracy = db.get_confidence_accuracy()
+    for ca in confidence_accuracy:
+        if "低信心" in ca["bracket"] and ca["count"] >= 2 and ca["win_rate"] < 0.35:
+            insights.append({
+                "type": "self_correction",
+                "severity": "high",
+                "icon": "🧠",
+                "message": (
+                    f"自我修正：低信心標的 ({ca['bracket']}) 勝率僅 {ca['win_rate']:.0%}，"
+                    f"建議嚴格執行低信心不開倉策略"
+                ),
+            })
+            break
+
+    # 6. If no insights, add a neutral one
     if not insights:
         insights.append({
             "type": "neutral",

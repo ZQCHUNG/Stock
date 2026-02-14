@@ -21,6 +21,10 @@ redis-data/
 *.jpg
 *.jpeg
 _*.json
+*.db
+*.db-wal
+*.db-shm
+*.json.bak
 nul
 .claude/
 .playwright-mcp/

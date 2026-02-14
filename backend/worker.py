@@ -40,7 +40,6 @@ from data.cache import (
     add_transition_event,
     clear_transition_events,
     set_portfolio_exit_alerts,
-    append_equity_snapshot,
 )
 
 logging.basicConfig(
@@ -443,25 +442,18 @@ def _release_scan_lock():
 
 
 def check_portfolio_exits() -> None:
-    """Check all open positions against exit conditions (Gemini R25).
+    """Check all open positions against exit conditions (Gemini R25→R27: SQLite).
 
-    Reads portfolio.json, fetches current prices, checks:
+    Reads positions from SQLite, fetches current prices, checks:
     - Static stop loss
     - ATR trailing stop
     - Take profit (+10%)
     Stores exit alerts in Redis for frontend display.
     """
     from data.fetcher import get_stock_data
+    from backend.db import get_open_positions
 
-    portfolio_file = Path(__file__).resolve().parent.parent / "data" / "portfolio.json"
-    try:
-        if not portfolio_file.exists():
-            return
-        portfolio = json.loads(portfolio_file.read_text(encoding="utf-8"))
-    except Exception:
-        return
-
-    positions = portfolio.get("positions", [])
+    positions = get_open_positions()
     if not positions:
         set_portfolio_exit_alerts([])
         return
@@ -510,25 +502,18 @@ def check_portfolio_exits() -> None:
 
 
 def take_equity_snapshot() -> None:
-    """Take daily equity snapshot for Ledger (Gemini R25).
+    """Take daily equity snapshot for Ledger (Gemini R25→R27: SQLite).
 
     Computes total portfolio value = sum(position_market_value).
-    Stores as timeseries entry in Redis.
+    Stores as timeseries entry in SQLite.
     """
     from data.fetcher import get_stock_data
+    from backend.db import get_open_positions, get_closed_stats, append_equity_snapshot as db_append
 
-    portfolio_file = Path(__file__).resolve().parent.parent / "data" / "portfolio.json"
-    try:
-        if not portfolio_file.exists():
-            return
-        portfolio = json.loads(portfolio_file.read_text(encoding="utf-8"))
-    except Exception:
-        return
+    positions = get_open_positions()
+    stats = get_closed_stats()
 
-    positions = portfolio.get("positions", [])
-    closed = portfolio.get("closed", [])
-
-    if not positions and not closed:
+    if not positions and stats["total"] == 0:
         return
 
     total_cost = 0
@@ -544,20 +529,17 @@ def take_equity_snapshot() -> None:
         except Exception:
             total_value += pos["entry_price"] * shares  # Fallback to entry price
 
-    realized_pnl = sum(c.get("net_pnl", 0) for c in closed)
+    realized_pnl = stats["total_gain"] - stats["total_loss"]
 
     snapshot = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "total_equity": round(total_value + realized_pnl, 0),
         "position_value": round(total_value, 0),
-        "position_cost": round(total_cost, 0),
-        "unrealized_pnl": round(total_value - total_cost, 0),
         "realized_pnl": round(realized_pnl, 0),
-        "open_positions": len(positions),
-        "closed_trades": len(closed),
+        "position_count": len(positions),
     }
 
-    append_equity_snapshot(snapshot)
+    db_append(snapshot)
     logger.info(
         f"  Equity snapshot: value={total_value:,.0f} "
         f"unrealized={total_value - total_cost:+,.0f} "
