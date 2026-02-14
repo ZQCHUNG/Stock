@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { NCard, NButton, NSpin, NAlert, NTabs, NTabPane, NDescriptions, NDescriptionsItem, NGrid, NGi, NTag, NSpace, NText } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useReportStore } from '../stores/report'
 import { fmtPct, priceColor } from '../utils/format'
 import MetricCard from '../components/MetricCard.vue'
-import SignalBadge from '../components/SignalBadge.vue'
 
 const app = useAppStore()
 const rpt = useReportStore()

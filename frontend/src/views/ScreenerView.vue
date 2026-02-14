@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { NCard, NButton, NGrid, NGi, NInputNumber, NSwitch, NSelect, NSpin, NTag, NSpace, NText } from 'naive-ui'
+import { NCard, NButton, NGrid, NGi, NInputNumber, NSwitch, NSelect, NSpin, NTag, NText } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useScreenerStore } from '../stores/screener'
 import { useWatchlistStore } from '../stores/watchlist'

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { h, onMounted } from 'vue'
 import { NCard, NButton, NDataTable, NSpin, NSpace, NTag } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
@@ -17,40 +18,43 @@ function selectStock(code: string) {
   app.selectStock(code)
 }
 
-const overviewColumns = [
-  { title: '代碼', key: 'code', width: 70, render: (r: any) => r.code },
-  { title: '名稱', key: 'name', width: 80 },
-  { title: '收盤價', key: 'price', width: 90, render: (r: any) => r.price?.toFixed(2) || '-' },
+const overviewColumns: DataTableColumns = [
+  { title: '代碼', key: 'code', width: 70, sorter: 'default',
+    render: (r: any) => h('span', { style: { fontWeight: 600, cursor: 'pointer' }, onClick: () => selectStock(r.code) }, r.code) },
+  { title: '名稱', key: 'name', width: 80,
+    render: (r: any) => h('span', { style: { cursor: 'pointer' }, onClick: () => selectStock(r.code) }, r.name) },
+  { title: '收盤價', key: 'price', width: 90, sorter: (a: any, b: any) => (a.price || 0) - (b.price || 0),
+    render: (r: any) => r.price?.toFixed(2) || '-' },
   { title: '漲跌%', key: 'change_pct', width: 80, sorter: (a: any, b: any) => (a.change_pct || 0) - (b.change_pct || 0),
-    render: (r: any) => {
-      const v = r.change_pct
-      if (v == null) return '-'
-      return `<span style="color: ${priceColor(v)}; font-weight: 600">${fmtPct(v)}</span>`
-    },
-    // Use cellProps for coloring in setup
-  },
-  { title: '成交量(張)', key: 'volume_lots', width: 100, render: (r: any) => fmtNum(r.volume_lots, 0) },
-  { title: '訊號', key: 'signal', width: 70, render: (r: any) => r.signal || '-' },
-  { title: '趨勢天數', key: 'uptrend_days', width: 80 },
-  { title: 'RSI', key: 'rsi', width: 60, render: (r: any) => r.rsi?.toFixed(1) || '-' },
-  { title: 'ADX', key: 'adx', width: 60, render: (r: any) => r.adx?.toFixed(1) || '-' },
-  {
-    title: '操作', key: 'actions', width: 100,
-    render: (r: any) => {
-      return undefined // handled via template
-    },
-  },
+    render: (r: any) => h('span', { style: { color: priceColor(r.change_pct), fontWeight: 600 } }, fmtPct(r.change_pct)) },
+  { title: '成交量(張)', key: 'volume_lots', width: 110, sorter: (a: any, b: any) => (a.volume_lots || 0) - (b.volume_lots || 0),
+    render: (r: any) => fmtNum(r.volume_lots, 0) },
+  { title: '訊號', key: 'signal', width: 70, filterOptions: [
+      { label: 'BUY', value: 'BUY' }, { label: 'SELL', value: 'SELL' }, { label: 'HOLD', value: 'HOLD' },
+    ], filter: (value: any, row: any) => row.signal === value,
+    render: (r: any) => h(NTag, { type: r.signal === 'BUY' ? 'error' : r.signal === 'SELL' ? 'success' : 'default', size: 'small' }, () => r.signal || '-') },
+  { title: '趨勢天數', key: 'uptrend_days', width: 80, sorter: (a: any, b: any) => (a.uptrend_days || 0) - (b.uptrend_days || 0) },
+  { title: 'RSI', key: 'rsi', width: 60, sorter: (a: any, b: any) => (a.rsi || 0) - (b.rsi || 0),
+    render: (r: any) => r.rsi?.toFixed(1) || '-' },
+  { title: 'ADX', key: 'adx', width: 60, sorter: (a: any, b: any) => (a.adx || 0) - (b.adx || 0),
+    render: (r: any) => r.adx?.toFixed(1) || '-' },
+  { title: '操作', key: 'actions', width: 70,
+    render: (r: any) => h(NButton, { size: 'tiny', quaternary: true, type: 'error', onClick: (e: Event) => { e.stopPropagation(); wl.remove(r.code) } }, () => '移除') },
 ]
 
-const btColumns = [
-  { title: '代碼', key: 'code', width: 70 },
+const btColumns: DataTableColumns = [
+  { title: '代碼', key: 'code', width: 70, sorter: 'default' },
   { title: '名稱', key: 'name', width: 80 },
-  { title: '總報酬', key: 'total_return', width: 90, sorter: (a: any, b: any) => (a.total_return || 0) - (b.total_return || 0), render: (r: any) => fmtPct(r.total_return) },
-  { title: '年化報酬', key: 'annual_return', width: 90, render: (r: any) => fmtPct(r.annual_return) },
-  { title: '最大回撤', key: 'max_drawdown', width: 90, render: (r: any) => fmtPct(r.max_drawdown) },
-  { title: 'Sharpe', key: 'sharpe_ratio', width: 80, render: (r: any) => r.sharpe_ratio?.toFixed(2) || '-' },
+  { title: '總報酬', key: 'total_return', width: 90, sorter: (a: any, b: any) => (a.total_return || 0) - (b.total_return || 0),
+    render: (r: any) => h('span', { style: { color: priceColor(r.total_return), fontWeight: 600 } }, fmtPct(r.total_return)) },
+  { title: '年化報酬', key: 'annual_return', width: 90, sorter: (a: any, b: any) => (a.annual_return || 0) - (b.annual_return || 0),
+    render: (r: any) => h('span', { style: { color: priceColor(r.annual_return) } }, fmtPct(r.annual_return)) },
+  { title: '最大回撤', key: 'max_drawdown', width: 90, sorter: (a: any, b: any) => (a.max_drawdown || 0) - (b.max_drawdown || 0),
+    render: (r: any) => h('span', { style: { color: '#e53e3e' } }, fmtPct(r.max_drawdown)) },
+  { title: 'Sharpe', key: 'sharpe_ratio', width: 80, sorter: (a: any, b: any) => (a.sharpe_ratio || 0) - (b.sharpe_ratio || 0),
+    render: (r: any) => r.sharpe_ratio?.toFixed(2) || '-' },
   { title: '勝率', key: 'win_rate', width: 70, render: (r: any) => fmtPct(r.win_rate) },
-  { title: '交易次數', key: 'total_trades', width: 80 },
+  { title: '交易次數', key: 'total_trades', width: 80, sorter: (a: any, b: any) => (a.total_trades || 0) - (b.total_trades || 0) },
 ]
 </script>
 
@@ -65,36 +69,14 @@ const btColumns = [
 
     <NSpin :show="wl.isLoading">
       <NCard title="即時總覽" size="small" style="margin-bottom: 16px">
-        <table style="width: 100%; font-size: 13px; border-collapse: collapse">
-          <thead>
-            <tr style="border-bottom: 2px solid #e2e8f0; text-align: left">
-              <th style="padding: 6px">代碼</th>
-              <th style="padding: 6px">名稱</th>
-              <th style="padding: 6px; text-align: right">收盤價</th>
-              <th style="padding: 6px; text-align: right">漲跌%</th>
-              <th style="padding: 6px; text-align: right">成交量(張)</th>
-              <th style="padding: 6px; text-align: center">訊號</th>
-              <th style="padding: 6px; text-align: right">RSI</th>
-              <th style="padding: 6px">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="s in wl.overview" :key="s.code" style="border-bottom: 1px solid #f0f0f0; cursor: pointer" @click="selectStock(s.code)">
-              <td style="padding: 6px; font-weight: 600">{{ s.code }}</td>
-              <td style="padding: 6px">{{ s.name }}</td>
-              <td style="padding: 6px; text-align: right">{{ s.price?.toFixed(2) || '-' }}</td>
-              <td style="padding: 6px; text-align: right; font-weight: 600" :style="{ color: priceColor(s.change_pct) }">{{ fmtPct(s.change_pct) }}</td>
-              <td style="padding: 6px; text-align: right">{{ fmtNum(s.volume_lots, 0) }}</td>
-              <td style="padding: 6px; text-align: center">
-                <NTag :type="s.signal === 'BUY' ? 'error' : s.signal === 'SELL' ? 'success' : 'default'" size="small">{{ s.signal || '-' }}</NTag>
-              </td>
-              <td style="padding: 6px; text-align: right">{{ s.rsi?.toFixed(1) || '-' }}</td>
-              <td style="padding: 6px">
-                <NButton size="tiny" quaternary type="error" @click.stop="wl.remove(s.code)">移除</NButton>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <NDataTable
+          :columns="overviewColumns"
+          :data="wl.overview"
+          :row-props="(r: any) => ({ style: { cursor: 'pointer' }, onClick: () => selectStock(r.code) })"
+          size="small"
+          :bordered="false"
+          :single-line="false"
+        />
       </NCard>
 
       <NCard v-if="wl.batchResults.length" title="批次回測結果" size="small">

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { watch, onMounted } from 'vue'
-import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NSpace, NDivider, NText, NCollapse, NCollapseItem } from 'naive-ui'
+import { watch, onMounted, nextTick } from 'vue'
+import { connect } from 'echarts/core'
+import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NText, NCollapse, NCollapseItem } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useTechnicalStore } from '../stores/technical'
-import { fmtPct, fmtNum } from '../utils/format'
+import { fmtNum } from '../utils/format'
 import MetricCard from '../components/MetricCard.vue'
 import SignalBadge from '../components/SignalBadge.vue'
 import CandlestickChart from '../components/CandlestickChart.vue'
@@ -17,6 +18,8 @@ async function loadData() {
   const code = app.currentStockCode
   await tech.loadAll(code)
   await tech.loadV4SignalsFull(code)
+  // Connect charts for crosshair + dataZoom sync after data renders
+  nextTick(() => { try { connect('tech') } catch { /* charts not ready */ } })
 }
 
 onMounted(loadData)
@@ -79,6 +82,7 @@ watch(() => app.currentStockCode, loadData)
           :supports="tech.supportResistance?.supports"
           :resistances="tech.supportResistance?.resistances"
           :signals="tech.v4SignalsFull"
+          group="tech"
         />
       </NCard>
 
@@ -86,12 +90,12 @@ watch(() => app.currentStockCode, loadData)
       <NGrid :cols="2" :x-gap="12" style="margin-bottom: 16px">
         <NGi>
           <NCard title="MACD" size="small">
-            <MacdChart :data="tech.indicators" />
+            <MacdChart :data="tech.indicators" group="tech" />
           </NCard>
         </NGi>
         <NGi>
           <NCard title="KD" size="small">
-            <KdChart :data="tech.indicators" />
+            <KdChart :data="tech.indicators" group="tech" />
           </NCard>
         </NGi>
       </NGrid>

@@ -37,3 +37,24 @@ export function signalText(signal: string): string {
   if (signal === 'SELL') return '賣出'
   return '觀望'
 }
+
+/** 匯出 CSV 下載 */
+export function downloadCsv(rows: Record<string, any>[], headers: { key: string; label: string }[], filename: string) {
+  const headerLine = headers.map((h) => h.label).join(',')
+  const lines = rows.map((row) =>
+    headers.map((h) => {
+      const v = row[h.key]
+      if (v == null) return ''
+      const s = String(v)
+      return s.includes(',') || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s
+    }).join(','),
+  )
+  const csv = '\uFEFF' + [headerLine, ...lines].join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}

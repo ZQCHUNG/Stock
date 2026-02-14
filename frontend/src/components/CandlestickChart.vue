@@ -3,17 +3,18 @@ import { computed } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CandlestickChart as Candle, LineChart, BarChart, ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { TimeSeriesData } from '../api/stocks'
 
-use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, CanvasRenderer])
+use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, CanvasRenderer])
 
 const props = defineProps<{
   data: TimeSeriesData | null
   supports?: { price: number; source: string }[]
   resistances?: { price: number; source: string }[]
   signals?: TimeSeriesData | null
+  group?: string
 }>()
 
 const option = computed(() => {
@@ -39,7 +40,7 @@ const option = computed(() => {
   const buyMarkers: any[] = []
   const sellMarkers: any[] = []
   if (props.signals) {
-    const sig = props.signals.columns.v4_signal || []
+    const sig = (props.signals.columns as Record<string, any[]>).v4_signal || []
     const sigDates = props.signals.dates
     sigDates.forEach((date, i) => {
       const idx = dates.indexOf(date)
@@ -59,7 +60,25 @@ const option = computed(() => {
   }
 
   return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params: any[]) => {
+        if (!params?.length) return ''
+        const idx = params[0].dataIndex
+        const date = dates[idx]
+        let html = `<div style="font-size:12px"><b>${date}</b><br/>`
+        if (open[idx] != null) {
+          const o = open[idx] ?? 0, c = close[idx] ?? 0, h = high[idx] ?? 0, l = low[idx] ?? 0, vol = volume[idx] ?? 0
+          const clr = c >= o ? '#e53e3e' : '#38a169'
+          html += `開 <b>${o.toFixed(2)}</b> 高 <b>${h.toFixed(2)}</b> 低 <b>${l.toFixed(2)}</b> 收 <b style="color:${clr}">${c.toFixed(2)}</b><br/>`
+          html += `量 ${(vol / 1000).toFixed(0)} 張`
+          if (ma5[idx] != null) html += ` MA5 ${(ma5[idx] ?? 0).toFixed(2)}`
+          if (ma20[idx] != null) html += ` MA20 ${(ma20[idx] ?? 0).toFixed(2)}`
+        }
+        return html + '</div>'
+      },
+    },
     legend: { data: ['K線', 'MA5', 'MA20', 'MA60', 'BB上', 'BB下'], top: 0, textStyle: { fontSize: 11 } },
     grid: [
       { left: 60, right: 20, top: 40, height: '55%' },
@@ -107,5 +126,5 @@ const option = computed(() => {
 </script>
 
 <template>
-  <VChart :option="option" autoresize style="height: 500px" />
+  <VChart :option="option" :group="group" autoresize style="height: 500px" />
 </template>

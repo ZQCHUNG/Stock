@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { NCard, NButton, NGrid, NGi, NSpin, NAlert, NTabs, NTabPane, NInputNumber, NSpace, NDataTable } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -8,7 +8,7 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { CanvasRenderer } from 'echarts/renderers'
 import { useAppStore } from '../stores/app'
 import { useBacktestStore } from '../stores/backtest'
-import { fmtPct, fmtNum, priceColor } from '../utils/format'
+import { fmtPct, fmtNum, priceColor, downloadCsv } from '../utils/format'
 import MetricCard from '../components/MetricCard.vue'
 
 use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, CanvasRenderer])
@@ -47,6 +47,19 @@ const exitPieOption = computed(() => {
     series: [{ type: 'pie', radius: ['40%', '70%'], data, label: { fontSize: 11 } }],
   }
 })
+
+function exportTrades() {
+  const trades = bt.singleResult?.trades || []
+  downloadCsv(trades, [
+    { key: 'date_open', label: '開倉日' },
+    { key: 'date_close', label: '平倉日' },
+    { key: 'price_open', label: '買入價' },
+    { key: 'price_close', label: '賣出價' },
+    { key: 'pnl', label: '損益' },
+    { key: 'return_pct', label: '報酬率' },
+    { key: 'exit_reason', label: '出場原因' },
+  ], `backtest_${app.currentStockCode}_trades.csv`)
+}
 
 // Trade table columns
 const tradeColumns = [
@@ -104,6 +117,9 @@ const tradeColumns = [
           </NTabPane>
 
           <NTabPane name="trades" tab="交易明細">
+            <NSpace style="margin-bottom: 8px" justify="end">
+              <NButton size="small" @click="exportTrades" :disabled="!bt.singleResult?.trades?.length">匯出 CSV</NButton>
+            </NSpace>
             <NDataTable
               :columns="tradeColumns"
               :data="bt.singleResult.trades"

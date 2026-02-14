@@ -5,7 +5,6 @@ import { useAppStore } from '../stores/app'
 import { useRecommendStore } from '../stores/recommend'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, priceColor } from '../utils/format'
-import MetricCard from '../components/MetricCard.vue'
 import SignalBadge from '../components/SignalBadge.vue'
 
 const app = useAppStore()
