@@ -2,15 +2,17 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
-  NAutoComplete, NMenu, NDivider, NText, NTag, NSpace, NButton,
+  NAutoComplete, NMenu, NDivider, NText, NTag, NSpace, NButton, NSwitch,
 } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useCacheStore } from '../stores/cache'
+import { useThemeStore } from '../stores/theme'
 
 const router = useRouter()
 const route = useRoute()
 const app = useAppStore()
 const cache = useCacheStore()
+const themeStore = useThemeStore()
 
 const searchValue = ref('')
 
@@ -96,8 +98,14 @@ function onMenuUpdate(key: string) {
 
     <NDivider style="margin: 8px 0" />
 
-    <NButton size="tiny" quaternary @click="cache.loadStats()">
-      快取 {{ cache.stats?.keys || 0 }} 筆
-    </NButton>
+    <NSpace justify="space-between" align="center">
+      <NButton size="tiny" quaternary @click="cache.loadStats()">
+        快取 {{ cache.stats?.keys || 0 }} 筆
+      </NButton>
+      <NSpace align="center" :size="4">
+        <NText depth="3" style="font-size: 11px">{{ themeStore.isDark ? '深色' : '淺色' }}</NText>
+        <NSwitch :value="themeStore.isDark" @update:value="themeStore.toggle()" size="small" />
+      </NSpace>
+    </NSpace>
   </div>
 </template>

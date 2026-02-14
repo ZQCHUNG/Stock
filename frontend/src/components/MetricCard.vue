@@ -20,13 +20,13 @@ defineProps<{
 
 <style scoped>
 .metric-card {
-  background: #fff;
-  border: 1px solid #e2e8f0;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
   border-radius: 8px;
   padding: 12px 16px;
   text-align: center;
 }
-.metric-title { font-size: 12px; color: #718096; margin-bottom: 4px; }
+.metric-title { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
 .metric-value { font-size: 20px; font-weight: 700; }
-.metric-subtitle { font-size: 11px; color: #a0aec0; margin-top: 2px; }
+.metric-subtitle { font-size: 11px; color: var(--text-dimmed); margin-top: 2px; }
 </style>
