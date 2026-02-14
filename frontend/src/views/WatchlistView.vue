@@ -102,6 +102,7 @@ const sectorHeatChartOption = computed(() => {
         const buyList = (sector.buy_stocks || []).map((s: any) => `${s.code} ${s.name} (${s.maturity})`).join('<br/>')
         return `<b>${sector.sector}</b><br/>` +
           `訊號密度: ${(sector.heat * 100).toFixed(0)}% (${sector.buy_count}/${sector.total})<br/>` +
+          `加權熱度: ${(sector.weighted_heat * 100).toFixed(0)}%<br/>` +
           (buyList ? `<br/>BUY 標的:<br/>${buyList}` : '')
       },
     },

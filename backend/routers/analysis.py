@@ -149,10 +149,11 @@ def get_sector_heat():
     from analysis.strategy_v4 import get_v4_analysis
     from backend.dependencies import make_serializable
 
-    MATURITY_SCORES = {
-        "Speculative Spike": 1,
-        "Trend Formation": 2,
-        "Structural Shift": 3,
+    # Gemini R21: Weighted maturity scores for heat calculation
+    MATURITY_WEIGHTS = {
+        "Speculative Spike": 1.0,
+        "Trend Formation": 1.5,
+        "Structural Shift": 2.0,
     }
 
     def _scan_stock(code):
@@ -193,21 +194,21 @@ def get_sector_heat():
         buy_count = len(buy_stocks)
         heat = buy_count / total if total > 0 else 0
 
-        # Average maturity score for BUY stocks
-        maturity_scores = [MATURITY_SCORES.get(s["signal_maturity"], 0) for s in buy_stocks]
-        avg_maturity = sum(maturity_scores) / len(maturity_scores) if maturity_scores else 0
+        # Weighted heat: Structural Shift counts 2x, Trend Formation 1.5x
+        weighted_sum = sum(MATURITY_WEIGHTS.get(s["signal_maturity"], 1.0) for s in buy_stocks)
+        weighted_heat = weighted_sum / total if total > 0 else 0
 
         heat_data.append({
             "sector": sector,
             "total": total,
             "buy_count": buy_count,
             "heat": round(heat, 3),
-            "avg_maturity_score": round(avg_maturity, 2),
+            "weighted_heat": round(weighted_heat, 3),
             "buy_stocks": [{"code": s["code"], "name": s["name"], "maturity": s["signal_maturity"]} for s in buy_stocks],
             "all_stocks": [s["code"] for s in stocks],
         })
 
-    heat_data.sort(key=lambda x: x["heat"], reverse=True)
+    heat_data.sort(key=lambda x: x["weighted_heat"], reverse=True)
 
     return make_serializable({
         "sectors": heat_data,
