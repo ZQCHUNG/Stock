@@ -6,9 +6,11 @@ import {
 } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { useRouter } from 'vue-router'
+import { useAppStore } from '../stores/app'
 import { systemApi } from '../api/system'
 
 const router = useRouter()
+const app = useAppStore()
 const loading = ref(true)
 const data = ref<any>(null)
 
@@ -29,6 +31,9 @@ const pnl = computed(() => data.value?.pnl || {})
 const regime = computed(() => data.value?.regime || {})
 const oms = computed(() => data.value?.oms || {})
 const alerts = computed(() => data.value?.alerts || [])
+const risk = computed(() => data.value?.risk || {})
+const signals = computed(() => data.value?.today_signals || [])
+const equity = computed(() => data.value?.equity_curve || {})
 
 function regimeColor(suitability: string): string {
   if (suitability === 'excellent') return '#18a058'
@@ -55,8 +60,31 @@ const monthlyPnlChart = computed(() => {
   }
 })
 
+const equityCurveChart = computed(() => {
+  const dates = equity.value?.dates || []
+  const values = equity.value?.values || []
+  if (!dates.length) return {}
+  return {
+    tooltip: { trigger: 'axis', formatter: (p: any) => `${p[0]?.axisValue}<br/>$${(p[0]?.value || 0).toLocaleString()}` },
+    grid: { left: 60, right: 10, top: 8, bottom: 20 },
+    xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10, rotate: 30 } },
+    yAxis: { type: 'value', axisLabel: { fontSize: 10, formatter: (v: number) => `$${(v / 1e6).toFixed(2)}M` } },
+    series: [{
+      type: 'line', data: values, symbol: 'none',
+      lineStyle: { width: 2 },
+      areaStyle: { opacity: 0.15 },
+      itemStyle: { color: '#2080f0' },
+    }],
+  }
+})
+
 function nav(route: string) {
   router.push({ name: route })
+}
+
+function analyzeStock(code: string) {
+  app.selectStock(code)
+  router.push({ name: 'technical' })
 }
 </script>
 
@@ -69,18 +97,16 @@ function nav(route: string) {
 
     <NSpin :show="loading">
       <!-- Row 1: Key Metrics -->
-      <NGrid :cols="5" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+      <NGrid :cols="6" :x-gap="10" :y-gap="10" style="margin-bottom: 12px">
         <NGi>
           <NCard size="small" :bordered="true">
-            <NStatistic label="Open Positions" :value="pos.count || 0" />
+            <NStatistic label="Positions" :value="pos.count || 0" />
           </NCard>
         </NGi>
         <NGi>
           <NCard size="small" :bordered="true">
-            <NStatistic label="Total Market Value">
-              <template #default>
-                <span>${{ ((pos.total_value || 0) / 10000).toFixed(1) }}萬</span>
-              </template>
+            <NStatistic label="Market Value">
+              <template #default>${{ ((pos.total_value || 0) / 10000).toFixed(1) }}W</template>
             </NStatistic>
           </NCard>
         </NGi>
@@ -90,7 +116,6 @@ function nav(route: string) {
               <template #default>
                 <span :style="{ color: (pos.total_pnl || 0) >= 0 ? '#18a058' : '#e53e3e' }">
                   ${{ (pos.total_pnl || 0).toLocaleString() }}
-                  ({{ ((pos.total_pnl_pct || 0) * 100).toFixed(2) }}%)
                 </span>
               </template>
             </NStatistic>
@@ -98,7 +123,7 @@ function nav(route: string) {
         </NGi>
         <NGi>
           <NCard size="small" :bordered="true">
-            <NStatistic label="Cumulative P&L (Closed)">
+            <NStatistic label="Closed P&L">
               <template #default>
                 <span :style="{ color: (pnl.cumulative_pnl || 0) >= 0 ? '#18a058' : '#e53e3e' }">
                   ${{ (pnl.cumulative_pnl || 0).toLocaleString() }}
@@ -109,24 +134,42 @@ function nav(route: string) {
         </NGi>
         <NGi>
           <NCard size="small" :bordered="true">
-            <NStatistic label="Total Closed Trades" :value="pnl.total_closed || 0" />
+            <NStatistic label="VaR 1D (95%)">
+              <template #default>
+                <span v-if="risk.has_data" style="color: #e53e3e">
+                  {{ ((risk.var_1d_pct || 0) * 100).toFixed(2) }}%
+                </span>
+                <span v-else style="color: #999">-</span>
+              </template>
+            </NStatistic>
+          </NCard>
+        </NGi>
+        <NGi>
+          <NCard size="small" :bordered="true">
+            <NStatistic label="VaR 5D (95%)">
+              <template #default>
+                <span v-if="risk.has_data" style="color: #e53e3e">
+                  ${{ (risk.var_1d_amt || 0).toLocaleString() }}
+                </span>
+                <span v-else style="color: #999">-</span>
+              </template>
+            </NStatistic>
           </NCard>
         </NGi>
       </NGrid>
 
-      <!-- Row 2: Market Regime + OMS -->
-      <NGrid :cols="2" :x-gap="12" style="margin-bottom: 16px">
+      <!-- Row 2: Market Regime + OMS + Risk -->
+      <NGrid :cols="3" :x-gap="12" style="margin-bottom: 12px">
         <NGi>
           <NCard size="small" title="Market Regime (ML)" :bordered="true">
             <template #header-extra>
-              <NButton size="tiny" text @click="nav('strategies')">Strategy Workbench</NButton>
+              <NButton size="tiny" text @click="nav('strategies')">Workbench</NButton>
             </template>
-            <NGrid :cols="4" :x-gap="8">
+            <NGrid :cols="2" :x-gap="8" :y-gap="4">
               <NGi>
                 <NStatistic label="Regime">
                   <template #default>
-                    <NTag :bordered="false" size="large"
-                          :style="{ color: regimeColor(regime.v4_suitability) }">
+                    <NTag :bordered="false" :style="{ color: regimeColor(regime.v4_suitability) }">
                       {{ regime.label || 'N/A' }}
                     </NTag>
                   </template>
@@ -139,7 +182,7 @@ function nav(route: string) {
                 <NStatistic label="Kelly" :value="(regime.kelly || 0).toFixed(2)" />
               </NGi>
               <NGi>
-                <NStatistic label="V4 Suitability">
+                <NStatistic label="V4 Fit">
                   <template #default>
                     <NTag size="small" :style="{ color: regimeColor(regime.v4_suitability) }">
                       {{ regime.v4_suitability || '-' }}
@@ -148,7 +191,7 @@ function nav(route: string) {
                 </NStatistic>
               </NGi>
             </NGrid>
-            <NAlert v-if="regime.advice" type="info" :bordered="false" style="margin-top: 8px; font-size: 12px">
+            <NAlert v-if="regime.advice" type="info" :bordered="false" style="margin-top: 6px; font-size: 11px">
               {{ regime.advice }}
             </NAlert>
           </NCard>
@@ -159,78 +202,104 @@ function nav(route: string) {
               <NButton size="tiny" text @click="nav('alerts')">Details</NButton>
             </template>
             <NGrid :cols="3" :x-gap="8">
-              <NGi>
-                <NStatistic label="Auto Coverage" :value="`${((oms.auto_coverage || 0) * 100).toFixed(0)}%`" />
-              </NGi>
-              <NGi>
-                <NStatistic label="Max Consec. Losses" :value="oms.max_consecutive_losses || 0" />
-              </NGi>
-              <NGi>
-                <NStatistic label="Auto Exits" :value="oms.total_auto_exits || 0" />
-              </NGi>
+              <NGi><NStatistic label="Auto Coverage" :value="`${((oms.auto_coverage || 0) * 100).toFixed(0)}%`" /></NGi>
+              <NGi><NStatistic label="Consec. Loss" :value="oms.max_consecutive_losses || 0" /></NGi>
+              <NGi><NStatistic label="Auto Exits" :value="oms.total_auto_exits || 0" /></NGi>
             </NGrid>
+          </NCard>
+        </NGi>
+        <NGi>
+          <NCard size="small" title="Today's Signals" :bordered="true">
+            <template #header-extra>
+              <NButton size="tiny" text @click="nav('recommend')">Scan</NButton>
+            </template>
+            <template v-if="signals.length">
+              <div v-for="(s, idx) in signals.slice(0, 5)" :key="idx"
+                   style="display: flex; justify-content: space-between; align-items: center; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer"
+                   @click="analyzeStock(s.code)">
+                <NSpace :size="4" :wrap="false">
+                  <NTag :type="s.signal === 'BUY' ? 'success' : 'error'" size="tiny">{{ s.signal }}</NTag>
+                  <span>{{ s.code }}</span>
+                </NSpace>
+                <span style="color: #999">{{ s.entry_type || '' }}</span>
+              </div>
+              <div v-if="signals.length > 5" style="text-align: center; font-size: 11px; color: #999; padding-top: 4px">
+                +{{ signals.length - 5 }} more
+              </div>
+            </template>
+            <div v-else style="text-align: center; color: #999; padding-top: 30px; font-size: 12px">
+              No signals (run scan)
+            </div>
           </NCard>
         </NGi>
       </NGrid>
 
-      <!-- Row 3: Monthly P&L Chart + Top Positions + Alerts -->
-      <NGrid :cols="3" :x-gap="12">
+      <!-- Row 3: Equity Curve + Monthly P&L + Top Positions + Alerts -->
+      <NGrid :cols="4" :x-gap="12" style="margin-bottom: 12px">
         <NGi :span="1">
-          <NCard size="small" title="Monthly P&L" :bordered="true" style="height: 240px">
-            <template v-if="pnl.monthly?.length">
-              <VChart :option="monthlyPnlChart" style="height: 180px" autoresize />
+          <NCard size="small" title="Equity Curve" :bordered="true" style="height: 220px">
+            <template #header-extra>
+              <NButton size="tiny" text @click="nav('portfolio')">Portfolio</NButton>
             </template>
-            <div v-else style="text-align: center; color: #999; padding-top: 60px">No closed trades</div>
+            <template v-if="equity.dates?.length">
+              <VChart :option="equityCurveChart" style="height: 160px" autoresize />
+            </template>
+            <div v-else style="text-align: center; color: #999; padding-top: 50px; font-size: 12px">No equity data</div>
           </NCard>
         </NGi>
         <NGi :span="1">
-          <NCard size="small" title="Top Positions" :bordered="true" style="height: 240px">
-            <template #header-extra>
-              <NButton size="tiny" text @click="nav('portfolio')">All</NButton>
+          <NCard size="small" title="Monthly P&L" :bordered="true" style="height: 220px">
+            <template v-if="pnl.monthly?.length">
+              <VChart :option="monthlyPnlChart" style="height: 160px" autoresize />
             </template>
+            <div v-else style="text-align: center; color: #999; padding-top: 50px; font-size: 12px">No trades</div>
+          </NCard>
+        </NGi>
+        <NGi :span="1">
+          <NCard size="small" title="Top Positions" :bordered="true" style="height: 220px">
             <template v-if="pos.top_positions?.length">
               <div v-for="(p, idx) in pos.top_positions" :key="idx"
-                   style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0">
-                <span>{{ p.code }} {{ p.name }}</span>
+                   style="display: flex; justify-content: space-between; padding: 3px 0; font-size: 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer"
+                   @click="analyzeStock(p.code)">
+                <span>{{ p.code }}</span>
                 <span :style="{ color: (p.pnl || 0) >= 0 ? '#18a058' : '#e53e3e' }">
-                  ${{ (p.pnl || 0).toLocaleString() }}
-                  ({{ ((p.pnl_pct || 0) * 100).toFixed(1) }}%)
+                  {{ ((p.pnl_pct || 0) * 100).toFixed(1) }}%
                 </span>
               </div>
             </template>
-            <div v-else style="text-align: center; color: #999; padding-top: 60px">No open positions</div>
+            <div v-else style="text-align: center; color: #999; padding-top: 50px; font-size: 12px">No positions</div>
           </NCard>
         </NGi>
         <NGi :span="1">
-          <NCard size="small" title="Recent Alerts" :bordered="true" style="height: 240px">
+          <NCard size="small" title="Alerts" :bordered="true" style="height: 220px">
             <template #header-extra>
               <NButton size="tiny" text @click="nav('alerts')">All</NButton>
             </template>
             <template v-if="alerts.length">
               <div v-for="(a, idx) in alerts" :key="idx"
-                   style="padding: 4px 0; font-size: 12px; border-bottom: 1px solid #f0f0f0">
+                   style="padding: 3px 0; font-size: 11px; border-bottom: 1px solid #f0f0f0">
                 <NTag :type="a.severity === 'high' ? 'error' : a.severity === 'medium' ? 'warning' : 'info'"
                       size="tiny" style="margin-right: 4px">
                   {{ a.type || 'alert' }}
                 </NTag>
-                {{ a.message || a.detail || JSON.stringify(a).substring(0, 60) }}
+                {{ (a.message || a.detail || '').substring(0, 40) }}
               </div>
             </template>
-            <div v-else style="text-align: center; color: #999; padding-top: 60px">No recent alerts</div>
+            <div v-else style="text-align: center; color: #999; padding-top: 50px; font-size: 12px">No alerts</div>
           </NCard>
         </NGi>
       </NGrid>
 
-      <!-- Row 4: Quick Navigation -->
-      <NDivider style="margin: 16px 0 8px" />
-      <NSpace :size="8" :wrap="true">
-        <NButton size="small" @click="nav('technical')">Technical Analysis</NButton>
+      <!-- Quick Navigation -->
+      <NDivider style="margin: 8px 0" />
+      <NSpace :size="6" :wrap="true">
+        <NButton size="small" @click="nav('technical')">Technical</NButton>
         <NButton size="small" @click="nav('recommend')">Recommend</NButton>
         <NButton size="small" @click="nav('backtest')">Backtest</NButton>
         <NButton size="small" @click="nav('screener')">Screener</NButton>
         <NButton size="small" @click="nav('portfolio')">Portfolio</NButton>
-        <NButton size="small" @click="nav('risk')">Risk Dashboard</NButton>
-        <NButton size="small" @click="nav('strategies')">Strategy Workbench</NButton>
+        <NButton size="small" @click="nav('risk')">Risk</NButton>
+        <NButton size="small" @click="nav('strategies')">Strategies</NButton>
         <NButton size="small" @click="nav('watchlist')">Watchlist</NButton>
       </NSpace>
     </NSpin>

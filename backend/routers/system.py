@@ -345,6 +345,9 @@ def dashboard_summary():
         "regime": _dashboard_regime(),
         "oms": _dashboard_oms(),
         "alerts": _dashboard_alerts(),
+        "risk": _dashboard_risk(),
+        "today_signals": _dashboard_today_signals(),
+        "equity_curve": _dashboard_equity_curve(),
     }
     return make_serializable(result)
 
@@ -458,3 +461,87 @@ def _dashboard_alerts():
         return []
     except Exception:
         return []
+
+
+def _dashboard_risk():
+    """R53: Quick risk snapshot — VaR + Kelly."""
+    try:
+        from backend import db
+        from analysis.risk import calculate_portfolio_var
+        from data.fetcher import get_stock_data
+        from concurrent.futures import ThreadPoolExecutor
+
+        positions = db.get_open_positions()
+        if not positions:
+            return {"has_data": False}
+
+        codes = list({p["code"] for p in positions})
+        total_value = sum(p.get("entry_price", 0) * p.get("lots", 0) * 1000 for p in positions)
+
+        stock_data = {}
+        def _fetch(code):
+            try:
+                return code, get_stock_data(code, period_days=120)
+            except Exception:
+                return code, None
+
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            for code, df in ex.map(_fetch, codes):
+                if df is not None and len(df) >= 30:
+                    stock_data[code] = df
+
+        if not stock_data:
+            return {"has_data": False}
+
+        var_result = calculate_portfolio_var(stock_data, confidence=0.95, days=250, portfolio_value=total_value)
+        var_1d_pct = var_result.get("var_pct", 0) or 0
+        var_5d_pct = var_1d_pct * (5 ** 0.5)
+
+        return {
+            "has_data": True,
+            "var_1d_pct": round(var_1d_pct, 4),
+            "var_5d_pct": round(var_5d_pct, 4),
+            "var_1d_amt": round(var_1d_pct * total_value, 0),
+            "total_value": round(total_value, 0),
+            "position_count": len(positions),
+        }
+    except Exception:
+        return {"has_data": False}
+
+
+def _dashboard_today_signals():
+    """R53: Today's BUY/SELL signals from cached scan results."""
+    try:
+        from data.cache import get_cached_scan_results
+        cached = get_cached_scan_results()
+        if not cached:
+            return []
+        signals = []
+        for item in cached:
+            if item.get("signal") in ("BUY", "SELL"):
+                signals.append({
+                    "code": item.get("code"),
+                    "name": item.get("name", ""),
+                    "signal": item.get("signal"),
+                    "price": item.get("price", 0),
+                    "entry_type": item.get("entry_type", ""),
+                })
+        return signals[:10]  # Top 10
+    except Exception:
+        return []
+
+
+def _dashboard_equity_curve():
+    """R53: Portfolio equity curve from equity snapshots."""
+    try:
+        from backend import db
+        snapshots = db.get_equity_snapshots()
+        if not snapshots:
+            return {"dates": [], "values": []}
+        # Last 90 entries
+        recent = snapshots[-90:]
+        dates = [s.get("date", "") for s in recent]
+        values = [s.get("total_equity", 0) for s in recent]
+        return {"dates": dates, "values": values}
+    except Exception:
+        return {"dates": [], "values": []}

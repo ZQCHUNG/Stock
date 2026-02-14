@@ -66,7 +66,7 @@ const option = computed(() => {
     legendData.push('AI 影子組合')
     // Align shadow data to main dates
     const shadowMap = new Map<string, number>()
-    props.shadowDates!.forEach((d, i) => shadowMap.set(d, props.shadowEquity![i]))
+    props.shadowDates!.forEach((d, i) => shadowMap.set(d, props.shadowEquity![i] ?? 0))
     const alignedShadow = props.dates.map(d => shadowMap.get(d) ?? null)
 
     seriesList.push({

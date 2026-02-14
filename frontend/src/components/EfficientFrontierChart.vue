@@ -14,8 +14,8 @@ const option = computed(() => {
   // Scatter data: [vol, return, sharpe]
   const simData = props.simVols.map((v, i) => [
     +(v * 100).toFixed(2),
-    +(props.simReturns[i] * 100).toFixed(2),
-    props.simSharpes[i],
+    +((props.simReturns[i] ?? 0) * 100).toFixed(2),
+    props.simSharpes[i] ?? 0,
   ])
 
   return {

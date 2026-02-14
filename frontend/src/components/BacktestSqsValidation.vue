@@ -40,7 +40,6 @@ const compColumns: DataTableColumns = [
     render: (r: any) => {
       if (r.lift_win_rate_5d == null) return '-'
       const v = r.lift_win_rate_5d
-      const color = v > 0 ? '#18a058' : v < 0 ? '#e53e3e' : '#333'
       return `${v > 0 ? '+' : ''}${(v * 100).toFixed(1)}%`
     }
   },
@@ -49,7 +48,7 @@ const compColumns: DataTableColumns = [
 function compTableData() {
   if (!result.value) return []
   const rows: any[] = [{ label: '全部信號 (Baseline)', ...result.value.baseline, pass_rate: 1.0 }]
-  for (const [key, val] of Object.entries(result.value.thresholds || {})) {
+  for (const [, val] of Object.entries(result.value.thresholds || {})) {
     const v = val as any
     rows.push({ label: `SQS ≥ ${v.threshold}`, ...v })
   }

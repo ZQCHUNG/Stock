@@ -24,7 +24,7 @@ const option = computed(() => {
   const ma20 = d.columns.ma20 || []
 
   // BIAS = (close - MA20) / MA20
-  const bias = close.map((c: number, i: number) => {
+  const bias = close.map((c: number | null, i: number) => {
     const m = ma20[i]
     if (!c || !m || m === 0) return null
     return +((c - m) / m * 100).toFixed(2)

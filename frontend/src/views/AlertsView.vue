@@ -530,7 +530,7 @@ const historyColumns: DataTableColumns = [
           { title: '累計損益', key: 'total_pnl', width: 100, render: (r: any) => h('span', { style: { color: (r.total_pnl || 0) >= 0 ? '#18a058' : '#e53e3e' } }, `$${(r.total_pnl || 0).toLocaleString()}`) },
           { title: '平均持有天數', key: 'avg_days', width: 90 },
         ]"
-        :data="Object.values(omsEfficiency.by_exit_type).filter((v: any) => v.count > 0)"
+        :data="(Object.values(omsEfficiency.by_exit_type) as any[]).filter((v) => v.count > 0)"
         size="small"
         :bordered="false"
         :single-line="false"

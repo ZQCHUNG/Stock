@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import {
-  NCard, NButton, NSpace, NTag, NGrid, NGi, NSpin,
+  NCard, NButton, NTag, NGrid, NGi, NSpin,
   NStatistic, NAlert, NEmpty, NDataTable,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'

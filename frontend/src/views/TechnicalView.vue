@@ -82,6 +82,7 @@ const exitLines = computed(() => {
 const quickBtResult = ref<any>(null)
 const quickBtLoading = ref(false)
 const quickBtCols = cols(2, 4, 6)
+const fundamentalCols = cols(2, 3, 4)
 
 async function runQuickBacktest() {
   quickBtLoading.value = true
@@ -487,7 +488,7 @@ function sqsGradeIcon(grade: string): string {
 
       <!-- 基本面數據 (R51-3) -->
       <NCard v-if="tech.fundamentals" title="基本面數據" size="small" style="margin-bottom: 16px">
-        <NGrid :cols="cols(2, 3, 4)" :x-gap="12" :y-gap="8">
+        <NGrid :cols="fundamentalCols" :x-gap="12" :y-gap="8">
           <NGi v-if="tech.fundamentals.trailing_pe != null">
             <NStatistic label="本益比 (TTM)" :value="tech.fundamentals.trailing_pe?.toFixed(1)" />
           </NGi>

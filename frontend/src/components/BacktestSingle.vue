@@ -149,10 +149,10 @@ const drawdownOption = computed(() => {
   const cc = chartColors.value
   const vals = r.equity_curve.values as number[]
   // Calculate drawdown series
-  let peak = vals[0]
+  let peak = vals[0] ?? 0
   const dd = vals.map((v: number) => {
-    if (v > peak) peak = v
-    return +((v / peak - 1) * 100).toFixed(2)
+    if (v > peak!) peak = v
+    return +((v / peak! - 1) * 100).toFixed(2)
   })
   return {
     tooltip: { trigger: 'axis', ...tooltipStyle.value, formatter: (params: any[]) => {
@@ -187,7 +187,7 @@ const monthlyReturnsOption = computed(() => {
     monthly[month] = (monthly[month] || 0) + (t.pnl || 0)
   })
   const months = Object.keys(monthly).sort()
-  const values = months.map(m => +(monthly[m]).toFixed(0))
+  const values = months.map(m => +(monthly[m] ?? 0).toFixed(0))
   return {
     tooltip: { trigger: 'axis', ...tooltipStyle.value, formatter: (params: any[]) => {
       if (!params?.length) return ''

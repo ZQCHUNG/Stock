@@ -16,7 +16,7 @@ const option = computed(() => {
   const data: [number, number, number][] = []
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
-      data.push([j, i, props.matrix[i][j]])
+      data.push([j, i, props.matrix[i]?.[j] ?? 0])
     }
   }
 

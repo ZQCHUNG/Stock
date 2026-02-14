@@ -32,7 +32,7 @@ function rollingPercentile(arr: number[], window: number, pct: number): number[]
     }
     slice.sort((a, b) => a - b)
     const idx = Math.floor(slice.length * pct)
-    result.push(slice[idx])
+    result.push(slice[idx] ?? NaN)
   }
   return result
 }
@@ -44,7 +44,7 @@ const option = computed(() => {
   const c = colors.value
 
   // Dynamic RSI threshold (15th percentile of 60-day RSI)
-  const dynThreshold = rollingPercentile(rsi, 60, 0.15)
+  const dynThreshold = rollingPercentile(rsi.map(v => v ?? NaN), 60, 0.15)
 
   return {
     tooltip: {
@@ -56,7 +56,7 @@ const option = computed(() => {
         const idx = params[0].dataIndex
         const date = d.dates[idx]
         const rsiVal = rsi[idx]
-        const dynVal = dynThreshold[idx]
+        const dynVal = dynThreshold[idx] ?? NaN
         return `<div style="font-size:12px"><b>${date}</b><br/>` +
           `RSI: ${rsiVal?.toFixed(1) ?? '-'}<br/>` +
           `動態門檻: ${isNaN(dynVal) ? '-' : dynVal.toFixed(1)}</div>`

@@ -165,7 +165,7 @@ const tableColumns: DataTableColumns = [
         'Insufficient Data': 'default',
         'No Signal': 'default',
       }
-      return h(NTag, { type: colors[row.fitness_tag] || 'default', size: 'small' }, () => row.fitness_tag)
+      return h(NTag, { type: (colors[row.fitness_tag] || 'default') as any, size: 'small' }, () => row.fitness_tag)
     },
   },
   {

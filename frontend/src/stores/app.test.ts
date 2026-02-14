@@ -46,7 +46,7 @@ describe('useAppStore', () => {
     const store = useAppStore()
     await store.loadAllStocks()
     expect(store.allStocks).toHaveLength(2)
-    expect(store.allStocks[0].code).toBe('2330')
+    expect(store.allStocks[0]?.code).toBe('2330')
   })
 
   it('loadAllStocks only fetches once', async () => {
@@ -69,7 +69,7 @@ describe('useAppStore', () => {
     await store.loadAllStocks()
     await store.selectStock('2317')
     expect(store.currentStockCode).toBe('2317')
-    expect(store.recentStocks[0].code).toBe('2317')
+    expect(store.recentStocks[0]?.code).toBe('2317')
   })
 
   it('selectStock deduplicates recent stocks', async () => {

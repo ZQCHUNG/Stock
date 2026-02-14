@@ -6,6 +6,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { useAppStore } from '../stores/app'
+import { useWatchlistStore } from '../stores/watchlist'
 import { backtestApi } from '../api/backtest'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
@@ -14,6 +15,7 @@ import MetricCard from './MetricCard.vue'
 const props = defineProps<{ periodDays: number; capital: number }>()
 
 const app = useAppStore()
+const wl = useWatchlistStore()
 const { cols } = useResponsive()
 const metricCols = cols(2, 4, 6)
 
@@ -25,10 +27,10 @@ async function runMetaBacktest() {
   isLoading.value = true
   error.value = ''
   try {
-    // Use watchlist stocks if available, else fallback to SCAN_STOCKS via recommend store
-    const codes = app.watchlist.length > 0
-      ? app.watchlist
-      : Object.keys(app.allStocks || {}).slice(0, 20)
+    // Use watchlist stocks if available, else fallback to first 20 stocks
+    const codes = wl.watchlist.length > 0
+      ? wl.watchlist.map(s => s.code)
+      : app.allStocks.slice(0, 20).map(s => s.code)
 
     result.value = await backtestApi.metaStrategy(codes, props.periodDays, props.capital)
   } catch (e: any) {
@@ -38,7 +40,8 @@ async function runMetaBacktest() {
 }
 
 // Strategy tag colors
-const tagColors: Record<string, string> = {
+type TagType = 'default' | 'error' | 'info' | 'success' | 'warning' | 'primary'
+const tagColors: Record<string, TagType> = {
   V4: 'error',
   V5: 'info',
   Adaptive: 'success',
@@ -55,7 +58,7 @@ const stockColumns: DataTableColumns = [
   {
     title: '選用策略', key: 'chosen_strategy', width: 90,
     render: (row: any) => h(NTag, {
-      type: tagColors[row.chosen_strategy] || 'default',
+      type: (tagColors[row.chosen_strategy] || 'default') as TagType,
       size: 'small',
     }, () => row.chosen_strategy),
   },
@@ -171,7 +174,7 @@ const equityChartOption = computed(() => {
 
           <!-- Strategy Distribution -->
           <NSpace :size="8" style="margin-bottom: 16px">
-            <NTag v-for="(count, strat) in stratDist" :key="strat" :type="tagColors[strat as string] || 'default'" size="small">
+            <NTag v-for="(count, strat) in stratDist" :key="strat" :type="(tagColors[strat as string] || 'default') as any" size="small">
               {{ strat }}: {{ count }}檔
             </NTag>
             <NTag size="small" :bordered="false">

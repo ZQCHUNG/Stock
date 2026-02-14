@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { h, ref, computed, onMounted, reactive } from 'vue'
-import { NButton, NCard, NCheckbox, NDataTable, NEmpty, NGrid, NGi, NSpace, NTag } from 'naive-ui'
+import { NButton, NCard, NCheckbox, NDataTable, NEmpty, NSpace, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, ToolboxComponent, DataZoomComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { btResultsApi, type SavedBtResult } from '../api/btResults'
-import { fmtPct, fmtNum, priceColor } from '../utils/format'
+import { fmtPct, priceColor } from '../utils/format'
 import { message } from '../utils/discrete'
 import { useAppStore } from '../stores/app'
 import { useChartTheme } from '../composables/useChartTheme'
@@ -66,7 +66,7 @@ async function startCompare() {
   isLoadingComparison.value = true
   try {
     const all = await btResultsApi.listWithEquity()
-    comparisonData.value = [...selectedIndices.value].sort().map(i => all[i])
+    comparisonData.value = [...selectedIndices.value].sort().map(i => all[i]).filter((x): x is SavedBtResult => !!x)
     isComparing.value = true
   } catch { /* handled */ }
   isLoadingComparison.value = false
@@ -176,7 +176,7 @@ const equityCompareOption = computed(() => {
     ],
     xAxis: {
       type: 'category',
-      data: longestResult.equityCurve!.dates,
+      data: longestResult!.equityCurve!.dates,
       axisLabel: { color: cc.axisLabel, fontSize: 10 },
     },
     yAxis: {

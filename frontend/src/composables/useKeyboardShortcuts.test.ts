@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // Test the PAGE_KEYS mapping and isInputFocused helper logic
 describe('useKeyboardShortcuts logic', () => {
