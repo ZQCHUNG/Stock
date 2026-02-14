@@ -13,6 +13,14 @@ from data.stock_list import get_stock_name
 from data.fetcher import get_taiex_data
 
 
+def _show_backtest_disclaimers():
+    """回測免責聲明：生還者偏差 + 即時執行假設"""
+    st.caption(
+        "**免責聲明**：本系統使用現存上市櫃股票回測，未校正生還者偏差（Survivorship Bias），"
+        "結果可能偏樂觀。訊號使用當日收盤價計算並假設當日收盤執行，實際交易可能有差異。"
+    )
+
+
 def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_days,
            all_stocks=None, load_data_fn=None, sim_days=30):
     # 模式選擇
@@ -59,6 +67,8 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
     # 策略參數快照
     if result.params_description:
         st.caption(f"策略參數：{result.params_description}")
+
+    _show_backtest_disclaimers()
 
     # 績效指標
     st.subheader("績效摘要")
@@ -399,9 +409,16 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
         _trade_df = pd.DataFrame(trade_data)
         st.dataframe(_trade_df, width="stretch")
 
-        _csv_header = ""
-        if result.params_description:
-            _csv_header = f"# 策略參數：{result.params_description}\n"
+        _csv_lines = [
+            f"# 股票：{stock_code} {stock_name}",
+            f"# 策略：v4 趨勢動量" if use_v4 else "# 策略：v2 技術面",
+            f"# 參數：{result.params_description}" if result.params_description else "# 參數：預設",
+            f"# 回測區間：{backtest_days} 天",
+            f"# 總報酬率：{result.total_return:.2%} | Sharpe：{result.sharpe_ratio:.2f} | 最大回撤：{result.max_drawdown:.2%}",
+            f"# 勝率：{result.win_rate:.2%} | 交易次數：{result.total_trades} | 盈虧比：{result.profit_factor:.2f}",
+            "",
+        ]
+        _csv_header = "\n".join(_csv_lines) + "\n"
         _csv_data = (_csv_header + _trade_df.to_csv(index=False)).encode("utf-8-sig")
         st.download_button(
             label="下載交易紀錄 (CSV)",
@@ -466,6 +483,7 @@ def _render_portfolio(use_v4, initial_capital, backtest_days, all_stocks, load_d
     """組合回測頁面"""
     st.header("組合回測（等權重）")
     st.caption("將資金等分配置於多檔股票，獨立執行 v4 策略回測，評估分散投資的效果。")
+    _show_backtest_disclaimers()
 
     if not use_v4:
         st.warning("組合回測目前僅支援 v4 策略。請在側邊欄切換至 v4。")
@@ -867,6 +885,7 @@ def _render_rolling_backtest(stock_code, stock_name, raw_df, use_v4, initial_cap
         st.warning("一致性測試目前僅支援 v4 策略。請在側邊欄切換至 v4。")
         return
 
+    _show_backtest_disclaimers()
     st.caption(
         "將歷史資料分割為多個半年視窗，用相同固定參數分別回測，"
         "驗證策略是否在不同市場環境下穩定獲利。"
@@ -1092,25 +1111,39 @@ def _render_sensitivity_tab(stock_code, raw_df, initial_capital):
         else:
             st.caption(f"報酬率變化範圍 {_ret_range:.1f}% — 參數對 {param_name} 高度敏感 (注意過擬合)")
 
-        # 懸崖效應偵測：最佳參數值的鄰居表現驟降
+        # 懸崖效應偵測：使用敏感度係數 = |報酬變化%| / |參數變化%|
         if len(param_results) >= 3:
             _best_idx = max(range(len(_ret)), key=lambda i: _ret[i])
             _best_ret = _ret[_best_idx]
+            _raw_values = [r["value"] for r in param_results]
             if _best_ret > 0:
-                _neighbors = []
-                if _best_idx > 0:
-                    _neighbors.append(_ret[_best_idx - 1])
-                if _best_idx < len(_ret) - 1:
-                    _neighbors.append(_ret[_best_idx + 1])
-                if _neighbors:
-                    _avg_neighbor = sum(_neighbors) / len(_neighbors)
-                    _drop_pct = (_best_ret - _avg_neighbor) / _best_ret * 100
-                    if _drop_pct > 50:
-                        st.error(
-                            f"懸崖效應：最佳值 {_values[_best_idx]} 報酬 {_best_ret:.1f}%，"
-                            f"但相鄰參數驟降至 {_avg_neighbor:.1f}%（落差 {_drop_pct:.0f}%）。"
-                            f"策略可能高度依賴此特定參數值，過擬合風險極高。"
-                        )
+                _max_sensitivity = 0.0
+                _cliff_detail = ""
+                for _ni in [_best_idx - 1, _best_idx + 1]:
+                    if 0 <= _ni < len(_ret):
+                        _ret_change = abs(_best_ret - _ret[_ni])
+                        _best_val = float(_raw_values[_best_idx])
+                        _neighbor_val = float(_raw_values[_ni])
+                        _param_change_pct = abs(_best_val - _neighbor_val) / abs(_best_val) * 100 if _best_val != 0 else 100
+                        _sensitivity = _ret_change / _param_change_pct if _param_change_pct > 0 else 0
+                        if _sensitivity > _max_sensitivity:
+                            _max_sensitivity = _sensitivity
+                            _cliff_detail = (
+                                f"最佳值 {_values[_best_idx]} 報酬 {_best_ret:.1f}%，"
+                                f"相鄰值 {_values[_ni]} 報酬 {_ret[_ni]:.1f}%"
+                                f"（敏感度係數 {_sensitivity:.1f}）"
+                            )
+                # 敏感度係數 > 3：參數變動 1% 導致報酬變動 > 3%
+                if _max_sensitivity > 3:
+                    st.error(
+                        f"懸崖效應：{_cliff_detail}。"
+                        f"參數微調即造成報酬劇烈變動，過擬合風險極高。"
+                    )
+                elif _max_sensitivity > 1.5:
+                    st.warning(
+                        f"參數敏感：{_cliff_detail}。"
+                        f"建議驗證相鄰參數值的一致性。"
+                    )
 
     # 總結
     st.subheader("總結")

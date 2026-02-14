@@ -69,10 +69,12 @@ class BacktestEngine:
         initial_capital: float | None = None,
         commission_rate: float | None = None,
         tax_rate: float | None = None,
+        slippage: float | None = None,
     ):
         self.initial_capital = initial_capital or BACKTEST_PARAMS["initial_capital"]
         self.commission_rate = commission_rate or BACKTEST_PARAMS["commission_rate"]
         self.tax_rate = tax_rate or BACKTEST_PARAMS["tax_rate"]
+        self.slippage = slippage if slippage is not None else BACKTEST_PARAMS.get("slippage", 0.001)
 
     def run(self, df: pd.DataFrame) -> BacktestResult:
         """執行回測（v3：ATR 動態停損停利 + 部位管理 + 最短持有期）
@@ -151,17 +153,18 @@ class BacktestEngine:
 
             # 執行強制賣出（停損/停利）
             if force_sell and position > 0 and current_trade is not None:
-                revenue = position * price
+                sell_price = price * (1 - self.slippage)  # 滑價
+                revenue = position * sell_price
                 commission = revenue * self.commission_rate
                 tax = revenue * self.tax_rate
                 cash += revenue - commission - tax
 
                 current_trade.date_close = date
-                current_trade.price_close = price
+                current_trade.price_close = sell_price
                 current_trade.commission += commission
                 current_trade.tax = tax
                 current_trade.pnl = (
-                    (price - current_trade.price_open) * position
+                    (sell_price - current_trade.price_open) * position
                     - current_trade.commission
                     - current_trade.tax
                 )
@@ -183,12 +186,13 @@ class BacktestEngine:
 
             # ===== 正常訊號交易 =====
             if signal == "BUY" and position == 0:
+                buy_price = price * (1 + self.slippage)  # 滑價
                 # v2 部位管理：最多用 max_position_pct 的資金
                 available = cash * max_position_pct
-                max_shares = int(available / (price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
+                max_shares = int(available / (buy_price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
                 if max_shares >= TRADE_UNIT:
                     shares = max_shares
-                    cost = shares * price
+                    cost = shares * buy_price
                     commission = cost * self.commission_rate
                     cash -= cost + commission
                     position = shares
@@ -200,23 +204,24 @@ class BacktestEngine:
                         date_open=date,
                         side="BUY",
                         shares=shares,
-                        price_open=price,
+                        price_open=buy_price,
                         commission=commission,
                     )
 
             elif signal == "SELL" and position > 0 and current_trade is not None:
+                sell_price = price * (1 - self.slippage)  # 滑價
                 # 賣出：全部出清
-                revenue = position * price
+                revenue = position * sell_price
                 commission = revenue * self.commission_rate
                 tax = revenue * self.tax_rate
                 cash += revenue - commission - tax
 
                 current_trade.date_close = date
-                current_trade.price_close = price
+                current_trade.price_close = sell_price
                 current_trade.commission += commission
                 current_trade.tax = tax
                 current_trade.pnl = (
-                    (price - current_trade.price_open) * position
+                    (sell_price - current_trade.price_open) * position
                     - current_trade.commission
                     - current_trade.tax
                 )
@@ -235,7 +240,7 @@ class BacktestEngine:
         # 如果最後還有持倉，以最後收盤價平倉
         if position > 0 and current_trade is not None:
             last_date = signals_df.index[-1]
-            last_price = signals_df.iloc[-1]["close"]
+            last_price = signals_df.iloc[-1]["close"] * (1 - self.slippage)  # 滑價
             revenue = position * last_price
             commission = revenue * self.commission_rate
             tax = revenue * self.tax_rate
@@ -380,17 +385,18 @@ class BacktestEngine:
                     exit_price = sl_price
 
             if force_sell and position > 0 and current_trade is not None:
-                revenue = position * exit_price
+                actual_exit = exit_price * (1 - self.slippage)  # 滑價
+                revenue = position * actual_exit
                 commission = revenue * self.commission_rate
                 tax = revenue * self.tax_rate
                 cash += revenue - commission - tax
 
                 current_trade.date_close = date
-                current_trade.price_close = exit_price
+                current_trade.price_close = actual_exit
                 current_trade.commission += commission
                 current_trade.tax = tax
                 current_trade.pnl = (
-                    (exit_price - current_trade.price_open) * position
+                    (actual_exit - current_trade.price_open) * position
                     - current_trade.commission
                     - current_trade.tax
                 )
@@ -410,32 +416,33 @@ class BacktestEngine:
 
             # ===== 進場 =====
             if signal == "BUY" and position == 0:
+                buy_price = price * (1 + self.slippage)  # 滑價
                 available = cash * max_pos_pct
-                max_shares = int(available / (price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
+                max_shares = int(available / (buy_price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
                 if max_shares >= TRADE_UNIT:
                     shares = max_shares
-                    cost = shares * price
+                    cost = shares * buy_price
                     commission = cost * self.commission_rate
                     cash -= cost + commission
                     position = shares
                     highest_since_entry = high
                     hold_days = 0
-                    tp_price = price * (1 + tp_pct) if tp_pct > 0 else float("inf")
-                    sl_price = price * (1 - sl_pct)
+                    tp_price = buy_price * (1 + tp_pct) if tp_pct > 0 else float("inf")
+                    sl_price = buy_price * (1 - sl_pct)
                     original_sl_price = sl_price
 
                     current_trade = Trade(
                         date_open=date,
                         side="BUY",
                         shares=shares,
-                        price_open=price,
+                        price_open=buy_price,
                         commission=commission,
                     )
 
         # 期末平倉
         if position > 0 and current_trade is not None:
             last_date = signals_df.index[-1]
-            last_price = signals_df.iloc[-1]["close"]
+            last_price = signals_df.iloc[-1]["close"] * (1 - self.slippage)  # 滑價
             revenue = position * last_price
             commission = revenue * self.commission_rate
             tax = revenue * self.tax_rate
