@@ -186,22 +186,36 @@ def get_v4_analysis(df: pd.DataFrame) -> dict:
 
 
 def generate_v4_enhanced_signals(df: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
-    """v4 增強訊號 — 含縮量回調（第三種進場模式）
+    """v4 增強訊號 — 含縮量回調 + 爆量突破→縮量回調序列
 
-    在原有 v4 訊號基礎上，新增「縮量回調」進場模式：
+    在原有 v4 訊號基礎上，新增進場模式：
+
+    模式 3 - 縮量回調 (pullback)：
     - close > MA20（仍在上升趨勢）
     - close < MA5 * 1.02（價格靠近短期均線，已回調）
     - volume < vol_ma5 * 0.6（極致縮量，賣壓枯竭）
     - uptrend_days >= min_uptrend_days（趨勢確認）
     - ADX >= adx_min, RSI 在合理範圍
 
+    模式 4 - 爆量突破→縮量回調 (breakout_pullback)：
+    - 近 10 日內有爆量突破（量 > 2x 均量 + 漲幅 > 1.5%）
+    - 目前縮量（量 < 0.6x 均量）且回調幅度 < 3%
+    - 上升趨勢確認 + ADX/RSI 在合理範圍
+    - 此型態代表主力拉升後籌碼沉澱，是高品質進場點
+
     不修改原有 generate_v4_signals() 邏輯，只在 HOLD 訊號上疊加新進場。
     """
+    from analysis.volume_pattern import detect_volume_patterns
+
     p = dict(STRATEGY_V4_PARAMS)
     if params:
         p.update(params)
 
     result = generate_v4_signals(df, params)
+
+    # 偵測量能型態
+    vol_patterns = detect_volume_patterns(df)
+    has_bp = "breakout_pullback" in vol_patterns.columns
 
     signals = result["v4_signal"].tolist()
     entry_types = result["v4_entry_type"].tolist()
@@ -223,12 +237,27 @@ def generate_v4_enhanced_signals(df: pd.DataFrame, params: dict | None = None) -
         if any(pd.isna([ma20, ma5, vol, vol_ma5, adx, rsi])):
             continue
 
+        # 基本上升趨勢 + ADX/RSI 過濾
+        basic_filter = (
+            ut >= p["min_uptrend_days"]
+            and adx >= p["adx_min"]
+            and p["rsi_low"] <= rsi <= p["rsi_high"]
+        )
+
+        if not basic_filter:
+            continue
+
+        # 模式 4: 爆量突破→縮量回調（優先，品質更高）
+        if has_bp and i < len(vol_patterns) and vol_patterns.iloc[i].get("breakout_pullback", False):
+            if close > ma20:  # 仍在趨勢上方
+                signals[i] = "BUY"
+                entry_types[i] = "breakout_pullback"
+                continue
+
+        # 模式 3: 一般縮量回調
         if (close > ma20
                 and close < ma5 * 1.02
-                and vol < vol_ma5 * 0.6
-                and ut >= p["min_uptrend_days"]
-                and adx >= p["adx_min"]
-                and p["rsi_low"] <= rsi <= p["rsi_high"]):
+                and vol < vol_ma5 * 0.6):
             signals[i] = "BUY"
             entry_types[i] = "pullback"
 

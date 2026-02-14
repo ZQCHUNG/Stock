@@ -223,18 +223,21 @@ with st.sidebar:
     except Exception:
         pass
 
-    # Redis 快取狀態
-    with st.expander("快取狀態 (Redis)", expanded=False):
+    # 快取狀態
+    with st.expander("快取狀態", expanded=False):
         stats = get_cache_stats()
         if stats["status"] == "connected":
             st.success("Redis 已連線")
             st.caption(f"快取鍵數：{stats['keys']} | 記憶體：{stats['memory_used']}")
-            if st.button("清空快取"):
-                flush_cache()
-                st.cache_data.clear()
-                st.rerun()
+        elif stats["status"] == "memory_fallback":
+            st.info(f"記憶體快取模式（{stats['keys']} 筆）")
+            st.caption("Redis 未連線，使用 in-memory 快取。重啟後快取會清空。")
         else:
-            st.warning("Redis 未連線（系統仍可正常運作，但速度較慢）")
+            st.warning("快取異常")
+        if st.button("清空快取"):
+            flush_cache()
+            st.cache_data.clear()
+            st.rerun()
 
     # 顏色圖例（移到主頁面底部，sidebar 保持簡潔）
 

@@ -8,6 +8,7 @@ import numpy as np
 
 from analysis.strategy import generate_signals, get_latest_analysis
 from analysis.strategy_v4 import generate_v4_signals, get_v4_analysis
+from analysis.volume_pattern import detect_volume_patterns, get_volume_pattern_summary
 from backtest.engine import run_backtest, run_backtest_v4
 from data.stock_list import get_stock_name
 from pages.common import explain_signal
@@ -355,6 +356,30 @@ def render(stock_code, stock_name, raw_df, use_v4, all_stocks,
             line=dict(color="#FF9800", width=1),
         ), row=4, col=1)
 
+    # 量能型態標記（爆量突破 / 縮量回調）
+    try:
+        _vol_patterns = detect_volume_patterns(signals_df)
+        _bp_mask = _vol_patterns["is_breakout"]
+        if _bp_mask.any():
+            fig.add_trace(go.Scatter(
+                x=_vol_patterns.index[_bp_mask],
+                y=_vol_patterns["volume"][_bp_mask],
+                mode="markers", name="爆量突破",
+                marker=dict(symbol="triangle-up", size=10, color="#FF6D00"),
+                hovertemplate="%{x}<br>量: %{y:,.0f}<extra>爆量突破</extra>",
+            ), row=4, col=1)
+        _seq_mask = _vol_patterns["breakout_pullback"]
+        if _seq_mask.any():
+            fig.add_trace(go.Scatter(
+                x=_vol_patterns.index[_seq_mask],
+                y=_vol_patterns["volume"][_seq_mask],
+                mode="markers", name="縮量回調",
+                marker=dict(symbol="diamond", size=10, color="#00E5FF"),
+                hovertemplate="%{x}<br>量: %{y:,.0f}<extra>爆量→縮量序列</extra>",
+            ), row=4, col=1)
+    except Exception:
+        pass
+
     fig.update_layout(
         height=900,
         xaxis_rangeslider_visible=False,
@@ -376,6 +401,39 @@ def render(stock_code, stock_name, raw_df, use_v4, all_stocks,
             _sr_parts.append("壓力：" + " / ".join([f"\\${r:.1f}" for r in _resistances[:3]]))
         if _sr_parts:
             st.caption("關鍵價位 — " + "　|　".join(_sr_parts))
+
+    # --- 量能型態 ---
+    try:
+        _vol_summary = get_volume_pattern_summary(raw_df)
+        _cur_pattern = _vol_summary["current_pattern"]
+        if _cur_pattern or _vol_summary["recent_breakouts"] > 0:
+            with st.expander("量能型態分析", expanded=_cur_pattern == "breakout_pullback"):
+                _vc1, _vc2, _vc3, _vc4 = st.columns(4)
+                with _vc1:
+                    _pattern_label = {
+                        "breakout": "爆量突破",
+                        "pullback": "縮量回調",
+                        "breakout_pullback": "爆量→縮量",
+                    }.get(_cur_pattern, "無型態")
+                    st.metric("當前型態", _pattern_label)
+                with _vc2:
+                    _vr = _vol_summary["current_vol_ratio"]
+                    st.metric("量比", f"{_vr:.1f}x" if _vr > 0 else "N/A")
+                with _vc3:
+                    st.metric("近20日爆量", f"{_vol_summary['recent_breakouts']} 次")
+                with _vc4:
+                    _vt_label = {"increasing": "放量", "decreasing": "縮量", "stable": "持平"}.get(
+                        _vol_summary["volume_trend"], "—")
+                    st.metric("量能趨勢", _vt_label)
+
+                if _cur_pattern == "breakout_pullback":
+                    st.success("偵測到爆量突破→縮量回調序列，籌碼沉澱完成，為高品質進場型態。")
+                elif _cur_pattern == "breakout":
+                    st.info("偵測到爆量突破，觀察後續是否縮量回調整理。")
+                elif _vol_summary["days_since_breakout"] >= 0:
+                    st.caption(f"最近一次爆量突破在 {_vol_summary['days_since_breakout']} 個交易日前。")
+    except Exception:
+        pass
 
     # --- 股價比較 ---
     st.divider()
