@@ -88,6 +88,14 @@ def scan_sector_heat() -> dict:
                 sector = info.get("sector", "")
             except Exception:
                 sector = ""
+
+            # Volume ratio: today's volume / 5-day avg (for Surge confirmation)
+            vol_ratio = 0.0
+            if len(df) >= 6:
+                vol_ma5 = df["volume"].iloc[-6:-1].mean()
+                if vol_ma5 > 0:
+                    vol_ratio = float(df["volume"].iloc[-1] / vol_ma5)
+
             return {
                 "code": code,
                 "name": SCAN_STOCKS.get(code, code),
@@ -95,6 +103,7 @@ def scan_sector_heat() -> dict:
                 "signal": v4["signal"],
                 "signal_maturity": v4.get("signal_maturity", "N/A"),
                 "uptrend_days": v4.get("uptrend_days", 0),
+                "volume_ratio": round(vol_ratio, 2),
             }
         except Exception as e:
             logger.warning(f"Failed to scan {code}: {e}")
@@ -129,12 +138,17 @@ def scan_sector_heat() -> dict:
         )
         weighted_heat = weighted_sum / total if total > 0 else 0
 
+        # Sector-level avg volume ratio for BUY stocks (Surge confirmation)
+        buy_vol_ratios = [s.get("volume_ratio", 0) for s in buy_stocks if s.get("volume_ratio", 0) > 0]
+        avg_buy_vol_ratio = sum(buy_vol_ratios) / len(buy_vol_ratios) if buy_vol_ratios else 0
+
         heat_data.append({
             "sector": sector,
             "total": total,
             "buy_count": buy_count,
             "heat": round(heat, 3),
             "weighted_heat": round(weighted_heat, 3),
+            "avg_buy_vol_ratio": round(avg_buy_vol_ratio, 2),
             "buy_stocks": [
                 {"code": s["code"], "name": s["name"], "maturity": s["signal_maturity"]}
                 for s in buy_stocks
@@ -164,9 +178,13 @@ def scan_sector_heat() -> dict:
         delta = current_wh - prev_wh
         jump = current_wh / max(prev_wh, 0.05)
 
-        # Classify momentum
-        if delta >= 0.10 and jump >= 2.0:
+        # Classify momentum (Gemini R21: volume confirmation for Surge)
+        avg_vol = sector_data.get("avg_buy_vol_ratio", 0)
+        if delta >= 0.10 and jump >= 2.0 and avg_vol >= 1.2:
             momentum = "surge"
+        elif delta >= 0.10 and jump >= 2.0:
+            # Would be Surge but lacks volume confirmation → downgrade
+            momentum = "heating"
         elif delta >= 0.10:
             momentum = "heating"
         elif delta <= -0.10:
