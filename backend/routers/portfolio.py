@@ -299,6 +299,20 @@ def portfolio_health():
                     "message": f"{p['code']}：板塊 {sec} 擁擠交易 (Hw={heat_info['weighted_heat']:.0%})，留意回調風險",
                 })
 
+    # L1 Hidden Exposure (Gemini R26: Correlation Audit)
+    # Even if L2 subsectors differ, high L1 concentration = correlated risk
+    if total_lots > 0:
+        max_sector = max(sector_allocation, key=lambda x: x["pct"])
+        if max_sector["pct"] >= 60 and max_sector["count"] >= 2:
+            warnings.append({
+                "type": "hidden_exposure",
+                "severity": "high",
+                "message": (
+                    f"🔴 隱藏曝險過高：{max_sector['sector']} 佔 {max_sector['pct']}% "
+                    f"({max_sector['count']}檔)，即使子板塊不同，L1 相關性仍高，大盤輪動時可能集體下跌"
+                ),
+            })
+
     # Over-diversification
     if len(positions) > 10:
         warnings.append({
@@ -347,6 +361,198 @@ def get_equity_ledger():
         }
 
     return make_serializable({"ledger": ledger, "delta_equity": delta})
+
+
+@router.get("/analytics")
+def get_analytics():
+    """勝率與賠率統計 — Win-Loss Analytics（Gemini R26）
+
+    Validates whether our Confidence Multiplier actually works:
+    - Win rate, Profit Factor, Expectancy
+    - Confidence Accuracy: avg return by C-value bracket
+    - Best/worst trades
+    """
+    from backend.dependencies import make_serializable
+
+    portfolio = _load_portfolio()
+    closed = portfolio.get("closed", [])
+
+    if not closed:
+        return make_serializable({"has_data": False})
+
+    wins = [c for c in closed if c.get("net_pnl", 0) > 0]
+    losses = [c for c in closed if c.get("net_pnl", 0) <= 0]
+    total_gain = sum(c.get("net_pnl", 0) for c in wins)
+    total_loss = abs(sum(c.get("net_pnl", 0) for c in losses))
+
+    win_rate = len(wins) / len(closed) if closed else 0
+    profit_factor = total_gain / total_loss if total_loss > 0 else float("inf")
+    avg_win = total_gain / len(wins) if wins else 0
+    avg_loss = total_loss / len(losses) if losses else 0
+
+    # Expectancy = (Win% × Avg Win) - (Loss% × Avg Loss)
+    expectancy = (win_rate * avg_win) - ((1 - win_rate) * avg_loss)
+
+    # Confidence Accuracy: group by C-value brackets
+    c_brackets = {
+        "C >= 1.2 (高信心)": [],
+        "1.0 <= C < 1.2 (中高)": [],
+        "0.5 <= C < 1.0 (中)": [],
+        "C < 0.5 (低信心)": [],
+    }
+    for c in closed:
+        cv = c.get("confidence", 0.7)
+        ret = c.get("return_pct", 0)
+        if cv >= 1.2:
+            c_brackets["C >= 1.2 (高信心)"].append(ret)
+        elif cv >= 1.0:
+            c_brackets["1.0 <= C < 1.2 (中高)"].append(ret)
+        elif cv >= 0.5:
+            c_brackets["0.5 <= C < 1.0 (中)"].append(ret)
+        else:
+            c_brackets["C < 0.5 (低信心)"].append(ret)
+
+    confidence_accuracy = []
+    for bracket, returns in c_brackets.items():
+        if returns:
+            avg_ret = sum(returns) / len(returns)
+            w = sum(1 for r in returns if r > 0)
+            confidence_accuracy.append({
+                "bracket": bracket,
+                "count": len(returns),
+                "avg_return": round(avg_ret, 4),
+                "win_rate": round(w / len(returns), 4),
+            })
+
+    # Best/worst trades
+    sorted_by_pnl = sorted(closed, key=lambda x: x.get("net_pnl", 0))
+    best = sorted_by_pnl[-1] if sorted_by_pnl else None
+    worst = sorted_by_pnl[0] if sorted_by_pnl else None
+
+    # Avg holding days
+    avg_days = sum(c.get("days_held", 0) for c in closed) / len(closed) if closed else 0
+
+    return make_serializable({
+        "has_data": True,
+        "total_trades": len(closed),
+        "win_rate": round(win_rate, 4),
+        "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else 999,
+        "expectancy": round(expectancy, 0),
+        "avg_win": round(avg_win, 0),
+        "avg_loss": round(avg_loss, 0),
+        "total_gain": round(total_gain, 0),
+        "total_loss": round(total_loss, 0),
+        "avg_days_held": round(avg_days, 1),
+        "confidence_accuracy": confidence_accuracy,
+        "best_trade": {
+            "code": best["code"], "name": best.get("name", ""),
+            "net_pnl": best.get("net_pnl", 0), "return_pct": best.get("return_pct", 0),
+        } if best else None,
+        "worst_trade": {
+            "code": worst["code"], "name": worst.get("name", ""),
+            "net_pnl": worst.get("net_pnl", 0), "return_pct": worst.get("return_pct", 0),
+        } if worst else None,
+    })
+
+
+@router.get("/briefing")
+def get_briefing():
+    """今日戰略簡報 — AI Briefing（Gemini R26）
+
+    Aggregates: sector heat, transitions, health warnings, exit alerts
+    into top 3 actionable insights.
+    """
+    from data.cache import (
+        get_cached_sector_heat, get_transition_events,
+        get_portfolio_exit_alerts,
+    )
+    from backend.dependencies import make_serializable
+
+    insights = []
+
+    # 1. Hottest sector from sector heat
+    heat = get_cached_sector_heat()
+    if heat:
+        sectors = heat.get("sectors", [])
+        surge_sectors = [s for s in sectors if s.get("momentum") == "surge"]
+        heating_sectors = [s for s in sectors if s.get("momentum") == "heating"]
+
+        if surge_sectors:
+            top = surge_sectors[0]
+            leader_info = ""
+            if top.get("leader"):
+                leader_info = f"，Leader {top['leader']['code']} {top['leader']['name']}"
+            insights.append({
+                "type": "sector_surge",
+                "severity": "high",
+                "icon": "🔥",
+                "message": f"板塊爆發：{top['sector']} 熱度急升 (Hw={top['weighted_heat']:.0%}){leader_info}",
+            })
+        elif heating_sectors:
+            top = heating_sectors[0]
+            insights.append({
+                "type": "sector_heating",
+                "severity": "medium",
+                "icon": "📈",
+                "message": f"板塊升溫：{top['sector']} 動能增強 (Hw={top['weighted_heat']:.0%})",
+            })
+
+    # 2. Exit alerts
+    exit_alerts = get_portfolio_exit_alerts()
+    if exit_alerts:
+        codes = [f"{a['code']} {a['name']}" for a in exit_alerts[:3]]
+        insights.append({
+            "type": "exit_alert",
+            "severity": "high",
+            "icon": "🔴",
+            "message": f"出場警報：{', '.join(codes)} 已觸發停損/停利條件，請評估撤退",
+        })
+
+    # 3. Maturity transitions (high-value only)
+    transitions = get_transition_events(limit=5)
+    high_value = [t for t in transitions if t.get("is_high_value")]
+    if high_value:
+        t = high_value[0]
+        insights.append({
+            "type": "transition",
+            "severity": "medium",
+            "icon": "⭐",
+            "message": f"成熟度躍遷：{t['code']} {t.get('name', '')} 從 {t['from_maturity']} 升級至 {t['to_maturity']}（{t.get('sector', '')} Leader）",
+        })
+
+    # 4. Portfolio health warnings
+    portfolio = _load_portfolio()
+    positions = portfolio.get("positions", [])
+    if positions:
+        sectors = {}
+        for p in positions:
+            sec = p.get("sector") or "未分類"
+            sectors[sec] = sectors.get(sec, 0) + p["lots"]
+        total_lots = sum(sectors.values())
+        for sec, lots in sectors.items():
+            pct = lots / total_lots * 100 if total_lots > 0 else 0
+            if pct > 50:
+                insights.append({
+                    "type": "concentration",
+                    "severity": "medium",
+                    "icon": "⚠️",
+                    "message": f"集中風險：{sec} 佔組合 {pct:.0f}%，建議分散至其他板塊避險",
+                })
+                break
+
+    # 5. If no insights, add a neutral one
+    if not insights:
+        insights.append({
+            "type": "neutral",
+            "severity": "low",
+            "icon": "📋",
+            "message": "目前無重大警報，市場穩定運行中",
+        })
+
+    # Keep top 3
+    insights = insights[:3]
+
+    return make_serializable({"insights": insights, "generated_at": datetime.now().isoformat()})
 
 
 def _calculate_summary(positions: list, closed: list) -> dict:

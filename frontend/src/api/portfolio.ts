@@ -28,4 +28,6 @@ export const portfolioApi = {
   health: () => client.get<any, any>('/portfolio/health'),
   exitAlerts: () => client.get<any, any[]>('/portfolio/exit-alerts'),
   equityLedger: () => client.get<any, any>('/portfolio/equity-ledger'),
+  analytics: () => client.get<any, any>('/portfolio/analytics'),
+  briefing: () => client.get<any, any>('/portfolio/briefing'),
 }

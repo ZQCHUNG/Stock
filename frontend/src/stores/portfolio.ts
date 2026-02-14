@@ -10,6 +10,8 @@ export const usePortfolioStore = defineStore('portfolio', () => {
   const health = ref<any>(null)
   const exitAlerts = ref<any[]>([])
   const equityLedger = ref<any>(null)
+  const analytics = ref<any>(null)
+  const briefing = ref<any>(null)
   const isLoading = ref(false)
 
   async function load() {
@@ -85,9 +87,25 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     }
   }
 
+  async function loadAnalytics() {
+    try {
+      analytics.value = await portfolioApi.analytics()
+    } catch {
+      analytics.value = null
+    }
+  }
+
+  async function loadBriefing() {
+    try {
+      briefing.value = await portfolioApi.briefing()
+    } catch {
+      briefing.value = null
+    }
+  }
+
   return {
-    positions, closed, summary, health, exitAlerts, equityLedger, isLoading,
+    positions, closed, summary, health, exitAlerts, equityLedger, analytics, briefing, isLoading,
     load, openPosition, closePosition, updatePosition, deletePosition,
-    loadHealth, loadExitAlerts, loadEquityLedger,
+    loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadBriefing,
   }
 })

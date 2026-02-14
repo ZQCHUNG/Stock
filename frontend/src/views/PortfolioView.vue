@@ -20,6 +20,8 @@ onMounted(() => {
   pf.loadHealth()
   pf.loadExitAlerts()
   pf.loadEquityLedger()
+  pf.loadAnalytics()
+  pf.loadBriefing()
 })
 
 function analyzeStock(code: string) {
@@ -141,6 +143,22 @@ const closedColumns: DataTableColumns = [
   { title: '日期', key: 'exit_date', width: 90 },
 ]
 
+// Confidence accuracy table columns
+const confidenceColumns: DataTableColumns = [
+  { title: '信心區間', key: 'bracket', width: 140 },
+  { title: '筆數', key: 'count', width: 60, align: 'right' },
+  {
+    title: '平均報酬', key: 'avg_return', width: 90, align: 'right',
+    render: (r: any) => h('span', { style: { color: priceColor(r.avg_return) } }, fmtPct(r.avg_return)),
+  },
+  {
+    title: '勝率', key: 'win_rate', width: 80, align: 'right',
+    render: (r: any) => h('span', {
+      style: { color: (r.win_rate || 0) >= 0.5 ? '#18a058' : '#e53e3e' },
+    }, fmtPct(r.win_rate)),
+  },
+]
+
 // Health warnings
 const healthWarnings = computed(() => pf.health?.warnings || [])
 const sectorAllocation = computed(() => pf.health?.sector_allocation || [])
@@ -154,6 +172,12 @@ const workerExitAlerts = computed(() => pf.exitAlerts || [])
 
 // Delta equity (today vs yesterday)
 const deltaEquity = computed(() => pf.equityLedger?.delta_equity)
+
+// Briefing insights
+const briefingInsights = computed(() => pf.briefing?.insights || [])
+
+// Analytics
+const analyticsData = computed(() => pf.analytics)
 </script>
 
 <template>
@@ -182,6 +206,20 @@ const deltaEquity = computed(() => pf.equityLedger?.delta_equity)
     </NSpace>
 
     <NSpin :show="pf.isLoading">
+      <!-- AI Strategic Briefing (Gemini R26) -->
+      <NCard v-if="briefingInsights.length" size="small" style="margin-bottom: 12px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">今日戰略簡報</span>
+            <NTag size="small" :bordered="false">Chief of Staff</NTag>
+          </NSpace>
+        </template>
+        <div v-for="(insight, i) in briefingInsights" :key="i" style="margin-bottom: 6px; font-size: 13px">
+          <span style="margin-right: 6px">{{ insight.icon }}</span>
+          <span :style="{ fontWeight: insight.severity === 'high' ? 600 : 400 }">{{ insight.message }}</span>
+        </div>
+      </NCard>
+
       <!-- Worker Exit Alerts (Gemini R25) -->
       <NAlert v-if="workerExitAlerts.length" type="error" style="margin-bottom: 12px">
         <template #header>🔴 Worker 偵測出場信號（{{ workerExitAlerts.length }} 檔）</template>
@@ -301,6 +339,68 @@ const deltaEquity = computed(() => pf.equityLedger?.delta_equity)
           :single-line="false"
           :scroll-x="700"
         />
+      </NCard>
+
+      <!-- Win-Loss Analytics (Gemini R26) -->
+      <NCard v-if="analyticsData && pf.closed.length >= 3" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">戰果統計</span>
+            <NTag size="small" :bordered="false">Win-Loss Analytics</NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="4" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
+          <NGi>
+            <MetricCard
+              title="勝率"
+              :value="fmtPct(analyticsData.win_rate)"
+              :color="(analyticsData.win_rate || 0) >= 0.5 ? '#18a058' : '#e53e3e'"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="獲利因子"
+              :value="analyticsData.profit_factor?.toFixed(2) || '-'"
+              :color="(analyticsData.profit_factor || 0) >= 1.5 ? '#18a058' : (analyticsData.profit_factor || 0) >= 1 ? '#f0a020' : '#e53e3e'"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="期望值"
+              :value="`$${fmtNum(analyticsData.expectancy, 0)}`"
+              :color="priceColor(analyticsData.expectancy)"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="平均持有天數"
+              :value="analyticsData.avg_days_held?.toFixed(1) || '-'"
+            />
+          </NGi>
+        </NGrid>
+
+        <!-- Confidence Accuracy Table -->
+        <div v-if="analyticsData.confidence_accuracy?.length" style="margin-top: 8px">
+          <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px">信心乘數準確度驗證</div>
+          <NDataTable
+            :columns="confidenceColumns"
+            :data="analyticsData.confidence_accuracy"
+            :pagination="false"
+            size="small"
+            :bordered="false"
+            :single-line="false"
+          />
+        </div>
+
+        <!-- Best / Worst -->
+        <div v-if="analyticsData.best_trade || analyticsData.worst_trade" style="margin-top: 10px; font-size: 12px; display: flex; gap: 16px">
+          <span v-if="analyticsData.best_trade" style="color: #18a058">
+            最佳: {{ analyticsData.best_trade.code }} {{ fmtPct(analyticsData.best_trade.return_pct) }}
+          </span>
+          <span v-if="analyticsData.worst_trade" style="color: #e53e3e">
+            最差: {{ analyticsData.worst_trade.code }} {{ fmtPct(analyticsData.worst_trade.return_pct) }}
+          </span>
+        </div>
       </NCard>
 
       <NEmpty
