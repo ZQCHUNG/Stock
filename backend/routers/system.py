@@ -149,3 +149,56 @@ def export_signals_csv(source: str | None = None):
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=signals.csv"},
     )
+
+
+@router.get("/data-quality")
+def data_quality():
+    """R48-2: 數據品質檢查
+
+    檢查自選股和持倉股票的數據完整性、異常值、時效性。
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from backend import db
+    from backend.data_quality import check_batch_data_quality
+    from data.fetcher import get_stock_data
+
+    # Collect codes from watchlist + open positions
+    codes = set()
+
+    try:
+        from backend.routers.watchlist import _load_watchlist
+        wl = _load_watchlist()
+        codes.update(wl)
+    except Exception:
+        pass
+
+    try:
+        positions = db.get_open_positions()
+        codes.update(p["code"] for p in positions)
+    except Exception:
+        pass
+
+    if not codes:
+        return {
+            "checked_at": None,
+            "total_stocks": 0,
+            "ok_count": 0, "warning_count": 0, "error_count": 0,
+            "overall_score": 1.0,
+            "stocks": [],
+            "critical_issues": [],
+            "message": "無自選股或持倉資料",
+        }
+
+    # Parallel fetch
+    stock_data = {}
+    def _fetch(code):
+        try:
+            return code, get_stock_data(code, period_days=60)
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for code, df in ex.map(_fetch, list(codes)[:30]):  # Max 30 stocks
+            stock_data[code] = df if df is not None else __import__('pandas').DataFrame()
+
+    return check_batch_data_quality(stock_data)

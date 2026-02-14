@@ -11,4 +11,5 @@ export const systemApi = {
   health: (includeSlow: boolean = false) => client.get<any, any>(`/system/health?include_slow=${includeSlow}`, { timeout: 30000 }),
   runBackup: () => client.post<any, any>('/system/backup'),
   listBackups: () => client.get<any, any[]>('/system/backups'),
+  dataQuality: () => client.get<any, any>('/system/data-quality', { timeout: 60000 }),
 }

@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import {
   NCard, NButton, NSpace, NTag, NGrid, NGi, NSpin,
-  NStatistic, NAlert, NEmpty, NDataTable, NDivider, NProgress,
+  NStatistic, NAlert, NEmpty, NDataTable,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
@@ -11,6 +11,8 @@ import { riskApi } from '../api/risk'
 const isLoading = ref(false)
 const data = ref<any>(null)
 const error = ref('')
+const scenarioData = ref<any>(null)
+const scenarioLoading = ref(false)
 
 async function loadRisk() {
   isLoading.value = true
@@ -23,7 +25,18 @@ async function loadRisk() {
   isLoading.value = false
 }
 
-onMounted(loadRisk)
+async function loadScenario() {
+  scenarioLoading.value = true
+  try {
+    scenarioData.value = await riskApi.getScenario()
+  } catch { scenarioData.value = null }
+  scenarioLoading.value = false
+}
+
+onMounted(() => {
+  loadRisk()
+  loadScenario()
+})
 
 // Correlation Heatmap
 const corrChartOption = computed(() => {
@@ -247,8 +260,53 @@ const corrPairColumns: DataTableColumns = [
           </NGi>
         </NGrid>
 
+        <!-- Scenario Analysis (R48-1) -->
+        <NCard title="情境壓力測試" size="small" style="margin-top: 16px">
+          <NSpin :show="scenarioLoading">
+            <template v-if="scenarioData?.scenarios?.length">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                <thead>
+                  <tr style="border-bottom: 2px solid #e0e0e0; text-align: right">
+                    <th style="text-align: left; padding: 6px">情境</th>
+                    <th style="padding: 6px">市場衝擊</th>
+                    <th style="padding: 6px">波動倍數</th>
+                    <th style="padding: 6px">組合損失</th>
+                    <th style="padding: 6px">損失佔比</th>
+                    <th style="padding: 6px">壓力VaR</th>
+                    <th style="padding: 6px">高風險部位</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="s in scenarioData.scenarios" :key="s.name"
+                      style="border-bottom: 1px solid #eee; text-align: right">
+                    <td style="text-align: left; padding: 6px; font-weight: 600">{{ s.name }}</td>
+                    <td style="padding: 6px; color: #f44336">{{ (s.market_shock_pct * 100).toFixed(0) }}%</td>
+                    <td style="padding: 6px">{{ s.vol_multiplier }}x</td>
+                    <td style="padding: 6px; color: #f44336; font-weight: 600">
+                      ${{ Math.abs(s.portfolio_loss).toLocaleString() }}
+                    </td>
+                    <td style="padding: 6px; color: #f44336">
+                      {{ (Math.abs(s.portfolio_loss_pct) * 100).toFixed(2) }}%
+                    </td>
+                    <td style="padding: 6px">
+                      {{ ((s.var_stressed_pct || 0) * 100).toFixed(2) }}%
+                    </td>
+                    <td style="text-align: left; padding: 6px">
+                      <NTag v-for="p in s.positions_at_risk" :key="p.code" size="small" type="error" style="margin-right: 4px">
+                        {{ p.code }} {{ (p.loss_pct * 100).toFixed(1) }}%
+                      </NTag>
+                      <span v-if="!s.positions_at_risk?.length" style="color: #999">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </template>
+            <NEmpty v-else description="無持倉可進行壓力測試" />
+          </NSpin>
+        </NCard>
+
         <div style="text-align: right; margin-top: 12px">
-          <NButton size="small" @click="loadRisk" :loading="isLoading">重新整理</NButton>
+          <NButton size="small" @click="loadRisk(); loadScenario()" :loading="isLoading">重新整理</NButton>
         </div>
       </template>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { h, ref, onMounted } from 'vue'
 import {
   NCard, NButton, NSpace, NInputNumber, NSwitch, NInput, NTag, NAlert,
   NDataTable, NGrid, NGi, NSpin, NDivider, NStatistic,
@@ -30,6 +30,8 @@ const schedulerStatus = ref<SchedulerStatus | null>(null)
 const healthData = ref<any>(null)
 const systemHealth = ref<any>(null)
 const isCheckingHealth = ref(false)
+const dataQuality = ref<any>(null)
+const dqLoading = ref(false)
 
 async function loadConfig() {
   isLoading.value = true
@@ -130,6 +132,14 @@ async function loadSystemHealth(includeSlow: boolean = false) {
   isCheckingHealth.value = false
 }
 
+async function loadDataQuality() {
+  dqLoading.value = true
+  try {
+    dataQuality.value = await systemApi.dataQuality()
+  } catch { dataQuality.value = null }
+  dqLoading.value = false
+}
+
 function healthStatusType(status: string): 'success' | 'warning' | 'error' | 'default' {
   if (status === 'healthy') return 'success'
   if (status === 'degraded') return 'warning'
@@ -144,7 +154,7 @@ function useWatchlistAsFilter() {
 onMounted(async () => {
   await loadConfig()
   await loadAlerts()
-  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth()])
+  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality()])
 })
 
 const triggeredColumns: DataTableColumns = [
@@ -328,6 +338,64 @@ const historyColumns: DataTableColumns = [
         </NGi>
       </NGrid>
       <div v-else style="padding: 8px; color: #999; font-size: 12px">載入中...</div>
+    </NCard>
+
+    <!-- Data Quality (R48-2) -->
+    <NCard title="數據品質監控" size="small" style="margin-top: 16px">
+      <template #header-extra>
+        <NButton size="tiny" @click="loadDataQuality" :loading="dqLoading">檢查</NButton>
+      </template>
+      <NSpin :show="dqLoading">
+        <template v-if="dataQuality && dataQuality.total_stocks > 0">
+          <NSpace :size="12" style="margin-bottom: 8px">
+            <NStatistic label="總檢查" :value="dataQuality.total_stocks" />
+            <NStatistic label="正常">
+              <template #default>
+                <span style="color: #18a058">{{ dataQuality.ok_count }}</span>
+              </template>
+            </NStatistic>
+            <NStatistic label="警告">
+              <template #default>
+                <span style="color: #f0a020">{{ dataQuality.warning_count }}</span>
+              </template>
+            </NStatistic>
+            <NStatistic label="異常">
+              <template #default>
+                <span style="color: #e53e3e">{{ dataQuality.error_count }}</span>
+              </template>
+            </NStatistic>
+            <NStatistic label="完整度">
+              <template #default>
+                <NTag :type="(dataQuality.overall_score || 0) >= 0.8 ? 'success' : (dataQuality.overall_score || 0) >= 0.5 ? 'warning' : 'error'" size="small">
+                  {{ ((dataQuality.overall_score || 0) * 100).toFixed(0) }}%
+                </NTag>
+              </template>
+            </NStatistic>
+          </NSpace>
+          <NAlert v-for="issue in (dataQuality.critical_issues || []).slice(0, 5)" :key="issue.code + issue.type"
+                  type="error" style="margin-bottom: 4px" :bordered="false">
+            {{ issue.code }}: {{ issue.detail }}
+          </NAlert>
+          <NDataTable
+            v-if="dataQuality.stocks?.length"
+            :columns="[
+              { title: '代碼', key: 'code', width: 70 },
+              { title: '狀態', key: 'status', width: 70, render: (r: any) => h(NTag, { type: r.status === 'ok' ? 'success' : r.status === 'warning' ? 'warning' : 'error', size: 'small' }, () => r.status) },
+              { title: '完整度', key: 'completeness_score', width: 80, render: (r: any) => ((r.completeness_score || 0) * 100).toFixed(0) + '%' },
+              { title: '最新日期', key: 'last_date', width: 100 },
+              { title: '問題', key: 'issues', render: (r: any) => (r.issues || []).map((i: any) => i.detail).join('; ') || '無' },
+            ]"
+            :data="dataQuality.stocks"
+            :pagination="{ pageSize: 10 }"
+            size="small"
+            :bordered="false"
+            :single-line="false"
+            style="margin-top: 8px"
+          />
+        </template>
+        <div v-else-if="dataQuality?.message" style="padding: 12px; color: #999; font-size: 12px">{{ dataQuality.message }}</div>
+        <div v-else-if="!dqLoading" style="padding: 12px; color: #999; font-size: 12px">點擊「檢查」開始數據品質掃描</div>
+      </NSpin>
     </NCard>
 
     <!-- History -->

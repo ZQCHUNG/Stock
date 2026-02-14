@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { NCard, NGrid, NGi, NInputNumber, NInput, NSlider, NAlert, NTag, NSpin, NSpace, NTooltip, NButton } from 'naive-ui'
 import { analysisApi } from '../api/analysis'
+import { riskApi } from '../api/risk'
 import { usePortfolioStore } from '../stores/portfolio'
 import { useAppStore } from '../stores/app'
 import MetricCard from './MetricCard.vue'
@@ -153,6 +154,27 @@ const momentumIcon = computed(() => {
   if (m === 'cooling') return '↓'
   return ''
 })
+
+// VaR budget check (Gemini R48-1)
+const varBudget = ref<any>(null)
+const varLoading = ref(false)
+
+async function loadVarBudget() {
+  if (!props.code || !props.currentPrice) return
+  varLoading.value = true
+  try {
+    varBudget.value = await riskApi.getPositionSize({
+      code: props.code,
+      entry_price: props.currentPrice,
+      confidence: confidenceMultiplier.value,
+      account_value: capital.value,
+      var_limit_pct: riskPct.value / 100,
+    })
+  } catch { varBudget.value = null }
+  varLoading.value = false
+}
+
+watch(() => [props.code, props.currentPrice], () => loadVarBudget(), { immediate: true })
 
 // Simulated buy (Gemini R25→R28: with journal note)
 const pfStore = usePortfolioStore()
@@ -333,6 +355,22 @@ function resetStopLoss() {
           <MetricCard title="最大虧損" :value="`$${fmtNum(maxLoss, 0)}`" color="#e53e3e" />
         </NGi>
       </NGrid>
+
+      <!-- VaR Budget (R48-1) -->
+      <div v-if="varBudget && !varBudget.error" style="margin-top: 8px; padding: 8px; background: var(--n-color-embedded); border-radius: 6px; font-size: 12px">
+        <NSpace align="center" :size="8" :wrap="true">
+          <span style="font-weight: 600">VaR 預算:</span>
+          <NTag :type="(varBudget.risk_budget_remaining_pct || 0) > 0.005 ? 'success' : 'warning'" size="small">
+            餘額 {{ ((varBudget.risk_budget_remaining_pct || 0) * 100).toFixed(2) }}%
+          </NTag>
+          <span>現有 VaR {{ ((varBudget.current_var_pct || 0) * 100).toFixed(2) }}%</span>
+          <span>→ 預估 {{ ((varBudget.projected_var_pct || 0) * 100).toFixed(2) }}%</span>
+          <NTag v-if="varBudget.recommended_lots > 0" size="small" type="info">
+            VaR建議 {{ varBudget.recommended_lots }} 張
+          </NTag>
+          <NTag v-for="w in (varBudget.warnings || [])" :key="w" size="small" type="warning">{{ w }}</NTag>
+        </NSpace>
+      </div>
 
       <!-- Status line -->
       <div v-if="lots > 0 && !isGhostTown" style="margin-top: 8px; font-size: 12px; color: var(--n-text-color-3)">

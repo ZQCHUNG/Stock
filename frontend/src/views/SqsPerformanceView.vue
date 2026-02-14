@@ -59,7 +59,7 @@ async function runBackfill() {
   isBackfilling.value = true
   error.value = ''
   try {
-    const result = await sqsPerformanceApi.backfill(730)
+    await sqsPerformanceApi.backfill(730)
     await Promise.all([loadSummary(), loadSignals()])
     error.value = ''
   } catch (e: any) {
@@ -314,9 +314,9 @@ function fmtReturn(val: number | undefined): string {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="grade in ['diamond', 'gold', 'silver', 'noise']" :key="grade"
-                  style="border-bottom: 1px solid #eee; text-align: right"
-                  v-if="summary.by_grade?.[grade]">
+              <template v-for="grade in ['diamond', 'gold', 'silver', 'noise']" :key="grade">
+              <tr v-if="summary.by_grade?.[grade]"
+                  style="border-bottom: 1px solid #eee; text-align: right">
                 <td style="text-align: left; padding: 6px">
                   <NTag :type="grade === 'diamond' ? 'success' : grade === 'gold' ? 'warning' : grade === 'noise' ? 'error' : 'default'" size="small">
                     {{ grade }}
@@ -339,6 +339,7 @@ function fmtReturn(val: number | undefined): string {
                   {{ summary.by_grade[grade].d20?.net_return != null ? (summary.by_grade[grade].d20.net_return * 100).toFixed(2) + '%' : '-' }}
                 </td>
               </tr>
+              </template>
             </tbody>
           </table>
         </NCard>

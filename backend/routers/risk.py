@@ -1,18 +1,33 @@
-"""風險監控儀表板路由（Gemini R46-2）
+"""風險監控儀表板路由（Gemini R46-2, R48-1）
 
 整合 analysis/risk.py 的核心風險計算，提供:
 1. 組合風險摘要（VaR + Beta + 集中度）
 2. 相關性矩陣
 3. 風險警報
+4. VaR 動態倉位建議（R48-1）
+5. 情境壓力測試（R48-1）
 """
 
 import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class PositionSizeRequest(BaseModel):
+    code: str
+    entry_price: float
+    confidence: float = 0.7
+    account_value: float = 1_000_000
+    var_limit_pct: float = 0.02
+
+
+class ScenarioRequest(BaseModel):
+    account_value: float = 1_000_000
 
 
 @router.get("/summary")
@@ -162,3 +177,99 @@ def risk_summary():
         },
         "alerts": alerts,
     })
+
+
+@router.post("/position-size")
+def suggest_position_size(req: PositionSizeRequest):
+    """VaR 動態倉位建議（R48-1）
+
+    根據當前持倉的 VaR 預算、相關性、Beta 等因素，
+    計算建議的開倉張數。
+    """
+    from backend import db
+    from backend.dependencies import make_serializable
+    from backend.position_sizer import calculate_position_size
+    from data.fetcher import get_stock_data, get_taiex_data
+
+    positions = db.get_open_positions()
+    codes = list({p["code"] for p in positions})
+
+    # Fetch stock data for existing positions
+    existing_stock_data = {}
+    def _fetch(code):
+        try:
+            return code, get_stock_data(code, period_days=300)
+        except Exception:
+            return code, None
+
+    if codes:
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for code, df in ex.map(_fetch, codes):
+                if df is not None and len(df) >= 30:
+                    existing_stock_data[code] = df
+
+    # Fetch target stock data
+    try:
+        stock_df = get_stock_data(req.code, period_days=300)
+    except Exception:
+        stock_df = None
+
+    if stock_df is None or stock_df.empty:
+        return {"error": f"無法取得 {req.code} 的股價資料"}
+
+    # Fetch market data for beta
+    market_df = None
+    try:
+        market_df = get_taiex_data(period_days=300)
+    except Exception:
+        pass
+
+    result = calculate_position_size(
+        stock_code=req.code,
+        entry_price=req.entry_price,
+        stock_df=stock_df,
+        existing_positions=positions,
+        existing_stock_data=existing_stock_data,
+        account_value=req.account_value,
+        var_limit_pct=req.var_limit_pct,
+        confidence_score=req.confidence,
+        market_df=market_df,
+    )
+
+    return make_serializable(result)
+
+
+@router.post("/scenario")
+def run_scenario(req: ScenarioRequest):
+    """情境壓力測試（R48-1）
+
+    模擬不同市場下跌情境對投資組合的影響。
+    """
+    from backend import db
+    from backend.dependencies import make_serializable
+    from backend.position_sizer import run_scenario_analysis
+    from data.fetcher import get_stock_data
+
+    positions = db.get_open_positions()
+    codes = list({p["code"] for p in positions})
+
+    stock_data = {}
+    def _fetch(code):
+        try:
+            return code, get_stock_data(code, period_days=300)
+        except Exception:
+            return code, None
+
+    if codes:
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for code, df in ex.map(_fetch, codes):
+                if df is not None and len(df) >= 30:
+                    stock_data[code] = df
+
+    results = run_scenario_analysis(
+        positions=positions,
+        stock_data=stock_data,
+        account_value=req.account_value,
+    )
+
+    return make_serializable({"scenarios": results})

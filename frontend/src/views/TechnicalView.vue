@@ -439,7 +439,7 @@ function sqsGradeIcon(grade: string): string {
         <template #header-extra>
           <NTag size="small" :bordered="false" type="info">Forward Testing</NTag>
         </template>
-        <NGrid :cols="cols(1, 3, 3)" :x-gap="12" :y-gap="12">
+        <NGrid :cols="descCols" :x-gap="12" :y-gap="12">
           <NGi v-for="(info, strat) in tech.signalSummary.strategies" :key="strat">
             <NCard size="small" :bordered="true">
               <template #header>

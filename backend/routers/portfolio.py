@@ -1706,15 +1706,15 @@ def _calculate_summary(positions: list, closed: list) -> dict:
         return _empty_summary()
 
     total_cost = sum(p["entry_price"] * p["lots"] * 1000 for p in positions)
-    total_value = sum(p.get("market_value", 0) for p in positions)
-    total_pnl = sum(p.get("pnl", 0) for p in positions)
+    total_value = sum((p.get("market_value") or 0) for p in positions)
+    total_pnl = sum((p.get("pnl") or 0) for p in positions)
     total_pnl_pct = (total_value / total_cost - 1) if total_cost > 0 else 0
 
     exit_alert_count = sum(1 for p in positions if p.get("exit_signals"))
 
     # Closed trade stats
-    closed_pnl = sum(c.get("net_pnl", 0) for c in closed)
-    wins = [c for c in closed if c.get("net_pnl", 0) > 0]
+    closed_pnl = sum((c.get("net_pnl") or 0) for c in closed)
+    wins = [c for c in closed if (c.get("net_pnl") or 0) > 0]
     win_rate = len(wins) / len(closed) if closed else 0
 
     return {
