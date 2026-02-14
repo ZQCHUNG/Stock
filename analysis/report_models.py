@@ -167,6 +167,8 @@ class ReportResult:
     is_biotech: bool = False
     # 評分權重（用於前端顯示）
     rating_weights: dict = field(default_factory=dict)
+    # Cash Runway（Gemini R20: 生技股財務風險）
+    cash_runway: dict | None = None
 
 
 # ============================================================

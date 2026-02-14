@@ -133,6 +133,8 @@ def generate_report_api(code: str, req: ReportRequest):
             "institutional_score": report.institutional_score,
             "is_biotech": report.is_biotech,
             "rating_weights": report.rating_weights,
+            # Cash Runway（Gemini R20）
+            "cash_runway": report.cash_runway,
         }
 
         return make_serializable(result)

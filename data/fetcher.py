@@ -363,6 +363,167 @@ def get_institutional_data(stock_code: str, days: int = 30) -> pd.DataFrame:
     return df
 
 
+def get_financial_statements(stock_code: str, start_date: str = "") -> dict:
+    """取得財務報表資料（FinMind API）— 資產負債表 + 現金流量表
+
+    主要用於生技股 Cash Runway 計算。
+
+    Args:
+        stock_code: 台股代碼（純數字，例如 "6748"）
+        start_date: 起始日期（YYYY-MM-DD），預設最近 3 年
+
+    Returns:
+        dict: {
+            "balance_sheet": [{date, type, value}, ...],
+            "cash_flows": [{date, type, value}, ...],
+            "cash_runway": {
+                "cash": float,  # 最新現金及約當現金
+                "quarterly_burn": float,  # 季度營業現金流出（正數=燒錢）
+                "runway_quarters": float,  # 現金可撐季數
+                "runway_label": str,  # "極高風險" / "高風險" / "安全"
+                "latest_date": str,  # 最新報表日期
+                "total_quarterly_burn": float,  # 含投資活動的總燒錢
+                "total_runway_quarters": float,  # 含投資活動的總跑道
+            } | None,
+        }
+    """
+    import requests
+
+    if not start_date:
+        start_date = (datetime.now() - timedelta(days=365 * 3)).strftime("%Y-%m-%d")
+
+    base_url = "https://api.finmindtrade.com/api/v4/data"
+    result = {"balance_sheet": [], "cash_flows": [], "cash_runway": None}
+
+    # --- 1. 資產負債表 ---
+    try:
+        resp = requests.get(base_url, params={
+            "dataset": "TaiwanStockBalanceSheet",
+            "data_id": stock_code,
+            "start_date": start_date,
+        }, timeout=15)
+        bs_data = resp.json().get("data", [])
+        result["balance_sheet"] = bs_data
+    except Exception as e:
+        _logger.warning("FinMind balance sheet failed for %s: %s", stock_code, e)
+        bs_data = []
+
+    # --- 2. 現金流量表 ---
+    try:
+        resp = requests.get(base_url, params={
+            "dataset": "TaiwanStockCashFlowsStatement",
+            "data_id": stock_code,
+            "start_date": start_date,
+        }, timeout=15)
+        cf_data = resp.json().get("data", [])
+        result["cash_flows"] = cf_data
+    except Exception as e:
+        _logger.warning("FinMind cash flows failed for %s: %s", stock_code, e)
+        cf_data = []
+
+    # --- 3. 計算 Cash Runway ---
+    result["cash_runway"] = _calculate_cash_runway(bs_data, cf_data)
+
+    return result
+
+
+def _calculate_cash_runway(bs_data: list, cf_data: list) -> dict | None:
+    """從 FinMind 原始資料計算 Cash Runway
+
+    台灣財報半年報 (06-30) 為 H1 累計，年報 (12-31) 為全年累計。
+    取最近兩期算出半年度營業現金流出，再除以 2 得季度數字。
+    """
+    if not bs_data or not cf_data:
+        return None
+
+    # 取得最新現金
+    cash_items = [r for r in bs_data if r["type"] == "CashAndCashEquivalents"]
+    if not cash_items:
+        return None
+    cash_items.sort(key=lambda r: r["date"])
+    latest_cash = cash_items[-1]["value"]
+    latest_date = cash_items[-1]["date"]
+
+    # 短期投資（可能沒有）
+    short_term = [r for r in bs_data
+                  if r["type"] in ("CurrentFinancialAssetsAtFairvalueThroughProfitOrLoss",
+                                   "ShortTermInvestments")
+                  and r["date"] == latest_date]
+    short_term_val = sum(r["value"] for r in short_term)
+
+    total_liquid = latest_cash + short_term_val
+
+    # 取得營業現金流（各期）
+    op_cf_items = [r for r in cf_data
+                   if r["type"] in ("CashFlowsFromOperatingActivities",
+                                    "NetCashInflowFromOperatingActivities")]
+    if not op_cf_items:
+        return None
+
+    # 按日期分組，取每個日期的營業現金流
+    op_cf_by_date: dict[str, float] = {}
+    for r in op_cf_items:
+        d = r["date"]
+        # CashFlowsFromOperatingActivities 優先
+        if d not in op_cf_by_date or r["type"] == "CashFlowsFromOperatingActivities":
+            op_cf_by_date[d] = r["value"]
+
+    dates = sorted(op_cf_by_date.keys())
+    if not dates:
+        return None
+
+    # 取最近期的營業現金流
+    # 半年報 = H1 累計 (6 months)，年報 = 全年累計 (12 months)
+    latest_cf_date = dates[-1]
+    latest_cf = op_cf_by_date[latest_cf_date]
+
+    # 判斷最近報表是半年或全年
+    is_annual = latest_cf_date.endswith("12-31")
+    periods = 4 if is_annual else 2  # 年報=4季，半年報=2季
+
+    quarterly_burn = abs(latest_cf) / periods if latest_cf < 0 else 0
+
+    if quarterly_burn > 0:
+        runway_q = total_liquid / quarterly_burn
+    else:
+        runway_q = 99  # 營業現金流為正，無需擔心
+
+    # 總現金消耗（含投資活動）
+    cf_end_items = [r for r in cf_data
+                    if r["type"] == "CashBalancesEndOfPeriod"
+                    and r["date"] == latest_cf_date]
+    cf_begin_items = [r for r in cf_data
+                      if r["type"] == "CashBalancesBeginningOfPeriod"
+                      and r["date"] == latest_cf_date]
+
+    total_quarterly_burn = 0.0
+    total_runway_q = 99.0
+    if cf_end_items and cf_begin_items:
+        total_change = cf_end_items[0]["value"] - cf_begin_items[0]["value"]
+        if total_change < 0:
+            total_quarterly_burn = abs(total_change) / periods
+            total_runway_q = total_liquid / total_quarterly_burn
+
+    # 風險標籤
+    effective_runway = min(runway_q, total_runway_q)
+    if effective_runway < 4:
+        label = "極高風險"
+    elif effective_runway < 8:
+        label = "高風險"
+    else:
+        label = "安全"
+
+    return {
+        "cash": float(total_liquid),
+        "quarterly_burn": float(quarterly_burn),
+        "runway_quarters": round(float(runway_q), 1),
+        "runway_label": label,
+        "latest_date": latest_date,
+        "total_quarterly_burn": round(float(total_quarterly_burn), 1),
+        "total_runway_quarters": round(float(total_runway_q), 1),
+    }
+
+
 def get_stock_info(stock_code: str) -> dict:
     """取得股票基本資訊
 

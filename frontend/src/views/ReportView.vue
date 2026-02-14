@@ -57,6 +57,10 @@ const priceTargetColumns: DataTableColumns = [
             <NTag v-if="r.institutional_score" :type="(r.institutional_score?.score || 0) > 1 ? 'error' : (r.institutional_score?.score || 0) < -1 ? 'success' : 'default'" size="small">
               籌碼: {{ (r.institutional_score?.score || 0) > 0 ? '+' : '' }}{{ r.institutional_score?.score?.toFixed(1) }}
             </NTag>
+            <NTag v-if="r.cash_runway && r.cash_runway.runway_label !== '安全'"
+              :type="r.cash_runway.runway_label === '極高風險' ? 'error' : 'warning'" size="small">
+              現金跑道: {{ Math.min(r.cash_runway.runway_quarters, r.cash_runway.total_runway_quarters) }}季
+            </NTag>
           </div>
         </NCard>
 
@@ -166,6 +170,33 @@ const priceTargetColumns: DataTableColumns = [
                 基本面 {{ (r.rating_weights.fund * 100).toFixed(0) }}% |
                 籌碼面 {{ (r.rating_weights.inst * 100).toFixed(0) }}% |
                 產業面 {{ (r.rating_weights.sector * 100).toFixed(0) }}%
+              </div>
+              <!-- Cash Runway (Gemini R20) -->
+              <div v-if="r.cash_runway" style="margin-top: 16px; padding: 12px; border-radius: 6px"
+                :style="{ background: r.cash_runway.runway_label === '極高風險' ? '#fff5f5' : r.cash_runway.runway_label === '高風險' ? '#fffbe6' : '#f6ffed' }">
+                <NText strong style="font-size: 14px">
+                  現金跑道
+                  <NTag :type="r.cash_runway.runway_label === '極高風險' ? 'error' : r.cash_runway.runway_label === '高風險' ? 'warning' : 'success'" size="small" style="margin-left: 8px">
+                    {{ r.cash_runway.runway_label }}
+                  </NTag>
+                </NText>
+                <NGrid :cols="instCols" :x-gap="8" :y-gap="8" style="margin-top: 8px">
+                  <NGi>
+                    <MetricCard title="營業跑道" :value="r.cash_runway.runway_quarters + ' 季'" :color="r.cash_runway.runway_quarters < 4 ? '#e53e3e' : r.cash_runway.runway_quarters < 8 ? '#d69e2e' : '#38a169'" />
+                  </NGi>
+                  <NGi>
+                    <MetricCard title="總跑道(含投資)" :value="r.cash_runway.total_runway_quarters + ' 季'" :color="r.cash_runway.total_runway_quarters < 4 ? '#e53e3e' : r.cash_runway.total_runway_quarters < 8 ? '#d69e2e' : '#38a169'" />
+                  </NGi>
+                  <NGi>
+                    <MetricCard title="現金" :value="(r.cash_runway.cash / 1e6).toFixed(0) + 'M'" />
+                  </NGi>
+                  <NGi>
+                    <MetricCard title="季度燒錢" :value="(r.cash_runway.quarterly_burn / 1e6).toFixed(0) + 'M/Q'" color="#e53e3e" />
+                  </NGi>
+                </NGrid>
+                <div style="margin-top: 8px; font-size: 12px; color: var(--text-dimmed)">
+                  資料日期：{{ r.cash_runway.latest_date }}（FinMind 財報資料）
+                </div>
               </div>
             </template>
             <NText v-else depth="3">無法人買賣超資料</NText>

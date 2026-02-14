@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor
 from data.fetcher import (
     get_stock_data, get_stock_info_and_fundamentals,
     get_stock_news, get_google_news, get_institutional_data,
+    get_financial_statements,
 )
 from data.stock_list import get_stock_name, get_all_stocks
 from analysis.indicators import calculate_all_indicators
@@ -100,19 +101,24 @@ def generate_report(stock_code: str, period_days: int = 730,
     def _fetch_institutional():
         return get_institutional_data(stock_code, days=20)
 
+    def _fetch_financials():
+        return get_financial_statements(stock_code)
+
     raw_df = None
     company_info = None
     fundamentals_raw = {}
     google_news_cn = []
     yf_news = []
     institutional_df = None
+    financial_data = None
 
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         fut_data = executor.submit(_fetch_stock_data)
         fut_info = executor.submit(_fetch_info_and_fundamentals)
         fut_gnews = executor.submit(_fetch_google_news_cn)
         fut_yfnews = executor.submit(_fetch_stock_news)
         fut_inst = executor.submit(_fetch_institutional)
+        fut_fin = executor.submit(_fetch_financials)
 
         # 收集結果
         try:
@@ -141,6 +147,11 @@ def generate_report(stock_code: str, period_days: int = 730,
             institutional_df = fut_inst.result()
         except Exception:
             institutional_df = None
+
+        try:
+            financial_data = fut_fin.result()
+        except Exception:
+            financial_data = None
 
     # 2. 計算指標
     df = calculate_all_indicators(raw_df)
@@ -226,6 +237,9 @@ def generate_report(stock_code: str, period_days: int = 730,
         company_info.get("sector", ""),
     )
 
+    # 5c. Cash Runway（Gemini R20: 生技股財務風險）
+    cash_runway = financial_data.get("cash_runway") if financial_data else None
+
     overall_rating = _calculate_overall_rating(
         trend["trend_direction"], momentum["momentum_status"],
         v4["signal"], v2.get("composite_score", 0),
@@ -237,6 +251,7 @@ def generate_report(stock_code: str, period_days: int = 730,
         institutional_score=inst_result["score"],
         industry=company_info.get("industry", ""),
         sector=company_info.get("sector", ""),
+        cash_runway=cash_runway,
     )
 
     # 5b. 其他分析模組
@@ -269,6 +284,7 @@ def generate_report(stock_code: str, period_days: int = 730,
         supports, resistances, current_price,
         industry_risks, tech_conflicts_result["technical_bias"],
         fundamentals_raw,
+        cash_runway=cash_runway,
     )
 
     # 評等與行動建議一致性修正：避免「中性」評等卻建議「避開」的矛盾
@@ -307,6 +323,7 @@ def generate_report(stock_code: str, period_days: int = 730,
         "technical_bias": tech_conflicts_result["technical_bias"],
         "peer_context": peer_context,
         "valuation": valuation,
+        "cash_runway": cash_runway,
     }
     summary = _generate_summary(summary_data)
 
@@ -393,4 +410,5 @@ def generate_report(stock_code: str, period_days: int = 730,
         institutional_score=inst_result,
         is_biotech=is_biotech,
         rating_weights=_get_rating_weights(is_biotech),
+        cash_runway=cash_runway,
     )

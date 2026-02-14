@@ -160,7 +160,7 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
                                fundamental_score=0.0, market_regime=None,
                                technical_conflicts=None,
                                institutional_score=0.0, industry="",
-                               sector=""):
+                               sector="", cash_runway=None):
     """計算綜合評等（含 RR 矛盾修正 + 技術面矛盾降級 + 市場環境上限 + 籌碼面）
 
     評分邏輯（加權維度）：
@@ -168,6 +168,7 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     - 基本面：fundamental_score + 目標價上檔空間
     - 籌碼面：institutional_score (Gemini R19 新增)
     - Gatekeeper: 籌碼面 < -2 強制降階（Gemini R19 共識）
+    - Gatekeeper: Cash Runway < 4 季 → 強制降階（Gemini R20: 生技股財務風險）
     - 生技股自動切換權重（Gemini R19 共識）
     """
     is_biotech = _is_biotech_industry(industry, sector)
@@ -249,6 +250,25 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
         cur_idx = _RATING_ORDER.index(rating)
         if cur_idx > max_idx:
             rating = "中性"
+
+    # === Cash Runway Gatekeeper (Gemini R20: 生技股財務風險) ===
+    # 現金跑道 < 4 季（撐不過一年）→ 強制降階至「賣出」
+    # 現金跑道 < 8 季（撐不過兩年）→ 最高「中性」
+    if cash_runway is not None:
+        effective_runway = min(
+            cash_runway.get("runway_quarters", 99),
+            cash_runway.get("total_runway_quarters", 99),
+        )
+        if effective_runway < 4:
+            cur_idx = _RATING_ORDER.index(rating)
+            sell_idx = _RATING_ORDER.index("賣出")
+            if cur_idx > sell_idx:
+                rating = "賣出"
+        elif effective_runway < 8:
+            cur_idx = _RATING_ORDER.index(rating)
+            neutral_idx = _RATING_ORDER.index("中性")
+            if cur_idx > neutral_idx:
+                rating = "中性"
 
     # 市場環境上限：空頭時最高「買進」
     if market_regime == "bear" and rating == "強力買進":
@@ -365,6 +385,7 @@ def _generate_actionable_recommendation(
     support_levels: list, resistance_levels: list,
     current_price: float, industry_risks: list,
     technical_bias: str, fundamentals: dict,
+    cash_runway: dict | None = None,
 ) -> dict:
     """產生具體行動建議（Gemini 項目 1+2: 投資論點 + 操作建議）"""
     rr = risk_data.get("risk_reward_ratio", 1.0)
@@ -450,6 +471,23 @@ def _generate_actionable_recommendation(
         else:
             parts.append("多空訊號不明確，等待方向確認")
         thesis_parts.extend(parts)
+
+    # Cash Runway 警告（Gemini R20: 生技股財務風險）
+    if cash_runway is not None:
+        eff_runway = min(
+            cash_runway.get("runway_quarters", 99),
+            cash_runway.get("total_runway_quarters", 99),
+        )
+        if eff_runway < 4:
+            thesis_parts.append(
+                f"極高財務風險：現金僅可維持約 {eff_runway:.1f} 季，"
+                f"現金 {cash_runway.get('cash', 0) / 1e6:.0f}M，"
+                f"季度燒錢 {cash_runway.get('total_quarterly_burn', 0) / 1e6:.0f}M"
+            )
+        elif eff_runway < 8:
+            thesis_parts.append(
+                f"注意現金跑道：約 {eff_runway:.1f} 季"
+            )
 
     thesis = "，".join(thesis_parts) + "。"
 
@@ -819,6 +857,20 @@ def _generate_summary(data: dict) -> str:
         risk_points.append(f"風險報酬比僅 {risk['risk_reward_ratio']:.1f}:1")
     if not risk_points:
         risk_points.append(f"最大回撤 {risk['max_drawdown_1y']:.1%}")
+
+    # Cash Runway 風險警告（Gemini R20）
+    cash_runway = data.get("cash_runway")
+    if cash_runway is not None:
+        eff_runway = min(
+            cash_runway.get("runway_quarters", 99),
+            cash_runway.get("total_runway_quarters", 99),
+        )
+        if eff_runway < 4:
+            risk_points.insert(0,
+                f"極高財務風險：現金跑道僅 {eff_runway:.1f} 季"
+                f"（現金 {cash_runway.get('cash', 0) / 1e6:.0f}M）")
+        elif eff_runway < 8:
+            risk_points.insert(0, f"現金跑道偏低：約 {eff_runway:.1f} 季")
 
     p2 = f"潛在催化劑：{'、'.join(catalysts[:3])}。主要風險：{'、'.join(risk_points[:3])}。"
 
