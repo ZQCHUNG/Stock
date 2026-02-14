@@ -2,8 +2,9 @@
 import { h, onMounted, computed, ref } from 'vue'
 import {
   NCard, NButton, NGrid, NGi, NSpin, NTag, NSpace, NDataTable, NEmpty,
-  NAlert, NModal, NInputNumber, NInput, NProgress, NPopconfirm,
+  NAlert, NModal, NInputNumber, NInput, NProgress, NPopconfirm, NUpload,
 } from 'naive-ui'
+import type { UploadFileInfo } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
@@ -230,6 +231,41 @@ const efData = computed(() => pf.efficientFrontier)
 // Behavioral audit (Gemini R35)
 const behaviorData = computed(() => pf.behavioralAudit)
 
+// CSV Import (Gemini R36)
+const showCsvModal = ref(false)
+const csvText = ref('')
+const csvImporting = ref(false)
+
+async function handleCsvImport() {
+  if (!csvText.value.trim()) return
+  csvImporting.value = true
+  await pf.importCsv(csvText.value)
+  csvImporting.value = false
+  if (pf.csvImportResult?.ok) {
+    showCsvModal.value = false
+    csvText.value = ''
+  }
+}
+
+function handleCsvUpload({ file }: { file: UploadFileInfo }) {
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    csvText.value = (e.target?.result as string) || ''
+  }
+  if (file.file) reader.readAsText(file.file)
+  return false // Prevent default upload
+}
+
+// Rebalance Plan (Gemini R36)
+const rebalPlanData = computed(() => pf.rebalancePlan)
+const rebalPlanLoading = ref(false)
+
+async function loadRebalancePlan() {
+  rebalPlanLoading.value = true
+  await pf.loadRebalancePlan()
+  rebalPlanLoading.value = false
+}
+
 async function runRebalanceSim() {
   // Collect current position codes + rotation suggestion targets
   const currentCodes = pf.positions.map((p: any) => p.code)
@@ -254,6 +290,9 @@ async function runRebalanceSim() {
     <NSpace style="margin-bottom: 16px" align="center">
       <NButton type="primary" @click="pf.load()" :loading="pf.isLoading">
         刷新倉位
+      </NButton>
+      <NButton @click="showCsvModal = true" size="small">
+        匯入 CSV
       </NButton>
       <NTag v-if="pf.summary.total_positions" size="small">
         {{ pf.summary.total_positions }} 檔持有
@@ -652,6 +691,75 @@ async function runRebalanceSim() {
         </div>
       </NCard>
 
+      <!-- Auto-Rebalance Trade Plan (Gemini R36) -->
+      <NCard v-if="pf.positions.length >= 2" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">重組交易計劃</span>
+            <NTag size="small" :bordered="false">Auto-Rebalance</NTag>
+            <NButton size="tiny" type="primary" :loading="rebalPlanLoading" @click="loadRebalancePlan">
+              產生計劃
+            </NButton>
+          </NSpace>
+        </template>
+        <div v-if="!rebalPlanData" style="font-size: 12px; color: #999">
+          根據效率前緣最佳 Sharpe 配置，自動產生買/賣張數建議
+        </div>
+        <div v-if="rebalPlanData?.has_data">
+          <NGrid :cols="4" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
+            <NGi>
+              <MetricCard title="目前 Sharpe" :value="rebalPlanData.current_sharpe?.toFixed(3) || '-'" />
+            </NGi>
+            <NGi>
+              <MetricCard title="目標 Sharpe" :value="rebalPlanData.optimal_sharpe?.toFixed(3) || '-'" color="#18a058" />
+            </NGi>
+            <NGi>
+              <MetricCard title="總買入" :value="`$${fmtNum(rebalPlanData.total_buy, 0)}`" color="#e53e3e" />
+            </NGi>
+            <NGi>
+              <MetricCard
+                title="淨現金流"
+                :value="`$${fmtNum(rebalPlanData.net_cash_flow, 0)}`"
+                :color="priceColor(rebalPlanData.net_cash_flow)"
+              />
+            </NGi>
+          </NGrid>
+          <NDataTable
+            :columns="[
+              { title: '操作', key: 'action', width: 60,
+                render: (r: any) => h(NTag, {
+                  type: r.action === '賣出' ? 'error' : 'success',
+                  size: 'small',
+                }, () => r.action) },
+              { title: '代碼', key: 'code', width: 70 },
+              { title: '名稱', key: 'name', width: 80 },
+              { title: '現有', key: 'current_lots', width: 55, align: 'right' },
+              { title: '目標', key: 'target_lots', width: 55, align: 'right' },
+              { title: '異動', key: 'delta_lots', width: 55, align: 'right',
+                render: (r: any) => h('span', { style: { fontWeight: 600 } },
+                  `${r.action === '賣出' ? '-' : '+'}${r.delta_lots}`) },
+              { title: '現權重', key: 'current_weight', width: 75, align: 'right',
+                render: (r: any) => fmtPct(r.current_weight) },
+              { title: '目標權重', key: 'target_weight', width: 75, align: 'right',
+                render: (r: any) => fmtPct(r.target_weight) },
+              { title: '估計金額', key: 'estimated_amount', width: 100, align: 'right',
+                render: (r: any) => '$' + fmtNum(r.estimated_amount, 0) },
+            ]"
+            :data="rebalPlanData.orders"
+            :pagination="false"
+            size="small"
+            :bordered="false"
+            :single-line="false"
+          />
+          <div style="margin-top: 6px; font-size: 11px; color: #999">
+            以上為建議，實際下單前請確認即時報價。執行順序：先賣後買（釋放資金）。
+          </div>
+        </div>
+        <div v-if="rebalPlanData && !rebalPlanData.has_data" style="font-size: 12px; color: #999">
+          {{ rebalPlanData.reason || '數據不足' }}
+        </div>
+      </NCard>
+
       <!-- Behavioral Audit (Gemini R35) -->
       <NCard v-if="behaviorData?.has_data && behaviorData.tag_stats?.length" size="small" style="margin-bottom: 16px">
         <template #header>
@@ -819,6 +927,45 @@ async function runRebalanceSim() {
             預估損益: ${{ fmtNum((closePrice - closingPosition.entry_price) * closingPosition.lots * 1000, 0) }}
             ({{ fmtPct(closePrice / closingPosition.entry_price - 1) }})
           </span>
+        </div>
+      </div>
+    </NModal>
+
+    <!-- CSV Import Modal (Gemini R36) -->
+    <NModal v-model:show="showCsvModal" preset="dialog" title="匯入券商 CSV 交易記錄" style="width: 600px"
+      positive-text="匯入" :loading="csvImporting" @positive-click="handleCsvImport">
+      <div style="margin: 8px 0">
+        <p style="font-size: 12px; color: #666; margin-bottom: 8px">
+          支援格式：日期, 股票代號, 股票名稱, 買賣別, 成交股數, 成交價格<br/>
+          支援民國年（如 113/01/15）。買入配對賣出自動計算損益。
+        </p>
+        <NUpload
+          :max="1"
+          accept=".csv"
+          :default-upload="false"
+          @change="handleCsvUpload"
+          style="margin-bottom: 8px"
+        >
+          <NButton size="small">選擇 CSV 檔案</NButton>
+        </NUpload>
+        <NInput
+          v-model:value="csvText"
+          type="textarea"
+          :rows="10"
+          placeholder="或直接貼上 CSV 內容..."
+          style="font-family: monospace; font-size: 12px"
+        />
+        <div v-if="pf.csvImportResult && !pf.csvImportResult.ok" style="margin-top: 6px; color: #e53e3e; font-size: 12px">
+          {{ pf.csvImportResult.error }}
+        </div>
+        <div v-if="pf.csvImportResult?.ok" style="margin-top: 6px; font-size: 12px">
+          <NTag type="success" size="small">匯入 {{ pf.csvImportResult.imported }} 筆</NTag>
+          <NTag v-if="pf.csvImportResult.skipped" type="warning" size="small" style="margin-left: 4px">
+            跳過 {{ pf.csvImportResult.skipped }} 筆（重複）
+          </NTag>
+          <div v-if="pf.csvImportResult.errors?.length" style="color: #e53e3e; margin-top: 4px">
+            <div v-for="(e, i) in pf.csvImportResult.errors" :key="i">{{ e }}</div>
+          </div>
         </div>
       </div>
     </NModal>

@@ -89,6 +89,59 @@ def get_support_resistance(code: str, period_days: int = 365):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{code}/v5-signal")
+def get_v5_signal(code: str, period_days: int = 365):
+    """取得最新 V5 均值回歸分析結果（Gemini R36）"""
+    from data.fetcher import get_stock_data
+    from analysis.strategy_v5 import get_v5_analysis
+    from backend.dependencies import make_serializable
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        result = get_v5_analysis(df)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{code}/adaptive-signal")
+def get_adaptive_signal(code: str, period_days: int = 365):
+    """V4+V5 自適應混合訊號（Gemini R36）
+
+    根據市場狀態動態分配 V4/V5 權重，回傳混合評分。
+    """
+    from data.fetcher import get_stock_data
+    from analysis.strategy_v4 import get_v4_analysis
+    from analysis.strategy_v5 import get_v5_analysis, adaptive_strategy_score
+    from backend.dependencies import make_serializable
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        v4 = get_v4_analysis(df)
+        v5 = get_v5_analysis(df)
+
+        # Get market regime from portfolio router (0050 ADX-based)
+        try:
+            from backend.routers.portfolio import get_market_regime
+            regime_data = get_market_regime()
+            regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
+        except Exception:
+            regime_en = "range_quiet"
+
+        adaptive = adaptive_strategy_score(
+            v4_signal=v4["signal"],
+            v5_signal=v5["signal"],
+            regime=regime_en,
+            v4_confidence=1.0,
+        )
+
+        return make_serializable({
+            "v4": v4,
+            "v5": v5,
+            "adaptive": adaptive,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{code}/volume-patterns")
 def get_volume_patterns(code: str, period_days: int = 365):
     """量能型態偵測"""

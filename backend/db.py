@@ -40,6 +40,9 @@ def _run_migrations(conn: sqlite3.Connection):
     # R29: Add lessons column (post-mortem)
     if "lessons" not in cols:
         conn.execute("ALTER TABLE positions ADD COLUMN lessons TEXT DEFAULT ''")
+    # R36: Add source column (simulated / real)
+    if "source" not in cols:
+        conn.execute("ALTER TABLE positions ADD COLUMN source TEXT DEFAULT 'simulated'")
     # R31: Add benchmark_price to equity_snapshots
     eq_cols = {r[1] for r in conn.execute("PRAGMA table_info(equity_snapshots)").fetchall()}
     if "benchmark_price" not in eq_cols:
@@ -781,6 +784,110 @@ def get_shadow_stats_recent(days: int = 30) -> dict:
         "win_rate": round(wins / len(trades), 4) if trades else 0,
         "avg_return": round(avg_ret, 4),
     }
+
+
+def import_csv_trades(trades: list[dict]) -> dict:
+    """Import broker CSV trades into positions table (Gemini R36).
+
+    Each trade dict should contain:
+    - code, entry_date, entry_price, lots, exit_date (optional), exit_price (optional),
+      name (optional), sector (optional)
+
+    Closed trades: both entry and exit dates/prices present.
+    Open trades: only entry data.
+
+    Returns: {"imported": N, "skipped": N, "errors": [...]}
+    """
+    imported = 0
+    skipped = 0
+    errors = []
+
+    with _connect() as conn:
+        for t in trades:
+            pid = str(uuid.uuid4())[:8]
+            code = t.get("code", "").strip()
+            if not code:
+                errors.append(f"缺少股票代碼: {t}")
+                continue
+
+            entry_date = t.get("entry_date", "")
+            entry_price = t.get("entry_price", 0)
+            lots = t.get("lots", 0)
+
+            if not entry_date or entry_price <= 0 or lots <= 0:
+                errors.append(f"{code}: 資料不完整 (date={entry_date}, price={entry_price}, lots={lots})")
+                continue
+
+            # Check if closed trade
+            exit_date = t.get("exit_date")
+            exit_price = t.get("exit_price")
+            is_closed = exit_date and exit_price and exit_price > 0
+
+            if is_closed:
+                shares = lots * 1000
+                entry_cost = entry_price * shares
+                exit_value = exit_price * shares
+                pnl = exit_value - entry_cost
+                commission = (entry_cost + exit_value) * 0.001425
+                tax = exit_value * 0.003
+                net_pnl = pnl - commission - tax
+                return_pct = (exit_price / entry_price - 1) if entry_price > 0 else 0
+                days_held = 0
+                try:
+                    from datetime import datetime as dt
+                    d1 = dt.strptime(entry_date, "%Y-%m-%d")
+                    d2 = dt.strptime(exit_date, "%Y-%m-%d")
+                    days_held = (d2 - d1).days
+                except Exception:
+                    pass
+
+                try:
+                    conn.execute(
+                        """INSERT INTO positions
+                           (id, code, name, entry_date, entry_price, lots, stop_loss,
+                            sector, status, source,
+                            exit_date, exit_price, exit_reason, pnl, net_pnl,
+                            return_pct, commission, tax, days_held)
+                           VALUES (?, ?, ?, ?, ?, ?, 0,
+                                   ?, 'closed', 'real',
+                                   ?, ?, 'csv_import', ?, ?,
+                                   ?, ?, ?, ?)""",
+                        (
+                            pid, code, t.get("name", ""), entry_date, entry_price, lots,
+                            t.get("sector", ""),
+                            exit_date, exit_price, round(pnl, 0), round(net_pnl, 0),
+                            round(return_pct, 4), round(commission, 0), round(tax, 0), days_held,
+                        ),
+                    )
+                    imported += 1
+                except Exception as e:
+                    errors.append(f"{code}: {e}")
+            else:
+                # Open trade — check for duplicate
+                existing = conn.execute(
+                    "SELECT id FROM positions WHERE code=? AND status='open'",
+                    (code,),
+                ).fetchone()
+                if existing:
+                    skipped += 1
+                    continue
+
+                try:
+                    conn.execute(
+                        """INSERT INTO positions
+                           (id, code, name, entry_date, entry_price, lots, stop_loss,
+                            sector, status, source)
+                           VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'open', 'real')""",
+                        (
+                            pid, code, t.get("name", ""), entry_date, entry_price, lots,
+                            t.get("sector", ""),
+                        ),
+                    )
+                    imported += 1
+                except Exception as e:
+                    errors.append(f"{code}: {e}")
+
+    return {"imported": imported, "skipped": skipped, "errors": errors}
 
 
 # ---------------------------------------------------------------------------

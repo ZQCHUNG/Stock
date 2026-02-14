@@ -40,4 +40,7 @@ export const portfolioApi = {
   marketRegime: () => client.get<any, any>('/portfolio/market-regime'),
   efficientFrontier: () => client.get<any, any>('/portfolio/efficient-frontier'),
   behavioralAudit: () => client.get<any, any>('/portfolio/behavioral-audit'),
+  importCsv: (csvText: string) =>
+    client.post<any, any>('/portfolio/import-csv', { csv_text: csvText }),
+  rebalancePlan: () => client.post<any, any>('/portfolio/rebalance-plan'),
 }

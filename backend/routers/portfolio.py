@@ -733,6 +733,204 @@ def get_optimal_exposure():
     })
 
 
+class ImportCsvRequest(BaseModel):
+    """CSV 匯入 — 台灣券商對帳單格式（Gemini R36）"""
+    csv_text: str  # Raw CSV content as text
+
+
+@router.post("/import-csv")
+def import_csv(req: ImportCsvRequest):
+    """匯入券商 CSV 交易記錄（Gemini R36）
+
+    支援格式（台灣主流券商對帳單）：
+    - 日期, 股票代號, 股票名稱, 買賣別, 成交股數, 成交價格
+    - 或：date, code, name, action, shares, price
+    - 自動偵測欄位名稱（中/英文）
+    - 買入→open position, 賣出→close matching position
+    """
+    import csv
+    import io
+    from backend.dependencies import make_serializable
+
+    lines = req.csv_text.strip().split("\n")
+    if len(lines) < 2:
+        return make_serializable({"ok": False, "error": "CSV 至少需要標題列 + 1 筆資料"})
+
+    reader = csv.DictReader(io.StringIO(req.csv_text.strip()))
+    fieldnames = reader.fieldnames or []
+
+    # Auto-detect column mapping
+    col_map = _detect_csv_columns(fieldnames)
+    if not col_map.get("date") or not col_map.get("code"):
+        return make_serializable({
+            "ok": False,
+            "error": f"無法辨識 CSV 欄位: {fieldnames}。需要至少「日期」和「股票代號」欄位",
+        })
+
+    # Parse all rows into buy/sell actions
+    actions = []
+    parse_errors = []
+    for i, row in enumerate(reader):
+        try:
+            date = row.get(col_map["date"], "").strip()
+            code = row.get(col_map["code"], "").strip()
+            # Normalize date format: 民國年 → 西元年
+            date = _normalize_date(date)
+            if not date or not code:
+                continue
+
+            # Remove .TW suffix if present
+            code = code.replace(".TW", "").replace(".tw", "")
+
+            name = row.get(col_map.get("name", ""), "").strip() if col_map.get("name") else ""
+            action = row.get(col_map.get("action", ""), "").strip() if col_map.get("action") else "買"
+
+            shares_str = row.get(col_map.get("shares", ""), "0").strip()
+            shares = int(shares_str.replace(",", "")) if shares_str else 0
+
+            price_str = row.get(col_map.get("price", ""), "0").strip()
+            price = float(price_str.replace(",", "")) if price_str else 0
+
+            if shares <= 0 or price <= 0:
+                continue
+
+            lots = max(1, shares // 1000)  # Convert shares to lots (round down, min 1)
+
+            is_buy = any(k in action for k in ("買", "buy", "Buy", "B"))
+            is_sell = any(k in action for k in ("賣", "sell", "Sell", "S"))
+
+            actions.append({
+                "date": date,
+                "code": code,
+                "name": name,
+                "lots": lots,
+                "price": price,
+                "is_buy": is_buy,
+                "is_sell": is_sell,
+            })
+        except Exception as e:
+            parse_errors.append(f"Row {i+2}: {e}")
+
+    if not actions:
+        return make_serializable({"ok": False, "error": "無法解析任何有效交易記錄", "parse_errors": parse_errors})
+
+    # Match buy/sell pairs → create position records
+    trades = _match_buy_sell_pairs(actions)
+
+    # Import into DB
+    result = db.import_csv_trades(trades)
+    result["ok"] = True
+    result["total_rows"] = len(actions)
+    result["parse_errors"] = parse_errors
+
+    return make_serializable(result)
+
+
+def _detect_csv_columns(fieldnames: list[str]) -> dict:
+    """Auto-detect CSV column mapping (supports 中/英文)."""
+    mapping = {}
+    for f in fieldnames:
+        fl = f.lower().strip()
+        if any(k in fl for k in ("日期", "date", "交易日")):
+            mapping["date"] = f
+        elif any(k in fl for k in ("代號", "代碼", "code", "股號", "證券代號")):
+            mapping["code"] = f
+        elif any(k in fl for k in ("名稱", "name", "股名", "證券名稱")):
+            mapping["name"] = f
+        elif any(k in fl for k in ("買賣", "action", "交易", "買賣別")):
+            mapping["action"] = f
+        elif any(k in fl for k in ("股數", "shares", "成交股數", "數量")):
+            mapping["shares"] = f
+        elif any(k in fl for k in ("價格", "price", "成交價", "單價", "成交價格")):
+            mapping["price"] = f
+    return mapping
+
+
+def _normalize_date(date_str: str) -> str:
+    """Normalize date string to YYYY-MM-DD format.
+
+    Supports:
+    - 2024-01-15 (already ISO)
+    - 2024/01/15
+    - 113/01/15 (民國年)
+    - 20240115
+    """
+    import re
+    date_str = date_str.strip()
+    if not date_str:
+        return ""
+
+    # ISO format: 2024-01-15
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
+        return date_str
+
+    # Slash format: 2024/01/15
+    if re.match(r"^\d{4}/\d{2}/\d{2}$", date_str):
+        return date_str.replace("/", "-")
+
+    # ROC year: 113/01/15 or 113-01-15
+    m = re.match(r"^(\d{2,3})[/-](\d{1,2})[/-](\d{1,2})$", date_str)
+    if m:
+        year = int(m.group(1)) + 1911
+        return f"{year}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+
+    # Compact: 20240115
+    if re.match(r"^\d{8}$", date_str):
+        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+
+    return date_str  # Return as-is, let downstream handle
+
+
+def _match_buy_sell_pairs(actions: list[dict]) -> list[dict]:
+    """Match buy and sell actions into position records.
+
+    For each code:
+    1. Sort by date
+    2. Buy → create entry record
+    3. Sell → close the earliest matching buy
+    """
+    from collections import defaultdict
+
+    by_code: dict[str, list] = defaultdict(list)
+    for a in actions:
+        by_code[a["code"]].append(a)
+
+    trades = []
+
+    for code, code_actions in by_code.items():
+        code_actions.sort(key=lambda x: x["date"])
+
+        open_buys = []  # Stack of unmatched buys
+
+        for a in code_actions:
+            if a["is_buy"]:
+                open_buys.append(a)
+            elif a["is_sell"] and open_buys:
+                # Match with earliest buy (FIFO)
+                buy = open_buys.pop(0)
+                trades.append({
+                    "code": code,
+                    "name": buy.get("name") or a.get("name", ""),
+                    "entry_date": buy["date"],
+                    "entry_price": buy["price"],
+                    "lots": min(buy["lots"], a["lots"]),
+                    "exit_date": a["date"],
+                    "exit_price": a["price"],
+                })
+
+        # Remaining unmatched buys → open positions
+        for buy in open_buys:
+            trades.append({
+                "code": code,
+                "name": buy.get("name", ""),
+                "entry_date": buy["date"],
+                "entry_price": buy["price"],
+                "lots": buy["lots"],
+            })
+
+    return trades
+
+
 class SimulateRebalanceRequest(BaseModel):
     codes: list[str]
 
@@ -1036,6 +1234,97 @@ def get_efficient_frontier():
             "weights": {c: round(float(w), 4) for c, w in zip(v_codes, best_weights)},
         },
         "data_points": len(ret_df),
+    })
+
+
+@router.post("/rebalance-plan")
+def generate_rebalance_plan():
+    """自動重組交易計劃 — 根據效率前緣最佳權重產生買賣指令（Gemini R36）
+
+    比較目前持倉與 Max Sharpe 最佳組合，產生具體買/賣張數建議。
+    """
+    from data.fetcher import get_stock_data
+    from backend.dependencies import make_serializable
+
+    positions = db.get_open_positions()
+    if len(positions) < 2:
+        return make_serializable({"has_data": False, "reason": "至少需 2 檔持倉"})
+
+    # Get efficient frontier optimal weights
+    ef_data = get_efficient_frontier()
+    if not ef_data.get("has_data"):
+        return make_serializable({"has_data": False, "reason": "效率前緣計算失敗"})
+
+    optimal_weights = ef_data["max_sharpe"]["weights"]
+    current_weights = ef_data["current"]["weights"]
+    codes = ef_data["codes"]
+
+    # Get current prices and position details
+    pos_map = {}
+    for p in positions:
+        if p["code"] in codes:
+            current_price = p.get("current_price") or p["entry_price"]
+            pos_map[p["code"]] = {
+                "code": p["code"],
+                "name": p.get("name", ""),
+                "lots": p["lots"],
+                "entry_price": p["entry_price"],
+                "current_price": current_price,
+                "market_value": current_price * p["lots"] * 1000,
+            }
+
+    total_value = sum(pm["market_value"] for pm in pos_map.values())
+
+    # Calculate target lots vs current lots
+    orders = []
+    for code in codes:
+        if code not in pos_map:
+            continue
+
+        current_lots = pos_map[code]["lots"]
+        current_price = pos_map[code]["current_price"]
+        optimal_w = optimal_weights.get(code, 0)
+        current_w = current_weights.get(code, 0)
+
+        target_value = total_value * optimal_w
+        target_lots = round(target_value / (current_price * 1000)) if current_price > 0 else current_lots
+        delta_lots = target_lots - current_lots
+
+        if delta_lots == 0:
+            continue
+
+        action = "買入" if delta_lots > 0 else "賣出"
+        est_amount = abs(delta_lots) * current_price * 1000
+
+        orders.append({
+            "code": code,
+            "name": pos_map[code]["name"],
+            "action": action,
+            "current_lots": current_lots,
+            "target_lots": target_lots,
+            "delta_lots": abs(delta_lots),
+            "current_weight": round(current_w, 4),
+            "target_weight": round(optimal_w, 4),
+            "estimated_amount": round(est_amount, 0),
+            "price": round(current_price, 2),
+        })
+
+    # Sort: sells first (free up capital), then buys
+    orders.sort(key=lambda x: (0 if x["action"] == "賣出" else 1, -x["estimated_amount"]))
+
+    total_buy = sum(o["estimated_amount"] for o in orders if o["action"] == "買入")
+    total_sell = sum(o["estimated_amount"] for o in orders if o["action"] == "賣出")
+    net_cash_flow = total_sell - total_buy
+
+    return make_serializable({
+        "has_data": True,
+        "orders": orders,
+        "total_value": round(total_value, 0),
+        "total_buy": round(total_buy, 0),
+        "total_sell": round(total_sell, 0),
+        "net_cash_flow": round(net_cash_flow, 0),
+        "optimal_sharpe": ef_data["max_sharpe"]["sharpe"],
+        "current_sharpe": ef_data["current"]["sharpe"],
     })
 
 

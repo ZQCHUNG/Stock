@@ -20,6 +20,8 @@ export const usePortfolioStore = defineStore('portfolio', () => {
   const marketRegime = ref<any>(null)
   const efficientFrontier = ref<any>(null)
   const behavioralAudit = ref<any>(null)
+  const rebalancePlan = ref<any>(null)
+  const csvImportResult = ref<any>(null)
   const isLoading = ref(false)
 
   async function load() {
@@ -175,13 +177,34 @@ export const usePortfolioStore = defineStore('portfolio', () => {
     }
   }
 
+  async function loadRebalancePlan() {
+    try {
+      rebalancePlan.value = await portfolioApi.rebalancePlan()
+    } catch {
+      rebalancePlan.value = null
+    }
+  }
+
+  async function importCsv(csvText: string) {
+    try {
+      csvImportResult.value = await portfolioApi.importCsv(csvText)
+      if (csvImportResult.value?.ok) {
+        message.success(`匯入完成：${csvImportResult.value.imported} 筆成功`)
+        await load()
+      }
+    } catch {
+      csvImportResult.value = null
+    }
+    return csvImportResult.value
+  }
+
   return {
     positions, closed, summary, health, exitAlerts, equityLedger, analytics, performance,
     briefing, stressTest, correlation, optimalExposure, rebalanceSim,
-    marketRegime, efficientFrontier, behavioralAudit, isLoading,
+    marketRegime, efficientFrontier, behavioralAudit, rebalancePlan, csvImportResult, isLoading,
     load, openPosition, closePosition, updatePosition, deletePosition,
     loadHealth, loadExitAlerts, loadEquityLedger, loadAnalytics, loadPerformance,
     loadBriefing, loadStressTest, loadCorrelation, loadOptimalExposure, simulateRebalance,
-    loadMarketRegime, loadEfficientFrontier, loadBehavioralAudit,
+    loadMarketRegime, loadEfficientFrontier, loadBehavioralAudit, loadRebalancePlan, importCsv,
   }
 })

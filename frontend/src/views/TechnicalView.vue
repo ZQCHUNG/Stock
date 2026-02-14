@@ -3,6 +3,7 @@ import { h, ref, watch, onMounted, nextTick, computed } from 'vue'
 import { connect } from 'echarts/core'
 import { NGrid, NGi, NCard, NSpin, NAlert, NDescriptions, NDescriptionsItem, NText, NDataTable, NButton } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
+import { NTag, NSpace } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useTechnicalStore } from '../stores/technical'
 import { fmtNum, fmtPct, priceColor } from '../utils/format'
@@ -27,6 +28,7 @@ async function loadData() {
   const code = app.currentStockCode
   await tech.loadAll(code)
   await tech.loadV4SignalsFull(code)
+  tech.loadAdaptiveSignal(code)  // Non-blocking: load adaptive signal in background
   // Connect charts for crosshair + dataZoom sync after data renders
   nextTick(() => { try { connect('tech') } catch { /* charts not ready */ } })
 }
@@ -137,6 +139,58 @@ const institutionalColumns: DataTableColumns = [
           />
         </NGi>
       </NGrid>
+
+      <!-- V4+V5 自適應訊號 (Gemini R36) -->
+      <NCard v-if="tech.adaptiveSignal" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">策略混合訊號</span>
+            <NTag size="small" :bordered="false">Adaptive V4+V5</NTag>
+            <NTag size="small" :type="tech.adaptiveSignal.adaptive?.regime?.includes('trend') ? 'success' : 'warning'">
+              {{ tech.adaptiveSignal.adaptive?.regime === 'trend_explosive' ? '趨勢噴發' :
+                 tech.adaptiveSignal.adaptive?.regime === 'trend_mild' ? '溫和趨勢' :
+                 tech.adaptiveSignal.adaptive?.regime === 'range_volatile' ? '震盪劇烈' : '低波盤整' }}
+            </NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="signalCols" :x-gap="12" :y-gap="12">
+          <NGi>
+            <MetricCard title="混合訊號">
+              <template #default>
+                <SignalBadge :signal="tech.adaptiveSignal.adaptive?.final_signal || 'HOLD'" size="large" />
+              </template>
+            </MetricCard>
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="V4 趨勢"
+              :subtitle="`權重 ${((tech.adaptiveSignal.adaptive?.v4_weight || 0) * 100).toFixed(0)}%`"
+            >
+              <template #default>
+                <SignalBadge :signal="tech.adaptiveSignal.v4?.signal || 'HOLD'" />
+              </template>
+            </MetricCard>
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="V5 回歸"
+              :subtitle="`權重 ${((tech.adaptiveSignal.adaptive?.v5_weight || 0) * 100).toFixed(0)}%`"
+            >
+              <template #default>
+                <SignalBadge :signal="tech.adaptiveSignal.v5?.signal || 'HOLD'" />
+              </template>
+            </MetricCard>
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="綜合分數"
+              :value="tech.adaptiveSignal.adaptive?.composite_score?.toFixed(3) || '0'"
+              :color="(tech.adaptiveSignal.adaptive?.composite_score || 0) >= 0.5 ? '#e53e3e' :
+                      (tech.adaptiveSignal.adaptive?.composite_score || 0) <= -0.5 ? '#38a169' : undefined"
+            />
+          </NGi>
+        </NGrid>
+      </NCard>
 
       <!-- V4 指標面板 -->
       <NCard v-if="tech.v4Enhanced?.indicators" size="small" title="V4 指標" style="margin-bottom: 16px">
