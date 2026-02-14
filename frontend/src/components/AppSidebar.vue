@@ -37,6 +37,7 @@ const menuItems = [
   { label: '4  推薦股票', key: 'recommend' },
   { label: '5  分析報告', key: 'report' },
   { label: '6  條件選股', key: 'screener' },
+  { label: '7  模擬倉位', key: 'portfolio' },
 ]
 
 const activeKey = computed(() => route.name as string)

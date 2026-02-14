@@ -530,9 +530,28 @@ def get_transition_events(limit: int = 20) -> list:
 
 
 def clear_transition_events() -> None:
-    """清除所有 Transition 事件（新交易日重置）"""
+    """清除過期 Transition 事件（新交易日重置）
+
+    高價值事件（is_high_value=True）保留 3 天，一般事件只保留當天。
+    """
     try:
-        _cache_set("sector_heat:transitions", "[]", 86400)
+        cached = _cache_get("sector_heat:transitions")
+        if not cached:
+            return
+
+        events = json.loads(cached)
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # Keep high-value events from last 3 days
+        from datetime import timedelta
+        cutoff = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+
+        retained = [
+            e for e in events
+            if e.get("is_high_value") and e.get("date", "") >= cutoff
+        ]
+
+        _cache_set("sector_heat:transitions", json.dumps(retained, ensure_ascii=False), 86400)
     except Exception:
         pass
 

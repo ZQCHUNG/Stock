@@ -49,6 +49,26 @@ const institutionalData = computed(() => {
 
 function netColor(v: number) { return v > 0 ? '#e53e3e' : v < 0 ? '#38a169' : undefined }
 
+// Trailing stop / stop loss from PositionCalculator
+const trailingStopPrice = ref<number | null>(null)
+const staticStopLoss = ref<number | null>(null)
+
+function onRiskLoaded(data: { trailingStop: number | null; stopLoss: number }) {
+  trailingStopPrice.value = data.trailingStop
+  staticStopLoss.value = data.stopLoss
+}
+
+const exitLines = computed(() => {
+  const lines: { price: number; source: string }[] = []
+  if (trailingStopPrice.value && trailingStopPrice.value > (staticStopLoss.value || 0)) {
+    lines.push({ price: trailingStopPrice.value, source: '移動停利 (ATR×2)' })
+  }
+  if (staticStopLoss.value) {
+    lines.push({ price: staticStopLoss.value, source: '靜態停損 (-7%)' })
+  }
+  return lines
+})
+
 // Quick backtest
 const quickBtResult = ref<any>(null)
 const quickBtLoading = ref(false)
@@ -132,13 +152,14 @@ const institutionalColumns: DataTableColumns = [
         v-if="tech.v4Enhanced"
         :code="app.currentStockCode"
         :current-price="tech.v4Enhanced.close || 0"
+        @risk-loaded="onRiskLoaded"
       />
 
       <!-- K 線圖 -->
       <NCard title="K線圖" size="small" style="margin-bottom: 16px">
         <CandlestickChart
           :data="tech.indicators"
-          :supports="tech.supportResistance?.supports"
+          :supports="[...(tech.supportResistance?.supports || []), ...exitLines]"
           :resistances="tech.supportResistance?.resistances"
           :signals="tech.v4SignalsFull"
           group="tech"

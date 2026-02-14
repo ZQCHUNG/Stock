@@ -7,7 +7,6 @@ import { useAppStore } from '../stores/app'
 import { useRecommendStore } from '../stores/recommend'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, priceColor } from '../utils/format'
-import SignalBadge from '../components/SignalBadge.vue'
 import ProgressBar from '../components/ProgressBar.vue'
 
 const app = useAppStore()

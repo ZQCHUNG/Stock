@@ -87,10 +87,12 @@ const option = computed(() => {
     })
   }
 
-  // Support/Resistance lines
+  // Support/Resistance lines + exit lines
   const markLines: any[] = []
   for (const s of props.supports || []) {
-    markLines.push({ yAxis: s.price, name: `S ${s.source}`, lineStyle: { color: '#38a169', type: 'dashed' } })
+    const isExit = s.source.includes('停損') || s.source.includes('停利')
+    const color = s.source.includes('停利') ? '#2080f0' : s.source.includes('停損') ? '#f59e0b' : '#38a169'
+    markLines.push({ yAxis: s.price, name: s.source, lineStyle: { color, type: 'dashed', width: isExit ? 2 : 1 } })
   }
   for (const r of props.resistances || []) {
     markLines.push({ yAxis: r.price, name: `R ${r.source}`, lineStyle: { color: '#e53e3e', type: 'dashed' } })

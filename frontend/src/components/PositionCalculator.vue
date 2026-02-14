@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { NCard, NGrid, NGi, NInputNumber, NSlider, NAlert, NTag, NSpin, NSpace, NTooltip } from 'naive-ui'
+import { NCard, NGrid, NGi, NInputNumber, NSlider, NAlert, NTag, NSpin, NSpace, NTooltip, NButton } from 'naive-ui'
 import { analysisApi } from '../api/analysis'
+import { usePortfolioStore } from '../stores/portfolio'
+import { useAppStore } from '../stores/app'
 import MetricCard from './MetricCard.vue'
 import { fmtNum } from '../utils/format'
 
 const props = defineProps<{ code: string; currentPrice: number }>()
+const emit = defineEmits<{
+  (e: 'risk-loaded', data: { trailingStop: number | null; stopLoss: number }): void
+}>()
 
 // User inputs
 const capital = ref(1_000_000)
@@ -28,6 +33,11 @@ async function loadRiskFactors() {
     if (!useCustomStopLoss.value && riskFactors.value?.stop_loss_price) {
       stopLossPrice.value = riskFactors.value.stop_loss_price
     }
+    // Emit risk data for chart overlay
+    emit('risk-loaded', {
+      trailingStop: riskFactors.value?.trailing_stop_price ?? null,
+      stopLoss: riskFactors.value?.stop_loss_price ?? props.currentPrice * 0.93,
+    })
   } catch (e: any) {
     rfError.value = e.message || '載入風險因子失敗'
     riskFactors.value = null
@@ -113,6 +123,28 @@ const momentumIcon = computed(() => {
   if (m === 'cooling') return '↓'
   return ''
 })
+
+// Simulated buy (Gemini R25: Portfolio Commander)
+const pfStore = usePortfolioStore()
+const isBuying = ref(false)
+
+async function simulateBuy() {
+  if (lots.value <= 0) return
+  isBuying.value = true
+  try {
+    await pfStore.openPosition({
+      code: props.code,
+      name: useAppStore().currentStockName || props.code,
+      entry_price: props.currentPrice,
+      lots: lots.value,
+      stop_loss: effectiveStopLoss.value,
+      trailing_stop: trailingStopPrice.value,
+      confidence: confidenceMultiplier.value,
+      sector: sectorL1.value,
+    })
+  } catch { /* handled by store */ }
+  isBuying.value = false
+}
 
 function onStopLossChange(val: number | null) {
   if (val !== null) {
@@ -261,6 +293,19 @@ function resetStopLoss() {
       </div>
       <div v-if="cost > capital" style="margin-top: 4px; font-size: 12px; color: #e53e3e; font-weight: 600">
         買入成本超過總資金，無法執行
+      </div>
+
+      <!-- Simulated Buy Button (Gemini R25) -->
+      <div v-if="lots > 0 && !isGhostTown && v4Signal === 'BUY'" style="margin-top: 10px">
+        <NButton
+          type="error"
+          size="small"
+          :loading="isBuying"
+          @click="simulateBuy"
+        >
+          模擬買入 {{ lots }} 張 @ ${{ props.currentPrice.toFixed(2) }}
+        </NButton>
+        <span style="font-size: 11px; color: #999; margin-left: 8px">建立模擬倉位，可在「模擬倉位」頁追蹤</span>
       </div>
     </NSpin>
   </NCard>

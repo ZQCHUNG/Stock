@@ -40,6 +40,12 @@ const router = createRouter({
       component: () => import('../views/ScreenerView.vue'),
       meta: { title: '條件選股' },
     },
+    {
+      path: '/portfolio',
+      name: 'portfolio',
+      component: () => import('../views/PortfolioView.vue'),
+      meta: { title: '模擬倉位' },
+    },
   ],
 })
 
