@@ -156,11 +156,44 @@ def scan_sector_heat() -> dict:
     }
 
 
+def _acquire_scan_lock(ttl: int = 300) -> bool:
+    """Acquire Redis lock to prevent concurrent scans.
+
+    Uses simple SET NX with TTL as distributed lock.
+    Falls back to always-acquire if Redis unavailable.
+    """
+    from data.cache import get_redis
+    r = get_redis()
+    if r is None:
+        return True  # No Redis = no lock contention possible
+    try:
+        # SET NX: only succeeds if key doesn't exist
+        acquired = r.set("sector_heat:lock", "1", nx=True, ex=ttl)
+        return bool(acquired)
+    except Exception:
+        return True  # On error, proceed with scan
+
+
+def _release_scan_lock():
+    """Release the scan lock."""
+    from data.cache import get_redis
+    r = get_redis()
+    if r is not None:
+        try:
+            r.delete("sector_heat:lock")
+        except Exception:
+            pass
+
+
 def run_scan_cycle(scan_count: int) -> int:
-    """Execute one scan cycle with error handling.
+    """Execute one scan cycle with error handling and distributed lock.
 
     Returns updated scan_count.
     """
+    if not _acquire_scan_lock():
+        logger.warning(f"Scan #{scan_count} skipped: another worker is scanning")
+        return scan_count
+
     try:
         result = scan_sector_heat()
         set_cached_sector_heat(result)
@@ -176,6 +209,8 @@ def run_scan_cycle(scan_count: int) -> int:
         set_sector_heat_error(str(e))
         # Keep last successful data in Redis (Stale > Empty)
         return scan_count
+    finally:
+        _release_scan_lock()
 
 
 def main():
