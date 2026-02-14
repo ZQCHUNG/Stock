@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { NCard, NButton, NGrid, NGi, NSpin, NAlert, NTabs, NTabPane, NInputNumber, NSpace, NDataTable } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -64,6 +64,8 @@ function exportTrades() {
   ], `backtest_${app.currentStockCode}_trades.csv`)
 }
 
+const tradePagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25, 50] })
+
 // Trade table columns
 const tradeColumns = [
   { title: '開倉日', key: 'date_open', width: 100, render: (r: any) => r.date_open?.slice(0, 10) },
@@ -126,7 +128,7 @@ const tradeColumns = [
             <NDataTable
               :columns="tradeColumns"
               :data="bt.singleResult.trades"
-              :max-height="400"
+              :pagination="tradePagination"
               size="small"
               :row-class-name="(r: any) => r.pnl > 0 ? 'row-win' : 'row-loss'"
             />

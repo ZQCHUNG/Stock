@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { h, onMounted } from 'vue'
+import { h, onMounted, reactive } from 'vue'
 import { NCard, NButton, NDataTable, NSpin, NSpace, NTag } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
+import ProgressBar from '../components/ProgressBar.vue'
 
 const app = useAppStore()
 const wl = useWatchlistStore()
@@ -17,6 +18,9 @@ onMounted(() => {
 function selectStock(code: string) {
   app.selectStock(code)
 }
+
+const overviewPagination = reactive({ page: 1, pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50] })
+const btPagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25] })
 
 const overviewColumns: DataTableColumns = [
   { title: '代碼', key: 'code', width: 70, sorter: 'default',
@@ -67,11 +71,19 @@ const btColumns: DataTableColumns = [
       <NButton @click="wl.runBatchBacktest()" :loading="wl.isLoading">批次回測</NButton>
     </NSpace>
 
-    <NSpin :show="wl.isLoading">
+    <ProgressBar
+      v-if="wl.batchProgress.total > 0"
+      :current="wl.batchProgress.current"
+      :total="wl.batchProgress.total"
+      :message="wl.batchProgress.message"
+    />
+
+    <NSpin :show="wl.isLoading && wl.batchProgress.total === 0">
       <NCard title="即時總覽" size="small" style="margin-bottom: 16px">
         <NDataTable
           :columns="overviewColumns"
           :data="wl.overview"
+          :pagination="overviewPagination"
           :row-props="(r: any) => ({ style: { cursor: 'pointer' }, onClick: () => selectStock(r.code) })"
           size="small"
           :bordered="false"
@@ -80,7 +92,12 @@ const btColumns: DataTableColumns = [
       </NCard>
 
       <NCard v-if="wl.batchResults.length" title="批次回測結果" size="small">
-        <NDataTable :columns="btColumns" :data="wl.batchResults" size="small" :max-height="400" />
+        <NDataTable
+          :columns="btColumns"
+          :data="wl.batchResults"
+          :pagination="btPagination"
+          size="small"
+        />
       </NCard>
     </NSpin>
   </div>

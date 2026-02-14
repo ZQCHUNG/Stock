@@ -1,20 +1,34 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { screenerApi, type ScreenerFilters } from '../api/screener'
+import { type ScreenerFilters } from '../api/screener'
+import { fetchSSE, type SSEProgress } from '../composables/useSSE'
 
 export const useScreenerStore = defineStore('screener', () => {
   const results = ref<any[]>([])
   const isLoading = ref(false)
   const filterConfig = ref<ScreenerFilters>({})
+  const progress = ref<SSEProgress>({ current: 0, total: 0, message: '' })
 
   async function run(filters?: ScreenerFilters) {
     isLoading.value = true
+    progress.value = { current: 0, total: 0, message: '' }
     const f = filters || filterConfig.value
     try {
-      results.value = await screenerApi.run(f)
+      const result = await fetchSSE<any[]>(
+        '/api/screener/run-stream',
+        f,
+        {
+          onProgress: (p) => { progress.value = p },
+          onDone: (r) => { results.value = r },
+        },
+      )
+      if (result) results.value = result
     } catch { /* ignore */ }
-    finally { isLoading.value = false }
+    finally {
+      isLoading.value = false
+      progress.value = { current: 0, total: 0, message: '' }
+    }
   }
 
-  return { results, isLoading, filterConfig, run }
+  return { results, isLoading, filterConfig, progress, run }
 })

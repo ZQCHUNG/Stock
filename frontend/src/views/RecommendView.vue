@@ -7,6 +7,7 @@ import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, priceColor } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
 import SignalBadge from '../components/SignalBadge.vue'
+import ProgressBar from '../components/ProgressBar.vue'
 
 const app = useAppStore()
 const rec = useRecommendStore()
@@ -41,7 +42,14 @@ const sellResults = () => rec.scanResults.filter((r) => r.signal === 'SELL')
       </NTag>
     </NSpace>
 
-    <NSpin :show="rec.isScanning">
+    <ProgressBar
+      v-if="rec.isScanning"
+      :current="rec.progress.current"
+      :total="rec.progress.total"
+      :message="rec.progress.message"
+    />
+
+    <NSpin :show="rec.isScanning && rec.progress.total === 0">
       <!-- BUY 訊號 -->
       <NCard v-if="buyResults().length" title="買進訊號" size="small" style="margin-bottom: 16px">
         <NGrid :cols="cardCols" :x-gap="12" :y-gap="12">

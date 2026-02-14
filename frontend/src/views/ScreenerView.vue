@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { NCard, NButton, NGrid, NGi, NInputNumber, NSwitch, NSelect, NSpin, NTag, NText } from 'naive-ui'
+import { h, ref, reactive } from 'vue'
+import { NCard, NButton, NGrid, NGi, NInputNumber, NSwitch, NSelect, NTag, NText, NDataTable } from 'naive-ui'
+import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useScreenerStore } from '../stores/screener'
 import { useWatchlistStore } from '../stores/watchlist'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
+import ProgressBar from '../components/ProgressBar.vue'
 
 const app = useAppStore()
 const scr = useScreenerStore()
@@ -38,7 +40,30 @@ const marketOptions = [
   { label: '上櫃', value: '上櫃' },
 ]
 
+const pagination = reactive({ page: 1, pageSize: 20, showSizePicker: true, pageSizes: [10, 20, 50, 100] })
+
+const resultColumns: DataTableColumns = [
+  { title: '代碼', key: 'code', width: 70, sorter: 'default',
+    render: (r: any) => h('span', { style: { fontWeight: 600, cursor: 'pointer' }, onClick: () => app.selectStock(r.code) }, r.code) },
+  { title: '名稱', key: 'name', width: 80,
+    render: (r: any) => h('span', { style: { cursor: 'pointer' }, onClick: () => app.selectStock(r.code) }, r.name) },
+  { title: '市場', key: 'market', width: 60 },
+  { title: '價格', key: 'price', width: 80, sorter: (a: any, b: any) => (a.price || 0) - (b.price || 0),
+    render: (r: any) => r.price?.toFixed(2) || '-' },
+  { title: '漲跌%', key: 'change_pct', width: 80, sorter: (a: any, b: any) => (a.change_pct || 0) - (b.change_pct || 0),
+    render: (r: any) => h('span', { style: { color: priceColor(r.change_pct), fontWeight: 600 } }, fmtPct(r.change_pct)) },
+  { title: '成交量(張)', key: 'volume_lots', width: 100, sorter: (a: any, b: any) => (a.volume_lots || 0) - (b.volume_lots || 0),
+    render: (r: any) => fmtNum(r.volume_lots, 0) },
+  { title: '訊號', key: 'signal', width: 70,
+    filterOptions: [{ label: 'BUY', value: 'BUY' }, { label: 'SELL', value: 'SELL' }],
+    filter: (value: any, row: any) => row.signal === value,
+    render: (r: any) => r.signal ? h(NTag, { type: r.signal === 'BUY' ? 'error' : r.signal === 'SELL' ? 'success' : 'default', size: 'small' }, () => r.signal) : '-' },
+  { title: '操作', key: 'actions', width: 80,
+    render: (r: any) => h(NButton, { size: 'tiny', quaternary: true, onClick: (e: Event) => { e.stopPropagation(); wl.add(r.code) } }, () => '加入自選') },
+]
+
 function runScreener() {
+  pagination.page = 1
   scr.run({
     min_price: minPrice.value ?? undefined,
     max_price: maxPrice.value ?? undefined,
@@ -106,41 +131,23 @@ function runScreener() {
       </NButton>
     </NCard>
 
-    <NSpin :show="scr.isLoading">
-      <NCard v-if="scr.results.length" :title="`篩選結果 (${scr.results.length} 隻)`" size="small">
-        <div style="overflow-x: auto">
-        <table style="width: 100%; font-size: 13px; border-collapse: collapse; min-width: 600px">
-          <thead>
-            <tr style="border-bottom: 2px solid #e2e8f0; text-align: left">
-              <th style="padding: 6px">代碼</th>
-              <th style="padding: 6px">名稱</th>
-              <th style="padding: 6px">市場</th>
-              <th style="padding: 6px; text-align: right">價格</th>
-              <th style="padding: 6px; text-align: right">漲跌%</th>
-              <th style="padding: 6px; text-align: right">成交量(張)</th>
-              <th style="padding: 6px; text-align: center">訊號</th>
-              <th style="padding: 6px">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="s in scr.results" :key="s.code" style="border-bottom: 1px solid #f0f0f0; cursor: pointer" @click="app.selectStock(s.code)">
-              <td style="padding: 6px; font-weight: 600">{{ s.code }}</td>
-              <td style="padding: 6px">{{ s.name }}</td>
-              <td style="padding: 6px">{{ s.market }}</td>
-              <td style="padding: 6px; text-align: right">{{ s.price?.toFixed(2) }}</td>
-              <td style="padding: 6px; text-align: right; font-weight: 600" :style="{ color: priceColor(s.change_pct) }">{{ fmtPct(s.change_pct) }}</td>
-              <td style="padding: 6px; text-align: right">{{ fmtNum(s.volume_lots, 0) }}</td>
-              <td style="padding: 6px; text-align: center">
-                <NTag v-if="s.signal" :type="s.signal === 'BUY' ? 'error' : s.signal === 'SELL' ? 'success' : 'default'" size="small">{{ s.signal }}</NTag>
-              </td>
-              <td style="padding: 6px">
-                <NButton size="tiny" quaternary @click.stop="wl.add(s.code)">加入自選</NButton>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        </div>
-      </NCard>
-    </NSpin>
+    <ProgressBar
+      v-if="scr.isLoading"
+      :current="scr.progress.current"
+      :total="scr.progress.total"
+      :message="scr.progress.message"
+    />
+
+    <NCard v-if="scr.results.length" :title="`篩選結果 (${scr.results.length} 隻)`" size="small">
+      <NDataTable
+        :columns="resultColumns"
+        :data="scr.results"
+        :pagination="pagination"
+        :row-props="(r: any) => ({ style: { cursor: 'pointer' }, onClick: () => app.selectStock(r.code) })"
+        size="small"
+        :bordered="false"
+        :single-line="false"
+      />
+    </NCard>
   </div>
 </template>

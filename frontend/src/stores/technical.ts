@@ -3,6 +3,21 @@ import { ref } from 'vue'
 import { analysisApi } from '../api/analysis'
 import { stocksApi, type TimeSeriesData } from '../api/stocks'
 
+interface TechCacheEntry {
+  indicators: TimeSeriesData | null
+  v4Signal: any
+  v4Enhanced: any
+  v4SignalsFull: TimeSeriesData | null
+  supportResistance: any
+  volumePatterns: any
+  institutional: TimeSeriesData | null
+  stockData: TimeSeriesData | null
+  ts: number
+}
+
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+const MAX_CACHE = 20
+
 export const useTechnicalStore = defineStore('technical', () => {
   const indicators = ref<TimeSeriesData | null>(null)
   const v4Signal = ref<any>(null)
@@ -15,7 +30,56 @@ export const useTechnicalStore = defineStore('technical', () => {
   const isLoading = ref(false)
   const error = ref('')
 
+  // Cross-page cache: keeps data for previously viewed stocks
+  const _cache = new Map<string, TechCacheEntry>()
+
+  function _getCached(code: string): TechCacheEntry | null {
+    const entry = _cache.get(code)
+    if (!entry) return null
+    if (Date.now() - entry.ts > CACHE_TTL) {
+      _cache.delete(code)
+      return null
+    }
+    return entry
+  }
+
+  function _saveToCache(code: string) {
+    if (_cache.size >= MAX_CACHE) {
+      let oldest = ''
+      let oldestTs = Infinity
+      for (const [k, v] of _cache) {
+        if (v.ts < oldestTs) { oldest = k; oldestTs = v.ts }
+      }
+      if (oldest) _cache.delete(oldest)
+    }
+    _cache.set(code, {
+      indicators: indicators.value,
+      v4Signal: v4Signal.value,
+      v4Enhanced: v4Enhanced.value,
+      v4SignalsFull: v4SignalsFull.value,
+      supportResistance: supportResistance.value,
+      volumePatterns: volumePatterns.value,
+      institutional: institutional.value,
+      stockData: stockData.value,
+      ts: Date.now(),
+    })
+  }
+
   async function loadAll(code: string) {
+    // Check cache first — instant switch for previously viewed stocks
+    const cached = _getCached(code)
+    if (cached) {
+      indicators.value = cached.indicators
+      v4Signal.value = cached.v4Signal
+      v4Enhanced.value = cached.v4Enhanced
+      v4SignalsFull.value = cached.v4SignalsFull
+      supportResistance.value = cached.supportResistance
+      volumePatterns.value = cached.volumePatterns
+      institutional.value = cached.institutional
+      stockData.value = cached.stockData
+      return
+    }
+
     isLoading.value = true
     error.value = ''
     try {
@@ -35,6 +99,8 @@ export const useTechnicalStore = defineStore('technical', () => {
       volumePatterns.value = vp
       institutional.value = inst
       stockData.value = sd
+
+      _saveToCache(code)
     } catch (e: any) {
       error.value = e.message || '載入失敗'
     } finally {
@@ -43,8 +109,11 @@ export const useTechnicalStore = defineStore('technical', () => {
   }
 
   async function loadV4SignalsFull(code: string) {
+    if (v4SignalsFull.value) return
     try {
       v4SignalsFull.value = await analysisApi.v4SignalsFull(code, 200)
+      const entry = _cache.get(code)
+      if (entry) entry.v4SignalsFull = v4SignalsFull.value
     } catch { /* ignore */ }
   }
 

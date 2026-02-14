@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { watchlistApi } from '../api/watchlist'
+import { fetchSSE, type SSEProgress } from '../composables/useSSE'
 
 export const useWatchlistStore = defineStore('watchlist', () => {
   const watchlist = ref<{ code: string; name: string }[]>([])
   const overview = ref<any[]>([])
   const batchResults = ref<any[]>([])
   const isLoading = ref(false)
+  const batchProgress = ref<SSEProgress>({ current: 0, total: 0, message: '' })
 
   async function load() {
     try {
@@ -34,11 +36,23 @@ export const useWatchlistStore = defineStore('watchlist', () => {
 
   async function runBatchBacktest(req?: any) {
     isLoading.value = true
+    batchProgress.value = { current: 0, total: 0, message: '' }
     try {
-      batchResults.value = await watchlistApi.batchBacktest(req)
+      const result = await fetchSSE<any[]>(
+        '/api/watchlist/batch-backtest-stream',
+        req || {},
+        {
+          onProgress: (p) => { batchProgress.value = p },
+          onDone: (r) => { batchResults.value = r },
+        },
+      )
+      if (result) batchResults.value = result
     } catch { /* ignore */ }
-    finally { isLoading.value = false }
+    finally {
+      isLoading.value = false
+      batchProgress.value = { current: 0, total: 0, message: '' }
+    }
   }
 
-  return { watchlist, overview, batchResults, isLoading, load, add, remove, loadOverview, runBatchBacktest }
+  return { watchlist, overview, batchResults, isLoading, batchProgress, load, add, remove, loadOverview, runBatchBacktest }
 })

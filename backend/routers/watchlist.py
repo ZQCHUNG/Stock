@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -153,3 +154,45 @@ def batch_backtest(req: BatchBacktestRequest):
         results = list(executor.map(_bt_stock, codes))
 
     return make_serializable(results)
+
+
+@router.post("/batch-backtest-stream")
+def batch_backtest_stream(req: BatchBacktestRequest):
+    """批次回測 — SSE 串流進度"""
+    from data.fetcher import get_stock_data
+    from data.stock_list import get_stock_name
+    from backtest.engine import run_backtest_v4
+    from backend.dependencies import make_serializable
+    from backend.sse import sse_progress, sse_done
+
+    def generate():
+        codes = _load_watchlist()
+        if not codes:
+            yield sse_done([])
+            return
+
+        total = len(codes)
+        results = []
+
+        for i, code in enumerate(codes):
+            yield sse_progress(i + 1, total, f"回測 {code}...")
+            try:
+                df = get_stock_data(code, period_days=req.period_days)
+                result = run_backtest_v4(df, initial_capital=req.initial_capital, params=req.params)
+                results.append({
+                    "code": code,
+                    "name": get_stock_name(code),
+                    "total_return": result.total_return,
+                    "annual_return": result.annual_return,
+                    "max_drawdown": result.max_drawdown,
+                    "sharpe_ratio": result.sharpe_ratio,
+                    "win_rate": result.win_rate,
+                    "total_trades": result.total_trades,
+                    "profit_factor": result.profit_factor,
+                })
+            except Exception:
+                results.append({"code": code, "name": get_stock_name(code), "error": True})
+
+        yield sse_done(make_serializable(results))
+
+    return StreamingResponse(generate(), media_type="text/event-stream")
