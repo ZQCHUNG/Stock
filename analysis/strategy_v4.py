@@ -285,13 +285,26 @@ def get_v4_enhanced_analysis(df: pd.DataFrame, inst_df: pd.DataFrame | None = No
 
         # 信心分數
         if result["signal"] == "BUY" and inst_5d_net > 0:
+            trust_5d = recent_inst["trust_net"].sum()
+            trust_consecutive = (
+                len(recent_inst) >= 3
+                and all(recent_inst["trust_net"].tail(3) > 0)
+            )
+
             if len(recent_inst) >= 3 and all(recent_inst["total_net"].tail(3) > 0):
                 result["confidence_score"] = 2.0
+                # 投信連買額外標記（投信慣性 5-10 天，技術總監 R10 建議）
+                if trust_consecutive:
+                    result["trust_momentum"] = True
             else:
                 result["confidence_score"] = 1.5
+                # 即使三大法人合計不連買，投信連買仍有參考價值
+                if trust_consecutive and trust_5d > 0:
+                    result["confidence_score"] = 1.7
 
         result["institutional_net_5d"] = int(inst_5d_net)
         result["institutional_vol_ratio"] = round(inst_vol_ratio, 4)
+        result["trust_momentum"] = result.get("trust_momentum", False)
 
     return result
 

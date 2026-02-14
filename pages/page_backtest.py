@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 
 from backtest.engine import run_backtest, run_backtest_v4, run_portfolio_backtest_v4
+from backtest.rolling import run_rolling_backtest, run_parameter_sensitivity
 from simulation.simulator import run_simulation, run_simulation_v4, simulation_to_dataframe
 from data.stock_list import get_stock_name
 from data.fetcher import get_taiex_data
@@ -16,7 +17,7 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
            all_stocks=None, load_data_fn=None, sim_days=30):
     # 模式選擇
     _bt_mode = st.radio(
-        "回測模式", ["單一股票", "組合回測（等權重）", "模擬交易"],
+        "回測模式", ["單一股票", "組合回測（等權重）", "模擬交易", "一致性測試"],
         horizontal=True, key="bt_mode_radio",
     )
 
@@ -28,6 +29,11 @@ def render(stock_code, stock_name, raw_df, use_v4, initial_capital, backtest_day
     if _bt_mode == "模擬交易":
         _render_simulation(stock_code, stock_name, raw_df, use_v4,
                            initial_capital, sim_days)
+        return
+
+    if _bt_mode == "一致性測試":
+        _render_rolling_backtest(stock_code, stock_name, raw_df, use_v4,
+                                 initial_capital)
         return
 
     st.header(f"{stock_code} {stock_name} - 回測報告")
@@ -844,3 +850,248 @@ def _render_simulation(stock_code, stock_name, raw_df, use_v4, initial_capital, 
     sim_df = simulation_to_dataframe(sim_result)
     sim_df["日期"] = pd.to_datetime(sim_df["日期"]).dt.strftime("%Y-%m-%d")
     st.dataframe(sim_df, width="stretch", height=400)
+
+
+def _render_rolling_backtest(stock_code, stock_name, raw_df, use_v4, initial_capital):
+    """一致性測試 — Rolling Backtest + Parameter Sensitivity"""
+    st.header(f"{stock_code} {stock_name} - 一致性測試")
+
+    if not use_v4:
+        st.warning("一致性測試目前僅支援 v4 策略。請在側邊欄切換至 v4。")
+        return
+
+    st.caption(
+        "將歷史資料分割為多個半年視窗，用相同固定參數分別回測，"
+        "驗證策略是否在不同市場環境下穩定獲利。"
+        "若一致性分數高，代表策略較不容易過擬合。"
+    )
+
+    _tab_rolling, _tab_sensitivity = st.tabs(["前推一致性", "參數敏感度"])
+
+    with _tab_rolling:
+        _render_rolling_tab(stock_code, raw_df, initial_capital)
+
+    with _tab_sensitivity:
+        _render_sensitivity_tab(stock_code, raw_df, initial_capital)
+
+
+def _render_rolling_tab(stock_code, raw_df, initial_capital):
+    """前推一致性測試 Tab"""
+    _window = st.selectbox("視窗大小", [3, 6, 12], index=1,
+                           format_func=lambda x: f"{x} 個月", key="rolling_window")
+
+    _cache_key = f"_rolling_{stock_code}_{_window}"
+    if st.button("執行一致性測試", type="primary", key="btn_rolling"):
+        if len(raw_df) < 200:
+            st.warning("資料不足（建議 3 年以上）。請在側邊欄增加回測天數。")
+            return
+        with st.spinner("正在執行一致性測試..."):
+            result = run_rolling_backtest(raw_df, initial_capital=initial_capital,
+                                          window_months=_window)
+        st.session_state[_cache_key] = result
+
+    result = st.session_state.get(_cache_key)
+    if result is None:
+        st.info("點擊「執行一致性測試」開始分析。建議使用 3 年以上資料。")
+        return
+
+    if result.total_windows == 0:
+        st.warning("資料不足，無法產生有效視窗。請增加回測天數。")
+        return
+
+    # 一致性分數
+    st.subheader("一致性總評")
+    _score = result.consistency_score
+    if _score >= 70:
+        _grade = "優良"
+        _color = "#00C853"
+    elif _score >= 50:
+        _grade = "普通"
+        _color = "#FFD600"
+    else:
+        _grade = "不穩定"
+        _color = "#FF1744"
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("一致性分數", f"{_score:.0f}/100",
+                   delta=_grade, delta_color="normal" if _score >= 50 else "inverse")
+    with c2:
+        st.metric("正報酬視窗", f"{result.positive_windows}/{result.total_windows}")
+    with c3:
+        st.metric("平均報酬率", f"{result.avg_return:.2%}")
+    with c4:
+        st.metric("報酬標準差", f"{result.return_std:.2%}")
+
+    c5, c6, c7, c8 = st.columns(4)
+    with c5:
+        st.metric("最佳視窗", f"{result.max_return:.2%}")
+    with c6:
+        st.metric("最差視窗", f"{result.min_return:.2%}")
+    with c7:
+        st.metric("平均勝率", f"{result.avg_win_rate:.1%}")
+    with c8:
+        st.metric("平均最大回撤", f"{result.avg_max_drawdown:.2%}")
+
+    # 各視窗報酬柱狀圖
+    st.subheader("各視窗報酬率")
+    _names = [w.window_name for w in result.windows]
+    _returns = [w.total_return * 100 for w in result.windows]
+    _colors = ["#00C853" if r >= 0 else "#FF1744" for r in _returns]
+
+    fig_bar = go.Figure(data=go.Bar(
+        x=_names, y=_returns, marker_color=_colors,
+        hovertemplate="%{x}<br>報酬: %{y:.2f}%<extra></extra>",
+    ))
+    fig_bar.add_hline(y=0, line_dash="dash", line_color="white", opacity=0.3)
+    fig_bar.update_layout(
+        height=350, template="plotly_dark",
+        xaxis_title="視窗", yaxis_title="報酬率 (%)",
+        margin=dict(t=20, b=30),
+    )
+    st.plotly_chart(fig_bar, width="stretch")
+
+    # 詳細表格
+    st.subheader("各視窗明細")
+    _rows = []
+    for w in result.windows:
+        _rows.append({
+            "視窗": w.window_name,
+            "期間": f"{w.start_date} ~ {w.end_date}",
+            "交易日": w.trading_days,
+            "報酬率%": round(w.total_return * 100, 2),
+            "年化報酬%": round(w.annual_return * 100, 2),
+            "最大回撤%": round(w.max_drawdown * 100, 2),
+            "勝率%": round(w.win_rate * 100, 1),
+            "交易次數": w.total_trades,
+            "盈虧比": round(w.profit_factor, 2),
+            "Sharpe": round(w.sharpe_ratio, 2),
+        })
+
+    if _rows:
+        _df = pd.DataFrame(_rows)
+
+        def _color_ret(val):
+            if isinstance(val, (int, float)) and not np.isnan(val):
+                return "color: #00C853" if val > 0 else "color: #FF1744" if val < 0 else ""
+            return ""
+
+        styled = _df.style.map(_color_ret, subset=["報酬率%", "年化報酬%"])
+        st.dataframe(styled, width="stretch", hide_index=True)
+
+    # 解讀
+    st.subheader("解讀")
+    if _score >= 70:
+        st.success(
+            f"策略一致性良好（{_score:.0f}/100）。"
+            f"在 {result.total_windows} 個視窗中有 {result.positive_windows} 個正報酬，"
+            f"報酬標準差 {result.return_std:.2%}，表現穩定。"
+        )
+    elif _score >= 50:
+        st.warning(
+            f"策略一致性普通（{_score:.0f}/100）。"
+            f"部分視窗表現不佳（最差 {result.min_return:.2%}），"
+            f"建議搭配其他策略分散風險。"
+        )
+    else:
+        st.error(
+            f"策略一致性偏低（{_score:.0f}/100）。"
+            f"不同時期表現差異大（最佳 {result.max_return:.2%} vs 最差 {result.min_return:.2%}），"
+            f"可能存在過擬合風險。建議調整參數或重新審視進場條件。"
+        )
+
+
+def _render_sensitivity_tab(stock_code, raw_df, initial_capital):
+    """參數敏感度分析 Tab"""
+    st.caption(
+        "測試不同策略參數對回測結果的影響。"
+        "若微小參數變化導致結果劇烈變化，策略可能過擬合。"
+    )
+
+    _cache_key = f"_sensitivity_{stock_code}"
+    if st.button("執行敏感度分析", type="primary", key="btn_sensitivity"):
+        if len(raw_df) < 200:
+            st.warning("資料不足（建議 3 年以上）。")
+            return
+        with st.spinner("正在測試不同參數組合..."):
+            results = run_parameter_sensitivity(raw_df, initial_capital=initial_capital)
+        st.session_state[_cache_key] = results
+
+    results = st.session_state.get(_cache_key)
+    if results is None:
+        st.info("點擊「執行敏感度分析」開始分析。")
+        return
+
+    if not results:
+        st.warning("無法產生有效結果。")
+        return
+
+    # 按參數分組顯示
+    _params = {}
+    for r in results:
+        _params.setdefault(r["param"], []).append(r)
+
+    for param_name, param_results in _params.items():
+        st.subheader(f"{param_name} 敏感度")
+
+        _values = [str(r["value"]) for r in param_results]
+        _ret = [r["return"] * 100 for r in param_results]
+        _wr = [r["win_rate"] * 100 for r in param_results]
+        _trades = [r["trades"] for r in param_results]
+
+        fig = make_subplots(
+            rows=1, cols=2,
+            subplot_titles=["報酬率 (%)", "勝率 (%)"],
+        )
+
+        fig.add_trace(go.Bar(
+            x=_values, y=_ret,
+            marker_color=["#00C853" if r >= 0 else "#FF1744" for r in _ret],
+            name="報酬率",
+            hovertemplate="%{x}<br>報酬: %{y:.2f}%<extra></extra>",
+        ), row=1, col=1)
+
+        fig.add_trace(go.Bar(
+            x=_values, y=_wr,
+            marker_color="#42A5F5",
+            name="勝率",
+            hovertemplate="%{x}<br>勝率: %{y:.1f}%<extra></extra>",
+        ), row=1, col=2)
+
+        fig.update_layout(
+            height=300, template="plotly_dark",
+            showlegend=False,
+            margin=dict(t=40, b=30),
+        )
+        st.plotly_chart(fig, width="stretch")
+
+        # 明細表
+        _tbl = pd.DataFrame([{
+            "參數值": str(r["value"]),
+            "報酬率%": round(r["return"] * 100, 2),
+            "勝率%": round(r["win_rate"] * 100, 1),
+            "交易次數": r["trades"],
+            "最大回撤%": round(r["max_dd"] * 100, 2),
+            "Sharpe": round(r["sharpe"], 2),
+        } for r in param_results])
+        st.dataframe(_tbl, width="stretch", hide_index=True)
+
+        # 穩定度判定
+        _ret_range = max(_ret) - min(_ret)
+        if _ret_range < 20:
+            st.caption(f"報酬率變化範圍 {_ret_range:.1f}% — 參數對 {param_name} 不敏感 (穩健)")
+        elif _ret_range < 50:
+            st.caption(f"報酬率變化範圍 {_ret_range:.1f}% — 參數對 {param_name} 中度敏感")
+        else:
+            st.caption(f"報酬率變化範圍 {_ret_range:.1f}% — 參數對 {param_name} 高度敏感 (注意過擬合)")
+
+    # 總結
+    st.subheader("總結")
+    _all_returns = [r["return"] * 100 for r in results]
+    _overall_std = float(np.std(_all_returns))
+    if _overall_std < 15:
+        st.success(f"參數敏感度低（報酬率標準差 {_overall_std:.1f}%）。策略對參數變化穩健，過擬合風險低。")
+    elif _overall_std < 30:
+        st.warning(f"參數敏感度中等（報酬率標準差 {_overall_std:.1f}%）。部分參數調整會顯著影響結果。")
+    else:
+        st.error(f"參數敏感度高（報酬率標準差 {_overall_std:.1f}%）。策略高度依賴特定參數設定，過擬合風險高。")

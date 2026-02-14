@@ -98,6 +98,60 @@ def render(stock_code, stock_name, raw_df, use_v4, all_stocks,
             if not reasons:
                 reasons.append("進場條件未滿足（支撐/動量模式均未觸發）")
             st.warning("**建議觀望** — " + "；".join(reasons))
+
+        # --- 下單計算機 ---
+        with st.expander("下單計算機", expanded=False):
+            _calc_cols = st.columns(3)
+            with _calc_cols[0]:
+                _total_capital = st.number_input(
+                    "總資金 (TWD)", min_value=100_000, max_value=100_000_000,
+                    value=initial_capital, step=100_000, key="calc_capital",
+                )
+            with _calc_cols[1]:
+                _risk_pct = st.slider(
+                    "單筆風險上限 (%)", 1, 10, 2, key="calc_risk_pct",
+                    help="單筆交易最多虧損總資金的百分比",
+                )
+            with _calc_cols[2]:
+                _confidence = st.selectbox(
+                    "信心分數", [1.0, 1.5, 2.0], index=0, key="calc_confidence",
+                    help="1.0=純技術, 1.5=技術+法人買入, 2.0=技術+法人連3買",
+                )
+
+            _price = analysis["close"]
+            _sl_pct = v4_params["stop_loss_pct"]
+            _sl_price = _price * (1 - _sl_pct)
+            _loss_per_share = _price - _sl_price
+
+            # 風險金額 = 總資金 * 風險比例 * 信心倍數
+            _risk_amount = _total_capital * (_risk_pct / 100) * _confidence
+            # 可買股數（向下取整到 1000 股 = 1 張）
+            _shares = int(_risk_amount / _loss_per_share) if _loss_per_share > 0 else 0
+            _lots = _shares // 1000
+            _shares_rounded = _lots * 1000
+            _cost = _shares_rounded * _price
+            _max_loss = _shares_rounded * _loss_per_share
+
+            _r_cols = st.columns(4)
+            with _r_cols[0]:
+                st.metric("建議張數", f"{_lots} 張" if _lots > 0 else "不建議")
+            with _r_cols[1]:
+                st.metric("買入成本", f"${_cost:,.0f}")
+            with _r_cols[2]:
+                st.metric("停損價", f"${_sl_price:.2f}")
+            with _r_cols[3]:
+                st.metric("最大虧損", f"${_max_loss:,.0f}")
+
+            if _cost > _total_capital:
+                st.warning(f"買入成本 (${_cost:,.0f}) 超過總資金 (${_total_capital:,.0f})")
+            elif _lots > 0:
+                _cost_pct = _cost / _total_capital * 100
+                st.caption(
+                    f"佔總資金 {_cost_pct:.1f}% | "
+                    f"停損 -{_sl_pct:.0%} = ${_sl_price:.2f} | "
+                    f"最大虧損佔總資金 {_max_loss / _total_capital * 100:.1f}%"
+                )
+
     else:
         # v2 分析
         analysis = get_latest_analysis(raw_df)
