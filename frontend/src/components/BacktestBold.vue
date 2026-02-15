@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import {
-  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NSwitch, NText, NSpin,
+  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NSwitch, NText, NSpin, NTag,
 } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart, PieChart, BarChart } from 'echarts/charts'
@@ -35,6 +35,7 @@ const metricCols = cols(2, 3, 4)
 const ultraWide = ref(true)
 const klineData = ref<TimeSeriesData | null>(null)
 const klineLoading = ref(false)
+const liquidityData = ref<any>(null)
 
 const r = computed(() => bt.boldResult)
 
@@ -45,6 +46,10 @@ async function runBacktest() {
     ultra_wide: ultraWide.value,
     ...props.costParams,
   })
+  // Load liquidity score alongside backtest
+  analysisApi.liquidity(app.currentStockCode, props.capital)
+    .then(d => { liquidityData.value = d })
+    .catch(() => { liquidityData.value = null })
 }
 
 watch(r, async (val) => {
@@ -172,6 +177,24 @@ const tradeColumns = [
       Bold 策略：能量擠壓突破 + 量能爬坡 + 階梯式停利。適合爆發性波段。
       {{ ultraWide ? 'Ultra-Wide: MA200 多頭放寬 trail (0.15→0.20)，max_hold 365d。' : '標準: trail 15%，max_hold 120d。' }}
     </NText>
+
+    <!-- Liquidity Risk Badge (R69) -->
+    <NCard v-if="liquidityData" size="small" style="margin-bottom: 12px">
+      <NSpace align="center" :size="12">
+        <NTag
+          :type="liquidityData.grade === 'green' ? 'success' : liquidityData.grade === 'yellow' ? 'warning' : 'error'"
+          size="small"
+        >
+          流動性 {{ liquidityData.score }} 分
+        </NTag>
+        <NText depth="3" style="font-size: 11px">
+          出清 {{ liquidityData.dtl?.toFixed(1) }}天 |
+          日均 {{ liquidityData.adv_20_lots?.toFixed(0) }}張 |
+          衝擊 {{ liquidityData.market_impact_pct?.toFixed(2) }}% |
+          {{ liquidityData.grade === 'green' ? '可順利出清' : liquidityData.grade === 'yellow' ? '需拆單出場' : '停損可能失敗' }}
+        </NText>
+      </NSpace>
+    </NCard>
 
     <template v-if="r">
       <NGrid :cols="metricCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">

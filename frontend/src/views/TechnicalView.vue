@@ -33,6 +33,7 @@ async function loadData() {
   await tech.loadV4SignalsFull(code)
   tech.loadAdaptiveSignal(code)  // Non-blocking: load adaptive signal in background
   tech.loadBoldSignal(code)      // Non-blocking: load bold signal in background
+  tech.loadLiquidity(code)       // Non-blocking: load liquidity score (R69)
   tech.loadRiskBudget(code)      // Non-blocking: load risk budget in background
   tech.loadSignalSummary(code)   // Non-blocking: load forward testing data
   tech.loadSqs(code)             // Non-blocking: load SQS data
@@ -289,6 +290,56 @@ function sqsGradeIcon(grade: string): string {
           {{ tech.boldSignal.near_52w_low ? ' | 接近 52 週低點' : '' }}
           | RSI: {{ tech.boldSignal.rsi }}
           | BB 帶寬: {{ ((tech.boldSignal.bb_bandwidth || 0) * 100).toFixed(1) }}%
+        </NText>
+      </NCard>
+
+      <!-- 流動性風險評分 (R69) -->
+      <NCard v-if="tech.liquidity" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">流動性風險</span>
+            <NTag
+              size="small" :bordered="false"
+              :type="tech.liquidity.grade === 'green' ? 'success' : tech.liquidity.grade === 'yellow' ? 'warning' : 'error'"
+            >
+              {{ tech.liquidity.score }} 分 —
+              {{ tech.liquidity.grade === 'green' ? '良好' : tech.liquidity.grade === 'yellow' ? '注意' : '危險' }}
+            </NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="signalCols" :x-gap="12" :y-gap="12">
+          <NGi>
+            <MetricCard
+              title="出清天數"
+              :value="tech.liquidity.dtl === Infinity ? '∞' : tech.liquidity.dtl?.toFixed(1) + '天'"
+              :color="tech.liquidity.dtl > 2 ? '#e53e3e' : tech.liquidity.dtl > 1 ? '#f0a020' : '#38a169'"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="日均量"
+              :value="tech.liquidity.adv_20_lots?.toFixed(0) + ' 張'"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="市場衝擊"
+              :value="tech.liquidity.market_impact_pct?.toFixed(2) + '%'"
+              :color="tech.liquidity.market_impact_pct > 1 ? '#e53e3e' : undefined"
+              subtitle="預估滑價"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="Tick 比"
+              :value="tech.liquidity.tick_ratio_pct?.toFixed(2) + '%'"
+              :subtitle="'跳動 ' + tech.liquidity.tick_size"
+            />
+          </NGi>
+        </NGrid>
+        <NText depth="3" style="font-size: 11px; margin-top: 8px; display: block">
+          {{ tech.liquidity.details }}
+          | 假設持倉 100 萬台幣（{{ tech.liquidity.position_shares?.toFixed(0) }} 股）
         </NText>
       </NCard>
 

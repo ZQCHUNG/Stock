@@ -19,6 +19,8 @@ export const analysisApi = {
   v5Signal: (code: string) => client.get<any, any>(`/analysis/${code}/v5-signal`),
   adaptiveSignal: (code: string) => client.get<any, any>(`/analysis/${code}/adaptive-signal`),
   boldSignal: (code: string) => client.get<any, any>(`/analysis/${code}/bold-signal`),
+  liquidity: (code: string, positionNtd = 1_000_000) =>
+    client.get<any, any>(`/analysis/${code}/liquidity`, { params: { position_ntd: positionNtd } }),
   riskBudget: (code: string) => client.get<any, any>(`/analysis/${code}/risk-budget`),
   strategyFitness: (codes?: string) => client.get<any, any>('/analysis/strategy-fitness', {
     params: codes ? { codes } : {},

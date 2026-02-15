@@ -29,6 +29,7 @@ Stock/
 │   ├── scoring.py            # SQS 信號品質評分 (8 dimensions)
 │   ├── pattern_matcher.py    # DTW 相似線型比對 (R64)
 │   ├── signal_tracker.py     # Forward testing (SQLite)
+│   ├── liquidity.py          # Liquidity Score (DTL + Spread + Tick Size) (R69)
 │   └── market_regime.py      # Bull/Bear/Sideways detection
 ├── backtest/
 │   ├── engine.py             # Backtest engine (v4/v5/bold/portfolio)
@@ -194,6 +195,18 @@ python -m pytest tests/ -q
 | R66 | Bold strategy (Energy Squeeze + Step-up Buffer) | Done |
 | R67 | Ultra-Wide → Conviction 2.0 (Regime-Based Trail) + Sweep | Done |
 | R68 | Frontend Bold strategy toggle UI (回測+技術分析) | Done |
+| R69 | Liquidity Score (DTL + Spread + ADV_Ratio + Tick Size) | Done |
+
+### R69 完成摘要
+
+- [x] `analysis/liquidity.py` — 三維度流動性評分（DTL 出清天數 + Spread 價差 + ADV 量能佔比）
+- [x] 台股跳動單位表（6 級距: 0.01/0.05/0.10/0.50/1.00/5.00）
+- [x] Market Impact 估算（Square Root Law / Kyle's Lambda）
+- [x] API endpoint: `/{code}/liquidity?position_ntd=1000000`
+- [x] Frontend: TechnicalView 流動性風險卡 + BacktestBold 風險 badge
+- [x] 44 unit tests passing
+- [x] 所有權重/門檻標記 PLACEHOLDER_NEEDS_DATA（假精確 protocol）
+- [x] Gemini 討論：Joe feedback 6 項批評 → 標記制度改善 + POST_HOC_RATIONALE 新增
 
 ### R67 完成摘要
 

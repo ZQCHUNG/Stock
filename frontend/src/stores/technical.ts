@@ -32,6 +32,7 @@ export const useTechnicalStore = defineStore('technical', () => {
   const riskBudget = ref<any>(null)
   const signalSummary = ref<any>(null)
   const sqsData = ref<any>(null)
+  const liquidity = ref<any>(null)
   const fundamentals = ref<any>(null)
   const isLoading = ref(false)
   const error = ref('')
@@ -182,6 +183,17 @@ export const useTechnicalStore = defineStore('technical', () => {
     }
   }
 
+  async function loadLiquidity(code: string, positionNtd = 1_000_000) {
+    const seq = _loadSeq
+    try {
+      const data = await analysisApi.liquidity(code, positionNtd)
+      if (seq !== _loadSeq) return
+      liquidity.value = data
+    } catch {
+      liquidity.value = null
+    }
+  }
+
   async function loadFundamentals(code: string) {
     const seq = _loadSeq
     try {
@@ -208,8 +220,8 @@ export const useTechnicalStore = defineStore('technical', () => {
   }
 
   return {
-    indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, boldSignal, riskBudget, signalSummary, sqsData,
+    indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, boldSignal, riskBudget, signalSummary, sqsData, liquidity,
     supportResistance, volumePatterns, institutional, stockData, fundamentals,
-    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadRiskBudget, loadSignalSummary, loadSqs, loadFundamentals,
+    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals,
   }
 })

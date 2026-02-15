@@ -132,6 +132,23 @@ def get_bold_signal(code: str, period_days: int = 1095):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{code}/liquidity")
+def get_liquidity(code: str, period_days: int = 365,
+                  position_ntd: float = 1_000_000):
+    """計算流動性風險分數 (R69)
+
+    三維度評分：DTL 出清天數 + Spread 價差 + ADV Ratio 量能佔比。
+    """
+    from data.fetcher import get_stock_data
+    from analysis.liquidity import calculate_liquidity_score
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        result = calculate_liquidity_score(df, position_size_ntd=position_ntd)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{code}/adaptive-signal")
 def get_adaptive_signal(code: str, period_days: int = 365):
     """V4+V5 自適應混合訊號（Gemini R36）
