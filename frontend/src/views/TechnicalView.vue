@@ -17,6 +17,7 @@ import KdChart from '../components/KdChart.vue'
 import RsiChart from '../components/RsiChart.vue'
 import BiasChart from '../components/BiasChart.vue'
 import PositionCalculator from '../components/PositionCalculator.vue'
+import TrailModeBadge from '../components/TrailModeBadge.vue'
 import VChart from 'vue-echarts'
 
 const app = useAppStore()
@@ -38,6 +39,7 @@ async function loadData() {
   tech.loadSignalSummary(code)   // Non-blocking: load forward testing data
   tech.loadSqs(code)             // Non-blocking: load SQS data
   tech.loadFundamentals(code)    // Non-blocking: load fundamental data
+  tech.loadTrailClassifier(code) // Non-blocking: load trail mode badge (R76)
   // Connect charts for crosshair + dataZoom sync after data renders
   nextTick(() => { try { connect('tech') } catch { /* charts not ready */ } })
 }
@@ -158,6 +160,9 @@ function sqsGradeIcon(grade: string): string {
 
     <NSpin :show="tech.isLoading">
       <NAlert v-if="tech.error" type="error" style="margin-bottom: 16px">{{ tech.error }}</NAlert>
+
+      <!-- R76: 股票性格分類 Badge -->
+      <TrailModeBadge :data="tech.trailClassifier" />
 
       <!-- V4 訊號摘要 -->
       <NGrid v-if="tech.v4Enhanced" :cols="signalCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">

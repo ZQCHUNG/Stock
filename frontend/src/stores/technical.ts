@@ -34,6 +34,7 @@ export const useTechnicalStore = defineStore('technical', () => {
   const sqsData = ref<any>(null)
   const liquidity = ref<any>(null)
   const fundamentals = ref<any>(null)
+  const trailClassifier = ref<any>(null)
   const isLoading = ref(false)
   const error = ref('')
 
@@ -194,6 +195,17 @@ export const useTechnicalStore = defineStore('technical', () => {
     }
   }
 
+  async function loadTrailClassifier(code: string) {
+    const seq = _loadSeq
+    try {
+      const data = await analysisApi.trailClassifier(code)
+      if (seq !== _loadSeq) return
+      trailClassifier.value = data
+    } catch {
+      trailClassifier.value = null
+    }
+  }
+
   async function loadFundamentals(code: string) {
     const seq = _loadSeq
     try {
@@ -221,7 +233,7 @@ export const useTechnicalStore = defineStore('technical', () => {
 
   return {
     indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, boldSignal, riskBudget, signalSummary, sqsData, liquidity,
-    supportResistance, volumePatterns, institutional, stockData, fundamentals,
-    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals,
+    supportResistance, volumePatterns, institutional, stockData, fundamentals, trailClassifier,
+    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals, loadTrailClassifier,
   }
 })

@@ -999,3 +999,66 @@ def find_similar_in_history(
                 "results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/trail-classifier")
+def get_trail_classifier(code: str):
+    """R76: 股票性格分類器 — Momentum Scalper vs Precision Trender
+
+    Based on R75 WFO-validated auto trail classifier:
+    - ATR% >= 1.8% → Momentum Scalper (flat 2% trail, high-freq small wins)
+    - ATR% < 1.8%  → Precision Trender (ATR k=1.0 trail, volatility-calibrated)
+    """
+    import numpy as np
+    import pandas as pd
+    from data.fetcher import get_stock_data
+
+    try:
+        df = get_stock_data(code, period_days=365)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch data: {e}")
+
+    if df is None or len(df) < 30:
+        raise HTTPException(status_code=400, detail="Insufficient data")
+
+    # Compute ATR_14
+    h = df["high"] if "high" in df.columns else df["close"]
+    lo = df["low"] if "low" in df.columns else df["close"]
+    c = df["close"]
+    tr = pd.concat([
+        h - lo,
+        (h - c.shift(1)).abs(),
+        (lo - c.shift(1)).abs(),
+    ], axis=1).max(axis=1)
+    atr_14 = tr.rolling(14, min_periods=7).mean()
+
+    # ATR% = ATR_14 / close
+    atr_pct = atr_14 / c
+
+    # 60-day rolling median (same as backtest engine)
+    atr_pct_median = atr_pct.rolling(60, min_periods=20).median()
+
+    # Current values
+    current_atr_pct = float(atr_pct_median.iloc[-1]) if not np.isnan(atr_pct_median.iloc[-1]) else float(atr_pct.iloc[-1])
+    threshold = 0.018  # 1.8%
+
+    if current_atr_pct >= threshold:
+        mode = "momentum_scalper"
+        trail_desc = "Flat 2% trail"
+    else:
+        mode = "precision_trender"
+        trail_desc = f"ATR k=1.0 trail (~{current_atr_pct*100:.1f}%)"
+
+    # Recent ATR% history (last 60 days for sparkline)
+    recent_atr_pct = atr_pct_median.tail(60).dropna()
+
+    return {
+        "code": code,
+        "mode": mode,
+        "atr_pct": round(current_atr_pct * 100, 2),  # as percentage
+        "threshold_pct": threshold * 100,
+        "trail_description": trail_desc,
+        "atr_14": round(float(atr_14.iloc[-1]), 2) if not np.isnan(atr_14.iloc[-1]) else None,
+        "close": round(float(c.iloc[-1]), 2),
+        "history": [round(float(v) * 100, 2) for v in recent_atr_pct.values],
+    }
