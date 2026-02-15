@@ -31,17 +31,35 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backtest.engine import BacktestEngine
-from data.fetcher import get_stock_data as _fetch
 
 
 def fetch_stock_data(code: str, period_days: int = 2000) -> pd.DataFrame:
-    """Fetch stock data using project fetcher."""
-    df = _fetch(code, period_days=period_days)
-    if df is not None and not df.empty:
-        # Handle MultiIndex columns from yfinance
-        if hasattr(df.columns, 'nlevels') and df.columns.nlevels > 1:
-            df.columns = df.columns.droplevel(1)
-        df.columns = [c.lower() for c in df.columns]
+    """Fetch stock data directly via yfinance (bypass TWSE sync for speed)."""
+    import yfinance as yf
+    from data.fetcher import get_ticker
+    from datetime import datetime, timedelta
+
+    end = datetime.now()
+    start = end - timedelta(days=period_days)
+    ticker = get_ticker(code)
+    df = yf.Ticker(ticker).history(
+        start=start.strftime("%Y-%m-%d"),
+        end=end.strftime("%Y-%m-%d"),
+        auto_adjust=True,
+    )
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    # Normalize columns
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.columns = [c.lower() for c in df.columns]
+
+    # Keep only needed columns
+    cols = ["open", "high", "low", "close", "volume"]
+    available = [c for c in cols if c in df.columns]
+    df = df[available].copy()
+    df.index.name = "date"
     return df
 
 
@@ -64,7 +82,7 @@ def run_single_sweep(
             "max_drawdown": np.nan,
             "sharpe_ratio": np.nan,
             "win_rate": np.nan,
-            "num_trades": 0,
+            "total_trades": 0,
             "max_hold_days": 0,
             "error": str(e),
         }
@@ -81,7 +99,7 @@ def run_single_sweep(
         "max_drawdown": result.max_drawdown,
         "sharpe_ratio": result.sharpe_ratio,
         "win_rate": result.win_rate,
-        "num_trades": result.num_trades,
+        "total_trades": result.total_trades,
         "max_hold_days": max_hold,
         "annual_return": result.annual_return,
         "profit_factor": getattr(result, 'profit_factor', np.nan),
@@ -292,7 +310,7 @@ def run_full_sweep(stocks: list[str] = None, period_days: int = 2000) -> dict:
 
         for _, row in atr_df.iterrows():
             print(f"  ATR {row['atr_multiplier']:.1f}x → Return {row['total_return']:.1%}, "
-                  f"MDD {row['max_drawdown']:.1%}, Trades {row['num_trades']}")
+                  f"MDD {row['max_drawdown']:.1%}, Trades {row['total_trades']}")
 
         # --- Sweep 3: Stop loss ---
         print(f"\n--- Sweep 3: Stop Loss (Ultra-Wide) ---")
@@ -302,7 +320,7 @@ def run_full_sweep(stocks: list[str] = None, period_days: int = 2000) -> dict:
 
         for _, row in sl_df.iterrows():
             print(f"  SL {row['stop_loss_pct']:.0%} → Return {row['total_return']:.1%}, "
-                  f"MDD {row['max_drawdown']:.1%}, Trades {row['num_trades']}")
+                  f"MDD {row['max_drawdown']:.1%}, Trades {row['total_trades']}")
 
     # --- Cross-stock robustness analysis ---
     print(f"\n{'=' * 60}")
@@ -367,7 +385,7 @@ def run_full_sweep(stocks: list[str] = None, period_days: int = 2000) -> dict:
                 "all_overlap": all_overlap,
                 "verdict": "ONE_SIZE_FITS_ALL" if all_overlap else "NEEDS_CLUSTERING",
             }
-            print(f"  → Verdict: {'ONE_SIZE_FITS_ALL ✓' if all_overlap else 'NEEDS_CLUSTERING ✗'}")
+            print(f"  → Verdict: {'ONE_SIZE_FITS_ALL [OK]' if all_overlap else 'NEEDS_CLUSTERING [X]'}")
 
     # --- Final summary ---
     print(f"\n{'=' * 60}")
