@@ -10,7 +10,9 @@ import VChart from 'vue-echarts'
 import { riskApi } from '../api/risk'
 import AlertsView from './AlertsView.vue'
 import SqsPerformanceView from './SqsPerformanceView.vue'
+import { useResponsive } from '../composables/useResponsive'
 
+const { isMobile, isTablet } = useResponsive()
 const isLoading = ref(false)
 const data = ref<any>(null)
 const error = ref('')
@@ -175,7 +177,7 @@ const corrPairColumns: DataTableColumns = [
         </NAlert>
 
         <!-- Summary Cards -->
-        <NGrid :cols="5" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+        <NGrid :cols="isMobile ? 2 : isTablet ? 3 : 5" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
           <NGi>
             <NCard size="small">
               <NStatistic label="組合市值" :value="'$' + ((data.portfolio?.total_value || 0) / 10000).toFixed(1) + '萬'" />
@@ -225,7 +227,7 @@ const corrPairColumns: DataTableColumns = [
           </NGi>
         </NGrid>
 
-        <NGrid :cols="2" :x-gap="16" :y-gap="16">
+        <NGrid :cols="isMobile ? 1 : 2" :x-gap="16" :y-gap="16">
           <!-- Position Concentration Pie -->
           <NGi>
             <NCard title="持股集中度" size="small">
@@ -249,7 +251,7 @@ const corrPairColumns: DataTableColumns = [
           <NEmpty v-else description="不足 2 檔持股計算相關性" />
         </NCard>
 
-        <NGrid :cols="2" :x-gap="16" :y-gap="16" style="margin-top: 16px">
+        <NGrid :cols="isMobile ? 1 : 2" :x-gap="16" :y-gap="16" style="margin-top: 16px">
           <!-- Position Details -->
           <NGi>
             <NCard title="持股明細" size="small">
@@ -333,7 +335,7 @@ const corrPairColumns: DataTableColumns = [
           </template>
           <NSpin :show="varValidLoading">
             <template v-if="varValidation && !varValidation.error">
-              <NGrid :cols="4" :x-gap="12" :y-gap="8" style="margin-bottom: 12px">
+              <NGrid :cols="isMobile ? 2 : 4" :x-gap="12" :y-gap="8" style="margin-bottom: 12px">
                 <NGi>
                   <NStatistic label="測試天數" :value="varValidation.test_days" />
                 </NGi>

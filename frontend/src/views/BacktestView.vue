@@ -15,8 +15,10 @@ import BacktestMetaStrategy from '../components/BacktestMetaStrategy.vue'
 import BacktestSqsValidation from '../components/BacktestSqsValidation.vue'
 import ConfigManager from '../components/ConfigManager.vue'
 import { parseUrlConfig } from '../utils/urlConfig'
+import { useResponsive } from '../composables/useResponsive'
 
 const app = useAppStore()
+const { isMobile } = useResponsive()
 const bt = useBacktestStore()
 
 const mode = ref('single')
@@ -95,7 +97,7 @@ onMounted(() => {
     <!-- Transaction Cost Settings -->
     <NCollapse style="margin-bottom: 16px">
       <NCollapseItem title="交易成本設定" name="costs">
-        <NGrid :cols="3" :x-gap="12" :y-gap="8">
+        <NGrid :cols="isMobile ? 1 : 3" :x-gap="12" :y-gap="8">
           <NGi>
             <NText depth="3" style="font-size: 11px; display: block; margin-bottom: 4px">手續費 (%)</NText>
             <NInputNumber v-model:value="commissionRate" :min="0" :max="1" :step="0.01" size="small" style="width: 100%">

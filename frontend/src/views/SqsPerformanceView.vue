@@ -7,7 +7,9 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { sqsPerformanceApi } from '../api/sqs-performance'
+import { useResponsive } from '../composables/useResponsive'
 
+const { isMobile, isTablet } = useResponsive()
 const isLoading = ref(false)
 const isUpdating = ref(false)
 const isBackfilling = ref(false)
@@ -237,7 +239,7 @@ function fmtReturn(val: number | undefined): string {
     <NSpin :show="isLoading">
       <template v-if="summary && summary.total > 0">
         <!-- Overall Stats -->
-        <NGrid :cols="5" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+        <NGrid :cols="isMobile ? 2 : isTablet ? 3 : 5" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
           <NGi>
             <NCard size="small">
               <NStatistic label="總信號數" :value="summary.total" />
@@ -275,7 +277,7 @@ function fmtReturn(val: number | undefined): string {
         </NGrid>
 
         <!-- Charts -->
-        <NGrid :cols="2" :x-gap="16" :y-gap="16">
+        <NGrid :cols="isMobile ? 1 : 2" :x-gap="16" :y-gap="16">
           <NGi>
             <NCard title="各等級勝率" size="small">
               <VChart v-if="winRateChartOption" :option="winRateChartOption" style="height: 300px" autoresize />

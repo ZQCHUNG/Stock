@@ -9,9 +9,16 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { systemApi } from '../api/system'
 import { useMarketData } from '../composables/useMarketData'
+import { useResponsive } from '../composables/useResponsive'
 
 const router = useRouter()
 const app = useAppStore()
+const { isMobile, isTablet } = useResponsive()
+
+// R56: Responsive grid columns
+const metricCols = computed(() => isMobile.value ? 2 : isTablet.value ? 3 : 6)
+const row2Cols = computed(() => isMobile.value ? 1 : isTablet.value ? 2 : 3)
+const row3Cols = computed(() => isMobile.value ? 1 : isTablet.value ? 2 : 4)
 const loading = ref(true)
 const data = ref<any>(null)
 
@@ -132,7 +139,7 @@ function analyzeStock(code: string) {
 
     <NSpin :show="loading">
       <!-- Row 1: Key Metrics -->
-      <NGrid :cols="6" :x-gap="10" :y-gap="10" style="margin-bottom: 12px">
+      <NGrid :cols="metricCols" :x-gap="10" :y-gap="10" style="margin-bottom: 12px">
         <NGi>
           <NCard size="small" :bordered="true">
             <NStatistic label="Positions" :value="pos.count || 0" />
@@ -194,7 +201,7 @@ function analyzeStock(code: string) {
       </NGrid>
 
       <!-- Row 2: Market Regime + OMS + Risk -->
-      <NGrid :cols="3" :x-gap="12" style="margin-bottom: 12px">
+      <NGrid :cols="row2Cols" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
         <NGi>
           <NCard size="small" title="Market Regime (ML)" :bordered="true">
             <template #header-extra>
@@ -270,7 +277,7 @@ function analyzeStock(code: string) {
       </NGrid>
 
       <!-- Row 3: Equity Curve + Monthly P&L + Top Positions + Alerts -->
-      <NGrid :cols="4" :x-gap="12" style="margin-bottom: 12px">
+      <NGrid :cols="row3Cols" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
         <NGi :span="1">
           <NCard size="small" title="Equity Curve" :bordered="true" style="height: 220px">
             <template #header-extra>

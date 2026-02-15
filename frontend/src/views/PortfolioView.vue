@@ -15,8 +15,10 @@ import EquityCurveChart from '../components/EquityCurveChart.vue'
 import ExposureTreemap from '../components/ExposureTreemap.vue'
 import CorrelationHeatmap from '../components/CorrelationHeatmap.vue'
 import EfficientFrontierChart from '../components/EfficientFrontierChart.vue'
+import { useResponsive } from '../composables/useResponsive'
 
 const app = useAppStore()
+const { isMobile, isTablet } = useResponsive()
 const pf = usePortfolioStore()
 const router = useRouter()
 
@@ -323,7 +325,7 @@ async function runRebalanceSim() {
             <NTag size="small" type="error" :bordered="false">Action Hub</NTag>
           </NSpace>
         </template>
-        <NGrid :cols="3" :x-gap="12" :y-gap="12">
+        <NGrid :cols="isMobile ? 1 : 3" :x-gap="12" :y-gap="12">
           <NGi v-for="(action, i) in priorityActions" :key="i">
             <div
               :style="{
@@ -376,7 +378,7 @@ async function runRebalanceSim() {
       </NAlert>
 
       <!-- Summary Cards -->
-      <NGrid v-if="pf.summary.total_positions" :cols="5" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+      <NGrid v-if="pf.summary.total_positions" :cols="isMobile ? 2 : isTablet ? 3 : 5" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
         <NGi>
           <MetricCard title="持有市值" :value="`$${fmtNum(pf.summary.total_value, 0)}`" />
         </NGi>
@@ -420,7 +422,7 @@ async function runRebalanceSim() {
             </NTag>
           </NSpace>
         </template>
-        <NGrid :cols="4" :x-gap="12" :y-gap="12">
+        <NGrid :cols="isMobile ? 2 : 4" :x-gap="12" :y-gap="12">
           <NGi>
             <MetricCard title="建議曝險" :value="fmtPct(kellyData.suggested_exposure)" />
           </NGi>
@@ -555,7 +557,7 @@ async function runRebalanceSim() {
             <NTag size="small">{{ stressData.position_count }} 檔 · ${{ fmtNum(stressData.total_value, 0) }}</NTag>
           </NSpace>
         </template>
-        <NGrid :cols="3" :x-gap="12" :y-gap="12">
+        <NGrid :cols="isMobile ? 1 : 3" :x-gap="12" :y-gap="12">
           <NGi v-for="s in stressData.scenarios" :key="s.name">
             <div style="border: 1px solid var(--n-border-color); border-radius: 6px; padding: 12px">
               <div style="font-size: 12px; color: var(--n-text-color-3); margin-bottom: 4px">{{ s.name }}</div>
@@ -618,7 +620,7 @@ async function runRebalanceSim() {
           點擊「執行模擬」，系統將以目前持股 + 換股建議標的計算新的相關性矩陣與壓力測試
         </div>
         <div v-if="simData?.has_data">
-          <NGrid :cols="2" :x-gap="12" :y-gap="12">
+          <NGrid :cols="isMobile ? 1 : 2" :x-gap="12" :y-gap="12">
             <NGi>
               <div style="font-size: 13px; font-weight: 600; margin-bottom: 6px">重組後相關性</div>
               <CorrelationHeatmap
@@ -709,7 +711,7 @@ async function runRebalanceSim() {
           根據效率前緣最佳 Sharpe 配置，自動產生買/賣張數建議
         </div>
         <div v-if="rebalPlanData?.has_data">
-          <NGrid :cols="4" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
+          <NGrid :cols="isMobile ? 2 : 4" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
             <NGi>
               <MetricCard title="目前 Sharpe" :value="rebalPlanData.current_sharpe?.toFixed(3) || '-'" />
             </NGi>
@@ -844,7 +846,7 @@ async function runRebalanceSim() {
             <NTag size="small" :bordered="false">Win-Loss Analytics</NTag>
           </NSpace>
         </template>
-        <NGrid :cols="5" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
+        <NGrid :cols="isMobile ? 2 : isTablet ? 3 : 5" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
           <NGi>
             <MetricCard
               title="勝率"

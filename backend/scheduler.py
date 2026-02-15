@@ -86,6 +86,47 @@ def _send_line_notify(token: str, message: str):
     urllib.request.urlopen(req, timeout=10)
 
 
+def _send_telegram_message(bot_token: str, chat_id: str, message: str):
+    """R56: Send Telegram Bot message."""
+    import urllib.request
+    import urllib.parse
+    import json as _json
+
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = _json.dumps({
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "HTML",
+    }).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
+    urllib.request.urlopen(req, timeout=10)
+
+
+def _send_notification(message: str, config_data: dict | None = None):
+    """R56: Unified notification — send to all enabled channels (LINE + Telegram)."""
+    if config_data is None:
+        config_data = _load_json(ALERT_CONFIG_PATH, {})
+
+    # LINE Notify
+    if config_data.get("notify_line") and config_data.get("line_token"):
+        try:
+            _send_line_notify(config_data["line_token"], message)
+        except Exception as e:
+            logger.warning(f"LINE notify failed: {e}")
+
+    # Telegram Bot
+    if config_data.get("notify_telegram") and config_data.get("telegram_bot_token") and config_data.get("telegram_chat_id"):
+        try:
+            _send_telegram_message(
+                config_data["telegram_bot_token"],
+                config_data["telegram_chat_id"],
+                message,
+            )
+        except Exception as e:
+            logger.warning(f"Telegram notify failed: {e}")
+
+
 def run_alert_check():
     """Core alert check job — called by scheduler every N minutes.
 
@@ -184,19 +225,16 @@ def run_alert_check():
             })
             _save_json(ALERT_HISTORY_PATH, history[-200:])
 
-            # Push LINE notification for new alerts only
-            if new_alerts and config_data.get("notify_line") and config_data.get("line_token"):
-                try:
-                    lines = [f"\n📊 SQS Alert (≥{threshold})"]
-                    lines.append(f"⏰ {now.strftime('%Y-%m-%d %H:%M')}")
-                    lines.append(f"共 {len(new_alerts)} 檔新觸發:\n")
-                    for t in new_alerts[:10]:
-                        icon = "💎" if t["grade"] == "diamond" else "🥇" if t["grade"] == "gold" else "🥈"
-                        lines.append(f"{icon} {t['code']} {t['name']} — SQS {t['sqs']} ({t['maturity']})")
-                    _send_line_notify(config_data["line_token"], "\n".join(lines))
-                    logger.info(f"LINE notify sent for {len(new_alerts)} new alerts")
-                except Exception as e:
-                    logger.warning(f"LINE notify failed: {e}")
+            # R56: Unified notification for new alerts
+            if new_alerts:
+                lines = [f"\n📊 SQS Alert (≥{threshold})"]
+                lines.append(f"⏰ {now.strftime('%Y-%m-%d %H:%M')}")
+                lines.append(f"共 {len(new_alerts)} 檔新觸發:\n")
+                for t in new_alerts[:10]:
+                    icon = "💎" if t["grade"] == "diamond" else "🥇" if t["grade"] == "gold" else "🥈"
+                    lines.append(f"{icon} {t['code']} {t['name']} — SQS {t['sqs']} ({t['maturity']})")
+                _send_notification("\n".join(lines), config_data)
+                logger.info(f"Notification sent for {len(new_alerts)} new alerts")
 
             # Update dedup
             for t in new_alerts:
@@ -389,6 +427,15 @@ def start_scheduler(interval_minutes: int = 5):
         replace_existing=True,
         max_instances=1,
     )
+    # R56: Compound alert rules check (every 5 minutes, aligned with SQS)
+    _scheduler.add_job(
+        _run_compound_alert_check,
+        trigger=IntervalTrigger(minutes=5),
+        id="compound_alert_check",
+        name="Compound Alert Check",
+        replace_existing=True,
+        max_instances=1,
+    )
 
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
@@ -508,11 +555,7 @@ def _run_system_health_check():
 
 
 def _notify_data_quality_issue(result: dict):
-    """Send LINE + log notification for data quality issues."""
-    config_data = _load_json(ALERT_CONFIG_PATH, {})
-    if not config_data.get("notify_line") or not config_data.get("line_token"):
-        return
-
+    """R56: Send unified notification for data quality issues."""
     now = datetime.now()
     lines = [
         f"\n📊 數據品質警報",
@@ -522,19 +565,11 @@ def _notify_data_quality_issue(result: dict):
     ]
     for issue in result.get("critical_issues", [])[:5]:
         lines.append(f"❌ {issue['code']}: {issue['detail']}")
-
-    try:
-        _send_line_notify(config_data["line_token"], "\n".join(lines))
-    except Exception as e:
-        logger.warning(f"Data quality LINE notify failed: {e}")
+    _send_notification("\n".join(lines))
 
 
 def _notify_system_health_issue(status: str, degraded: list):
-    """Send LINE notification for system health issues."""
-    config_data = _load_json(ALERT_CONFIG_PATH, {})
-    if not config_data.get("notify_line") or not config_data.get("line_token"):
-        return
-
+    """R56: Send unified notification for system health issues."""
     now = datetime.now()
     lines = [
         f"\n⚠️ 系統健康警報",
@@ -543,11 +578,7 @@ def _notify_system_health_issue(status: str, degraded: list):
     ]
     for d in degraded[:5]:
         lines.append(f"❌ {d}")
-
-    try:
-        _send_line_notify(config_data["line_token"], "\n".join(lines))
-    except Exception as e:
-        logger.warning(f"System health LINE notify failed: {e}")
+    _send_notification("\n".join(lines))
 
 
 def _run_oms_check():
@@ -566,12 +597,74 @@ def _run_oms_check():
         logger.warning(f"OMS check failed: {e}")
 
 
-def _notify_oms_exits(actions: list[dict]):
-    """Send LINE notification for OMS auto-exits."""
-    config_data = _load_json(ALERT_CONFIG_PATH, {})
-    if not config_data.get("notify_line") or not config_data.get("line_token"):
-        return
+def _run_compound_alert_check():
+    """R56: Scheduled job — check compound alert rules alongside SQS alerts."""
+    try:
+        from backend.compound_alerts import (
+            load_rules, evaluate_rule, check_cooldown,
+            get_stock_indicator_data, save_rules,
+        )
+        import time as _time
 
+        rules = load_rules()
+        active_rules = [r for r in rules if r.enabled]
+        if not active_rules:
+            return
+
+        config_data = _load_json(ALERT_CONFIG_PATH, {})
+        triggered_all = []
+        updated = False
+
+        for rule in active_rules:
+            if not check_cooldown(rule):
+                continue
+
+            check_codes = rule.codes
+            if not check_codes:
+                try:
+                    from config import SCAN_STOCKS
+                    check_codes = SCAN_STOCKS[:20]
+                except Exception:
+                    check_codes = []
+
+            for code in check_codes:
+                try:
+                    stock_data = get_stock_indicator_data(code)
+                    if not stock_data:
+                        continue
+                    if evaluate_rule(rule, stock_data):
+                        triggered_all.append({
+                            "rule_name": rule.name,
+                            "code": code,
+                            "combine_mode": rule.combine_mode,
+                            "conditions_count": len(rule.conditions),
+                        })
+                        rule.last_triggered = _time.time()
+                        rule.trigger_count += 1
+                        updated = True
+                except Exception:
+                    pass
+
+        if updated:
+            save_rules(rules)
+
+        # Notify triggered compound alerts
+        if triggered_all:
+            now = datetime.now()
+            lines = [f"\n🔔 複合條件警報觸發"]
+            lines.append(f"⏰ {now.strftime('%Y-%m-%d %H:%M')}")
+            lines.append(f"共 {len(triggered_all)} 筆觸發:\n")
+            for t in triggered_all[:10]:
+                lines.append(f"📌 {t['rule_name']}: {t['code']} ({t['combine_mode']}, {t['conditions_count']} conditions)")
+            _send_notification("\n".join(lines), config_data)
+            logger.info(f"Compound alert: {len(triggered_all)} triggered")
+
+    except Exception as e:
+        logger.warning(f"Compound alert check failed: {e}")
+
+
+def _notify_oms_exits(actions: list[dict]):
+    """R56: Send unified notification for OMS auto-exits."""
     now = datetime.now()
     lines = [
         f"\n📋 OMS 自動出場通知",
@@ -589,11 +682,7 @@ def _notify_oms_exits(actions: list[dict]):
             f"{icon} {a['code']} {a.get('name', '')} — {reason_label} "
             f"@ ${a['exit_price']:.2f} (P&L ${a.get('net_pnl', 0):,.0f})"
         )
-
-    try:
-        _send_line_notify(config_data["line_token"], "\n".join(lines))
-    except Exception as e:
-        logger.warning(f"OMS LINE notify failed: {e}")
+    _send_notification("\n".join(lines))
 
 
 def stop_scheduler():

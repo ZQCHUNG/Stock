@@ -75,7 +75,11 @@ body.dark {
   color: #e0e0e0;
 }
 @media (max-width: 768px) {
-  .n-layout-content { padding: 8px 12px !important; }
+  .n-layout-content { padding: 8px 10px !important; }
+  .n-card { margin-bottom: 8px; }
+  .n-data-table { font-size: 12px; }
+  .n-statistic .n-statistic-value { font-size: 18px !important; }
+  h2 { font-size: 18px; }
 }
 .page-enter-active,
 .page-leave-active {

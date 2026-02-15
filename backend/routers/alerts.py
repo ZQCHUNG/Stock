@@ -23,6 +23,9 @@ class AlertConfig(BaseModel):
     notify_browser: bool = True
     notify_line: bool = False
     line_token: str = ""
+    notify_telegram: bool = False  # R56: Telegram Bot notification
+    telegram_bot_token: str = ""   # R56: @BotFather token
+    telegram_chat_id: str = ""     # R56: target chat/group ID
     watch_codes: list[str] = []  # Empty = watch all BUY signals
     scheduler_interval: int = 5  # R45: minutes between checks
 
@@ -61,15 +64,19 @@ def get_alert_config():
     masked = config.model_dump()
     if masked["line_token"]:
         masked["line_token"] = masked["line_token"][:8] + "***"
+    if masked["telegram_bot_token"]:
+        masked["telegram_bot_token"] = masked["telegram_bot_token"][:8] + "***"
     return masked
 
 
 @router.post("/config")
 def save_alert_config(config: AlertConfig):
     """儲存警報設定"""
+    original = _load_config()
     if config.line_token.endswith("***"):
-        original = _load_config()
         config.line_token = original.line_token
+    if config.telegram_bot_token.endswith("***"):
+        config.telegram_bot_token = original.telegram_bot_token
     _save_config(config)
     return {"status": "ok"}
 
@@ -190,11 +197,23 @@ def send_line_notification(payload: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/send-test")
+def send_test_notification(payload: dict):
+    """R56: 發送測試通知到所有啟用的管道（LINE + Telegram）"""
+    message = payload.get("message", "🧪 測試通知 — 如收到此訊息，通知管道設定正確！")
+    try:
+        from backend.scheduler import _send_notification
+        _send_notification(message)
+        return {"status": "ok", "message": message}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/notify-triggered")
 def notify_triggered_alerts():
-    """檢查 + 推播觸發的警報到 LINE"""
+    """R56: 檢查 + 推播觸發的警報（LINE + Telegram 統一推播）"""
     from datetime import datetime
-    from backend.scheduler import _send_line_notify
+    from backend.scheduler import _send_notification
 
     config = _load_config()
     result = check_alerts()
@@ -211,12 +230,7 @@ def notify_triggered_alerts():
         lines.append(f"{icon} {t['code']} {t['name']} — SQS {t['sqs']} ({t['maturity']})")
 
     message = "\n".join(lines)
-
-    if config.notify_line and config.line_token:
-        try:
-            _send_line_notify(config.line_token, message)
-        except Exception as e:
-            logger.warning(f"LINE notify failed: {e}")
+    _send_notification(message)
 
     return {"status": "ok", "count": len(triggered), "message": message}
 

@@ -5,6 +5,9 @@ export interface AlertConfig {
   notify_browser: boolean
   notify_line: boolean
   line_token: string
+  notify_telegram: boolean    // R56
+  telegram_bot_token: string  // R56
+  telegram_chat_id: string    // R56
   watch_codes: string[]
   scheduler_interval: number
 }
@@ -73,4 +76,8 @@ export const alertsApi = {
   checkRules: (codes?: string[]) =>
     client.post<any, any>('/alerts/rules/check', codes || null, { timeout: 60000 }),
   getConditionTypes: () => client.get<any, ConditionTypeOption[]>('/alerts/condition-types'),
+
+  // R56: Test notification
+  sendTest: (message?: string) =>
+    client.post<any, any>('/alerts/send-test', { message: message || undefined }),
 }

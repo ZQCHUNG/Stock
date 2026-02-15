@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, ref, onMounted } from 'vue'
+import { h, ref, onMounted, computed } from 'vue'
 import {
   NCard, NButton, NSpace, NInputNumber, NSwitch, NInput, NTag, NAlert,
   NDataTable, NGrid, NGi, NSpin, NDivider, NStatistic,
@@ -9,14 +9,22 @@ import { alertsApi, type AlertConfig, type SchedulerStatus, type CompoundRule, t
 import { systemApi } from '../api/system'
 import { portfolioApi } from '../api/portfolio'
 import { useWatchlistStore } from '../stores/watchlist'
+import { useResponsive } from '../composables/useResponsive'
 
 const wl = useWatchlistStore()
+const { isMobile, isTablet } = useResponsive()
+const settingsCols = computed(() => isMobile.value ? 1 : 2)
+const healthCols = computed(() => isMobile.value ? 2 : isTablet.value ? 3 : 4)
+const omsCols = computed(() => isMobile.value ? 2 : isTablet.value ? 3 : 4)
 
 const config = ref<AlertConfig>({
   sqs_threshold: 70,
   notify_browser: true,
   notify_line: false,
   line_token: '',
+  notify_telegram: false,
+  telegram_bot_token: '',
+  telegram_chat_id: '',
   watch_codes: [],
   scheduler_interval: 5,
 })
@@ -111,11 +119,11 @@ async function triggerManualCheck() {
   isChecking.value = false
 }
 
-async function sendLineNotify() {
+async function sendTestNotify() {
   try {
-    await alertsApi.notifyTriggered()
+    await alertsApi.sendTest()
   } catch (e: any) {
-    error.value = e?.message || 'LINE notify failed'
+    error.value = e?.message || 'Test notify failed'
   }
 }
 
@@ -351,7 +359,7 @@ const historyColumns: DataTableColumns = [
       </NAlert>
     </NCard>
 
-    <NGrid :cols="2" :x-gap="16" :y-gap="16">
+    <NGrid :cols="settingsCols" :x-gap="16" :y-gap="16">
       <!-- Settings -->
       <NGi>
         <NCard title="警報設定" size="small">
@@ -379,6 +387,21 @@ const historyColumns: DataTableColumns = [
                 <NInput v-model:value="config.line_token" type="password" show-password-on="click" size="small" placeholder="LINE Notify Token" style="flex: 1" />
               </div>
 
+              <div style="display: flex; align-items: center; gap: 12px">
+                <span style="min-width: 80px">Telegram</span>
+                <NSwitch v-model:value="config.notify_telegram" />
+              </div>
+
+              <div v-if="config.notify_telegram" style="display: flex; align-items: center; gap: 12px">
+                <span style="min-width: 80px">Bot Token</span>
+                <NInput v-model:value="config.telegram_bot_token" type="password" show-password-on="click" size="small" placeholder="@BotFather token" style="flex: 1" />
+              </div>
+
+              <div v-if="config.notify_telegram" style="display: flex; align-items: center; gap: 12px">
+                <span style="min-width: 80px">Chat ID</span>
+                <NInput v-model:value="config.telegram_chat_id" size="small" placeholder="Chat or Group ID" style="flex: 1" />
+              </div>
+
               <div>
                 <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 6px">
                   <span style="min-width: 80px">監控範圍</span>
@@ -395,7 +418,7 @@ const historyColumns: DataTableColumns = [
               <NSpace>
                 <NButton type="primary" @click="saveConfig" :loading="isSaving" size="small">儲存設定</NButton>
                 <NButton @click="triggerManualCheck" :loading="isChecking" size="small">立即檢查</NButton>
-                <NButton v-if="config.notify_line" @click="sendLineNotify" size="small" type="warning">發送 LINE 通知</NButton>
+                <NButton v-if="config.notify_line || config.notify_telegram" @click="sendTestNotify" size="small" type="warning">發送測試通知</NButton>
               </NSpace>
             </NSpace>
           </NSpin>
@@ -443,7 +466,7 @@ const historyColumns: DataTableColumns = [
           </NButton>
         </NSpace>
       </template>
-      <NGrid v-if="systemHealth?.components" :cols="4" :x-gap="12" :y-gap="8">
+      <NGrid v-if="systemHealth?.components" :cols="healthCols" :x-gap="12" :y-gap="8">
         <NGi>
           <NSpace align="center" :size="4">
             <NTag :type="healthStatusType(systemHealth.components.redis?.status)" size="small">
@@ -568,7 +591,7 @@ const historyColumns: DataTableColumns = [
           </NStatistic>
           <NStatistic v-if="omsStats.last_event" label="最後事件" :value="omsStats.last_event?.slice(0, 19).replace('T', ' ') || '-'" />
         </NSpace>
-        <NGrid v-if="omsStats?.exit_reasons && Object.keys(omsStats.exit_reasons).length" :cols="3" :x-gap="8" style="margin-bottom: 8px">
+        <NGrid v-if="omsStats?.exit_reasons && Object.keys(omsStats.exit_reasons).length" :cols="omsCols" :x-gap="8" style="margin-bottom: 8px">
           <NGi v-for="(count, reason) in omsStats.exit_reasons" :key="reason">
             <NTag :type="reason === 'take_profit' ? 'success' : reason === 'stop_loss' ? 'error' : 'warning'" size="small">
               {{ reason === 'stop_loss' ? '停損' : reason === 'take_profit' ? '停利' : '移動停利' }}: {{ count }}
@@ -606,7 +629,7 @@ const historyColumns: DataTableColumns = [
           <NButton size="tiny" @click="loadOmsEfficiency" :loading="effLoading">刷新</NButton>
         </NSpace>
       </template>
-      <NGrid :cols="4" :x-gap="12" :y-gap="8" style="margin-bottom: 8px">
+      <NGrid :cols="omsCols" :x-gap="12" :y-gap="8" style="margin-bottom: 8px">
         <NGi>
           <NStatistic label="自動化覆蓋率" :value="`${((omsEfficiency.auto_coverage || 0) * 100).toFixed(0)}%`" />
         </NGi>

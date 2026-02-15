@@ -21,7 +21,7 @@ import VChart from 'vue-echarts'
 
 const app = useAppStore()
 const tech = useTechnicalStore()
-const { cols } = useResponsive()
+const { cols, isMobile } = useResponsive()
 const signalCols = cols(2, 4, 4)
 const indicatorCols = cols(3, 5, 5)
 const chartCols = cols(1, 2, 2)
@@ -254,7 +254,7 @@ function sqsGradeIcon(grade: string): string {
             </NTag>
           </NSpace>
         </template>
-        <NGrid :cols="2" :x-gap="12">
+        <NGrid :cols="isMobile ? 1 : 2" :x-gap="12" :y-gap="12">
           <NGi>
             <VChart v-if="sqsRadarOption" :option="sqsRadarOption" style="height: 220px" autoresize />
           </NGi>
@@ -382,7 +382,7 @@ function sqsGradeIcon(grade: string): string {
 
       <!-- 支撐壓力 -->
       <NCard v-if="tech.supportResistance" title="支撐壓力" size="small" style="margin-bottom: 16px">
-        <NGrid :cols="2" :x-gap="16">
+        <NGrid :cols="isMobile ? 1 : 2" :x-gap="16" :y-gap="8">
           <NGi>
             <NText strong style="color: #38a169">支撐位</NText>
             <div v-for="s in tech.supportResistance.supports?.slice(0, 5)" :key="s.price" style="margin: 4px 0">

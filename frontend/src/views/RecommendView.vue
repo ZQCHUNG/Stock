@@ -9,8 +9,10 @@ import { useWatchlistStore } from '../stores/watchlist'
 import { analysisApi } from '../api/analysis'
 import { fmtPct, priceColor } from '../utils/format'
 import ProgressBar from '../components/ProgressBar.vue'
+import { useResponsive } from '../composables/useResponsive'
 
 const app = useAppStore()
+const { isMobile } = useResponsive()
 const rec = useRecommendStore()
 const wl = useWatchlistStore()
 const router = useRouter()
@@ -207,7 +209,7 @@ const holdColumns: DataTableColumns = [
             <NTag type="error" size="small">{{ highConfidence.length }} 檔</NTag>
           </NSpace>
         </template>
-        <NGrid :cols="3" :x-gap="12" :y-gap="12">
+        <NGrid :cols="isMobile ? 1 : 3" :x-gap="12" :y-gap="12">
           <NGi v-for="stock in highConfidence" :key="stock.code">
             <NCard size="small" hoverable style="cursor: pointer" @click="analyzeStock(stock.code)">
               <div style="display: flex; justify-content: space-between; align-items: center">
@@ -360,7 +362,7 @@ const holdColumns: DataTableColumns = [
             </span>
           </template>
 
-          <NGrid :cols="3" :x-gap="8" :y-gap="8">
+          <NGrid :cols="isMobile ? 1 : 3" :x-gap="8" :y-gap="8">
             <NGi v-for="stock in group.stocks" :key="stock.code">
               <div
                 style="padding: 8px; border: 1px solid #eee; border-radius: 6px; cursor: pointer; transition: background 0.15s"
