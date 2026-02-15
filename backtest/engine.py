@@ -307,6 +307,12 @@ class BacktestEngine:
         max_pos_pct = p.get("max_position_pct", 0.9)
         min_hold = p.get("min_hold_days", 5)
 
+        # R73: Dynamic Trail — profit-based adaptive trailing stop
+        dynamic_trail_enabled = p.get("dynamic_trail_enabled", False)
+        dynamic_trail_tiers = p.get("dynamic_trail_tiers", [
+            (0.50, 0.08), (0.20, 0.10), (0.00, 0.15),
+        ])
+
         # R71-A: Volatility guard — skip entries in high-vol bearish regimes — HYPOTHESIS
         # Only blocks NEW entries when BOTH conditions met:
         #   1. ATR_20 > historical 90th percentile (high volatility)
@@ -359,8 +365,19 @@ class BacktestEngine:
                 highest_since_entry = max(highest_since_entry, high)
                 hold_days += 1
 
-                # 移動停利：從最高價回落 trailing_pct 時出場
-                if trailing_pct > 0:
+                # R73: Dynamic Trail — compute trail width based on current profit
+                if dynamic_trail_enabled and current_trade is not None:
+                    gain = (highest_since_entry / current_trade.price_open) - 1
+                    effective_trail = trailing_pct  # fallback
+                    for threshold, trail in dynamic_trail_tiers:
+                        if gain >= threshold:
+                            effective_trail = trail
+                            break
+                    new_sl = highest_since_entry * (1 - effective_trail)
+                    if new_sl > sl_price:
+                        sl_price = new_sl
+                elif trailing_pct > 0:
+                    # Original fixed trail
                     new_sl = highest_since_entry * (1 - trailing_pct)
                     if new_sl > sl_price:
                         sl_price = new_sl

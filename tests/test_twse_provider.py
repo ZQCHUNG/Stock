@@ -355,6 +355,148 @@ class TestDbStats:
         assert stats["tickers"] == 2
 
 
+class TestSplitDetector:
+    """Tests for R72 auto stock split detection."""
+
+    def test_detect_forward_split(self):
+        """Detect a 4:1 forward split (price drops ~75%)."""
+        from data.twse_provider import _save_price_rows, detect_splits_from_prices
+
+        # Normal prices, then a 4:1 split on 2025-06-11
+        prices = [
+            {"date": "2025-06-09", "open": 185, "high": 190, "low": 184, "close": 188, "volume": 5000000},
+            {"date": "2025-06-10", "open": 186, "high": 189, "low": 185, "close": 188.65, "volume": 4800000},
+            # Split happens: 188.65 → ~47.16
+            {"date": "2025-06-11", "open": 47, "high": 48, "low": 46.5, "close": 47.57, "volume": 20000000},
+            {"date": "2025-06-12", "open": 47.5, "high": 48.5, "low": 47, "close": 48, "volume": 18000000},
+        ]
+        _save_price_rows("0050", prices, "twse")
+
+        detected = detect_splits_from_prices("0050")
+        assert len(detected) == 1
+        assert detected[0]["ex_date"] == "2025-06-11"
+        assert detected[0]["ratio"] == 4
+        assert detected[0]["stock_dividend"] == 30.0  # (4-1)*10
+        assert detected[0]["source"] == "auto_detect"
+
+    def test_no_split_normal_prices(self):
+        """Normal price movements should not trigger detection."""
+        from data.twse_provider import _save_price_rows, detect_splits_from_prices
+
+        prices = [
+            {"date": "2025-01-02", "open": 100, "high": 105, "low": 99, "close": 103, "volume": 5000},
+            {"date": "2025-01-03", "open": 103, "high": 108, "low": 101, "close": 106, "volume": 6000},
+            {"date": "2025-01-06", "open": 106, "high": 110, "low": 104, "close": 108, "volume": 5500},
+        ]
+        _save_price_rows("NORM", prices, "twse")
+
+        detected = detect_splits_from_prices("NORM")
+        assert len(detected) == 0
+
+    def test_skip_if_corporate_action_exists(self):
+        """Don't flag gaps that already have a corporate_action entry."""
+        from data.twse_provider import (
+            _save_price_rows, save_corporate_actions, detect_splits_from_prices,
+        )
+
+        prices = [
+            {"date": "2025-06-10", "open": 186, "high": 189, "low": 185, "close": 188, "volume": 4800000},
+            {"date": "2025-06-11", "open": 47, "high": 48, "low": 46.5, "close": 47, "volume": 20000000},
+        ]
+        _save_price_rows("KNOWN", prices, "twse")
+
+        # Insert the known corporate action
+        save_corporate_actions([{
+            "ticker": "KNOWN", "ex_date": "2025-06-11",
+            "cash_dividend": 0, "stock_dividend": 30,
+        }])
+
+        detected = detect_splits_from_prices("KNOWN")
+        assert len(detected) == 0  # Already explained
+
+    def test_detect_2_to_1_split(self):
+        """Detect a 2:1 split (price drops ~50%)."""
+        from data.twse_provider import _save_price_rows, detect_splits_from_prices
+
+        prices = [
+            {"date": "2025-03-14", "open": 500, "high": 510, "low": 495, "close": 505, "volume": 1000000},
+            {"date": "2025-03-17", "open": 250, "high": 258, "low": 248, "close": 255, "volume": 3000000},
+        ]
+        _save_price_rows("SPLIT2", prices, "twse")
+
+        detected = detect_splits_from_prices("SPLIT2")
+        assert len(detected) == 1
+        assert detected[0]["ratio"] == 2
+        assert detected[0]["stock_dividend"] == 10.0  # (2-1)*10
+
+    def test_auto_fix_splits(self):
+        """auto_fix_splits should detect, insert, and recompute."""
+        from data.twse_provider import (
+            _save_price_rows, auto_fix_splits, _get_conn,
+            get_stock_data_from_db,
+        )
+
+        # Simulate 4:1 split
+        prices = [
+            {"date": "2025-06-09", "open": 185, "high": 190, "low": 184, "close": 188, "volume": 5000000},
+            {"date": "2025-06-10", "open": 186, "high": 189, "low": 185, "close": 188, "volume": 4800000},
+            {"date": "2025-06-11", "open": 47, "high": 48, "low": 46.5, "close": 47, "volume": 20000000},
+            {"date": "2025-06-12", "open": 47.5, "high": 48.5, "low": 47, "close": 48, "volume": 18000000},
+        ]
+        _save_price_rows("AUTOFIX", prices, "twse")
+
+        fixed = auto_fix_splits("AUTOFIX")
+        assert fixed == 1
+
+        # Check corporate_actions was inserted
+        with _get_conn() as conn:
+            actions = conn.execute(
+                "SELECT stock_dividend, source FROM corporate_actions WHERE ticker='AUTOFIX'"
+            ).fetchall()
+        assert len(actions) == 1
+        assert actions[0][0] == 30.0  # stock_dividend for 4:1
+        assert actions[0][1] == "auto_detect"
+
+        # Check adjustment factors were recomputed
+        df_adj = get_stock_data_from_db("AUTOFIX", "2025-06-09", "2025-06-12", adjusted=True)
+        # Pre-split prices should be adjusted: 188 * 0.25 = 47
+        assert abs(df_adj.iloc[0]["close"] - 47) < 1
+        # Post-split prices should be unchanged
+        assert abs(df_adj.iloc[2]["close"] - 47) < 1
+
+    def test_auto_fix_no_splits(self):
+        """auto_fix_splits returns 0 when no splits detected."""
+        from data.twse_provider import _save_price_rows, auto_fix_splits
+
+        prices = [
+            {"date": "2025-01-02", "open": 100, "high": 105, "low": 99, "close": 103, "volume": 5000},
+            {"date": "2025-01-03", "open": 103, "high": 106, "low": 102, "close": 105, "volume": 6000},
+        ]
+        _save_price_rows("NOSPLIT", prices, "twse")
+
+        fixed = auto_fix_splits("NOSPLIT")
+        assert fixed == 0
+
+    def test_empty_db(self):
+        """No crash on empty data."""
+        from data.twse_provider import detect_splits_from_prices
+        detected = detect_splits_from_prices("EMPTY")
+        assert detected == []
+
+    def test_limit_down_not_detected_as_split(self):
+        """A ~10% limit-down should NOT trigger split detection (below 35% threshold)."""
+        from data.twse_provider import _save_price_rows, detect_splits_from_prices
+
+        prices = [
+            {"date": "2025-01-02", "open": 100, "high": 100, "low": 90, "close": 90, "volume": 10000},
+            {"date": "2025-01-03", "open": 90, "high": 91, "low": 81, "close": 81, "volume": 15000},  # -10%
+        ]
+        _save_price_rows("LIMIT", prices, "twse")
+
+        detected = detect_splits_from_prices("LIMIT")
+        assert len(detected) == 0
+
+
 class TestHistoryBackfiller:
     def test_backfiller_with_mock(self):
         from data.twse_provider import HistoryBackfiller

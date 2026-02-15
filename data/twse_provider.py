@@ -546,9 +546,9 @@ def save_corporate_actions(actions: list[dict]):
         conn.executemany(
             "INSERT OR REPLACE INTO corporate_actions "
             "(ticker, ex_date, cash_dividend, stock_dividend, source) "
-            "VALUES (?, ?, ?, ?, 'twse')",
+            "VALUES (?, ?, ?, ?, ?)",
             [(a["ticker"], a["ex_date"], a["cash_dividend"],
-              a["stock_dividend"]) for a in actions],
+              a["stock_dividend"], a.get("source", "twse")) for a in actions],
         )
 
 
@@ -625,6 +625,143 @@ def compute_adjustment_factors(stock_code: str):
                       stock_code, len(batch), len(actions))
 
 
+def detect_splits_from_prices(stock_code: str, gap_threshold: float = 0.35) -> list[dict]:
+    """R72: Auto-detect stock splits from raw price data.
+
+    Scans price_daily for day-over-day close price changes that exceed
+    `gap_threshold` AND have no corresponding corporate_actions entry.
+
+    Split detection logic:
+    1. |close_t / close_{t-1} - 1| > gap_threshold (default 35%)
+    2. No corporate_action within ±1 calendar day of the gap date
+    3. Estimate split ratio from price ratio (round to nearest integer)
+
+    Returns:
+        List of detected split dicts:
+        [{"ticker": str, "ex_date": str, "cash_dividend": 0,
+          "stock_dividend": float, "source": "auto_detect",
+          "price_before": float, "price_after": float, "ratio": int}]
+    """
+    with _get_conn() as conn:
+        prices = conn.execute(
+            "SELECT date, close FROM price_daily "
+            "WHERE ticker=? AND close > 0 ORDER BY date",
+            (stock_code,),
+        ).fetchall()
+
+        if len(prices) < 2:
+            return []
+
+        # Get existing corporate action dates for this ticker
+        existing_actions = conn.execute(
+            "SELECT ex_date FROM corporate_actions WHERE ticker=?",
+            (stock_code,),
+        ).fetchall()
+        existing_dates = {row[0] for row in existing_actions}
+
+    detected = []
+    for i in range(1, len(prices)):
+        prev_date, prev_close = prices[i - 1]
+        curr_date, curr_close = prices[i]
+
+        if prev_close <= 0:
+            continue
+
+        ratio = curr_close / prev_close
+        gap = abs(ratio - 1.0)
+
+        if gap < gap_threshold:
+            continue
+
+        # Check if this gap is already explained by a corporate action
+        # (within ±1 calendar day to handle weekends)
+        gap_explained = False
+        for offset in range(-1, 2):
+            try:
+                check_date = (
+                    datetime.strptime(curr_date, "%Y-%m-%d")
+                    + timedelta(days=offset)
+                ).strftime("%Y-%m-%d")
+                if check_date in existing_dates:
+                    gap_explained = True
+                    break
+            except ValueError:
+                continue
+
+        if gap_explained:
+            continue
+
+        # Estimate split ratio from price ratio
+        if ratio < 1:
+            # Forward split: price dropped (e.g., 188→47 = 4:1 split)
+            estimated_ratio = round(1.0 / ratio)
+            if estimated_ratio < 2:
+                continue  # Not a real split
+            # stock_dividend = (ratio - 1) * 10
+            # For 4:1 split: stock_dividend = 30 → 1/(1+30/10) = 0.25
+            stock_div = (estimated_ratio - 1) * 10.0
+        else:
+            # Reverse split: price jumped (e.g., 10→50 = 5:1 reverse)
+            estimated_ratio = round(ratio)
+            if estimated_ratio < 2:
+                continue
+            # Negative stock_dividend to represent reverse split
+            # (not standard — log warning but skip for now)
+            _logger.warning(
+                "Possible reverse split for %s on %s: %.2f → %.2f (ratio ~%d:1). "
+                "Reverse splits not auto-handled.",
+                stock_code, curr_date, prev_close, curr_close, estimated_ratio,
+            )
+            continue
+
+        _logger.info(
+            "Auto-detected split for %s on %s: %.2f → %.2f "
+            "(estimated %d:1 split, stock_dividend=%.1f)",
+            stock_code, curr_date, prev_close, curr_close,
+            estimated_ratio, stock_div,
+        )
+
+        detected.append({
+            "ticker": stock_code,
+            "ex_date": curr_date,
+            "cash_dividend": 0,
+            "stock_dividend": stock_div,
+            "source": "auto_detect",
+            "price_before": prev_close,
+            "price_after": curr_close,
+            "ratio": estimated_ratio,
+        })
+
+    return detected
+
+
+def auto_fix_splits(stock_code: str, gap_threshold: float = 0.35) -> int:
+    """Detect and auto-fix unrecorded stock splits.
+
+    Runs detect_splits_from_prices(), inserts discovered splits into
+    corporate_actions, and recomputes adjustment factors.
+
+    Returns:
+        Number of splits auto-fixed.
+    """
+    detected = detect_splits_from_prices(stock_code, gap_threshold)
+    if not detected:
+        return 0
+
+    # Insert into corporate_actions
+    save_corporate_actions(detected)
+
+    # Recompute adjustment factors
+    compute_adjustment_factors(stock_code)
+
+    _logger.info(
+        "Auto-fixed %d split(s) for %s: %s",
+        len(detected), stock_code,
+        ", ".join(f"{d['ex_date']} ({d['ratio']}:1)" for d in detected),
+    )
+    return len(detected)
+
+
 def sync_and_adjust(stock_code: str, months_back: int = 12, force: bool = False) -> int:
     """Full pipeline: sync price data + fetch dividends + compute adjustments.
 
@@ -637,7 +774,10 @@ def sync_and_adjust(stock_code: str, months_back: int = 12, force: bool = False)
     actions = fetch_twse_dividends(stock_code)
     save_corporate_actions(actions)
 
-    # Step 3: Compute adjustment factors
+    # Step 3: Auto-detect unrecorded stock splits (R72)
+    auto_fix_splits(stock_code)
+
+    # Step 4: Compute adjustment factors
     compute_adjustment_factors(stock_code)
 
     return count

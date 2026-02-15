@@ -260,8 +260,19 @@ STRATEGY_V4_PARAMS = {
     # 出場
     "take_profit_pct": 0.10,    # 停利 +10%
     "stop_loss_pct": 0.07,      # 停損 -7%
-    "trailing_stop_pct": 0.02,  # 移動停利 2%（從最高價回落 2% 出場）
+    "trailing_stop_pct": 0.02,  # 移動停利 2%（從最高價回落 2% 出場）— 非動態模式的 fallback
     "min_hold_days": 5,         # 最短持有天數（避免正常波動假停損）
+    # R73: Dynamic Trail — 動態移動停利（依獲利幅度調整寬度）
+    # REJECTED as default: flat 2% trail outperforms on avg (Sharpe 0.87 vs 0.72)
+    # Dynamic trail helps large-caps (2330: 0.74→1.44) but hurts momentum stocks (6139: 2.13→1.18)
+    "dynamic_trail_enabled": False,  # VALIDATED: baseline wins for general use
+    "dynamic_trail_tiers": [
+        # (profit_threshold, trail_pct) — 獲利越多 trail 越緊
+        # 從最高的 tier 往下匹配（第一個 >= 的 threshold）
+        (0.50, 0.08),   # >50% profit → 8% trail (tight lock)
+        (0.20, 0.10),   # 20-50% profit → 10% trail
+        (0.00, 0.15),   # 0-20% profit → 15% trail (wide, let it run)
+    ],
     # 部位
     "max_position_pct": 0.9,    # 單筆最大部位 90%
 }
