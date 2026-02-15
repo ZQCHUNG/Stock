@@ -22,7 +22,7 @@ from analysis.indicators import calculate_all_indicators
 
 # V5 預設參數
 STRATEGY_V5_PARAMS = {
-    # 進場條件
+    # 進場條件（傳統）
     "rsi_oversold": 30,          # RSI 超賣門檻（固定上限）
     "rsi_dynamic_window": 60,    # 動態 RSI 門檻滾動窗口（天）
     "rsi_dynamic_percentile": 15,  # 動態 RSI 百分位（15th = 更自適應）
@@ -31,6 +31,11 @@ STRATEGY_V5_PARAMS = {
     "adx_max": 25,               # ADX 上限（排除強趨勢）
     "min_volume_lots": 500,      # 最低成交量（張）
     "bias_threshold": -0.05,     # BIAS 門檻（< -5% = 強均值回歸信號）
+    # R71-B: Z-Score 動態進場（解決 V5 在多頭市場幾乎無交易的問題）
+    "zscore_enabled": True,       # 啟用 Z-Score 進場路徑
+    "zscore_threshold": -1.5,     # VALIDATED: N-sweep confirmed plateau (N=1.0→0.19, 1.5→0.45, 2.0→0.32)
+    "zscore_adx_max": 35,         # Z-Score 進場允許更高 ADX（捕捉趨勢中回檔）
+    "zscore_rsi_max": 45,         # Z-Score 進場的 RSI 上限（不需要極端超賣）
     # 出場條件
     "rsi_overbought": 70,        # RSI 超買 → 離場
     "stop_loss_pct": 0.05,       # 停損 -5%
@@ -83,6 +88,17 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
     else:
         result["v5_bias"] = np.nan
 
+    # R71-B: Z-Score = (Price - MA20) / StdDev(20)
+    zscore_enabled = p.get("zscore_enabled", False)
+    zscore_threshold = p.get("zscore_threshold", -1.5)
+    zscore_adx_max = p.get("zscore_adx_max", 35)
+    zscore_rsi_max = p.get("zscore_rsi_max", 45)
+    if zscore_enabled and "ma20" in result.columns:
+        _std20 = result["close"].rolling(20, min_periods=10).std()
+        result["v5_zscore"] = (result["close"] - result["ma20"]) / _std20.replace(0, np.nan)
+    else:
+        result["v5_zscore"] = np.nan
+
     signals = []
     entry_types = []
     exit_types = []
@@ -107,6 +123,7 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
         vol_ma5 = row.get("volume_ma5", np.nan)
         rsi_dyn = row.get("v5_rsi_threshold", np.nan)
         bias = row.get("v5_bias", np.nan)
+        zscore = row.get("v5_zscore", np.nan)
 
         # Skip if indicators not ready
         if any(pd.isna([rsi, adx, bb_lower, bb_middle, vol, vol_ma5])):
@@ -134,44 +151,39 @@ def generate_v5_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Data
             continue
 
         # === 進場信號 ===
-        # 過濾：排除強趨勢（V5 專門做盤整市場）
-        if adx >= adx_max:
-            signals.append("HOLD")
-            entry_types.append("")
-            exit_types.append("")
-            bias_confirmed_list.append(False)
-            continue
-
-        # 最低量過濾
-        if min_vol_lots > 0 and vol < min_vol_lots * 1000:
-            signals.append("HOLD")
-            entry_types.append("")
-            exit_types.append("")
-            bias_confirmed_list.append(False)
-            continue
-
         buy = False
+        entry_type = ""
         has_bias_confirm = False
-
-        # Dynamic RSI threshold: min(fixed, rolling 15th percentile)
-        effective_rsi = min(rsi_oversold, rsi_dyn) if not pd.isna(rsi_dyn) else rsi_oversold
-
-        # 條件：BB 下軌碰觸 + 動態 RSI 超賣 + 縮量
-        bb_distance = (close - bb_lower) / bb_lower if bb_lower > 0 else 999
-        is_near_bb_lower = bb_distance <= bb_margin
-        is_rsi_oversold = rsi <= effective_rsi
-        is_volume_shrinking = vol < vol_ma5 * vol_shrink if vol_ma5 > 0 else False
 
         # BIAS confirmation: price 5%+ below MA20
         if not pd.isna(bias) and bias < bias_threshold:
             has_bias_confirm = True
 
-        if is_near_bb_lower and is_rsi_oversold and is_volume_shrinking:
-            buy = True
+        # --- 路徑 1: 傳統 BB+RSI 進場（嚴格條件，盤整市場） ---
+        if adx < adx_max:
+            # 最低量過濾
+            if min_vol_lots <= 0 or vol >= min_vol_lots * 1000:
+                effective_rsi_val = min(rsi_oversold, rsi_dyn) if not pd.isna(rsi_dyn) else rsi_oversold
+                bb_distance = (close - bb_lower) / bb_lower if bb_lower > 0 else 999
+                is_near_bb_lower = bb_distance <= bb_margin
+                is_rsi_oversold = rsi <= effective_rsi_val
+                is_volume_shrinking = vol < vol_ma5 * vol_shrink if vol_ma5 > 0 else False
+
+                if is_near_bb_lower and is_rsi_oversold and is_volume_shrinking:
+                    buy = True
+                    entry_type = "bb_rsi_oversold_bias" if has_bias_confirm else "bb_rsi_oversold"
+
+        # --- 路徑 2: R71-B Z-Score 進場（較寬鬆，可在趨勢中回檔時觸發） ---
+        if not buy and zscore_enabled and not pd.isna(zscore):
+            if (zscore < zscore_threshold
+                    and adx < zscore_adx_max
+                    and rsi < zscore_rsi_max):
+                buy = True
+                entry_type = "zscore_pullback"
 
         if buy:
             signals.append("BUY")
-            entry_types.append("bb_rsi_oversold_bias" if has_bias_confirm else "bb_rsi_oversold")
+            entry_types.append(entry_type)
             exit_types.append("")
             bias_confirmed_list.append(has_bias_confirm)
         else:

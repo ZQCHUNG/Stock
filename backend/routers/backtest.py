@@ -339,6 +339,30 @@ def run_alpha_beta(code: str, req: AlphaBetaRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/{code}/adaptive")
+def run_adaptive_backtest(code: str, req: BacktestRequest):
+    """執行 Adaptive 自適應混合回測（V4+V5 根據市場 regime 自動切換）"""
+    from data.fetcher import get_stock_data
+    from backtest.engine import run_backtest_adaptive
+    try:
+        df = get_stock_data(code, period_days=req.period_days)
+        # Detect market regime
+        try:
+            from backend.routers.portfolio import get_market_regime
+            regime_data = get_market_regime()
+            regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
+        except Exception:
+            regime_en = "range_quiet"
+        result = run_backtest_adaptive(
+            df, regime=regime_en, initial_capital=req.initial_capital,
+            commission_rate=req.commission_rate, tax_rate=req.tax_rate,
+            slippage=req.slippage,
+        )
+        return _serialize_backtest_result(result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/{code}/v5")
 def run_v5_backtest(code: str, req: BacktestRequest):
     """執行 V5 均值回歸回測（Gemini R37）"""
@@ -384,12 +408,12 @@ def run_bold_backtest(code: str, req: BoldBacktestRequest):
 
 @router.post("/{code}/strategy-comparison")
 def run_strategy_comparison(code: str, req: StrategyComparisonRequest):
-    """V4 vs V5 vs Adaptive 策略比較（Gemini R37）
+    """V4 vs V5 vs Adaptive vs Bold 策略比較
 
-    同時執行三種回測，回傳並排比較指標 + 差異分析。
+    同時執行四種回測，回傳並排比較指標 + 差異分析。
     """
     from data.fetcher import get_stock_data
-    from backtest.engine import run_backtest_v4, run_backtest_v5, run_backtest_adaptive
+    from backtest.engine import run_backtest_v4, run_backtest_v5, run_backtest_adaptive, run_backtest_bold
     from backend.dependencies import make_serializable
 
     try:
@@ -409,6 +433,7 @@ def run_strategy_comparison(code: str, req: StrategyComparisonRequest):
             df, regime=regime_en, initial_capital=req.initial_capital,
             v4_params=req.v4_params, v5_params=req.v5_params,
         )
+        bold_result = run_backtest_bold(df, initial_capital=req.initial_capital, ultra_wide=True)
 
         def _summary(r):
             return {
@@ -436,15 +461,18 @@ def run_strategy_comparison(code: str, req: StrategyComparisonRequest):
             "recovery_v4": round(_recovery_factor(v4_result), 3),
             "recovery_v5": round(_recovery_factor(v5_result), 3),
             "recovery_adaptive": round(_recovery_factor(adaptive_result), 3),
+            "recovery_bold": round(_recovery_factor(bold_result), 3),
         }
 
         return make_serializable({
             "v4": _serialize_backtest_result(v4_result),
             "v5": _serialize_backtest_result(v5_result),
             "adaptive": _serialize_backtest_result(adaptive_result),
+            "bold": _serialize_backtest_result(bold_result),
             "v4_summary": _summary(v4_result),
             "v5_summary": _summary(v5_result),
             "adaptive_summary": _summary(adaptive_result),
+            "bold_summary": _summary(bold_result),
             "comparison": comparison,
             "regime": regime_en,
         })

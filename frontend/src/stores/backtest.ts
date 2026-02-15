@@ -3,8 +3,18 @@ import { ref } from 'vue'
 import { backtestApi, type BacktestParams, type BoldBacktestParams } from '../api/backtest'
 import { message } from '../utils/discrete'
 
+export type StrategyType = 'v4' | 'v5' | 'adaptive' | 'bold'
+
+const STRATEGY_LABELS: Record<StrategyType, string> = {
+  v4: 'V4 趨勢動量',
+  v5: 'V5 均值回歸',
+  adaptive: 'Adaptive 混合',
+  bold: 'Bold 大膽',
+}
+
 export const useBacktestStore = defineStore('backtest', () => {
   const singleResult = ref<any>(null)
+  const singleStrategy = ref<StrategyType>('v4')
   const portfolioResult = ref<any>(null)
   const simulationResult = ref<any>(null)
   const rollingResult = ref<any>(null)
@@ -15,12 +25,28 @@ export const useBacktestStore = defineStore('backtest', () => {
   const isLoading = ref(false)
   const error = ref('')
 
-  async function runSingle(code: string, req?: BacktestParams) {
+  async function runSingle(code: string, req?: BacktestParams, strategy?: StrategyType) {
+    const strat = strategy || singleStrategy.value
+    singleStrategy.value = strat
     isLoading.value = true
     error.value = ''
     try {
-      singleResult.value = await backtestApi.v4(code, req)
-      message.success(`回測完成：${singleResult.value.total_trades || 0} 筆交易`)
+      let result: any
+      switch (strat) {
+        case 'v5':
+          result = await backtestApi.v5(code, req)
+          break
+        case 'adaptive':
+          result = await backtestApi.adaptive(code, req)
+          break
+        case 'bold':
+          result = await backtestApi.bold(code, { ...req, ultra_wide: true })
+          break
+        default:
+          result = await backtestApi.v4(code, req)
+      }
+      singleResult.value = result
+      message.success(`${STRATEGY_LABELS[strat]} 回測完成：${result.total_trades || 0} 筆交易`)
     } catch (e: any) {
       error.value = e.message
     } finally {
@@ -120,7 +146,7 @@ export const useBacktestStore = defineStore('backtest', () => {
   }
 
   return {
-    singleResult, portfolioResult, simulationResult, boldResult,
+    singleResult, singleStrategy, portfolioResult, simulationResult, boldResult,
     rollingResult, sensitivityResult, alphaBetaResult, strategyComparison,
     isLoading, error,
     runSingle, runPortfolio, runSimulation, runBold,

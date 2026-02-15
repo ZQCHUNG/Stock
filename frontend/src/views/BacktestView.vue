@@ -91,7 +91,7 @@ onMounted(() => {
 
     <!-- Mode Selector -->
     <NTabs v-model:value="mode" type="segment" style="margin-bottom: 16px">
-      <NTabPane name="single" tab="單一回測" />
+      <NTabPane name="single" tab="策略回測" />
       <NTabPane name="bold" tab="Bold策略" />
       <NTabPane name="portfolio" tab="投資組合" />
       <NTabPane name="simulation" tab="模擬交易" />

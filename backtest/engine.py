@@ -307,6 +307,20 @@ class BacktestEngine:
         max_pos_pct = p.get("max_position_pct", 0.9)
         min_hold = p.get("min_hold_days", 5)
 
+        # R71-A: Volatility guard — skip entries in high-vol bearish regimes — HYPOTHESIS
+        # Only blocks NEW entries when BOTH conditions met:
+        #   1. ATR_20 > historical 90th percentile (high volatility)
+        #   2. Close < MA20 (bearish short-term)
+        # This avoids cutting profitable entries in uptrend volatility
+        vol_guard_enabled = p.get("vol_guard_enabled", True)
+        vol_guard_percentile = p.get("vol_guard_percentile", 0.90)  # HYPOTHESIS: 90th
+        atr_pctile_series = pd.Series(dtype=float)
+        ma20_series = pd.Series(dtype=float)
+        if vol_guard_enabled and len(signals_df) > 40:
+            _atr20 = signals_df["close"].pct_change().abs().rolling(20).mean()
+            atr_pctile_series = _atr20.rolling(252, min_periods=60).rank(pct=True)
+            ma20_series = signals_df["close"].rolling(20, min_periods=10).mean()
+
         # 除息追蹤（僅供報表顯示，不影響 P&L）
         div_map = {}
         if dividends is not None and not dividends.empty:
@@ -385,6 +399,17 @@ class BacktestEngine:
             # ===== 進場 =====
             if signal == "BUY" and position == 0:
                 volume = row.volume if _has_volume else 0
+
+                # R71-A: Vol guard — skip entry when high ATR + bearish (below MA20)
+                if vol_guard_enabled and not atr_pctile_series.empty:
+                    _atr_pctile = atr_pctile_series.get(date, None)
+                    _ma20 = ma20_series.get(date, None)
+                    if (_atr_pctile is not None and not np.isnan(_atr_pctile)
+                            and _ma20 is not None and not np.isnan(_ma20)):
+                        if _atr_pctile > vol_guard_percentile and price < _ma20:
+                            # High vol + bearish → skip this entry entirely
+                            continue
+
                 trade, shares, cash = self._open_position(
                     price, high, volume, cash, max_pos_pct, date)
                 if trade is not None:

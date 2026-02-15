@@ -31,6 +31,8 @@ export const backtestApi = {
     client.post<any, any>(`/backtest/${code}/v4`, req),
   v5: (code: string, req: BacktestParams = {}) =>
     client.post<any, any>(`/backtest/${code}/v5`, req),
+  adaptive: (code: string, req: BacktestParams = {}) =>
+    client.post<any, any>(`/backtest/${code}/adaptive`, req),
   portfolio: (stockCodes: string[], req: BacktestParams = {}) =>
     client.post<any, any>('/backtest/portfolio', { stock_codes: stockCodes, ...req }),
   simulation: (code: string, days = 30, req: BacktestParams = {}) =>

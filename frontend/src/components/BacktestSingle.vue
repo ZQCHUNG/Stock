@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import {
-  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput, NSpin,
+  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput, NSpin, NSelect, NTag,
 } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart, PieChart, BarChart, ScatterChart } from 'echarts/charts'
@@ -34,6 +34,13 @@ const { colors: chartColors, tooltipStyle, toolboxConfig } = useChartTheme()
 const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
+const strategyOptions = [
+  { label: 'V4 趨勢動量', value: 'v4', description: '核心策略 — MA/MACD/RSI 趨勢追蹤 + 移動停利' },
+  { label: 'V5 均值回歸', value: 'v5', description: '震盪市場 — RSI 超賣反彈 + BB 回歸' },
+  { label: 'Adaptive 混合', value: 'adaptive', description: '自動切換 — 依市場 Regime 選擇 V4 或 V5' },
+  { label: 'Bold 大膽', value: 'bold', description: '爆發波段 — 能量擠壓突破 + 階梯式停利' },
+]
+
 // K-line data for trade chart tab
 const klineData = ref<TimeSeriesData | null>(null)
 const klineLoading = ref(false)
@@ -43,7 +50,7 @@ async function runBacktest() {
     period_days: props.periodDays,
     initial_capital: props.capital,
     ...props.costParams,
-  })
+  }, bt.singleStrategy)
 }
 
 // Auto-fetch K-line data when backtest result is available
@@ -317,8 +324,18 @@ const tradeColumns = [
 
 <template>
   <div>
-    <NSpace style="margin-bottom: 16px">
+    <NSpace align="center" style="margin-bottom: 16px">
+      <NSelect
+        v-model:value="bt.singleStrategy"
+        :options="strategyOptions"
+        size="small"
+        style="width: 180px"
+        :render-label="(opt: any) => opt.label"
+      />
       <NButton type="primary" @click="runBacktest" :loading="bt.isLoading">執行回測</NButton>
+      <NTag v-if="bt.singleResult" size="small" :bordered="false">
+        {{ strategyOptions.find(o => o.value === bt.singleStrategy)?.description }}
+      </NTag>
       <NButton v-if="bt.singleResult" size="small" quaternary @click="exportMetrics">匯出指標</NButton>
       <NPopover v-if="bt.singleResult" v-model:show="showSaveResult" trigger="click" placement="bottom">
         <template #trigger>
