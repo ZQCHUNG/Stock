@@ -698,3 +698,138 @@ def compare_forward_backtest(stock_code: str | None = None):
     """R59: Compare forward test vs backtest results."""
     from backtest.forward_test import compare_with_backtest
     return compare_with_backtest(stock_code=stock_code)
+
+
+# ---------------------------------------------------------------------------
+# R60: Risk Management endpoints
+# ---------------------------------------------------------------------------
+
+class RiskAssessmentRequest(BaseModel):
+    stock_codes: list[str] = []
+    portfolio_value: float = 1_000_000
+    holdings: dict[str, float] | None = None  # {code: market_value}
+    confidence: float = 0.95
+    single_stock_limit: float = 0.20
+    sector_limit: float = 0.40
+    max_dd_threshold: float = -0.15
+    daily_pnl: float = 0.0
+    weekly_pnl: float = 0.0
+    monthly_pnl: float = 0.0
+    consecutive_losses: int = 0
+
+
+@router.post("/risk/assess")
+def assess_risk(req: RiskAssessmentRequest):
+    """R60: Full portfolio risk assessment (VaR + concentration + drawdown + stress)."""
+    from data.fetcher import get_stock_data
+    from backtest.risk_manager import assess_portfolio_risk
+
+    try:
+        stock_data = {}
+        codes = req.stock_codes or (list(req.holdings.keys()) if req.holdings else [])
+        for code in codes:
+            df = get_stock_data(code, period_days=365)
+            if df is not None and len(df) > 0:
+                stock_data[code] = df
+
+        report = assess_portfolio_risk(
+            stock_data=stock_data,
+            holdings=req.holdings,
+            portfolio_value=req.portfolio_value,
+            confidence=req.confidence,
+            single_stock_limit=req.single_stock_limit,
+            sector_limit=req.sector_limit,
+            max_dd_threshold=req.max_dd_threshold,
+            daily_pnl=req.daily_pnl,
+            weekly_pnl=req.weekly_pnl,
+            monthly_pnl=req.monthly_pnl,
+            consecutive_losses=req.consecutive_losses,
+        )
+        return report.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/risk/var")
+def compute_var_endpoint(req: RiskAssessmentRequest):
+    """R60: Compute portfolio VaR (Historical + Parametric + CVaR)."""
+    from data.fetcher import get_stock_data
+    from backtest.risk_manager import compute_portfolio_returns, compute_var
+
+    try:
+        stock_data = {}
+        codes = req.stock_codes or (list(req.holdings.keys()) if req.holdings else [])
+        for code in codes:
+            df = get_stock_data(code, period_days=365)
+            if df is not None and len(df) > 0:
+                stock_data[code] = df
+
+        weights = None
+        if req.holdings:
+            total = sum(req.holdings.values())
+            if total > 0:
+                weights = {c: v / total for c, v in req.holdings.items()}
+
+        port_ret = compute_portfolio_returns(stock_data, weights)
+        result = compute_var(port_ret, req.confidence, req.portfolio_value)
+        return result.to_dict()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/risk/stress-test")
+def run_stress_test_endpoint(req: RiskAssessmentRequest):
+    """R60: Run stress tests on portfolio."""
+    from data.fetcher import get_stock_data, get_taiex_data
+    from analysis.risk import calculate_portfolio_beta
+    from backtest.risk_manager import run_stress_test
+
+    try:
+        holdings = req.holdings or {}
+        if not holdings and req.stock_codes:
+            # Equal weight if no explicit holdings
+            val = req.portfolio_value / len(req.stock_codes)
+            holdings = {c: val for c in req.stock_codes}
+
+        # Get betas
+        stock_data = {}
+        for code in holdings:
+            df = get_stock_data(code, period_days=365)
+            if df is not None and len(df) > 0:
+                stock_data[code] = df
+
+        market_df = get_taiex_data(period_days=365)
+        betas = calculate_portfolio_beta(stock_data, market_df) if market_df is not None else {}
+
+        results = run_stress_test(holdings, betas, portfolio_value=req.portfolio_value)
+        return [
+            {
+                "scenario": r.scenario,
+                "portfolio_pnl": r.portfolio_pnl,
+                "portfolio_pnl_amt": r.portfolio_pnl_amt,
+                "worst_stock": r.worst_stock,
+                "worst_stock_pnl": r.worst_stock_pnl,
+                "details": r.details,
+            }
+            for r in results
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/risk/circuit-breaker")
+def check_circuit_breaker(
+    daily_pnl: float = 0.0,
+    weekly_pnl: float = 0.0,
+    monthly_pnl: float = 0.0,
+    consecutive_losses: int = 0,
+):
+    """R60: Evaluate circuit breaker conditions."""
+    from backtest.risk_manager import evaluate_circuit_breaker
+    result = evaluate_circuit_breaker(
+        daily_pnl=daily_pnl,
+        weekly_pnl=weekly_pnl,
+        monthly_pnl=monthly_pnl,
+        consecutive_losses=consecutive_losses,
+    )
+    return result.to_dict()
