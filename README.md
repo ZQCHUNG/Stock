@@ -193,6 +193,7 @@ python -m pytest tests/ -q
 | R64-R65 | DTW pattern matching + PatternView UI | Done |
 | R66 | Bold strategy (Energy Squeeze + Step-up Buffer) | Done |
 | R67 | Ultra-Wide → Conviction 2.0 (Regime-Based Trail) + Sweep | Done |
+| R68 | Frontend Bold strategy toggle UI (回測+技術分析) | Done |
 
 ### R67 完成摘要
 
@@ -246,7 +247,7 @@ Gemini 提議 Conviction 2.0：基於 MA200 斜率的動態 trail 寬度。
 
 ### 待辦
 
-- Frontend Bold strategy toggle UI
+- ATR/Price 分群自動調整 trail（Gemini HYPOTHESIS）
 - Liquidity Score calculation
 
 ---
