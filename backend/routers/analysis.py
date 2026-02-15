@@ -869,3 +869,60 @@ def get_corporate_actions(code: str, period_days: int = 365):
         return report.summary()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/valuation")
+def get_valuation(code: str):
+    """R62: 取得個股估值資料 (PE/PB/殖利率) — TWSE BWIBBU_d
+
+    Returns:
+        pe, pb, dividend_yield, valuation_score (0-100)
+    """
+    from data.twse_scraper import get_stock_valuation, compute_valuation_score
+    try:
+        val = get_stock_valuation(code)
+        if not val:
+            return {"code": code, "available": False, "reason": "No valuation data"}
+
+        score = compute_valuation_score(
+            val.get("pe"), val.get("pb"), val.get("dividend_yield")
+        )
+        return {
+            "code": code,
+            "available": True,
+            "pe": val.get("pe"),
+            "pb": val.get("pb"),
+            "dividend_yield": val.get("dividend_yield"),
+            "close": val.get("close"),
+            "valuation_score": round(score, 1),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/revenue")
+def get_revenue(code: str, months: int = Query(default=12, ge=1, le=36)):
+    """R62: 取得個股月營收資料 — 公開資訊觀測站 MOPS
+
+    Returns:
+        Monthly revenue data with YoY growth rate
+    """
+    from data.twse_scraper import get_stock_revenue, compute_growth_score
+    from backend.dependencies import make_serializable
+    try:
+        df = get_stock_revenue(code, months=months)
+        if df is None or df.empty:
+            return {"code": code, "available": False, "data": []}
+
+        latest_yoy = df.iloc[-1].get("revenue_yoy") if not df.empty else None
+        growth_score = compute_growth_score(latest_yoy)
+
+        return make_serializable({
+            "code": code,
+            "available": True,
+            "growth_score": round(growth_score, 1),
+            "latest_revenue_yoy": latest_yoy,
+            "data": df.to_dict(orient="records"),
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -135,6 +135,32 @@ def _score_maturity(signal_maturity: str) -> float:
     return scores.get(signal_maturity, 40.0)
 
 
+def _score_valuation(
+    pe: float | None,
+    pb: float | None,
+    dividend_yield: float | None,
+    pe_history: list[float] | None = None,
+    pb_history: list[float] | None = None,
+) -> float:
+    """Score: 估值合理性（0-100）— R62 新增
+
+    PE Percentile 40% + PB Percentile 30% + 殖利率 30%
+    越便宜（PE/PB 低、殖利率高）分數越高。
+    無歷史數據時降級為絕對值規則。
+    """
+    from data.twse_scraper import compute_valuation_score
+    return compute_valuation_score(pe, pb, dividend_yield, pe_history, pb_history)
+
+
+def _score_growth(revenue_yoy: float | None) -> float:
+    """Score: 成長動能（0-100）— R62 新增
+
+    基於月營收年增率。YoY > 20% = 高成長。
+    """
+    from data.twse_scraper import compute_growth_score
+    return compute_growth_score(revenue_yoy)
+
+
 def _score_institutional(inst_net_ratio: float | None) -> float:
     """Score: 法人動向（0-100）（Gemini R44, backward-compatible single ratio）
 
@@ -228,11 +254,19 @@ def calculate_sqs(
     trust_ratio: float | None = None,
     dealer_ratio: float | None = None,
     market_cap: float | None = None,
+    # R62: Valuation + Growth dimensions (TWSE free data)
+    pe_ratio: float | None = None,
+    pb_ratio: float | None = None,
+    dividend_yield: float | None = None,
+    pe_history: list[float] | None = None,
+    pb_history: list[float] | None = None,
+    revenue_yoy: float | None = None,
 ) -> dict:
     """Calculate Signal Quality Score (SQS).
 
-    6 dimensions (R44→R45: Market-cap-weighted Institutional Flow):
-    - Fitness 25%, Regime 20%, EV 15%, Heat 10%, Maturity 10%, Institutional 20%
+    8 dimensions (R62: Valuation + Growth from TWSE free data):
+    - Institutional 20%, Growth 15%, Fitness 15%,
+    - Valuation 10%, Regime 10%, EV 10%, Heat 10%, Maturity 10%
 
     Returns:
         dict with sqs (0-100), grade, breakdown, net_ev, cost_drag
@@ -250,15 +284,37 @@ def calculate_sqs(
     else:
         s_inst = _score_institutional(inst_net_ratio)
 
-    # Weighted sum (R44: rebalanced with institutional flow)
-    sqs = (
-        s_fitness * 0.25
-        + s_regime * 0.20
-        + s_ev * 0.15
-        + s_heat * 0.10
-        + s_maturity * 0.10
-        + s_inst * 0.20
-    )
+    # R62: Valuation + Growth dimensions (TWSE free data)
+    s_valuation = _score_valuation(pe_ratio, pb_ratio, dividend_yield, pe_history, pb_history)
+    s_growth = _score_growth(revenue_yoy)
+
+    # R62: 8-dimension weighted sum
+    # When new dimensions have data: use full 8-dim weights (Gemini R28 agreed)
+    has_valuation = pe_ratio is not None or pb_ratio is not None or dividend_yield is not None
+    has_growth = revenue_yoy is not None
+
+    if has_valuation or has_growth:
+        # Full 8-dim: Inst 20%, Growth 15%, Fitness 15%, Val 10%, Regime 10%, EV 10%, Heat 10%, Mat 10%
+        sqs = (
+            s_inst * 0.20
+            + s_growth * 0.15
+            + s_fitness * 0.15
+            + s_valuation * 0.10
+            + s_regime * 0.10
+            + s_ev * 0.10
+            + s_heat * 0.10
+            + s_maturity * 0.10
+        )
+    else:
+        # Legacy 6-dim (backward compatible when no fundamental data)
+        sqs = (
+            s_fitness * 0.25
+            + s_regime * 0.20
+            + s_ev * 0.15
+            + s_heat * 0.10
+            + s_maturity * 0.10
+            + s_inst * 0.20
+        )
 
     # Grade
     if sqs >= SQS_DIAMOND:
@@ -305,6 +361,8 @@ def calculate_sqs(
             "heat": round(s_heat, 1),
             "maturity": round(s_maturity, 1),
             "institutional": round(s_inst, 1),
+            "valuation": round(s_valuation, 1),
+            "growth": round(s_growth, 1),
         },
     }
 
@@ -404,6 +462,30 @@ def compute_sqs_for_signal(
     except Exception:
         pass
 
+    # 7. Valuation: PE/PB/殖利率 from TWSE (R62)
+    pe_ratio = None
+    pb_ratio = None
+    dividend_yield = None
+    try:
+        from data.twse_scraper import get_stock_valuation
+        val = get_stock_valuation(code)
+        if val:
+            pe_ratio = val.get("pe")
+            pb_ratio = val.get("pb")
+            dividend_yield = val.get("dividend_yield")
+    except Exception:
+        pass
+
+    # 8. Growth: 月營收 YoY from MOPS (R62)
+    revenue_yoy = None
+    try:
+        from data.twse_scraper import get_stock_revenue
+        rev_df = get_stock_revenue(code, months=1)
+        if rev_df is not None and not rev_df.empty:
+            revenue_yoy = rev_df.iloc[-1].get("revenue_yoy")
+    except Exception:
+        pass
+
     sqs_result = calculate_sqs(
         fitness_tag=fitness_tag,
         signal_strategy=signal_strategy,
@@ -418,6 +500,10 @@ def compute_sqs_for_signal(
         trust_ratio=trust_ratio,
         dealer_ratio=dealer_ratio,
         market_cap=market_cap,
+        pe_ratio=pe_ratio,
+        pb_ratio=pb_ratio,
+        dividend_yield=dividend_yield,
+        revenue_yoy=revenue_yoy,
     )
     sqs_result["code"] = code
     sqs_result["fitness_tag"] = fitness_tag

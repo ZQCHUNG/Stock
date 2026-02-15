@@ -259,10 +259,12 @@ class TestCalculateSqs:
         result = calculate_sqs(raw_ev_20d=0.02, ev_sample_count=20)
         assert result["cost_trap"] is False
 
-    def test_breakdown_has_6_dimensions(self):
+    def test_breakdown_has_8_dimensions(self):
         result = calculate_sqs()
-        assert len(result["breakdown"]) == 6
+        assert len(result["breakdown"]) == 8
         assert "institutional" in result["breakdown"]
+        assert "valuation" in result["breakdown"]
+        assert "growth" in result["breakdown"]
 
     def test_grade_labels(self):
         r = calculate_sqs(fitness_tag="Trend Only (V4)", signal_strategy="V4", regime="bull",
