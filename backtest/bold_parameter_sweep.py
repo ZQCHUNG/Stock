@@ -187,6 +187,62 @@ def sweep_stop_loss(
     return pd.DataFrame(rows)
 
 
+def sweep_regime_trail(
+    df: pd.DataFrame,
+    stock_code: str,
+    regime_trail_pcts: list[float] = None,
+    base_trail_pcts: list[float] = None,
+) -> pd.DataFrame:
+    """Sweep trail_regime_wide_pct × trail_level3_pct grid (Conviction 2.0).
+
+    Tests how regime-based dynamic trail width affects performance.
+    - trail_level3_pct = base trail (bearish/flat market)
+    - trail_regime_wide_pct = widened trail (bullish MA200 slope)
+    """
+    if regime_trail_pcts is None:
+        regime_trail_pcts = [0.15, 0.20, 0.25, 0.30, 0.35, 0.40]
+    if base_trail_pcts is None:
+        base_trail_pcts = [0.10, 0.15, 0.20]
+
+    rows = []
+    total = len(regime_trail_pcts) * len(base_trail_pcts)
+    count = 0
+
+    for rt, bt in itertools.product(regime_trail_pcts, base_trail_pcts):
+        count += 1
+        # regime trail must be >= base trail
+        if rt < bt:
+            continue
+        print(f"  [{stock_code}] {count}/{total}: regime_trail={rt}, base_trail={bt}")
+
+        overrides = {
+            "trail_level3_pct": bt,
+            "trail_regime_wide_pct": rt,
+            "regime_trail_enabled": True,
+        }
+
+        metrics = run_single_sweep(df, overrides, ultra_wide=True)
+        metrics["stock"] = stock_code
+        metrics["trail_regime_wide_pct"] = rt
+        metrics["trail_level3_pct"] = bt
+        rows.append(metrics)
+
+    # Also test with regime_trail disabled for comparison
+    for bt in base_trail_pcts:
+        print(f"  [{stock_code}] DISABLED: base_trail={bt} (no regime widening)")
+        overrides = {
+            "trail_level3_pct": bt,
+            "regime_trail_enabled": False,
+        }
+        metrics = run_single_sweep(df, overrides, ultra_wide=True)
+        metrics["stock"] = stock_code
+        metrics["trail_regime_wide_pct"] = 0.0  # disabled
+        metrics["trail_level3_pct"] = bt
+        rows.append(metrics)
+
+    return pd.DataFrame(rows)
+
+
 def analyze_robustness(sweep_df: pd.DataFrame, param_col: str, metric_col: str = "total_return") -> dict:
     """Analyze robustness of optimal parameter.
 
@@ -407,6 +463,90 @@ def run_full_sweep(stocks: list[str] = None, period_days: int = 2000) -> dict:
     return results
 
 
+def run_regime_sweep(stocks: list[str] = None, period_days: int = 2000) -> dict:
+    """Run Conviction 2.0 regime trail sweep.
+
+    Tests trail_regime_wide_pct vs trail_level3_pct combinations,
+    plus disabled-regime baseline comparison.
+    """
+    if stocks is None:
+        stocks = ["6748", "6139", "6442"]
+
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "stocks": stocks,
+        "regime_trail_sweep": {},
+        "robustness": {},
+    }
+
+    for code in stocks:
+        print(f"\n{'=' * 60}")
+        print(f"Fetching {code}.TW data...")
+        print("=" * 60)
+
+        df = fetch_stock_data(code, period_days=period_days)
+        if df is None or df.empty:
+            print(f"  SKIP: No data for {code}")
+            continue
+
+        print(f"  Got {len(df)} days, from {df.index[0]} to {df.index[-1]}")
+
+        # --- Regime Trail Sweep ---
+        print(f"\n--- Regime Trail Sweep (Conviction 2.0) ---")
+        rt_df = sweep_regime_trail(df, code)
+        results["regime_trail_sweep"][code] = rt_df.to_dict(orient="records")
+
+        # Print results table
+        print(f"\n  {'regime_trail':>12} {'base_trail':>10} {'return':>10} {'MDD':>10} {'trades':>7} {'sharpe':>8}")
+        print(f"  {'-'*12} {'-'*10} {'-'*10} {'-'*10} {'-'*7} {'-'*8}")
+        for _, row in rt_df.sort_values(["trail_level3_pct", "trail_regime_wide_pct"]).iterrows():
+            rt_label = f"{row['trail_regime_wide_pct']:.0%}" if row['trail_regime_wide_pct'] > 0 else "OFF"
+            print(f"  {rt_label:>12} {row['trail_level3_pct']:>10.0%} "
+                  f"{row['total_return']:>10.1%} {row['max_drawdown']:>10.1%} "
+                  f"{row['total_trades']:>7.0f} {row.get('sharpe_ratio', 0):>8.2f}")
+
+        # Robustness analysis for regime trail
+        # Group by regime_trail_pct (with fixed base_trail=0.15)
+        base15 = rt_df[rt_df["trail_level3_pct"] == 0.15]
+        if not base15.empty:
+            rob = analyze_robustness(base15, "trail_regime_wide_pct", "total_return")
+            results["robustness"][code] = {
+                "trail_regime_wide_pct": rob,
+            }
+            print(f"\n  Robustness (base=15%): optimal regime_trail={rob.get('optimal_value')}, "
+                  f"cliff={rob.get('cliff_score')}, band={rob.get('robustness_band')}")
+
+    # --- Summary ---
+    print(f"\n{'=' * 60}")
+    print("REGIME TRAIL VALIDATION SUMMARY")
+    print("=" * 60)
+
+    for code in stocks:
+        if code not in results["robustness"]:
+            continue
+        rob = results["robustness"][code].get("trail_regime_wide_pct", {})
+        print(f"\n{code}:")
+        print(f"  trail_regime_wide_pct: optimal={rob.get('optimal_value', 'N/A')}, "
+              f"cliff={rob.get('cliff_score', 'N/A')}")
+        if rob.get("robustness_band"):
+            print(f"  robustness band: {rob['robustness_band']}")
+
+    return results
+
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, pd.Timestamp):
+            return str(obj)
+        return super().default(obj)
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -414,25 +554,22 @@ if __name__ == "__main__":
     parser.add_argument("--stocks", nargs="+", default=["6748", "6139", "6442"])
     parser.add_argument("--period", type=int, default=2000)
     parser.add_argument("--output", type=str, default="data/bold_sweep_results.json")
+    parser.add_argument("--mode", choices=["full", "regime"], default="regime",
+                        help="full = original sweep, regime = Conviction 2.0 regime trail sweep")
     args = parser.parse_args()
 
-    results = run_full_sweep(stocks=args.stocks, period_days=args.period)
-
-    # Save results
-    output_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), args.output)
-
-    # Convert any non-serializable types
-    class NumpyEncoder(json.JSONEncoder):
-        def default(self, obj):
-            if isinstance(obj, (np.integer,)):
-                return int(obj)
-            if isinstance(obj, (np.floating,)):
-                return float(obj)
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            if isinstance(obj, pd.Timestamp):
-                return str(obj)
-            return super().default(obj)
+    if args.mode == "regime":
+        results = run_regime_sweep(stocks=args.stocks, period_days=args.period)
+        output_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            args.output.replace(".json", "_regime.json"),
+        )
+    else:
+        results = run_full_sweep(stocks=args.stocks, period_days=args.period)
+        output_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            args.output,
+        )
 
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)

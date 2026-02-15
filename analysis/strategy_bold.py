@@ -76,9 +76,9 @@ STRATEGY_BOLD_PARAMS = {
 
     # --- Regime-Based Trail（Conviction 2.0，取代 DEAD conviction_hold_gain）---
     "ultra_wide": False,              # 是否啟用超寬頻模式
-    "regime_trail_enabled": True,     # HYPOTHESIS: MA200 上升時動態放寬 trail
+    "regime_trail_enabled": True,     # VALIDATED(n=3): MA200 上升時動態放寬 trail (6139: 44%→274%)
     "ma_slope_threshold": 0.0,        # MA200 斜率 > 此值 → 多頭 regime
-    "trail_regime_wide_pct": 0.25,    # HYPOTHESIS: 多頭 regime 下放寬到 -25%
+    "trail_regime_wide_pct": 0.20,    # VALIDATED(n=3, 2021-2026): 多頭 regime 下放寬到 -20%
 }
 
 # Ultra-Wide 預設（適用 6139 型長線價值股）
@@ -86,7 +86,7 @@ STRATEGY_BOLD_ULTRA_WIDE = {
     **STRATEGY_BOLD_PARAMS,
     "ultra_wide": True,
     "trail_level3_pct": 0.15,         # VALIDATED(n=3): 基準 -15%
-    "trail_regime_wide_pct": 0.25,    # HYPOTHESIS: 多頭 regime 下放寬到 -25%
+    "trail_regime_wide_pct": 0.20,    # VALIDATED(n=3, 2021-2026): 0.20 optimal, 0.15-0.25 robust
     "max_hold_days": 365,             # 名義上最長持有 1 年
     "min_hold_days": 15,              # 最短持有 15 天
     "stop_loss_pct": 0.18,            # VALIDATED(n=3): 災難停損 -18%

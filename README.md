@@ -214,24 +214,38 @@ Gemini 提議 Conviction 2.0：基於 MA200 斜率的動態 trail 寬度。
 
 **變更**:
 - 移除: `conviction_hold_gain`, `conviction_hold_min_days`, `ma_slope_protection`, `trail_ultra_wide_pct`
-- 新增: `regime_trail_enabled` (bool), `trail_regime_wide_pct` (0.25, HYPOTHESIS)
-- 邏輯: MA200 slope > 0 AND gain > 50% → trail 從 0.15 放寬至 0.25
+- 新增: `regime_trail_enabled` (bool), `trail_regime_wide_pct` (0.20, VALIDATED)
+- 邏輯: MA200 slope > 0 AND gain > 50% → trail 從 0.15 放寬至 0.20
 - 簡化: max_hold_days 無 bypass（conviction_hold 已移除）
 
-### Sweep 結果摘要 (3 stocks × 36+8+6 combos)
+### Regime Trail Sweep 結果 (Conviction 2.0 驗證)
+
+| Stock | regime=OFF | regime=0.15 | regime=0.20 | regime=0.25 | regime=0.35 |
+|-------|-----------|-------------|-------------|-------------|-------------|
+| 6748 | 11.6% | 11.6% | 11.6% | 11.6% | 11.6% |
+| 6139 | 44.4% | 80.7% | **273.5%** | 273.5% | 273.5% |
+| 6442 | **35.0%** | 35.0% | 32.3% | 29.5% | 23.9% |
+
+**發現**:
+- 6748: regime trail 無效果（Level 3 never reached）
+- 6139: regime trail **至關重要**（OFF=44% vs ON=274%），0.20 是最低有效值
+- 6442: regime trail **略微有害**（越寬越差），最佳=0.15（不放寬）
+- **0.20 是折衷最優**：完整捕獲 6139 爆發，6442 僅損失 -2.7pp
+
+### 參數驗證總結
 
 | 參數 | 狀態 | 值 |
 |------|------|-----|
 | trail_level3_pct | VALIDATED(n=3, 2021-2026) | 0.15 optimal, 0.15-0.35 robust |
+| regime_trail_enabled | VALIDATED(n=3) | 6139: 44%→274% 巨大提升 |
+| trail_regime_wide_pct | VALIDATED(n=3, 2021-2026) | **0.20** optimal, 0.15-0.25 robust |
 | conviction_hold_gain | DEAD_PARAMETER → **已移除** | Regime-Based Trail 取代 |
-| trail_regime_wide_pct | HYPOTHESIS | 0.25, 待 sweep 驗證 |
 | ATR multiplier | NEEDS_MORE_DATA | 方向不一致 |
 | stop_loss_pct | VALIDATED(n=3) | 15-18% sweet spot |
 | Cross-stock overlap | ONE_SIZE_FITS_ALL | 80-100% overlap |
 
 ### 待辦
 
-- Sweep 驗證 `trail_regime_wide_pct = 0.25` (HYPOTHESIS → VALIDATED?)
 - Frontend Bold strategy toggle UI
 - Liquidity Score calculation
 

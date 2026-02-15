@@ -234,7 +234,7 @@ class TestRegimeBasedTrail:
         assert STRATEGY_BOLD_ULTRA_WIDE["ultra_wide"] is True
         assert STRATEGY_BOLD_ULTRA_WIDE["trail_level3_pct"] == 0.15  # VALIDATED
         assert STRATEGY_BOLD_ULTRA_WIDE["max_hold_days"] == 365
-        assert STRATEGY_BOLD_ULTRA_WIDE["trail_regime_wide_pct"] == 0.25
+        assert STRATEGY_BOLD_ULTRA_WIDE["trail_regime_wide_pct"] == 0.20
 
     def test_regime_trail_widens_in_bull(self):
         """Bullish regime (MA200 rising) should widen trail from 15% to 25%."""
@@ -303,8 +303,9 @@ class TestRegimeBasedTrail:
 
     def test_ultra_wide_max_hold_365(self):
         """Ultra-Wide should enforce 365 days max hold (no conviction bypass)."""
+        # regime trail 0.20: 250*0.80=200, current 210 > 200 → hold
         result = compute_bold_exit(
-            entry_price=100, current_price=200, peak_price=250,
+            entry_price=100, current_price=210, peak_price=250,
             current_atr=5.0, hold_days=300,
             params=dict(STRATEGY_BOLD_ULTRA_WIDE),
             ma200_slope=0.05,
@@ -313,7 +314,7 @@ class TestRegimeBasedTrail:
         assert result["should_exit"] is False
 
         result2 = compute_bold_exit(
-            entry_price=100, current_price=200, peak_price=250,
+            entry_price=100, current_price=210, peak_price=250,
             current_atr=5.0, hold_days=365,
             params=dict(STRATEGY_BOLD_ULTRA_WIDE),
         )
