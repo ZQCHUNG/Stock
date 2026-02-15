@@ -226,68 +226,68 @@ class TestGetBoldAnalysis:
         assert "ma20" in result["indicators"]
 
 
-class TestUltraWideConviction:
-    """Test Ultra-Wide Conviction mode with MA200 slope protection."""
+class TestRegimeBasedTrail:
+    """Test Regime-Based Trail (Conviction 2.0) — replaces dead conviction_hold_gain."""
 
     def test_ultra_wide_params_exist(self):
-        """Ultra-Wide preset should have wider parameters."""
+        """Ultra-Wide preset should have regime trail parameters."""
         assert STRATEGY_BOLD_ULTRA_WIDE["ultra_wide"] is True
-        assert STRATEGY_BOLD_ULTRA_WIDE["trail_level3_pct"] == 0.30
+        assert STRATEGY_BOLD_ULTRA_WIDE["trail_level3_pct"] == 0.15  # VALIDATED
         assert STRATEGY_BOLD_ULTRA_WIDE["max_hold_days"] == 365
-        assert STRATEGY_BOLD_ULTRA_WIDE["trail_ultra_wide_pct"] == 0.35
+        assert STRATEGY_BOLD_ULTRA_WIDE["trail_regime_wide_pct"] == 0.25
 
-    def test_ma200_slope_widens_trail(self):
-        """With rising MA200, Level 3 should use ultra-wide trailing."""
-        # Standard mode: -25% trail → peak 200, trail at 150
+    def test_regime_trail_widens_in_bull(self):
+        """Bullish regime (MA200 rising) should widen trail from 15% to 25%."""
+        # Standard: trail_level3_pct=0.15, peak=200 → trail at 200*0.85=170
         result_std = compute_bold_exit(
-            entry_price=100, current_price=155, peak_price=200,
+            entry_price=100, current_price=175, peak_price=200,
             current_atr=5.0, hold_days=60,
-            params={"use_atr_trail": False},
+            params={"ultra_wide": True, "use_atr_trail": False,
+                    "trail_level3_pct": 0.15, "trail_regime_wide_pct": 0.25,
+                    "regime_trail_enabled": True, "ma_slope_threshold": 0.0},
+            ma200_slope=-0.01,  # bearish → standard 15%
         )
-        # current 155 > 150 → hold in standard
+        # trail: 200*0.85=170, current 175 > 170 → hold
         assert result_std["should_exit"] is False
+        assert result_std["level"] == 3
 
-        # Now test: current = 140, below standard -25% (150) but above ultra-wide -35% (130)
-        result_std2 = compute_bold_exit(
-            entry_price=100, current_price=140, peak_price=200,
-            current_atr=5.0, hold_days=60,
-            params={"use_atr_trail": False},
-        )
-        # gain_pct = 0.40 < 0.50, so Level 2 → trail at max(200*0.85=170, 110)=170
-        # current 140 < 170 → exit
-        assert result_std2["should_exit"] is True
-
-    def test_ultra_wide_with_ma_slope(self):
-        """Ultra-Wide + rising MA200 → -35% trail instead of -25%."""
-        result = compute_bold_exit(
-            entry_price=100, current_price=155, peak_price=200,
+        # Now: price at 165, below standard -15% (170) but above regime -25% (150)
+        result_bear = compute_bold_exit(
+            entry_price=100, current_price=165, peak_price=200,
             current_atr=5.0, hold_days=60,
             params={"ultra_wide": True, "use_atr_trail": False,
-                    "trail_level3_pct": 0.30, "trail_ultra_wide_pct": 0.35,
-                    "ma_slope_protection": True, "ma_slope_threshold": 0.0},
-            ma200_slope=0.05,  # rising MA200
+                    "trail_level3_pct": 0.15, "trail_regime_wide_pct": 0.25,
+                    "regime_trail_enabled": True, "ma_slope_threshold": 0.0},
+            ma200_slope=-0.01,  # bearish → standard 15% trail
         )
-        # gain=55%, Level 3
-        # MA protected → trail_pct = 0.35
-        # trail: 200 * 0.65 = 130, floor=110 → 130
-        # current 155 > 130 → hold
-        assert result["should_exit"] is False
-        assert result["level"] == 3
+        # trail: 200*0.85=170, current 165 < 170 → exit
+        assert result_bear["should_exit"] is True
 
-    def test_ultra_wide_without_ma_slope(self):
-        """Ultra-Wide but flat/falling MA200 → standard Level 3 trail."""
-        result = compute_bold_exit(
-            entry_price=100, current_price=155, peak_price=200,
+        # Bull regime: same price should HOLD (wider 25% trail)
+        result_bull = compute_bold_exit(
+            entry_price=100, current_price=165, peak_price=200,
             current_atr=5.0, hold_days=60,
             params={"ultra_wide": True, "use_atr_trail": False,
-                    "trail_level3_pct": 0.30, "trail_ultra_wide_pct": 0.35,
-                    "ma_slope_protection": True, "ma_slope_threshold": 0.0},
-            ma200_slope=-0.01,  # falling MA200 → no protection
+                    "trail_level3_pct": 0.15, "trail_regime_wide_pct": 0.25,
+                    "regime_trail_enabled": True, "ma_slope_threshold": 0.0},
+            ma200_slope=0.05,  # bullish → regime trail 25%
         )
-        # No MA protection → trail_pct = 0.30
-        # trail: 200 * 0.70 = 140, floor=110 → 140
-        # current 155 > 140 → hold
-        assert result["should_exit"] is False
+        # trail: 200*0.75=150, current 165 > 150 → hold
+        assert result_bull["should_exit"] is False
+        assert result_bull["level"] == 3
+
+    def test_regime_trail_disabled(self):
+        """When regime_trail_enabled=False, always use standard trail."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=165, peak_price=200,
+            current_atr=5.0, hold_days=60,
+            params={"ultra_wide": True, "use_atr_trail": False,
+                    "trail_level3_pct": 0.15, "trail_regime_wide_pct": 0.25,
+                    "regime_trail_enabled": False, "ma_slope_threshold": 0.0},
+            ma200_slope=0.05,  # would be bullish, but feature disabled
+        )
+        # Disabled → standard 15% trail: 200*0.85=170, current 165 < 170 → exit
+        assert result["should_exit"] is True
 
     def test_ultra_wide_disaster_still_works(self):
         """Disaster stop should still work in Ultra-Wide mode."""
@@ -302,7 +302,7 @@ class TestUltraWideConviction:
         assert "disaster_stop" in result["exit_reason"]
 
     def test_ultra_wide_max_hold_365(self):
-        """Ultra-Wide should allow up to 365 days hold."""
+        """Ultra-Wide should enforce 365 days max hold (no conviction bypass)."""
         result = compute_bold_exit(
             entry_price=100, current_price=200, peak_price=250,
             current_atr=5.0, hold_days=300,
@@ -317,9 +317,24 @@ class TestUltraWideConviction:
             current_atr=5.0, hold_days=365,
             params=dict(STRATEGY_BOLD_ULTRA_WIDE),
         )
-        # 365 >= 365 → should exit
+        # 365 >= 365 → should exit (no more conviction_hold bypass!)
         assert result2["should_exit"] is True
         assert "max_hold" in result2["exit_reason"]
+
+    def test_regime_exit_reason_label(self):
+        """Exit in regime mode should have trail_level3_regime reason."""
+        # gain_pct = 155/100 - 1 = 0.55 → Level 3 (>0.50 threshold)
+        # regime trail: 220 * 0.75 = 165, current 155 < 165 → exit
+        result = compute_bold_exit(
+            entry_price=100, current_price=155, peak_price=220,
+            current_atr=5.0, hold_days=60,
+            params={"ultra_wide": True, "use_atr_trail": False,
+                    "trail_level3_pct": 0.15, "trail_regime_wide_pct": 0.25,
+                    "regime_trail_enabled": True, "ma_slope_threshold": 0.0},
+            ma200_slope=0.05,  # bullish
+        )
+        assert result["should_exit"] is True
+        assert result["exit_reason"] == "trail_level3_regime"
 
 
 class TestVolumeRampEntry:

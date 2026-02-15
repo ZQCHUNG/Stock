@@ -1,9 +1,10 @@
-"""Bold 策略 — 能量擠壓突破 + 階梯式停利 (R66)
+"""Bold 策略 — 能量擠壓突破 + 階梯式停利 (R66-R67)
 
 核心邏輯（Claude + Gemini 共識）：
 1. 進場：布林通道擠壓 + 成交量暴增突破（Energy Squeeze Breakout）
    OR 超跌反彈 + RSI < 30 + 量能枯竭後放量
-2. 出場：ATR 動態停損 + 階梯式獲利保護（Step-up Buffer）
+   OR 量能爬坡突破（Volume Ramp — 小型股發現）
+2. 出場：階梯式獲利保護（Step-up Buffer）+ Regime-Based Trail
 3. 適用場景：長期橫盤後的爆發行情（如生技股、題材股）
 
 與 V4/V5 的關係：
@@ -14,14 +15,16 @@
 
 風控特色：
 - 階梯式停損：獲利越多，停損越寬（讓利潤奔跑）
-- ATR 動態：波動大時自動放寬，波動小時自動收緊
-- 災難停損：無論獲利多少，-15% 絕對止損
+- Regime-Based Trail：MA200 上升時動態放寬 trail（信念模式 2.0）
+- 災難停損：無論獲利多少，絕對止損
 - 最低持有：10 天（避免被洗出主升段）
 
-Ultra-Wide Conviction 模式（Gemini 建議）：
-- MA200 斜率保護：年線持續上升時容忍更大回檔
-- -35% 超寬頻停損：適用於 6139 型 2-3 年長線價值股
-- 最長持有 365 天
+參數驗證狀態（R67 Sweep, n=3 stocks, 2021-2026）：
+- trail_level3_pct = 0.15 → VALIDATED（跨股一致，robust band 0.15-0.35）
+- stop_loss_pct = 0.15-0.18 → VALIDATED
+- conviction_hold_gain → DEAD_PARAMETER（已移除，R67 sweep 證明零效果）
+- ATR multiplier → NEEDS_MORE_DATA（方向因股不同）
+- trail_regime_wide_pct = 0.25 → HYPOTHESIS（Gemini Conviction 2.0 提議）
 """
 
 import pandas as pd
@@ -62,34 +65,31 @@ STRATEGY_BOLD_PARAMS = {
     "trail_level2_floor": 0.10,       # 鎖住成本 +10% 以上（保底）
     # Level 3: 獲利 > 50%（信念模式）
     "trail_level3_threshold": 0.50,   # 進入 Level 3 的獲利門檻
-    "trail_level3_pct": 0.25,         # trailing -25%（讓利潤奔跑）
+    "trail_level3_pct": 0.15,         # VALIDATED(n=3, 2021-2026): trailing -15%
     # ATR 動態停損
-    "atr_trail_multiplier": 3.0,      # 停損 = peak - 3.0 × ATR
+    "atr_trail_multiplier": 3.0,      # NEEDS_MORE_DATA: 停損 = peak - N × ATR
     "use_atr_trail": True,            # 是否啟用 ATR 動態停損
 
     # --- 部位 ---
     "max_position_pct": 0.20,         # 大膽模式最大倉位 20%（衛星）
     "max_hold_days": 120,             # 最長持有天數
 
-    # --- Ultra-Wide Conviction 模式 ---
+    # --- Regime-Based Trail（Conviction 2.0，取代 DEAD conviction_hold_gain）---
     "ultra_wide": False,              # 是否啟用超寬頻模式
-    "ma_slope_protection": True,      # MA200 斜率保護
-    "ma_slope_threshold": 0.0,        # MA200 斜率 > 此值時保護生效
-    "trail_ultra_wide_pct": 0.35,     # Ultra-Wide trailing -35%
+    "regime_trail_enabled": True,     # HYPOTHESIS: MA200 上升時動態放寬 trail
+    "ma_slope_threshold": 0.0,        # MA200 斜率 > 此值 → 多頭 regime
+    "trail_regime_wide_pct": 0.25,    # HYPOTHESIS: 多頭 regime 下放寬到 -25%
 }
 
-# Ultra-Wide Conviction 預設（適用 6139 型長線價值股）
+# Ultra-Wide 預設（適用 6139 型長線價值股）
 STRATEGY_BOLD_ULTRA_WIDE = {
     **STRATEGY_BOLD_PARAMS,
     "ultra_wide": True,
-    "trail_level3_pct": 0.30,         # Level 3: -30%（比標準 -25% 更寬）
-    "trail_ultra_wide_pct": 0.35,     # MA200 保護時: -35%
+    "trail_level3_pct": 0.15,         # VALIDATED(n=3): 基準 -15%
+    "trail_regime_wide_pct": 0.25,    # HYPOTHESIS: 多頭 regime 下放寬到 -25%
     "max_hold_days": 365,             # 名義上最長持有 1 年
     "min_hold_days": 15,              # 最短持有 15 天
-    "stop_loss_pct": 0.18,            # 災難停損 -18%（稍寬）
-    # Conviction Hold: MA200 上升 + 大賺時跳過 max_hold
-    "conviction_hold_gain": 1.0,      # 獲利 > 100% 時啟用
-    "conviction_hold_min_days": 200,  # 至少持有 200 天才允許
+    "stop_loss_pct": 0.18,            # VALIDATED(n=3): 災難停損 -18%
 }
 
 
@@ -310,10 +310,9 @@ def compute_bold_exit(
 
     gain_pct = (current_price / entry_price) - 1
 
-    # MA200 斜率保護：年線持續上升時，使用更寬的停損
-    ma_protected = (
-        p.get("ultra_wide", False)
-        and p.get("ma_slope_protection", True)
+    # Regime-Based Trail（Conviction 2.0）：MA200 上升時動態放寬 trail
+    regime_bullish = (
+        p.get("regime_trail_enabled", True)
         and ma200_slope is not None
         and ma200_slope > p.get("ma_slope_threshold", 0.0)
     )
@@ -339,13 +338,7 @@ def compute_bold_exit(
         }
 
     # --- 最長持有限制 ---
-    # Conviction Hold: 當 MA200 上升 + 獲利 > 100% + 持有 > 200 天，跳過 max_hold
-    conviction_hold = (
-        ma_protected
-        and gain_pct >= p.get("conviction_hold_gain", 1.0)
-        and hold_days >= p.get("conviction_hold_min_days", 200)
-    )
-    if hold_days >= p["max_hold_days"] and not conviction_hold:
+    if hold_days >= p["max_hold_days"]:
         return {
             "should_exit": True,
             "exit_reason": f"max_hold_{p['max_hold_days']}d",
@@ -356,12 +349,14 @@ def compute_bold_exit(
 
     # --- Level 3: 獲利 > 50%（信念模式）---
     if gain_pct >= p["trail_level3_threshold"]:
-        # 選擇停損比例：MA 保護時使用 ultra-wide，否則標準
-        trail_pct = p.get("trail_ultra_wide_pct", 0.35) if ma_protected else p["trail_level3_pct"]
+        # Regime-Based Trail: 多頭 regime 下放寬 trail
+        if regime_bullish and p.get("ultra_wide", False):
+            trail_pct = p.get("trail_regime_wide_pct", 0.25)
+        else:
+            trail_pct = p["trail_level3_pct"]
 
         # ATR 動態或固定百分比
-        # MA 保護模式下跳過 ATR（避免 ATR 覆蓋寬頻保護）
-        if p["use_atr_trail"] and current_atr > 0 and not ma_protected:
+        if p["use_atr_trail"] and current_atr > 0 and not regime_bullish:
             atr_stop = peak_price - p["atr_trail_multiplier"] * current_atr
             pct_stop = peak_price * (1 - trail_pct)
             trail_price = max(atr_stop, pct_stop)
@@ -373,7 +368,7 @@ def compute_bold_exit(
         trail_price = max(trail_price, floor_price)
 
         if current_price <= trail_price:
-            reason = "trail_level3_ultra" if ma_protected else "trail_level3"
+            reason = "trail_level3_regime" if regime_bullish else "trail_level3"
             return {
                 "should_exit": True,
                 "exit_reason": reason,

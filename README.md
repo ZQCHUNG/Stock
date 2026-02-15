@@ -192,9 +192,9 @@ python -m pytest tests/ -q
 | R63 | TWSE/TPEX data provider + SQLite + Shadow mode | Done |
 | R64-R65 | DTW pattern matching + PatternView UI | Done |
 | R66 | Bold strategy (Energy Squeeze + Step-up Buffer) | Done |
-| R67 | Ultra-Wide Conviction + Volume Ramp + 假精確 feedback | **In Progress** |
+| R67 | Ultra-Wide → Conviction 2.0 (Regime-Based Trail) + Sweep | Done |
 
-### R67 進行中
+### R67 完成摘要
 
 - [x] Bold 策略核心：能量擠壓突破 + 階梯式停利
 - [x] Ultra-Wide Conviction 模式（MA200 斜率保護）
@@ -205,35 +205,33 @@ python -m pytest tests/ -q
 - [x] **Parameter Sweep 完成** — conviction_hold_gain × trail_level3_pct × ATR × SL
 - [x] Sweep 結果分析 + robustness band + cross-stock overlap
 - [x] 參數標記 VALIDATED/HYPOTHESIS/DEAD_PARAMETER
-- [ ] Frontend toggle (Bold strategy 選擇器)
-- [ ] Gemini 討論 sweep 結果中（conviction_hold 重新設計）
+- [x] **Conviction 2.0**: 移除 DEAD `conviction_hold_gain`，改為 Regime-Based Trail
+
+### Conviction 2.0 (Regime-Based Trail)
+
+Sweep 證明 `conviction_hold_gain` 是 **DEAD PARAMETER**（Mechanism Pre-emption: trail stop 永遠先觸發）。
+Gemini 提議 Conviction 2.0：基於 MA200 斜率的動態 trail 寬度。
+
+**變更**:
+- 移除: `conviction_hold_gain`, `conviction_hold_min_days`, `ma_slope_protection`, `trail_ultra_wide_pct`
+- 新增: `regime_trail_enabled` (bool), `trail_regime_wide_pct` (0.25, HYPOTHESIS)
+- 邏輯: MA200 slope > 0 AND gain > 50% → trail 從 0.15 放寬至 0.25
+- 簡化: max_hold_days 無 bypass（conviction_hold 已移除）
 
 ### Sweep 結果摘要 (3 stocks × 36+8+6 combos)
 
-**conviction_hold_gain × trail_level3_pct (Ultra-Wide)**:
-
-| Stock | trail=0.15 | trail=0.25 | trail=0.35 | conviction_gain effect |
-|-------|-----------|-----------|-----------|----------------------|
-| 6748 | 11.6% | 11.6% | 11.6% | NONE |
-| 6139 | **274.8%** | 215.9% | 191.8% | NONE |
-| 6442 | **32.3%** | 26.6% | 26.6% | NONE |
-
-**重大發現**: `conviction_hold_gain` 是 **DEAD PARAMETER** — 在所有 3 檔所有 6 個值上結果完全一樣。原因：trades 在 trail stop 出場，從未碰到 max_hold 365d 限制。
-
-**ATR Multiplier (Standard)**: 6748 無效 | 6139 越寬越好(4.5x) | 6442 最佳 2.5x
-
-**參數驗證結果**:
 | 參數 | 狀態 | 值 |
 |------|------|-----|
 | trail_level3_pct | VALIDATED(n=3, 2021-2026) | 0.15 optimal, 0.15-0.35 robust |
-| conviction_hold_gain | DEAD_PARAMETER | 無效，需重新設計 |
+| conviction_hold_gain | DEAD_PARAMETER → **已移除** | Regime-Based Trail 取代 |
+| trail_regime_wide_pct | HYPOTHESIS | 0.25, 待 sweep 驗證 |
 | ATR multiplier | NEEDS_MORE_DATA | 方向不一致 |
 | stop_loss_pct | VALIDATED(n=3) | 15-18% sweet spot |
 | Cross-stock overlap | ONE_SIZE_FITS_ALL | 80-100% overlap |
 
 ### 待辦
 
-- Gemini 回覆 sweep 分析 → conviction_hold 重新設計
+- Sweep 驗證 `trail_regime_wide_pct = 0.25` (HYPOTHESIS → VALIDATED?)
 - Frontend Bold strategy toggle UI
 - Liquidity Score calculation
 
