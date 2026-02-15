@@ -217,6 +217,67 @@ def export_report_csv(report: dict):
     )
 
 
+# ---------------------------------------------------------------------------
+# R57: PDF Export via Playwright
+# ---------------------------------------------------------------------------
+
+@router.get("/export/report/pdf/{code}")
+async def export_report_pdf(code: str):
+    """R57: 匯出分析報告為 PDF（Playwright 渲染 Vue 頁面）"""
+    try:
+        from backend.pdf_export import export_report_pdf as _export
+        pdf_bytes = await _export(code)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=report_{code}.pdf"},
+        )
+    except ImportError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail="Playwright not installed. Run: pip install playwright && python -m playwright install chromium")
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
+
+
+@router.get("/export/portfolio/pdf")
+async def export_portfolio_pdf():
+    """R57: 匯出投資組合為 PDF"""
+    try:
+        from backend.pdf_export import export_portfolio_pdf as _export
+        pdf_bytes = await _export()
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=portfolio.pdf"},
+        )
+    except ImportError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail="Playwright not installed")
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
+
+
+@router.get("/export/backtest/pdf/{code}")
+async def export_backtest_pdf(code: str, period: int = 1095):
+    """R57: 匯出回測報告為 PDF"""
+    try:
+        from backend.pdf_export import export_backtest_pdf as _export
+        pdf_bytes = await _export(code, period)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=backtest_{code}.pdf"},
+        )
+    except ImportError:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail="Playwright not installed")
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {e}")
+
+
 @router.get("/data-quality")
 def data_quality():
     """R48-2: 數據品質檢查

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, computed } from 'vue'
+import { h, ref, computed } from 'vue'
 import { NCard, NButton, NSpin, NAlert, NTabs, NTabPane, NDescriptions, NDescriptionsItem, NGrid, NGi, NTag, NSpace, NText, NDataTable } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
@@ -17,6 +17,20 @@ async function generate() {
 }
 
 const r = computed(() => rpt.currentReport)
+
+// R57: PDF export
+const pdfLoading = ref(false)
+async function exportPdf() {
+  pdfLoading.value = true
+  try {
+    const data = await systemApi.exportReportPdf(app.currentStockCode)
+    downloadBlob(data, `report_${app.currentStockCode}.pdf`)
+  } catch (e: any) {
+    console.error('PDF export failed:', e)
+  } finally {
+    pdfLoading.value = false
+  }
+}
 
 const { cols } = useResponsive()
 const perfCols = cols(3, 5, 5)
@@ -42,6 +56,9 @@ const priceTargetColumns: DataTableColumns = [
       <NButton type="primary" @click="generate" :loading="rpt.isGenerating">產生報告</NButton>
       <NButton v-if="r" size="small" @click="async () => { try { const d = await systemApi.exportReportCsv(r); downloadBlob(d, `report_${app.currentStockCode}.csv`) } catch {} }">
         匯出 CSV
+      </NButton>
+      <NButton v-if="r" size="small" type="warning" :loading="pdfLoading" @click="exportPdf">
+        匯出 PDF
       </NButton>
     </NSpace>
 

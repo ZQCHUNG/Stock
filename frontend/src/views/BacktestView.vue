@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import {
-  NTabs, NTabPane, NInputNumber, NSpace, NSpin, NAlert, NCollapse, NCollapseItem, NGrid, NGi, NText,
+  NTabs, NTabPane, NInputNumber, NButton, NSpace, NSpin, NAlert, NCollapse, NCollapseItem, NGrid, NGi, NText,
 } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useBacktestStore } from '../stores/backtest'
@@ -15,6 +15,7 @@ import BacktestMetaStrategy from '../components/BacktestMetaStrategy.vue'
 import BacktestSqsValidation from '../components/BacktestSqsValidation.vue'
 import ConfigManager from '../components/ConfigManager.vue'
 import { parseUrlConfig } from '../utils/urlConfig'
+import { systemApi, downloadBlob } from '../api/system'
 import { useResponsive } from '../composables/useResponsive'
 
 const app = useAppStore()
@@ -59,6 +60,20 @@ function costParams() {
   }
 }
 
+// R57: PDF export
+const pdfLoading = ref(false)
+async function exportPdf() {
+  pdfLoading.value = true
+  try {
+    const data = await systemApi.exportBacktestPdf(app.currentStockCode, periodDays.value)
+    downloadBlob(data, `backtest_${app.currentStockCode}.pdf`)
+  } catch (e: any) {
+    console.error('PDF export failed:', e)
+  } finally {
+    pdfLoading.value = false
+  }
+}
+
 onMounted(() => {
   const urlCfg = parseUrlConfig()
   if (urlCfg?.type === 'backtest') {
@@ -92,6 +107,7 @@ onMounted(() => {
       <span style="font-size: 12px; color: var(--text-muted)">初始資金</span>
       <NInputNumber v-model:value="capital" :min="100000" :max="100000000" :step="100000" size="small" placeholder="10萬~1億" style="width: 160px" />
       <ConfigManager config-type="backtest" :get-current-config="getBacktestConfig" @load="loadBacktestConfig" />
+      <NButton size="small" type="warning" :loading="pdfLoading" @click="exportPdf">匯出 PDF</NButton>
     </NSpace>
 
     <!-- Transaction Cost Settings -->

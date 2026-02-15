@@ -37,6 +37,20 @@ export const systemApi = {
     client.post('/system/export/report/csv', report, {
       responseType: 'blob' as any, timeout: 30000,
     }),
+
+  // R57: PDF export (returns Blob for download)
+  exportReportPdf: (code: string) =>
+    client.get(`/system/export/report/pdf/${code}`, {
+      responseType: 'blob' as any, timeout: 120000,
+    }),
+  exportPortfolioPdf: () =>
+    client.get('/system/export/portfolio/pdf', {
+      responseType: 'blob' as any, timeout: 120000,
+    }),
+  exportBacktestPdf: (code: string, period: number = 1095) =>
+    client.get(`/system/export/backtest/pdf/${code}?period=${period}`, {
+      responseType: 'blob' as any, timeout: 120000,
+    }),
 }
 
 /** Trigger browser file download from Blob response */

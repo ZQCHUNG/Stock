@@ -15,6 +15,7 @@ import EquityCurveChart from '../components/EquityCurveChart.vue'
 import ExposureTreemap from '../components/ExposureTreemap.vue'
 import CorrelationHeatmap from '../components/CorrelationHeatmap.vue'
 import EfficientFrontierChart from '../components/EfficientFrontierChart.vue'
+import { systemApi, downloadBlob } from '../api/system'
 import { useResponsive } from '../composables/useResponsive'
 
 const app = useAppStore()
@@ -233,6 +234,20 @@ const efData = computed(() => pf.efficientFrontier)
 // Behavioral audit (Gemini R35)
 const behaviorData = computed(() => pf.behavioralAudit)
 
+// R57: PDF export
+const pdfLoading = ref(false)
+async function exportPdf() {
+  pdfLoading.value = true
+  try {
+    const data = await systemApi.exportPortfolioPdf()
+    downloadBlob(data, 'portfolio.pdf')
+  } catch (e: any) {
+    console.error('PDF export failed:', e)
+  } finally {
+    pdfLoading.value = false
+  }
+}
+
 // CSV Import (Gemini R36)
 const showCsvModal = ref(false)
 const csvText = ref('')
@@ -298,6 +313,9 @@ async function runRebalanceSim() {
       </NButton>
       <NButton size="small" tag="a" :href="'/api/system/export/positions/csv'" target="_blank">
         匯出 CSV
+      </NButton>
+      <NButton size="small" type="warning" :loading="pdfLoading" @click="exportPdf">
+        匯出 PDF
       </NButton>
       <NTag v-if="pf.summary.total_positions" size="small">
         {{ pf.summary.total_positions }} 檔持有

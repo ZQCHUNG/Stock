@@ -1,15 +1,22 @@
-"""WebSocket 連線管理器 + TWSE 即時行情推送
+"""WebSocket 連線管理器 + 即時行情推送
 
 R55-1: 即時行情 WebSocket
 - ConnectionManager: 管理 WebSocket 連線與訂閱
-- MarketFeed: 輪詢 TWSE/TPEX MIS API，推送即時報價
+- MarketFeed (TWSE): 輪詢 TWSE/TPEX MIS API，推送即時報價
 - 支援 tse (上市) + otc (上櫃) 股票
 - 交易時段 (09:00-13:30 UTC+8) 每 5 秒輪詢
 - 非交易時段停止輪詢，但保持連線
+
+R57: Fugle WebSocket 即時行情
+- FugleMarketFeed: 使用 Fugle MarketData WebSocket API（延遲 <1s）
+- 支援 aggregates channel（OHLCV + 五檔）
+- Config 切換數據源 (TWSE / Fugle)
 """
 
 import asyncio
+import json as _json
 import logging
+import os
 import time
 from datetime import datetime, timezone, timedelta
 from uuid import uuid4
@@ -343,6 +350,287 @@ class MarketFeed:
         return self._quote_cache.get(code)
 
 
+class FugleMarketFeed:
+    """R57: Fugle WebSocket API market feed (<1s latency).
+
+    Uses Fugle MarketData WebSocket API (aggregates channel) for real-time quotes.
+    Requires: FUGLE_API_KEY env var or config setting.
+    """
+
+    FUGLE_WS_URL = "wss://api.fugle.tw/marketdata/v1.0/stock/streaming"
+
+    def __init__(self, manager: ConnectionManager):
+        self.manager = manager
+        self._running = False
+        self._task: asyncio.Task | None = None
+        self._ws = None
+        self._quote_cache: dict[str, dict] = {}
+        self._subscribed_codes: set[str] = set()
+        self._consecutive_errors = 0
+        self._last_message_time: float = 0
+        self._api_key: str = os.environ.get("FUGLE_API_KEY", "")
+
+    def _get_api_key(self) -> str:
+        """Get Fugle API key from env or config file."""
+        if self._api_key:
+            return self._api_key
+        try:
+            from pathlib import Path
+            config_path = Path(__file__).resolve().parent.parent / "data" / "fugle_config.json"
+            if config_path.exists():
+                data = _json.loads(config_path.read_text(encoding="utf-8"))
+                self._api_key = data.get("api_key", "")
+        except Exception:
+            pass
+        return self._api_key
+
+    async def start(self):
+        """Start the Fugle WebSocket connection."""
+        if self._running:
+            return
+        api_key = self._get_api_key()
+        if not api_key:
+            logger.warning("Fugle API key not configured. Set FUGLE_API_KEY env var or data/fugle_config.json")
+            return
+        self._running = True
+        self._task = asyncio.create_task(self._ws_loop())
+        logger.info("FugleMarketFeed started")
+
+    async def stop(self):
+        """Stop the Fugle WebSocket connection."""
+        self._running = False
+        if self._ws:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._ws = None
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        logger.info("FugleMarketFeed stopped")
+
+    def is_market_hours(self) -> bool:
+        """Check if Taiwan market is open (Mon-Fri 09:00-13:30 UTC+8)."""
+        now = datetime.now(TW_TZ)
+        if now.weekday() >= 5:
+            return False
+        t = now.time()
+        from datetime import time as dtime
+        return dtime(8, 55) <= t <= dtime(13, 35)
+
+    async def _ws_loop(self):
+        """Main WebSocket connection loop with auto-reconnect."""
+        try:
+            import websockets
+        except ImportError:
+            logger.error("websockets package not installed. Run: pip install websockets")
+            self._running = False
+            return
+
+        api_key = self._get_api_key()
+        while self._running:
+            try:
+                url = f"{self.FUGLE_WS_URL}?apikey={api_key}"
+                async with websockets.connect(url) as ws:
+                    self._ws = ws
+                    self._consecutive_errors = 0
+                    logger.info("Fugle WebSocket connected")
+
+                    # Re-subscribe existing codes
+                    if self._subscribed_codes:
+                        for code in self._subscribed_codes:
+                            await self._subscribe_code(ws, code)
+
+                    # Start subscription sync task
+                    sync_task = asyncio.create_task(self._sync_subscriptions(ws))
+
+                    try:
+                        async for message in ws:
+                            if not self._running:
+                                break
+                            try:
+                                data = _json.loads(message)
+                                await self._handle_message(data)
+                            except Exception as e:
+                                logger.debug(f"Fugle message parse error: {e}")
+                    finally:
+                        sync_task.cancel()
+                        try:
+                            await sync_task
+                        except asyncio.CancelledError:
+                            pass
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self._consecutive_errors += 1
+                backoff = min(30, 2 ** self._consecutive_errors)
+                logger.warning(f"Fugle WS error ({self._consecutive_errors}): {e}, reconnecting in {backoff}s")
+                self._ws = None
+                await asyncio.sleep(backoff)
+
+    async def _sync_subscriptions(self, ws):
+        """Periodically sync subscriptions with ConnectionManager's codes."""
+        while self._running:
+            try:
+                current_codes = self.manager.all_subscribed_codes
+                new_codes = current_codes - self._subscribed_codes
+                old_codes = self._subscribed_codes - current_codes
+
+                for code in new_codes:
+                    await self._subscribe_code(ws, code)
+                for code in old_codes:
+                    await self._unsubscribe_code(ws, code)
+
+                self._subscribed_codes = current_codes.copy()
+                await asyncio.sleep(2)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                await asyncio.sleep(5)
+
+    async def _subscribe_code(self, ws, code: str):
+        """Subscribe to a stock's aggregates channel."""
+        try:
+            msg = _json.dumps({"event": "subscribe", "data": {"channel": "aggregates", "symbol": code}})
+            await ws.send(msg)
+            logger.debug(f"Fugle subscribed: {code}")
+        except Exception as e:
+            logger.debug(f"Fugle subscribe error for {code}: {e}")
+
+    async def _unsubscribe_code(self, ws, code: str):
+        """Unsubscribe from a stock's aggregates channel."""
+        try:
+            msg = _json.dumps({"event": "unsubscribe", "data": {"channel": "aggregates", "symbol": code}})
+            await ws.send(msg)
+        except Exception:
+            pass
+
+    async def _handle_message(self, data: dict):
+        """Handle incoming Fugle WebSocket message."""
+        event = data.get("event")
+        if event != "data":
+            return
+
+        channel = data.get("channel")
+        payload = data.get("data", {})
+        symbol = payload.get("symbol")
+
+        if not symbol:
+            return
+
+        if channel == "aggregates":
+            quote_dict = self._parse_aggregates(payload)
+            if quote_dict:
+                self._quote_cache[symbol] = quote_dict
+                self._last_message_time = time.time()
+                await self.manager.send_to_subscribers(
+                    symbol,
+                    {"type": "price_update", "data": quote_dict},
+                )
+        elif channel == "trades":
+            # Trades channel: update last price + volume
+            existing = self._quote_cache.get(symbol, {})
+            if payload.get("price") is not None:
+                existing["last_price"] = payload["price"]
+                existing["volume"] = payload.get("volume", existing.get("volume"))
+                existing["timestamp"] = int(time.time())
+                self._quote_cache[symbol] = existing
+                self._last_message_time = time.time()
+                await self.manager.send_to_subscribers(
+                    symbol,
+                    {"type": "price_update", "data": existing},
+                )
+
+    def _parse_aggregates(self, data: dict) -> dict | None:
+        """Parse Fugle aggregates data to our QuoteData format."""
+        symbol = data.get("symbol")
+        if not symbol:
+            return None
+
+        last_price = data.get("lastPrice") or data.get("closePrice")
+        prev_close = data.get("previousClose") or data.get("referencePrice")
+
+        # Extract bid/ask from bids/asks arrays
+        bids = data.get("bids", [])
+        asks = data.get("asks", [])
+        bid_prices = [b.get("price") for b in bids[:5]] if bids else []
+        bid_volumes = [b.get("size") for b in bids[:5]] if bids else []
+        ask_prices = [a.get("price") for a in asks[:5]] if asks else []
+        ask_volumes = [a.get("size") for a in asks[:5]] if asks else []
+
+        total = data.get("total", {})
+
+        return {
+            "code": symbol,
+            "name": data.get("name", ""),
+            "last_price": last_price,
+            "change": data.get("change"),
+            "change_pct": data.get("changePercent"),
+            "open": data.get("openPrice"),
+            "high": data.get("highPrice"),
+            "low": data.get("lowPrice"),
+            "prev_close": prev_close,
+            "volume": total.get("tradeVolume"),
+            "bid_prices": bid_prices,
+            "bid_volumes": bid_volumes,
+            "ask_prices": ask_prices,
+            "ask_volumes": ask_volumes,
+            "timestamp": int(time.time()),
+        }
+
+    def get_status(self) -> dict:
+        """Get feed status for monitoring."""
+        return {
+            "running": self._running,
+            "provider": "fugle",
+            "is_market_hours": self.is_market_hours(),
+            "connections": self.manager.connection_count,
+            "subscribed_codes": len(self._subscribed_codes),
+            "cached_quotes": len(self._quote_cache),
+            "consecutive_errors": self._consecutive_errors,
+            "last_message_time": self._last_message_time,
+            "ws_connected": self._ws is not None,
+        }
+
+    def get_cached_quote(self, code: str) -> dict | None:
+        """Get last known quote for a stock."""
+        return self._quote_cache.get(code)
+
+
+def create_market_feed(manager: ConnectionManager) -> MarketFeed | FugleMarketFeed:
+    """R57: Factory function to create the appropriate market feed based on config.
+
+    Set MARKET_FEED_PROVIDER env var to "fugle" to use Fugle API.
+    Default: "twse" (free, ~20s delay).
+    """
+    provider = os.environ.get("MARKET_FEED_PROVIDER", "twse").lower()
+    if provider == "fugle":
+        api_key = os.environ.get("FUGLE_API_KEY", "")
+        if not api_key:
+            try:
+                from pathlib import Path
+                config_path = Path(__file__).resolve().parent.parent / "data" / "fugle_config.json"
+                if config_path.exists():
+                    data = _json.loads(config_path.read_text(encoding="utf-8"))
+                    api_key = data.get("api_key", "")
+            except Exception:
+                pass
+        if api_key:
+            logger.info("Using Fugle MarketData WebSocket feed (<1s latency)")
+            return FugleMarketFeed(manager)
+        else:
+            logger.warning("FUGLE_API_KEY not set, falling back to TWSE MIS feed")
+            return MarketFeed(manager)
+    else:
+        logger.info("Using TWSE MIS polling feed (~20s latency)")
+        return MarketFeed(manager)
+
+
 # Singleton instances
 ws_manager = ConnectionManager()
-market_feed = MarketFeed(ws_manager)
+market_feed = create_market_feed(ws_manager)

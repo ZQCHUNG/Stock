@@ -486,3 +486,67 @@ class TestEnhancedBacktest:
         assert monthly[0]["pnl"] == 3000  # 5000 + (-2000)
         assert monthly[1]["month"] == "2024-02"
         assert monthly[1]["pnl"] == 8000
+
+
+# ---------------------------------------------------------------------------
+# R56: Telegram + unified notification tests
+# ---------------------------------------------------------------------------
+
+class TestAlertsTelegram:
+    def test_config_has_telegram_fields(self, client):
+        """GET /api/alerts/config should include Telegram fields."""
+        resp = client.get("/api/alerts/config")
+        assert resp.status_code == 200
+        data = resp.json()
+        # R56: Telegram config fields
+        assert "notify_telegram" in data
+        assert "telegram_bot_token" in data
+        assert "telegram_chat_id" in data
+
+    def test_save_config_telegram(self, client):
+        """POST /api/alerts/config should accept Telegram fields."""
+        resp = client.get("/api/alerts/config")
+        cfg = resp.json()
+        cfg["notify_telegram"] = False
+        cfg["telegram_bot_token"] = ""
+        cfg["telegram_chat_id"] = ""
+        resp2 = client.post("/api/alerts/config", json=cfg)
+        assert resp2.status_code == 200
+
+    def test_send_test_notification(self, client):
+        """POST /api/alerts/send-test should return ok (no channels enabled)."""
+        with patch("backend.scheduler._send_notification") as mock_send:
+            resp = client.post("/api/alerts/send-test", json={"message": "test"})
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# R57: PDF export endpoint tests (Playwright mocked)
+# ---------------------------------------------------------------------------
+
+class TestPdfExport:
+    def test_report_pdf_endpoint_exists(self, client):
+        """GET /api/system/export/report/pdf/{code} should call pdf_export."""
+        from unittest.mock import AsyncMock
+        with patch("backend.pdf_export.export_report_pdf", new_callable=AsyncMock, return_value=b"%PDF-fake"):
+            resp = client.get("/api/system/export/report/pdf/2330")
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/pdf"
+
+    def test_portfolio_pdf_endpoint_exists(self, client):
+        """GET /api/system/export/portfolio/pdf should call pdf_export."""
+        from unittest.mock import AsyncMock
+        with patch("backend.pdf_export.export_portfolio_pdf", new_callable=AsyncMock, return_value=b"%PDF-fake"):
+            resp = client.get("/api/system/export/portfolio/pdf")
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/pdf"
+
+    def test_backtest_pdf_endpoint_exists(self, client):
+        """GET /api/system/export/backtest/pdf/{code} should call pdf_export."""
+        from unittest.mock import AsyncMock
+        with patch("backend.pdf_export.export_backtest_pdf", new_callable=AsyncMock, return_value=b"%PDF-fake"):
+            resp = client.get("/api/system/export/backtest/pdf/2330?period=365")
+            assert resp.status_code == 200
+            assert resp.headers["content-type"] == "application/pdf"
