@@ -69,6 +69,12 @@ const router = createRouter({
       component: () => import('../views/StrategyWorkbenchView.vue'),
       meta: { title: '策略工作台' },
     },
+    {
+      path: '/patterns',
+      name: 'patterns',
+      component: () => import('../views/PatternView.vue'),
+      meta: { title: '相似線型' },
+    },
   ],
 })
 

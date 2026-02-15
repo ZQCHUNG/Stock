@@ -41,6 +41,7 @@ const menuItems = [
   { label: '7  風險監控', key: 'risk' },
   { label: '8  策略中心', key: 'strategies' },
   { label: '9  Forward Test', key: 'forward-test' },
+  { label: 'A  相似線型', key: 'patterns' },
 ]
 
 const activeKey = computed(() => route.name as string)
