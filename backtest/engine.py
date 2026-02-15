@@ -13,6 +13,10 @@ from config import BACKTEST_PARAMS, RISK_PARAMS, TRADE_UNIT, STRATEGY_V4_PARAMS,
 from analysis.strategy import generate_signals
 from analysis.strategy_v4 import generate_v4_signals
 from analysis.strategy_v5 import generate_v5_signals, STRATEGY_V5_PARAMS
+from analysis.strategy_bold import (
+    generate_bold_signals, compute_bold_exit,
+    STRATEGY_BOLD_PARAMS, STRATEGY_BOLD_ULTRA_WIDE,
+)
 
 
 @dataclass
@@ -674,6 +678,137 @@ class BacktestEngine:
         self._calculate_metrics(result)
         return result
 
+    def run_bold(self, df: pd.DataFrame, params: dict | None = None,
+                 ultra_wide: bool = False) -> BacktestResult:
+        """執行 Bold 大膽策略回測（能量擠壓突破 + 階梯式停利）
+
+        Bold 策略專為爆發性波段設計：
+        - 進場：BB 擠壓釋放 + 量能暴增 or RSI 超賣反彈
+        - 出場：三階段 Step-up Buffer（Level 1/2/3）+ ATR 動態停損
+        - Ultra-Wide 模式：MA200 斜率保護，適用長線價值股（如 6139）
+
+        Args:
+            df: 調整後股價 DataFrame（auto_adjust=True）
+            params: 策略參數覆蓋
+            ultra_wide: 是否使用 Ultra-Wide Conviction 模式
+
+        Returns:
+            BacktestResult 回測結果
+        """
+        # 選擇參數基礎
+        if ultra_wide:
+            p = dict(STRATEGY_BOLD_ULTRA_WIDE)
+        else:
+            p = dict(STRATEGY_BOLD_PARAMS)
+        if params:
+            p.update(params)
+
+        signals_df = generate_bold_signals(df, params=p)
+
+        sl_pct = p.get("stop_loss_pct", 0.15)
+        max_hold = p.get("max_hold_days", 120)
+        max_pos_pct = p.get("max_position_pct", 0.20)
+        min_hold = p.get("min_hold_days", 10)
+
+        # MA200 斜率計算（20 日變化率）
+        ma200 = signals_df["close"].rolling(200, min_periods=60).mean()
+        ma200_slope_series = ma200.pct_change(20)
+
+        cash = self.initial_capital
+        position = 0
+        trades: list[Trade] = []
+        current_trade: Trade | None = None
+        equity_history = []
+        hold_days = 0
+        peak_price = 0.0
+
+        _has_high = "high" in signals_df.columns
+        _has_low = "low" in signals_df.columns
+        _has_volume = "volume" in signals_df.columns
+
+        for row in signals_df.itertuples():
+            date = row.Index
+            price = row.close
+            high = row.high if _has_high else price
+            low = row.low if _has_low else price
+            signal = row.bold_signal if hasattr(row, "bold_signal") else "HOLD"
+            atr = row.atr if hasattr(row, "atr") else 0.0
+
+            # MA200 斜率（當日）
+            ma200_slope = ma200_slope_series.get(date, None)
+            if ma200_slope is not None and (np.isnan(ma200_slope) or np.isinf(ma200_slope)):
+                ma200_slope = None
+
+            if position > 0:
+                peak_price = max(peak_price, high)
+                hold_days += 1
+
+            # ===== 出場檢查（用 compute_bold_exit）=====
+            force_sell = False
+            exit_reason = ""
+            exit_price = 0.0
+
+            if position > 0 and current_trade is not None:
+                exit_result = compute_bold_exit(
+                    entry_price=current_trade.price_open,
+                    current_price=price,
+                    peak_price=peak_price,
+                    current_atr=atr,
+                    hold_days=hold_days,
+                    params=p,
+                    ma200_slope=ma200_slope,
+                )
+                if exit_result["should_exit"]:
+                    force_sell = True
+                    exit_reason = exit_result["exit_reason"]
+                    # 用 low 偵測盤中觸及停損
+                    trail_stop = exit_result["trailing_stop_price"]
+                    if low <= trail_stop:
+                        exit_price = trail_stop
+                    else:
+                        exit_price = price
+
+            if force_sell and position > 0 and current_trade is not None:
+                cash += self._close_position(position, exit_price, current_trade, date, exit_reason)
+                trades.append(current_trade)
+                position, current_trade, hold_days, peak_price = 0, None, 0, 0.0
+
+            if position == 0 and cash > 0:
+                cash *= (1 + self._rf_daily)
+
+            equity_history.append({"date": date, "equity": cash + position * price})
+
+            # ===== 進場 =====
+            if signal == "BUY" and position == 0:
+                volume = row.volume if _has_volume else 0
+                trade, shares, cash = self._open_position(
+                    price, high, volume, cash, max_pos_pct, date)
+                if trade is not None:
+                    position = shares
+                    current_trade = trade
+                    peak_price = high
+                    hold_days = 0
+
+        # 期末平倉
+        if position > 0 and current_trade is not None:
+            last_price = signals_df.iloc[-1]["close"]
+            cash += self._close_position(position, last_price, current_trade,
+                                         signals_df.index[-1], "end_of_period")
+            trades.append(current_trade)
+
+        mode_label = "Ultra-Wide" if ultra_wide or p.get("ultra_wide") else "Standard"
+        result = BacktestResult(
+            trades=trades,
+            equity_curve=self._build_equity_curve(equity_history),
+            params_description=(
+                f"Bold {mode_label} | SL {sl_pct:.0%} | "
+                f"L3 trail {p.get('trail_level3_pct', 0.25):.0%} | "
+                f"MaxHold {max_hold}天"
+            ),
+        )
+        self._calculate_metrics(result)
+        return result
+
     def _calculate_metrics(self, result: BacktestResult) -> None:
         """計算績效指標"""
         if result.equity_curve.empty:
@@ -844,6 +979,38 @@ def run_backtest_adaptive(
         slippage=slippage,
     )
     return engine.run_adaptive(df, regime=regime, v4_params=v4_params, v5_params=v5_params)
+
+
+def run_backtest_bold(
+    df: pd.DataFrame,
+    initial_capital: float | None = None,
+    params: dict | None = None,
+    ultra_wide: bool = False,
+    commission_rate: float | None = None,
+    tax_rate: float | None = None,
+    slippage: float | None = None,
+) -> BacktestResult:
+    """便捷函式：執行 Bold 大膽策略回測
+
+    Args:
+        df: 調整後股價 DataFrame
+        initial_capital: 初始資金
+        params: Bold 策略參數覆蓋
+        ultra_wide: 是否使用 Ultra-Wide Conviction 模式
+        commission_rate: 手續費率
+        tax_rate: 交易稅率
+        slippage: 滑價率
+
+    Returns:
+        BacktestResult
+    """
+    engine = BacktestEngine(
+        initial_capital=initial_capital,
+        commission_rate=commission_rate,
+        tax_rate=tax_rate,
+        slippage=slippage,
+    )
+    return engine.run_bold(df, params=params, ultra_wide=ultra_wide)
 
 
 @dataclass

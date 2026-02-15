@@ -115,6 +115,23 @@ def get_v5_signal(code: str, period_days: int = 365):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{code}/bold-signal")
+def get_bold_signal(code: str, period_days: int = 1095):
+    """取得最新 Bold 大膽策略分析結果
+
+    Bold 策略偵測：能量擠壓突破 + 量能爬坡（小型股發現）
+    """
+    from data.fetcher import get_stock_data
+    from analysis.strategy_bold import get_bold_analysis
+    from backend.dependencies import make_serializable
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        result = get_bold_analysis(df)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{code}/adaptive-signal")
 def get_adaptive_signal(code: str, period_days: int = 365):
     """V4+V5 自適應混合訊號（Gemini R36）

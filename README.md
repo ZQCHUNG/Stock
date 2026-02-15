@@ -1,115 +1,125 @@
 # 台股技術分析系統
 
-基於多重技術指標的台股分析與回測系統，提供 Web 介面進行技術分析、歷史回測、模擬交易、股票推薦、分析報告與條件選股。
+Vue 3 + FastAPI 全端台股技術分析與量化回測系統。支援所有上市（TWSE）與上櫃（TPEX）股票，共 2300+ 檔。
 
-支援所有上市（TWSE）與上櫃（TPEX）股票，共 2300+ 隻。
+## 架構
 
-## 功能總覽
+```
+Stock/
+├── backend/                  # FastAPI (13 routers, Pydantic schemas)
+│   ├── app.py                # Entry + CORS + static serve
+│   ├── routers/              # stocks, analysis, backtest, report, recommend,
+│   │                         # screener, watchlist, system, simulation,
+│   │                         # fitness, alerts, forward_testing, risk
+│   ├── schemas/              # Pydantic response models
+│   └── dependencies.py       # DataFrame→JSON helpers
+├── frontend/                 # Vue 3 + Vite + TypeScript + Naive UI
+│   └── src/
+│       ├── views/            # 11 page components
+│       ├── components/       # ~30 reusable components
+│       ├── stores/           # Pinia stores
+│       ├── api/              # Axios service layer
+│       └── router/           # Vue Router 4
+├── analysis/                 # Technical analysis (UNTOUCHED by frontend migration)
+│   ├── indicators.py         # MA/RSI/MACD/KD/BB/ADX/ATR/ROC
+│   ├── strategy_v4.py        # V4 趨勢動量策略 (main)
+│   ├── strategy_v5.py        # V5 均值回歸策略
+│   ├── strategy_adaptive.py  # Adaptive 混合策略
+│   ├── strategy_bold.py      # Bold 大膽策略 (R66)
+│   ├── scoring.py            # SQS 信號品質評分 (8 dimensions)
+│   ├── pattern_matcher.py    # DTW 相似線型比對 (R64)
+│   ├── signal_tracker.py     # Forward testing (SQLite)
+│   └── market_regime.py      # Bull/Bear/Sideways detection
+├── backtest/
+│   ├── engine.py             # Backtest engine (v4/v5/bold/portfolio)
+│   ├── sqs_backtest.py       # SQS effectiveness validation
+│   └── bold_parameter_sweep.py  # Parameter sensitivity analysis (R67)
+├── data/
+│   ├── fetcher.py            # yfinance + FinMind + TWSE + Redis cache
+│   ├── twse_provider.py      # TWSE/TPEX unified provider + SQLite
+│   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
+├── simulation/               # Trade simulation
+├── tests/                    # 400+ tests (pytest, synthetic fixtures)
+└── config.py                 # Strategy params, fee rates
+```
 
-| 頁面 | 說明 |
-|------|------|
-| **技術分析** | K 線圖 + 6 大技術指標 + 買賣訊號 |
-| **回測報告** | 歷史績效驗證（v2 評分 / v4 趨勢動量） |
-| **模擬交易** | 近 N 日策略模擬執行 |
-| **推薦股票** | 自動掃描 25 檔 → Top 3 推薦 |
-| **分析報告** | 三維度分析（技術面 + 基本面 + 消息面） |
-| **條件選股** | 23 項基本面 / 技術面篩選（類似財報狗） |
+**Tech Stack**: Vue 3 + Vite + TypeScript + Naive UI + vue-echarts + Pinia + Vue Router 4 + Axios | FastAPI + Pydantic | yfinance + FinMind + TWSE API | Redis caching
 
 ---
 
-## 1. 技術分析
+## 功能頁面 (11 Pages)
 
-- K 線圖搭配移動平均線（MA5 / MA20 / MA60）
-- MACD（12/26/9）
-- KD 隨機指標（9 日）
-- RSI 相對強弱指標（14 日）
-- 布林通道（20 日，2 倍標準差）
-- ADX / +DI / -DI 趨勢指標（14 日）
-- 成交量分析（均量、量能比）
-- 綜合評分系統自動產生買入 / 賣出 / 持有訊號
-- **訊號原因說明**：詳列各指標偏多/偏空/中性因素
-
-## 2. 回測報告
-
-- 自訂回測期間（90～730 天）
-- 台股手續費 0.1425% + 交易稅 0.3%
-- 績效指標：總報酬率、年化報酬率、最大回撤、Sharpe Ratio、勝率、盈虧比
-- 權益曲線與每日報酬分布圖
-- 完整交易紀錄
-- **雙策略版本**：v2（評分系統）/ v4（趨勢動量，推薦）
-
-## 3. 模擬交易
-
-- 模擬最近 N 個交易日的策略執行結果（預設 30 天）
-- 每日追蹤持倉、現金、總權益變化
-- 每日損益圖表
-- 交易明細與模擬紀錄表
-
-## 4. 推薦股票
-
-- 從股票池掃描 25+ 隻熱門股
-- 依技術面綜合評分排序，推薦 Top 3
-- 每隻附完整推薦原因與各指標評分
-- 全部股票排行表
-
-## 5. 分析報告
-
-三維度深度分析，輸出專業報告：
-
-| 維度 | 內容 |
-|------|------|
-| 技術面 | 趨勢、動量、支撐壓力、訊號強度 |
-| 基本面 | PE/PB/ROE/殖利率/營收成長、產業別評分（生技/金融/傳產特殊規則） |
-| 消息面 | Google News + yfinance 新聞情緒分析 |
-
-- 法人目標價整合（過濾低可信度：分析師 >= 2 人且偏離 < 200%）
-- 綜合評等：強力買進 / 買進 / 中性 / 賣出 / 強力賣出
-
-## 6. 條件選股
-
-類似財報狗的基本面 / 技術面條件篩選，共 **23 項條件、7 大分類**：
-
-| 分類 | 條件 |
-|------|------|
-| **獲利能力** (6) | ROE、ROA、毛利率、營業利益率、淨利率、EPS |
-| **成長力** (2) | 營收成長率、獲利成長率 |
-| **安全性** (2) | 負債權益比、流動比率 |
-| **價值評估** (4) | 本益比 (TTM)、Forward PE、淨值比、殖利率 |
-| **現金流 & 規模** (4) | 自由現金流 > 0、營業現金流 > 0、市值、Beta |
-| **技術面** (2) | RSI 區間、ADX |
-| **結果表新增** | Forward PE、ROA、EPS、Beta、市值(億)、FCF(億)、OCF(億)、目標價 |
-
-- 掃描範圍：精選 25 檔（~30 秒）或全部 2300+ 檔
-- 結果表 24 欄，可排序、可匯出 CSV
-- Redis 快取 30 分鐘（相同條件組合）
-
-### 架構說明
-
-條件選股使用 **subprocess + ThreadPoolExecutor** 架構：
-
-```
-app.py (Streamlit) → subprocess → screener_worker.py (獨立進程)
-                                    ├── populate_ticker_cache() (預填上市/上櫃 suffix)
-                                    ├── ThreadPoolExecutor(5) (並行抓取)
-                                    └── get_stock_fundamentals_safe() per stock
-```
-
-為什麼不直接在 Streamlit 中用 ThreadPoolExecutor？因為 **Streamlit 的 script runner 會與 Python threading 產生 deadlock**。用獨立進程完全隔離 threading 才能穩定執行。
+| 頁面 | 路由 | 說明 |
+|------|------|------|
+| **Dashboard** | `/` | 系統總覽、市場概況 |
+| **技術分析** | `/technical` | K 線 + 6 大指標 + V4 買賣訊號 + SQS 雷達圖 |
+| **自選股總覽** | `/watchlist` | 多股比較、批次回測、風險概覽 |
+| **回測報告** | `/backtest` | 單股/投資組合/模擬/一致性/SQS 驗證 |
+| **推薦股票** | `/recommend` | V4 掃描 + SQS 評分 + 批次加入自選 |
+| **分析報告** | `/report` | 技術面 + 基本面 + 消息面三維度報告 |
+| **條件選股** | `/screener` | 23 項條件篩選（類財報狗） |
+| **模擬倉位** | `/simulation` | 策略模擬執行 + 績效追蹤 |
+| **風險監控** | `/risk` | VaR + 集中度 + 回撤 + 熔斷 + 壓力測試 |
+| **策略適配** | `/fitness` | SQS 分布 + Forward Test 追蹤 |
+| **相似線型** | `/pattern` | DTW 比對 + 概率雲圖 + 勝率統計 |
 
 ---
 
 ## 策略版本
 
-系統包含 4 個策略版本（v1→v4 演進），可在側邊欄切換 v2/v4：
+| 版本 | 方法 | 定位 |
+|------|------|------|
+| **V4** | 趨勢動量 + 移動停利 | 核心策略 (Core 80%) |
+| **V5** | 均值回歸 + RSI 超賣 | 震盪市場備選 |
+| **Adaptive** | V4+V5 市場 regime 自動切換 | 混合策略 |
+| **Bold** | 能量擠壓突破 + 階梯式停利 | 衛星倉位 (Satellite 15-20%) |
 
-| 版本 | 方法 | 結果（30 股 3 年回測） |
-|------|------|----------------------|
-| v1 | 六指標加權評分 | 基礎版，無停損 |
-| v2 | v1 + 停損停利 + 訊號確認 | 9/30 獲利，-0.05% |
-| v3 | v2 + ATR 動態停損（實驗） | 效果不如 v2 |
-| **v4** | **趨勢動量 + 移動停利** | **26/30 獲利，+87.7%** |
+### Bold 大膽策略 (R66-R67)
 
-詳見 [STRATEGY.md](STRATEGY.md)。
+專為爆發性波段設計（如 6139 亞翔 +3141%、6442 光聖 +7185%）：
+
+**進場**:
+- A) Energy Squeeze Breakout: BB 擠壓釋放 + 量能暴增
+- B) Oversold Bounce: RSI < 30 + 52 週低點 + 恐慌量
+- C) Volume Ramp: 小型股發現（30 張門檻 + 量能爬坡 2x）
+
+**出場 (Step-up Buffer)**:
+- Level 1 (< 30% gain): trailing -15%
+- Level 2 (30-50% gain): 鎖住成本 +10%
+- Level 3 (> 50% gain): trailing -25%/-30%/-35%
+- Ultra-Wide Conviction: MA200 上升時 -35% trail, gain > 100% + 200d 跳過 max_hold
+
+---
+
+## SQS 信號品質評分 (Signal Quality Score)
+
+8 維度加權評分系統，為每個交易信號打分：
+
+| 維度 | 權重 | 說明 |
+|------|------|------|
+| Institutional | 20% | 法人 5 日淨買超比 |
+| Growth | 15% | 月營收 YoY 成長率 |
+| Fitness | 15% | 參數適配度（敏感度分析） |
+| Valuation | 10% | PE/PB/殖利率百分位 |
+| Regime | 10% | 市場環境（Bull/Bear/Sideways） |
+| EV | 10% | 淨期望值（扣除交易成本 0.785%） |
+| Heat | 10% | 信號密度（過熱偵測） |
+| Maturity | 10% | 歷史信號前瞻績效 |
+
+等級: Diamond >= 80 | Gold >= 60 | Silver >= 40 | Noise < 40
+
+---
+
+## 資料來源
+
+| 來源 | 用途 | 備援 |
+|------|------|------|
+| TWSE/TPEX API | 日K線、法人、PE/PB/殖利率、月營收 | yfinance |
+| yfinance | 歷史股價（auto_adjust=True）、基本面 | FinMind |
+| FinMind | 法人買賣超、除權息 | — |
+| Google News RSS | 個股新聞（中文） | — |
+| Redis | 快取層（TTL 5m~24h） | — |
+| SQLite | TWSE 資料持久化 (`data/market_data.db`) | — |
 
 ---
 
@@ -117,127 +127,105 @@ app.py (Streamlit) → subprocess → screener_worker.py (獨立進程)
 
 ### 環境需求
 - Python 3.10+
-- Docker（用於 Redis 快取，可選）
+- Node.js 18+
+- Docker（Redis 快取，可選）
 
 ### 安裝
 
 ```bash
-# 複製專案
 git clone https://github.com/ZQCHUNG/Stock.git
 cd Stock
 
-# 建立虛擬環境（建議）
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # macOS/Linux
-
-# 安裝依賴
+# Python 依賴
 pip install -r requirements.txt
+
+# Frontend 依賴
+cd frontend && npm install && cd ..
 ```
 
-### 啟動 Redis（可選，大幅提升速度）
+### 啟動（開發模式）
 
 ```bash
-docker run -d \
-  --name stock-redis \
-  -p 6379:6379 \
-  -v ./redis-data:/data \
-  redis:7-alpine \
-  redis-server --appendonly yes --save 60 1
+# Backend (port 8000)
+uvicorn backend.app:app --reload --port 8000
+
+# Frontend (port 5173, proxy → 8000)
+cd frontend && npm run dev
 ```
 
-Redis 快取效果：股價資料載入從 ~0.8s 降至 ~0.007s（快 117 倍）。
-不啟動 Redis 系統也能正常運作，只是每次都會重新從 Yahoo Finance 抓資料。
-
-### 啟動 Web 介面
+### 啟動（Production）
 
 ```bash
-python -m streamlit run app.py
+cd frontend && npm run build && cd ..
+uvicorn backend.app:app --port 8000
+# FastAPI 自動 serve frontend/dist/
 ```
 
-瀏覽器會自動開啟 `http://localhost:8501`
+### Redis（可選）
 
-## 使用方式
-
-1. 在左側邊欄搜尋/選擇股票（支援代碼或中文名稱搜尋，2300+ 隻）
-2. 選擇功能頁面：技術分析 / 回測報告 / 模擬交易 / 推薦股票 / 分析報告 / 條件選股
-3. 可在「進階參數」調整初始資金、回測天數、策略閾值等
-4. 條件選股：勾選條件 → 設定閾值 → 點「開始選股」
-
-### 支援的股票
-
-所有上市（TWSE）與上櫃（TPEX）股票皆可查詢，例如：
-- `2330` — 台積電（上市）
-- `2317` — 鴻海（上市）
-- `6748` — 亞果生醫（上櫃）
-- `6618` — 永虹（上櫃）
-- `0050` — 元大台灣50 ETF
-
-輸入代碼或名稱即可搜尋，系統自動判斷上市/上櫃。
-
-## 資料來源
-
-| 來源 | 用途 |
-|------|------|
-| Yahoo Finance (yfinance) | 股價歷史資料、基本面數據 |
-| Google News RSS | 個股新聞（中文） |
-| TWSE 公開 API | 上市股票清單 |
-| TPEX 公開 API | 上櫃股票清單 |
-| twstock | 離線股票代碼備援 |
-
-## 專案架構
-
-```
-Stock/
-├── app.py                  # Streamlit Web 介面（6 個功能頁面）
-├── config.py               # 設定檔（指標參數、策略參數、費率）
-├── screener_worker.py      # 條件選股 worker（獨立進程，並行抓取）
-├── requirements.txt        # Python 依賴
-├── STRATEGY.md             # 策略詳細說明（v1~v4）
-├── data/
-│   ├── fetcher.py          # 資料抓取（yfinance + Google News + Redis 快取）
-│   ├── stock_list.py       # 完整股票清單（TWSE/TPEX API + twstock）
-│   └── cache.py            # Redis 快取層
-├── analysis/
-│   ├── indicators.py       # 技術指標計算（MA/RSI/MACD/KD/布林/量能/ADX/ROC）
-│   ├── strategy.py         # v1-v3 綜合評分策略
-│   ├── strategy_v4.py      # v4 趨勢動量策略
-│   └── report.py           # 三維度分析報告產生器
-├── backtest/
-│   └── engine.py           # 回測引擎（v2 + v4，含台股費率）
-├── simulation/
-│   └── simulator.py        # 模擬交易（v2 + v4）
-├── tests/                  # 171 個單元測試
-│   ├── conftest.py         # 合成資料 fixtures（無網路依賴）
-│   ├── test_indicators.py  # 指標計算測試
-│   ├── test_strategy.py    # v1-v3 策略測試
-│   ├── test_strategy_v4.py # v4 策略測試
-│   ├── test_backtest.py    # 回測引擎測試
-│   ├── test_simulator.py   # 模擬交易測試
-│   └── test_report.py      # 報告產生器測試
-└── redis-data/             # Redis 持久化資料（gitignore）
+```bash
+docker run -d --name stock-redis -p 6379:6379 redis:7-alpine redis-server --appendonly yes
 ```
 
-## 快取策略（Redis）
-
-| 資料 | TTL | 說明 |
-|------|-----|------|
-| 股價資料 | 5 分鐘 | 盤中即時性 |
-| 分析結果 | 5 分鐘 | 隨股價更新 |
-| 推薦掃描 | 10 分鐘 | 掃描 25 隻較耗時 |
-| 條件選股 | 30 分鐘 | 基本面資料變化慢，按條件 hash 分開快取 |
-| 股票清單 | 24 小時 | 清單變化頻率低 |
-
-可在側邊欄「快取狀態」查看 Redis 連線與記憶體使用，並手動清空快取。
-
-## 測試
+### 測試
 
 ```bash
 python -m pytest tests/ -q
+# 400+ tests, all synthetic fixtures, no network dependency
 ```
 
-171 個測試，全部使用合成 fixtures（`conftest.py`），不依賴網路。
-覆蓋範圍：指標計算、策略訊號、回測引擎、模擬交易、報告產生。
+---
+
+## 開發進度
+
+### 已完成
+
+| Round | 內容 | 狀態 |
+|-------|------|------|
+| R1-R40 | Vue 3 + FastAPI migration, 9 pages, V4/V5/Adaptive strategies | Done |
+| R41-R44 | SQS 6-dim, Alert system, Forward testing | Done |
+| R45-R50 | Scheduler, risk dashboard, SQS 8-dim, strategy center | Done |
+| R51-R55 | Fugle WebSocket, PDF export, data quality, event system | Done |
+| R56-R58 | Factor analysis, performance attribution, data consolidation | Done |
+| R59-R61 | Forward testing automation, risk framework (VaR/DD/stress) | Done |
+| R62 | SQS v2 (8 dimensions: Valuation + Growth) | Done |
+| R63 | TWSE/TPEX data provider + SQLite + Shadow mode | Done |
+| R64-R65 | DTW pattern matching + PatternView UI | Done |
+| R66 | Bold strategy (Energy Squeeze + Step-up Buffer) | Done |
+| R67 | Ultra-Wide Conviction + Volume Ramp + 假精確 feedback | **In Progress** |
+
+### R67 進行中
+
+- [x] Bold 策略核心：能量擠壓突破 + 階梯式停利
+- [x] Ultra-Wide Conviction 模式（MA200 斜率保護）
+- [x] Volume Ramp 進場（小型股 30 張門檻）
+- [x] API endpoints (backtest + analysis)
+- [x] 27 unit tests passing
+- [x] Gemini 討論：假精確 feedback + 實驗導向型對話協議
+- [ ] **Parameter Sweep**: conviction_hold_gain × trail_level3_pct heatmap（進行中）
+- [ ] Sweep 結果分析 + robustness band
+- [ ] 參數標記 VALIDATED/HYPOTHESIS
+- [ ] Frontend toggle (Bold strategy 選擇器)
+
+### 待辦
+
+- Bold parameter sweep 完成後根據數據驗證參數
+- Frontend Bold strategy toggle UI
+- Liquidity Score calculation
+- Cross-stock parameter clustering（如果 sweep 顯示異質性）
+
+---
+
+## 假精確 Protocol (R67)
+
+Joe 的核心要求：**先做實驗，再下結論。不要「先結論，再找數據支持」。**
+
+所有策略參數必須標記：
+- `VALIDATED(n=X, period=Y)` — 有 sweep 數據支持
+- `HYPOTHESIS` — 有邏輯推導但無數據驗證
+- `PLACEHOLDER_NEEDS_DATA` — 純猜測，等待實驗
+
+---
 
 ## 免責聲明
 

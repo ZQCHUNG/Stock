@@ -61,6 +61,16 @@ class MetaStrategyRequest(BaseModel):
     initial_capital: float = 1_000_000
 
 
+class BoldBacktestRequest(BaseModel):
+    period_days: int = 1825  # 5 年（小型股需要長期數據）
+    initial_capital: float = 1_000_000
+    params: dict | None = None
+    ultra_wide: bool = False  # 是否使用 Ultra-Wide Conviction 模式
+    commission_rate: float | None = None
+    tax_rate: float | None = None
+    slippage: float | None = None
+
+
 class SqsBacktestRequest(BaseModel):
     stock_codes: list[str] | None = None
     period_days: int = 730
@@ -339,6 +349,32 @@ def run_v5_backtest(code: str, req: BacktestRequest):
         result = run_backtest_v5(
             df, initial_capital=req.initial_capital, params=req.params,
             commission_rate=req.commission_rate, tax_rate=req.tax_rate,
+            slippage=req.slippage,
+        )
+        return _serialize_backtest_result(result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{code}/bold")
+def run_bold_backtest(code: str, req: BoldBacktestRequest):
+    """執行 Bold 大膽策略回測（Energy Squeeze + Step-up Buffer）
+
+    支援兩種模式：
+    - Standard: 擠壓突破 + 量能爬坡，120 天 max hold
+    - Ultra-Wide: MA200 斜率保護 + 365 天 conviction hold
+    """
+    from data.fetcher import get_stock_data
+    from backtest.engine import run_backtest_bold
+    try:
+        df = get_stock_data(code, period_days=req.period_days)
+        result = run_backtest_bold(
+            df,
+            initial_capital=req.initial_capital,
+            params=req.params,
+            ultra_wide=req.ultra_wide,
+            commission_rate=req.commission_rate,
+            tax_rate=req.tax_rate,
             slippage=req.slippage,
         )
         return _serialize_backtest_result(result)
