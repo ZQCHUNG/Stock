@@ -46,4 +46,49 @@ export const backtestApi = {
       thresholds,
       max_workers: 4,
     }, { timeout: 600_000 }),
+
+  // R59: Forward Testing
+  forwardTestSummary: () =>
+    client.get<any, any>('/backtest/forward-test/summary'),
+  forwardTestSignals: (limit = 50, status?: string) =>
+    client.get<any, any>('/backtest/forward-test/signals', { params: { limit, status } }),
+  forwardTestPositions: (limit = 50, status?: string) =>
+    client.get<any, any>('/backtest/forward-test/positions', { params: { limit, status } }),
+  forwardTestScan: (stockCodes?: string[]) =>
+    client.post<any, any>('/backtest/forward-test/scan', stockCodes, { timeout: 120_000 }),
+  forwardTestOpen: (signalId: number, capital = 500_000) =>
+    client.post<any, any>(`/backtest/forward-test/open/${signalId}`, null, { params: { capital } }),
+  forwardTestUpdate: () =>
+    client.post<any, any>('/backtest/forward-test/update'),
+  forwardTestCompare: (stockCode?: string) =>
+    client.get<any, any>('/backtest/forward-test/compare', { params: { stock_code: stockCode } }),
+
+  // R60: Risk Management
+  riskAssess: (params: {
+    stock_codes?: string[]
+    portfolio_value?: number
+    holdings?: Record<string, number>
+    confidence?: number
+    daily_pnl?: number
+    weekly_pnl?: number
+    monthly_pnl?: number
+    consecutive_losses?: number
+  }) => client.post<any, any>('/backtest/risk/assess', params, { timeout: 60_000 }),
+  riskVar: (params: {
+    stock_codes?: string[]
+    portfolio_value?: number
+    holdings?: Record<string, number>
+    confidence?: number
+  }) => client.post<any, any>('/backtest/risk/var', params),
+  riskStressTest: (params: {
+    stock_codes?: string[]
+    portfolio_value?: number
+    holdings?: Record<string, number>
+  }) => client.post<any, any>('/backtest/risk/stress-test', params, { timeout: 60_000 }),
+  riskCircuitBreaker: (params: {
+    daily_pnl?: number
+    weekly_pnl?: number
+    monthly_pnl?: number
+    consecutive_losses?: number
+  }) => client.post<any, any>('/backtest/risk/circuit-breaker', null, { params }),
 }

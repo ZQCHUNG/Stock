@@ -58,6 +58,12 @@ const router = createRouter({
       meta: { title: '風險監控' },
     },
     {
+      path: '/forward-test',
+      name: 'forward-test',
+      component: () => import('../views/ForwardTestView.vue'),
+      meta: { title: 'Forward Testing' },
+    },
+    {
       path: '/strategies',
       name: 'strategies',
       component: () => import('../views/StrategyWorkbenchView.vue'),

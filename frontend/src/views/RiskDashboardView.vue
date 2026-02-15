@@ -8,6 +8,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { riskApi } from '../api/risk'
+import { backtestApi } from '../api/backtest'
 import AlertsView from './AlertsView.vue'
 import SqsPerformanceView from './SqsPerformanceView.vue'
 import { useResponsive } from '../composables/useResponsive'
@@ -21,6 +22,11 @@ const scenarioLoading = ref(false)
 const varValidation = ref<any>(null)
 const varValidLoading = ref(false)
 const activeTab = ref('risk')
+
+// R60: Advanced risk state
+const r60Data = ref<any>(null)
+const r60Loading = ref(false)
+const circuitBreaker = ref<any>(null)
 
 async function loadRisk() {
   isLoading.value = true
@@ -51,9 +57,19 @@ async function runVarValidation() {
   varValidLoading.value = false
 }
 
+async function loadR60Risk() {
+  r60Loading.value = true
+  try {
+    r60Data.value = await backtestApi.riskAssess({ stock_codes: [], portfolio_value: 1_000_000 })
+    circuitBreaker.value = await backtestApi.riskCircuitBreaker({})
+  } catch { r60Data.value = null }
+  r60Loading.value = false
+}
+
 onMounted(() => {
   loadRisk()
   loadScenario()
+  loadR60Risk()
 })
 
 // Correlation Heatmap
@@ -392,6 +408,194 @@ const corrPairColumns: DataTableColumns = [
 
       <NTabPane name="sqs" tab="SQS 績效" display-directive="if">
         <SqsPerformanceView />
+      </NTabPane>
+
+      <NTabPane name="r60" tab="進階風控 (R60)" display-directive="show:lazy">
+        <NSpin :show="r60Loading">
+          <template v-if="r60Data">
+            <!-- Risk Score -->
+            <NGrid :cols="isMobile ? 2 : 4" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="風險評分">
+                    <template #default>
+                      <span :style="{ color: (r60Data.risk_score || 0) > 60 ? '#f44336' : (r60Data.risk_score || 0) > 30 ? '#ff9800' : '#4caf50', fontWeight: 'bold', fontSize: '24px' }">
+                        {{ r60Data.risk_score?.toFixed(0) || 0 }}
+                      </span>
+                    </template>
+                    <template #suffix>/100</template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+              <NGi v-if="r60Data.var">
+                <NCard size="small">
+                  <NStatistic label="Historical VaR">
+                    <template #default>
+                      <span style="color: #f44336">
+                        {{ ((r60Data.var.historical_var || 0) * 100).toFixed(2) }}%
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+              <NGi v-if="r60Data.var">
+                <NCard size="small">
+                  <NStatistic label="Parametric VaR">
+                    <template #default>
+                      <span style="color: #f44336">
+                        {{ ((r60Data.var.parametric_var || 0) * 100).toFixed(2) }}%
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+              <NGi v-if="r60Data.var">
+                <NCard size="small">
+                  <NStatistic label="CVaR (Expected Shortfall)">
+                    <template #default>
+                      <span style="color: #f44336">
+                        {{ ((r60Data.var.conditional_var || 0) * 100).toFixed(2) }}%
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+            </NGrid>
+
+            <!-- Alerts -->
+            <NAlert v-for="(alert, idx) in (r60Data.alerts || [])" :key="'r60a' + idx"
+                    type="warning" style="margin-bottom: 8px">
+              {{ alert }}
+            </NAlert>
+
+            <!-- Circuit Breaker -->
+            <NCard v-if="circuitBreaker" title="熔斷機制" size="small" style="margin-top: 16px">
+              <NAlert :type="circuitBreaker.triggered ? 'error' : 'success'" style="margin-bottom: 12px">
+                {{ circuitBreaker.triggered ? '熔斷已觸發：' + circuitBreaker.reason : '熔斷未觸發 — 所有指標在安全範圍' }}
+              </NAlert>
+              <NGrid :cols="isMobile ? 2 : 4" :x-gap="12" :y-gap="8">
+                <NGi>
+                  <NStatistic label="日損益">
+                    <template #default>
+                      <span :style="{ color: (circuitBreaker.daily_pnl || 0) < 0 ? '#f44336' : '#4caf50' }">
+                        {{ ((circuitBreaker.daily_pnl || 0) * 100).toFixed(2) }}%
+                      </span>
+                    </template>
+                    <template #suffix>
+                      <span style="font-size: 11px; color: #999">限額 {{ ((circuitBreaker.daily_loss_limit || 0) * 100).toFixed(0) }}%</span>
+                    </template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="週損益">
+                    <template #default>
+                      <span :style="{ color: (circuitBreaker.weekly_pnl || 0) < 0 ? '#f44336' : '#4caf50' }">
+                        {{ ((circuitBreaker.weekly_pnl || 0) * 100).toFixed(2) }}%
+                      </span>
+                    </template>
+                    <template #suffix>
+                      <span style="font-size: 11px; color: #999">限額 {{ ((circuitBreaker.weekly_loss_limit || 0) * 100).toFixed(0) }}%</span>
+                    </template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="月損益">
+                    <template #default>
+                      <span :style="{ color: (circuitBreaker.monthly_pnl || 0) < 0 ? '#f44336' : '#4caf50' }">
+                        {{ ((circuitBreaker.monthly_pnl || 0) * 100).toFixed(2) }}%
+                      </span>
+                    </template>
+                    <template #suffix>
+                      <span style="font-size: 11px; color: #999">限額 {{ ((circuitBreaker.monthly_loss_limit || 0) * 100).toFixed(0) }}%</span>
+                    </template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="連續虧損">
+                    <template #default>
+                      {{ circuitBreaker.consecutive_losses || 0 }}
+                    </template>
+                    <template #suffix>
+                      <span style="font-size: 11px; color: #999">上限 {{ circuitBreaker.max_consecutive_losses || 5 }}</span>
+                    </template>
+                  </NStatistic>
+                </NGi>
+              </NGrid>
+            </NCard>
+
+            <!-- R60 Stress Tests -->
+            <NCard v-if="r60Data.stress_tests?.length" title="壓力測試 (R60)" size="small" style="margin-top: 16px">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                <thead>
+                  <tr style="border-bottom: 2px solid #e0e0e0; text-align: right">
+                    <th style="text-align: left; padding: 6px">情境</th>
+                    <th style="padding: 6px">組合損益</th>
+                    <th style="padding: 6px">損益金額</th>
+                    <th style="padding: 6px">最差持股</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="s in r60Data.stress_tests" :key="s.scenario"
+                      style="border-bottom: 1px solid #eee; text-align: right">
+                    <td style="text-align: left; padding: 6px; font-weight: 600">{{ s.scenario }}</td>
+                    <td style="padding: 6px; color: #f44336">
+                      {{ (s.portfolio_pnl * 100).toFixed(2) }}%
+                    </td>
+                    <td style="padding: 6px; color: #f44336">
+                      ${{ Math.abs(s.portfolio_pnl_amt).toLocaleString() }}
+                    </td>
+                    <td style="padding: 6px">
+                      {{ s.worst_stock }} ({{ (s.worst_stock_pnl * 100).toFixed(1) }}%)
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </NCard>
+
+            <!-- Drawdown -->
+            <NCard v-if="r60Data.drawdown" title="回撤監控" size="small" style="margin-top: 16px">
+              <NGrid :cols="isMobile ? 2 : 4" :x-gap="12" :y-gap="8">
+                <NGi>
+                  <NStatistic label="目前回撤">
+                    <template #default>
+                      <span :style="{ color: r60Data.drawdown.is_breached ? '#f44336' : '#4caf50' }">
+                        {{ ((r60Data.drawdown.current_drawdown || 0) * 100).toFixed(2) }}%
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="回撤閾值">
+                    <template #default>
+                      {{ ((r60Data.drawdown.max_drawdown_threshold || 0) * 100).toFixed(0) }}%
+                    </template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="資金利用率">
+                    <template #default>
+                      {{ ((r60Data.drawdown.capital_utilization || 0) * 100).toFixed(1) }}%
+                    </template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="狀態">
+                    <template #default>
+                      <NTag :type="r60Data.drawdown.is_breached ? 'error' : 'success'" size="small">
+                        {{ r60Data.drawdown.is_breached ? '超限' : '安全' }}
+                      </NTag>
+                    </template>
+                  </NStatistic>
+                </NGi>
+              </NGrid>
+            </NCard>
+
+            <div style="text-align: right; margin-top: 12px">
+              <NButton size="small" @click="loadR60Risk" :loading="r60Loading">重新整理</NButton>
+            </div>
+          </template>
+          <NEmpty v-else-if="!r60Loading" description="載入風控資料中..." />
+        </NSpin>
       </NTabPane>
     </NTabs>
   </div>
