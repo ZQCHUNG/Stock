@@ -343,27 +343,32 @@ def sync_twse_stock(stock_code: str, months_back: int = 12, force: bool = False)
 def fetch_tpex_month(stock_code: str, year: int, month: int) -> list[dict]:
     """Fetch one month of daily OHLCV from TPEX for 上櫃 stocks.
 
-    TPEX uses a different API format from TWSE.
-    URL: https://www.tpex.org.tw/web/stock/aftertrading/daily_trading_info/st43_result.php
+    New TPEX API (2024+ website redesign):
+    URL: https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock
+    Uses Western calendar dates (YYYY/MM/DD), returns tables[0].data.
+    Volume is in 張 (lots), must multiply by 1000 for shares.
     """
-    roc_year = year - 1911
-    d = f"{roc_year}/{month:02d}"
-    url = (f"https://www.tpex.org.tw/web/stock/aftertrading/"
-           f"daily_trading_info/st43_result.php"
-           f"?l=zh-tw&d={d}&stkno={stock_code}&_={int(time.time())}")
+    d = f"{year}/{month:02d}/01"
+    url = (f"https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock"
+           f"?code={stock_code}&date={d}&response=json")
 
     data = _tpex_get(url)
-    if not data or not data.get("aaData"):
+    if not data or data.get("stat") != "ok":
+        return []
+
+    tables = data.get("tables", [])
+    if not tables or not tables[0].get("data"):
         return []
 
     rows = []
-    for row in data["aaData"]:
+    for row in tables[0]["data"]:
         try:
-            # TPEX format: [日期, 成交股數, 成交金額, 開盤, 最高, 最低, 收盤, 漲跌, 成交筆數]
+            # New TPEX format: [日期, 成交張數, 成交仟元, 開盤, 最高, 最低, 收盤, 漲跌, 筆數]
             date_iso = _parse_roc_date(str(row[0]))
             if not date_iso:
                 continue
-            volume = _safe_int(row[1])
+            volume_lots = _safe_int(row[1])
+            volume = (volume_lots * 1000) if volume_lots is not None else 0  # 張→股
             open_p = _safe_float(row[3])
             high_p = _safe_float(row[4])
             low_p = _safe_float(row[5])
@@ -378,7 +383,7 @@ def fetch_tpex_month(stock_code: str, year: int, month: int) -> list[dict]:
                 "high": high_p,
                 "low": low_p,
                 "close": close_p,
-                "volume": volume or 0,
+                "volume": volume,
             })
         except (IndexError, ValueError):
             continue

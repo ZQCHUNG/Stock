@@ -129,8 +129,11 @@ def get_stock_data(
 ) -> pd.DataFrame:
     """抓取台股歷史資料
 
-    優先從 Redis 快取讀取，再嘗試 yfinance（調整後股價），
-    yfinance 失敗時自動切換 FinMind API（未調整股價）作為備援。
+    優先順序（R63 資料整合）：
+    1. Redis 快取
+    2. TWSE/TPEX 官方 SQLite（前復權調整後）
+    3. yfinance（調整後股價，fallback）
+    4. FinMind API（未調整股價，最後備援）
 
     Args:
         stock_code: 台股代碼（純數字，如 '2330' 或 '6748'）
@@ -153,9 +156,36 @@ def get_stock_data(
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
 
-    # 主要數據源：yfinance（調整後股價）
-    # 使用 yf.Ticker().history() 而非 yf.download()，確保 thread-safety
     df = None
+
+    # --- Primary: TWSE/TPEX 官方 SQLite (R63) ---
+    try:
+        from data.twse_provider import get_stock_data_from_db, sync_stock
+        df = get_stock_data_from_db(
+            stock_code, start_str, end_str, adjusted=True,
+        )
+        if df.empty or len(df) < max(period_days * 0.5, 10):
+            # Insufficient data in DB — try syncing from TWSE API
+            _logger.info("TWSE DB insufficient for %s (%d rows), syncing...",
+                         stock_code, len(df))
+            months_needed = max(period_days // 30 + 1, 3)
+            sync_stock(stock_code, months_back=months_needed)
+            df = get_stock_data_from_db(
+                stock_code, start_str, end_str, adjusted=True,
+            )
+        if not df.empty:
+            _logger.debug("Using TWSE data for %s: %d rows", stock_code, len(df))
+    except Exception as e:
+        _logger.warning("TWSE provider failed for %s: %s", stock_code, e)
+        df = None
+
+    if df is not None and not df.empty:
+        # TWSE data available — cache and return
+        set_cached_stock_data(stock_code, period_days, df)
+        return df
+
+    # --- Fallback 1: yfinance（調整後股價）---
+    # 使用 yf.Ticker().history() 而非 yf.download()，確保 thread-safety
     try:
         ticker = get_ticker(stock_code)
         df = yf.Ticker(ticker).history(
@@ -165,11 +195,13 @@ def get_stock_data(
         )
         if df.empty:
             df = None
+        else:
+            _logger.info("Using yfinance fallback for %s", stock_code)
     except Exception as e:
         _logger.warning("yfinance failed for %s: %s", stock_code, e)
         df = None
 
-    # 備援數據源：FinMind API（未調整股價）
+    # --- Fallback 2: FinMind API（未調整股價）---
     if df is None:
         try:
             _logger.info("Falling back to FinMind for %s", stock_code)
@@ -182,7 +214,7 @@ def get_stock_data(
 
     if df is None or df.empty:
         raise ValueError(
-            f"無法取得 {stock_code} 的資料（yfinance 與 FinMind 皆失敗），"
+            f"無法取得 {stock_code} 的資料（TWSE、yfinance、FinMind 皆失敗），"
             f"請確認股票代碼是否正確"
         )
 
@@ -212,6 +244,11 @@ def get_stock_data(
 def get_taiex_data(period_days: int = 365) -> pd.DataFrame:
     """取得台灣加權指數 (TAIEX) 歷史資料
 
+    優先順序（R63）：
+    1. Redis 快取
+    2. TWSE MI_5MINS_HIST（官方加權指數）
+    3. yfinance ^TWII（fallback）
+
     Args:
         period_days: 抓取天數
 
@@ -224,15 +261,40 @@ def get_taiex_data(period_days: int = 365) -> pd.DataFrame:
     if cached is not None:
         return cached
 
+    df = None
+
+    # --- Primary: TWSE 官方加權指數 ---
+    try:
+        from data.twse_provider import get_taiex_from_db, sync_taiex
+        df = get_taiex_from_db(period_days=period_days)
+        if df.empty or len(df) < max(period_days * 0.5, 10):
+            _logger.info("TAIEX DB insufficient (%d rows), syncing...", len(df))
+            months_needed = max(period_days // 30 + 1, 3)
+            sync_taiex(months_back=months_needed)
+            df = get_taiex_from_db(period_days=period_days)
+        if not df.empty:
+            _logger.debug("Using TWSE TAIEX data: %d rows", len(df))
+    except Exception as e:
+        _logger.warning("TWSE TAIEX failed: %s", e)
+        df = None
+
+    if df is not None and not df.empty:
+        set_cached_stock_data("^TWII", period_days, df)
+        return df
+
+    # --- Fallback: yfinance ^TWII ---
     end_date = datetime.now()
     start_date = end_date - timedelta(days=period_days)
 
-    # 使用 yf.Ticker().history() 確保 thread-safety
-    df = yf.Ticker("^TWII").history(
-        start=start_date.strftime("%Y-%m-%d"),
-        end=end_date.strftime("%Y-%m-%d"),
-        auto_adjust=True,
-    )
+    try:
+        df = yf.Ticker("^TWII").history(
+            start=start_date.strftime("%Y-%m-%d"),
+            end=end_date.strftime("%Y-%m-%d"),
+            auto_adjust=True,
+        )
+    except Exception as e:
+        _logger.warning("yfinance ^TWII failed: %s", e)
+        return pd.DataFrame()
 
     if df.empty:
         return pd.DataFrame()
@@ -254,12 +316,31 @@ def get_taiex_data(period_days: int = 365) -> pd.DataFrame:
 def get_dividend_data(stock_code: str) -> pd.Series:
     """取得股票歷史除權息資料
 
+    R63: 優先從 TWSE SQLite 讀取，fallback yfinance。
+
     Args:
         stock_code: 台股代碼
 
     Returns:
         pd.Series，index 為除息日、值為每股股利（TWD）
     """
+    # Primary: TWSE SQLite (R63)
+    try:
+        from data.twse_provider import _get_conn
+        with _get_conn() as conn:
+            rows = conn.execute(
+                "SELECT ex_date, cash_dividend FROM corporate_actions "
+                "WHERE ticker=? AND cash_dividend>0 ORDER BY ex_date",
+                (stock_code,),
+            ).fetchall()
+        if rows:
+            dates = pd.to_datetime([r[0] for r in rows])
+            values = [r[1] for r in rows]
+            return pd.Series(values, index=dates, name="Dividends")
+    except Exception:
+        pass
+
+    # Fallback: yfinance
     ticker_str = get_ticker(stock_code)
     ticker = yf.Ticker(ticker_str)
     dividends = ticker.dividends
@@ -372,11 +453,31 @@ def get_institutional_data(stock_code: str, days: int = 30) -> pd.DataFrame:
         time.sleep(0.3)
 
     if not results:
-        # T86 沒有資料（可能是 OTC 股票），嘗試 FinMind 備援
-        df = _fetch_institutional_from_finmind(stock_code, days)
-        if not df.empty:
-            set_cached_institutional_data(stock_code, df, ttl=3600)
-        return df
+        # T86 沒有資料（可能是 OTC 股票）
+        # R63: 優先嘗試 TPEX 官方 API，再 fallback FinMind
+        try:
+            from data.twse_provider import fetch_tpex_institutional
+            _tpex_date = datetime.now()
+            for _tpex_i in range(days * 2):
+                _tpex_str = _tpex_date.strftime("%Y-%m-%d")
+                _tpex_date -= timedelta(days=1)
+                inst = fetch_tpex_institutional(stock_code, _tpex_str)
+                if inst:
+                    results.append({
+                        "date": pd.Timestamp(_tpex_str),
+                        **inst,
+                    })
+                    if len(results) >= days:
+                        break
+        except Exception as e:
+            _logger.warning("TPEX institutional failed for %s: %s", stock_code, e)
+
+        if not results:
+            # Final fallback: FinMind
+            df = _fetch_institutional_from_finmind(stock_code, days)
+            if not df.empty:
+                set_cached_institutional_data(stock_code, df, ttl=3600)
+            return df
 
     df = pd.DataFrame(results).sort_values("date").set_index("date")
 

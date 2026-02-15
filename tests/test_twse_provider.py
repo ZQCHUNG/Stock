@@ -177,13 +177,26 @@ class TestFetchTwseMonth:
 
 class TestFetchTpexMonth:
     def test_parse_response(self):
+        """Test parsing new TPEX tradingStock API response (2024+ format)."""
         from data.twse_provider import fetch_tpex_month
 
+        # New format: tables[0].data, volume in 張 (lots), turnover in 仟元
         mock_response = {
-            "aaData": [
-                ["115/02/03", "1,234,567", "12,345,678", "55.00", "56.50", "54.80", "56.00", "+1.20", "890"],
-                ["115/02/04", "2,345,678", "23,456,789", "56.00", "57.00", "55.50", "56.80", "+0.80", "1,200"],
-            ],
+            "stat": "ok",
+            "tables": [{
+                "title": "個股日成交資訊",
+                "subtitle": "6510 精測 115年02月",
+                "date": "20260201",
+                "totalCount": 2,
+                "fields": ["日 期", "成交張數", "成交仟元", "開盤", "最高", "最低", "收盤", "漲跌", "筆數"],
+                "data": [
+                    ["115/02/03", "836", "2,834,391", "55.00", "56.50", "54.80", "56.00", "+1.20", "890"],
+                    ["115/02/04", "1,200", "3,456,789", "56.00", "57.00", "55.50", "56.80", "+0.80", "1,200"],
+                ],
+            }],
+            "date": "20260201",
+            "code": "6510",
+            "name": "精測",
         }
 
         with patch("data.twse_provider._tpex_get", return_value=mock_response):
@@ -192,6 +205,22 @@ class TestFetchTpexMonth:
         assert len(rows) == 2
         assert rows[0]["date"] == "2026-02-03"
         assert rows[0]["close"] == 56.0
+        assert rows[0]["volume"] == 836000  # 836 lots × 1000 = 836,000 shares
+        assert rows[1]["volume"] == 1200000  # 1,200 lots × 1000
+
+    def test_stat_not_ok(self):
+        from data.twse_provider import fetch_tpex_month
+
+        with patch("data.twse_provider._tpex_get", return_value={"stat": "error"}):
+            rows = fetch_tpex_month("6510", 2026, 1)
+        assert rows == []
+
+    def test_empty_tables(self):
+        from data.twse_provider import fetch_tpex_month
+
+        with patch("data.twse_provider._tpex_get", return_value={"stat": "ok", "tables": [{"data": []}]}):
+            rows = fetch_tpex_month("6510", 2026, 1)
+        assert rows == []
 
 
 class TestCorporateActions:
