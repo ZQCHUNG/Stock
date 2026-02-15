@@ -400,6 +400,96 @@ def run_adaptive_backtest_endpoint(code: str, req: AdaptiveBacktestRequest):
         raise HTTPException(500, str(e))
 
 
+class BatchAdaptiveRequest(BaseModel):
+    codes: list[str] = ["0050", "2330", "2317"]
+    period_days: int = 1095
+    initial_capital: float = 1_000_000
+
+
+@router.post("/adaptive-backtest-batch")
+def run_batch_adaptive_backtest(req: BatchAdaptiveRequest):
+    """R54: 批次自適應回測驗證 — 多標的聚合分析
+
+    用多支代表性標的驗證自適應策略 vs 固定 V4 的實際效果。
+    返回每支標的的比較結果 + 整體統計。
+    """
+    from data.fetcher import get_stock_data
+    from backtest.adaptive import run_adaptive_backtest
+    from backend.dependencies import make_serializable, series_to_response
+
+    results = []
+    errors = []
+
+    for code in req.codes:
+        try:
+            df = get_stock_data(code, period_days=req.period_days)
+            if df is None or len(df) < 120:
+                errors.append({"code": code, "error": "數據不足"})
+                continue
+
+            r = run_adaptive_backtest(df, initial_capital=req.initial_capital)
+
+            results.append({
+                "code": code,
+                "data_days": len(df),
+                "adaptive": {
+                    "total_return": r.adaptive.total_return,
+                    "annual_return": r.adaptive.annual_return,
+                    "max_drawdown": r.adaptive.max_drawdown,
+                    "sharpe_ratio": r.adaptive.sharpe_ratio,
+                    "win_rate": r.adaptive.win_rate,
+                    "profit_factor": r.adaptive.profit_factor,
+                    "total_trades": r.adaptive.total_trades,
+                },
+                "baseline": {
+                    "total_return": r.baseline.total_return,
+                    "annual_return": r.baseline.annual_return,
+                    "max_drawdown": r.baseline.max_drawdown,
+                    "sharpe_ratio": r.baseline.sharpe_ratio,
+                    "win_rate": r.baseline.win_rate,
+                    "profit_factor": r.baseline.profit_factor,
+                    "total_trades": r.baseline.total_trades,
+                },
+                "comparison": {
+                    "alpha": r.alpha,
+                    "sharpe_delta": r.sharpe_delta,
+                    "drawdown_delta": r.drawdown_delta,
+                },
+                "regime_performance": r.regime_performance,
+                "regime_switches": len(r.regime_log),
+            })
+        except Exception as e:
+            errors.append({"code": code, "error": str(e)})
+
+    # Aggregate stats
+    if results:
+        import numpy as np
+        alphas = [r["comparison"]["alpha"] for r in results]
+        sharpe_deltas = [r["comparison"]["sharpe_delta"] for r in results]
+        dd_deltas = [r["comparison"]["drawdown_delta"] for r in results]
+        adaptive_wins = sum(1 for a in alphas if a > 0)
+
+        aggregate = {
+            "stocks_tested": len(results),
+            "adaptive_wins": adaptive_wins,
+            "adaptive_win_rate": round(adaptive_wins / len(results), 2),
+            "avg_alpha": round(float(np.mean(alphas)), 4),
+            "median_alpha": round(float(np.median(alphas)), 4),
+            "avg_sharpe_delta": round(float(np.mean(sharpe_deltas)), 4),
+            "avg_drawdown_delta": round(float(np.mean(dd_deltas)), 4),
+            "best_alpha": {"code": results[int(np.argmax(alphas))]["code"], "alpha": round(max(alphas), 4)},
+            "worst_alpha": {"code": results[int(np.argmin(alphas))]["code"], "alpha": round(min(alphas), 4)},
+        }
+    else:
+        aggregate = {"stocks_tested": 0, "error": "No valid results"}
+
+    return make_serializable({
+        "results": results,
+        "errors": errors,
+        "aggregate": aggregate,
+    })
+
+
 @router.get("/adaptive-recommendation")
 def get_adaptive_recommendation_endpoint():
     """R51-1: 自適應策略推薦

@@ -42,4 +42,9 @@ export const strategiesApi = {
     client.get<any, any>('/strategies/adaptive-recommendation'),
   adaptiveBacktest: (code: string, params?: { period_days?: number; rebalance_days?: number; regime_lookback?: number }) =>
     client.post<any, any>(`/strategies/adaptive-backtest/${code}`, params || {}, { timeout: 120000 }),
+  batchAdaptiveBacktest: (codes?: string[], periodDays?: number) =>
+    client.post<any, any>('/strategies/adaptive-backtest-batch', {
+      codes: codes || ['0050', '2330', '2317'],
+      period_days: periodDays || 1095,
+    }, { timeout: 300000 }),
 }

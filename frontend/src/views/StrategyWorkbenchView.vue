@@ -30,6 +30,9 @@ const showAdaptiveBt = ref(false)
 const adaptiveBtResult = ref<any>(null)
 const adaptiveBtLoading = ref(false)
 const activeTab = ref('manage')
+const batchResult = ref<any>(null)
+const batchLoading = ref(false)
+const showBatchModal = ref(false)
 
 // Create form
 const createForm = ref({
@@ -157,6 +160,42 @@ async function runAdaptiveBacktest() {
   }
   adaptiveBtLoading.value = false
 }
+
+async function runBatchValidation() {
+  batchLoading.value = true
+  showBatchModal.value = true
+  batchResult.value = null
+  try {
+    batchResult.value = await strategiesApi.batchAdaptiveBacktest(
+      ['0050', '2330', '2317', '2454', '2882', '1301'],
+    )
+  } catch (e: any) {
+    msg.error(e?.message || '批次驗證失敗')
+  }
+  batchLoading.value = false
+}
+
+// R54: Batch validation table columns
+const batchColumns: DataTableColumns = [
+  { title: '代號', key: 'code', width: 70 },
+  { title: '數據天數', key: 'data_days', width: 80 },
+  { title: 'Adaptive 報酬', key: 'a_ret', width: 110,
+    render: (r: any) => h('span', { style: { color: (r.adaptive?.total_return || 0) >= 0 ? '#18a058' : '#e53e3e' } },
+      `${((r.adaptive?.total_return || 0) * 100).toFixed(2)}%`),
+    sorter: (a: any, b: any) => (a.adaptive?.total_return || 0) - (b.adaptive?.total_return || 0) },
+  { title: 'V4 報酬', key: 'b_ret', width: 100,
+    render: (r: any) => h('span', { style: { color: (r.baseline?.total_return || 0) >= 0 ? '#18a058' : '#e53e3e' } },
+      `${((r.baseline?.total_return || 0) * 100).toFixed(2)}%`) },
+  { title: 'Alpha', key: 'alpha', width: 90,
+    render: (r: any) => h('span', { style: { color: (r.comparison?.alpha || 0) >= 0 ? '#18a058' : '#e53e3e', fontWeight: '600' } },
+      `${(r.comparison?.alpha || 0) > 0 ? '+' : ''}${((r.comparison?.alpha || 0) * 100).toFixed(2)}%`),
+    sorter: (a: any, b: any) => (a.comparison?.alpha || 0) - (b.comparison?.alpha || 0) },
+  { title: 'Sharpe Δ', key: 'sharpe_d', width: 90,
+    render: (r: any) => `${(r.comparison?.sharpe_delta || 0) > 0 ? '+' : ''}${(r.comparison?.sharpe_delta || 0).toFixed(3)}` },
+  { title: 'Drawdown Δ', key: 'dd_d', width: 100,
+    render: (r: any) => `${((r.comparison?.drawdown_delta || 0) * 100).toFixed(2)}%` },
+  { title: '情境切換', key: 'regime_switches', width: 80 },
+]
 
 function regimeTagType(suit: string): 'success' | 'warning' | 'error' | 'info' | 'default' {
   if (suit === 'excellent') return 'success'
@@ -358,18 +397,23 @@ onMounted(async () => {
       </NAlert>
     </NCard>
 
-    <!-- Adaptive Backtest Button -->
+    <!-- Adaptive Backtest Buttons -->
     <NCard size="small" style="margin-bottom: 16px">
       <NSpace align="center" justify="space-between">
         <div>
-          <strong>自適應策略回測 (R52)</strong>
+          <strong>自適應策略驗證</strong>
           <span style="color: #999; margin-left: 8px; font-size: 12px">
-            模擬 ML 情境動態切換策略 vs 固定 V4，驗證自適應的實際價值
+            ML 情境動態切換策略 vs 固定 V4
           </span>
         </div>
-        <NButton type="primary" @click="runAdaptiveBacktest" :loading="adaptiveBtLoading">
-          回測 {{ app.currentStockCode || '...' }} (3年)
-        </NButton>
+        <NSpace :size="8">
+          <NButton @click="runAdaptiveBacktest" :loading="adaptiveBtLoading">
+            單股回測 {{ app.currentStockCode || '...' }}
+          </NButton>
+          <NButton type="primary" @click="runBatchValidation" :loading="batchLoading">
+            批次驗證 (6 標的, 3年)
+          </NButton>
+        </NSpace>
       </NSpace>
     </NCard>
 
@@ -673,6 +717,80 @@ onMounted(async () => {
         </template>
         <div v-else-if="!btLoading" style="padding: 20px; text-align: center; color: #999">
           無回測結果
+        </div>
+      </NSpin>
+    </NModal>
+
+    <!-- Batch Validation Modal (R54) -->
+    <NModal v-model:show="showBatchModal" preset="card" style="width: 1000px"
+            title="自適應策略批次驗證報告">
+      <NSpin :show="batchLoading">
+        <template v-if="batchResult?.aggregate">
+          <!-- Aggregate Summary -->
+          <NGrid :cols="5" :x-gap="12" :y-gap="8" style="margin-bottom: 16px">
+            <NGi>
+              <NStatistic label="測試標的" :value="batchResult.aggregate.stocks_tested" />
+            </NGi>
+            <NGi>
+              <NStatistic label="自適應勝出">
+                <template #default>
+                  <span :style="{ color: batchResult.aggregate.adaptive_win_rate >= 0.5 ? '#18a058' : '#e53e3e' }">
+                    {{ batchResult.aggregate.adaptive_wins }}/{{ batchResult.aggregate.stocks_tested }}
+                    ({{ (batchResult.aggregate.adaptive_win_rate * 100).toFixed(0) }}%)
+                  </span>
+                </template>
+              </NStatistic>
+            </NGi>
+            <NGi>
+              <NStatistic label="平均 Alpha">
+                <template #default>
+                  <span :style="{ color: batchResult.aggregate.avg_alpha >= 0 ? '#18a058' : '#e53e3e', fontSize: '18px', fontWeight: '600' }">
+                    {{ batchResult.aggregate.avg_alpha > 0 ? '+' : '' }}{{ (batchResult.aggregate.avg_alpha * 100).toFixed(2) }}%
+                  </span>
+                </template>
+              </NStatistic>
+            </NGi>
+            <NGi>
+              <NStatistic label="平均 Sharpe Δ">
+                <template #default>
+                  <span :style="{ color: batchResult.aggregate.avg_sharpe_delta >= 0 ? '#18a058' : '#e53e3e' }">
+                    {{ batchResult.aggregate.avg_sharpe_delta > 0 ? '+' : '' }}{{ batchResult.aggregate.avg_sharpe_delta.toFixed(3) }}
+                  </span>
+                </template>
+              </NStatistic>
+            </NGi>
+            <NGi>
+              <NStatistic label="平均 Drawdown Δ">
+                <template #default>
+                  {{ (batchResult.aggregate.avg_drawdown_delta * 100).toFixed(2) }}%
+                </template>
+              </NStatistic>
+            </NGi>
+          </NGrid>
+
+          <NAlert v-if="batchResult.aggregate.best_alpha" type="info" style="margin-bottom: 8px">
+            最佳: {{ batchResult.aggregate.best_alpha.code }} (Alpha +{{ (batchResult.aggregate.best_alpha.alpha * 100).toFixed(2) }}%)
+            &nbsp;|&nbsp;
+            最差: {{ batchResult.aggregate.worst_alpha.code }} (Alpha {{ (batchResult.aggregate.worst_alpha.alpha * 100).toFixed(2) }}%)
+          </NAlert>
+
+          <!-- Per-stock results table -->
+          <NDataTable
+            :columns="batchColumns"
+            :data="batchResult.results"
+            size="small"
+            :bordered="false"
+            :single-line="false"
+          />
+
+          <!-- Errors -->
+          <NAlert v-for="(err, idx) in (batchResult.errors || [])" :key="idx"
+                  type="warning" style="margin-top: 8px">
+            {{ err.code }}: {{ err.error }}
+          </NAlert>
+        </template>
+        <div v-else-if="!batchLoading" style="padding: 20px; text-align: center; color: #999">
+          無批次驗證結果
         </div>
       </NSpin>
     </NModal>
