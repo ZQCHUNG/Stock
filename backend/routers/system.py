@@ -672,3 +672,73 @@ def _dashboard_equity_curve():
         return {"dates": dates, "values": values}
     except Exception:
         return {"dates": [], "values": []}
+
+
+# ---------------------------------------------------------------------------
+# R62: Business Metrics endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/metrics")
+def get_metrics():
+    """R62: Get business metrics summary."""
+    from backend.metrics import metrics
+    return metrics.get_summary().to_dict()
+
+
+@router.get("/metrics/events")
+def get_metric_events(limit: int = 50):
+    """R62: Get recent metric events."""
+    from backend.metrics import metrics
+    return metrics.get_recent_events(limit=limit)
+
+
+@router.get("/metrics/anomalies")
+def get_anomalies():
+    """R62: Get current anomaly alerts."""
+    from backend.metrics import metrics
+    return {"anomalies": metrics.detect_anomalies()}
+
+
+# ---------------------------------------------------------------------------
+# R63: TWSE Data Provider — Official Data Source Integration
+# ---------------------------------------------------------------------------
+
+@router.get("/twse/db-stats")
+def twse_db_stats():
+    """R63: Get TWSE SQLite database statistics."""
+    from data.twse_provider import get_db_stats
+    return get_db_stats()
+
+
+@router.post("/twse/sync/{code}")
+def twse_sync_stock(code: str, months: int = 12, force: bool = False):
+    """R63: Sync a stock's data from TWSE/TPEX to SQLite.
+
+    This fetches raw OHLCV, dividends, and computes adjustment factors.
+    """
+    from data.twse_provider import sync_and_adjust
+    count = sync_and_adjust(code, months_back=months, force=force)
+    return {"code": code, "rows_synced": count, "months": months}
+
+
+@router.get("/twse/compare/{code}")
+def twse_compare(code: str, days: int = 30):
+    """R63: Shadow Mode — Compare TWSE data with yfinance.
+
+    Returns consistency report showing any price discrepancies.
+    """
+    from data.twse_provider import compare_with_yfinance
+    return compare_with_yfinance(code, days)
+
+
+@router.post("/twse/backfill")
+def twse_backfill(codes: list[str], months: int = 12, with_dividends: bool = True):
+    """R63: Bulk backfill multiple stocks from TWSE.
+
+    Warning: This is a slow operation due to TWSE rate limiting.
+    """
+    from data.twse_provider import HistoryBackfiller
+    bf = HistoryBackfiller()
+    bf.add_stocks(codes)
+    results = bf.run(months_back=months, with_dividends=with_dividends)
+    return {"results": results, "total_stocks": len(codes)}
