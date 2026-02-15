@@ -111,13 +111,14 @@ def _serialize_backtest_result(result) -> dict:
         "equity_curve": series_to_response(result.equity_curve),
         "daily_returns": series_to_response(result.daily_returns),
         "trades": trades,
+        "corporate_action_warnings": getattr(result, "corporate_action_warnings", []),
     }
 
 
 @router.post("/{code}/v4")
 def run_v4_backtest(code: str, req: BacktestRequest):
     """執行 v4 回測"""
-    from data.fetcher import get_stock_data
+    from data.fetcher import get_stock_data, get_dividend_data, get_splits_data
     from backtest.engine import run_backtest_v4
     try:
         df = get_stock_data(code, period_days=req.period_days)
@@ -126,6 +127,18 @@ def run_v4_backtest(code: str, req: BacktestRequest):
             commission_rate=req.commission_rate, tax_rate=req.tax_rate,
             slippage=req.slippage,
         )
+
+        # R58: Corporate action detection
+        try:
+            from data.corporate_actions import detect_corporate_actions, annotate_trades_with_actions
+            dividends = get_dividend_data(code)
+            splits = get_splits_data(code)
+            ca_report = detect_corporate_actions(code, df, dividends, splits)
+            result.corporate_action_warnings = annotate_trades_with_actions(
+                result.trades, ca_report)
+        except Exception:
+            pass  # Non-critical: don't fail backtest if CA detection fails
+
         return _serialize_backtest_result(result)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -557,5 +570,40 @@ def run_sqs_backtest_endpoint(req: SqsBacktestRequest):
             thresholds=req.thresholds,
         )
         return result
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{code}/attribution")
+def run_attribution(code: str, req: BacktestRequest):
+    """R58: Performance attribution (Brinson model + factor analysis)."""
+    from data.fetcher import get_stock_data, get_taiex_data
+    from backtest.engine import run_backtest_v4
+    from backtest.attribution import compute_trade_attribution, compute_factor_exposure
+
+    try:
+        df = get_stock_data(code, period_days=req.period_days)
+        taiex = get_taiex_data(period_days=req.period_days)
+
+        result = run_backtest_v4(
+            df, initial_capital=req.initial_capital, params=req.params,
+            commission_rate=req.commission_rate, tax_rate=req.tax_rate,
+            slippage=req.slippage,
+        )
+
+        # Brinson attribution (strategy vs buy-and-hold)
+        stock_returns = df["close"].pct_change().dropna()
+        brinson = compute_trade_attribution(result.trades, stock_returns)
+
+        # Factor analysis
+        market_returns = taiex["close"].pct_change().dropna() if not taiex.empty else pd.Series(dtype=float)
+        factors = compute_factor_exposure(result.daily_returns, market_returns)
+
+        return {
+            "brinson": brinson.to_dict(),
+            "factors": factors.to_dict(),
+            "trades_count": len(result.trades),
+            "holding_periods": len([t for t in result.trades if t.date_close]),
+        }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

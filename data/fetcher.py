@@ -270,6 +270,25 @@ def get_dividend_data(stock_code: str) -> pd.Series:
     return dividends if dividends is not None else pd.Series(dtype=float)
 
 
+def get_splits_data(stock_code: str) -> pd.Series:
+    """取得股票歷史分割（拆股/合股）資料
+
+    Args:
+        stock_code: 台股代碼
+
+    Returns:
+        pd.Series，index 為分割日、值為分割比率（e.g. 5.0 表示 1 拆 5）
+    """
+    ticker_str = get_ticker(stock_code)
+    ticker = yf.Ticker(ticker_str)
+    splits = ticker.splits
+    if splits is not None and not splits.empty:
+        if splits.index.tz is not None:
+            splits.index = splits.index.tz_localize(None)
+        return splits
+    return pd.Series(dtype=float)
+
+
 def _t86_find_col(fields: list, keywords: list[str]) -> int | None:
     """在 T86 欄位列表中用關鍵字搜尋欄位索引"""
     for i, f in enumerate(fields):

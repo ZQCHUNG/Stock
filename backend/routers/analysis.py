@@ -848,3 +848,24 @@ def get_risk_factors(code: str, period_days: int = 365):
         })
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{code}/corporate-actions")
+def get_corporate_actions(code: str, period_days: int = 365):
+    """R58: 偵測企業行為事件（除權息、分割、漲跌停、暫停交易）"""
+    from data.fetcher import get_stock_data, get_dividend_data, get_splits_data
+    from data.corporate_actions import detect_corporate_actions
+
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        dividends = get_dividend_data(code)
+        splits = get_splits_data(code)
+        report = detect_corporate_actions(
+            stock_code=code,
+            df=df,
+            dividends=dividends,
+            splits=splits,
+        )
+        return report.summary()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -153,6 +153,90 @@ class TestCreateMarketFeed:
         os.environ.pop("MARKET_FEED_PROVIDER", None)
 
 
+class TestConnectionManagerObserver:
+    """R58: Test event-driven code change notifications."""
+
+    def test_callback_on_subscribe(self):
+        """Callback should fire when codes change."""
+        import asyncio
+        from backend.ws_manager import ConnectionManager
+
+        mgr = ConnectionManager()
+        changes = []
+
+        def on_change(added, removed):
+            changes.append((added.copy(), removed.copy()))
+
+        mgr.on_codes_changed(on_change)
+
+        # Simulate subscribe
+        async def _test():
+            conn_id = "test123"
+            async with mgr._lock:
+                mgr.active_connections[conn_id] = None
+                mgr.subscriptions[conn_id] = set()
+            await mgr.subscribe(conn_id, ["2330", "2317"])
+
+        asyncio.get_event_loop().run_until_complete(_test())
+        assert len(changes) == 1
+        assert "2330" in changes[0][0]
+        assert "2317" in changes[0][0]
+
+    def test_callback_on_unsubscribe(self):
+        """Callback should fire with removed codes."""
+        import asyncio
+        from backend.ws_manager import ConnectionManager
+
+        mgr = ConnectionManager()
+        changes = []
+
+        def on_change(added, removed):
+            changes.append((added.copy(), removed.copy()))
+
+        mgr.on_codes_changed(on_change)
+
+        async def _test():
+            conn_id = "test456"
+            async with mgr._lock:
+                mgr.active_connections[conn_id] = None
+                mgr.subscriptions[conn_id] = {"2330", "2317"}
+                mgr._all_codes = {"2330", "2317"}
+            await mgr.unsubscribe(conn_id, ["2317"])
+
+        asyncio.get_event_loop().run_until_complete(_test())
+        assert len(changes) == 1
+        assert "2317" in changes[0][1]  # removed
+
+    def test_off_callback(self):
+        """Removing callback should stop notifications."""
+        from backend.ws_manager import ConnectionManager
+        mgr = ConnectionManager()
+        called = []
+        def cb(a, r): called.append(1)
+        mgr.on_codes_changed(cb)
+        mgr.off_codes_changed(cb)
+        mgr._rebuild_codes()  # Should not trigger callback
+        assert len(called) == 0
+
+
+class TestFugleDebounce:
+    """R58: Test FugleMarketFeed debounced subscription changes."""
+
+    def test_pending_add_remove(self):
+        """Pending adds and removes should be tracked."""
+        from backend.ws_manager import FugleMarketFeed, ConnectionManager
+        mgr = ConnectionManager()
+        feed = FugleMarketFeed(mgr)
+
+        # Simulate code change callback (not running, so no task created)
+        feed._on_codes_changed({"2330", "2317"}, set())
+        assert "2330" in feed._pending_add
+        assert "2317" in feed._pending_add
+
+        feed._on_codes_changed(set(), {"2317"})
+        assert "2317" in feed._pending_remove
+
+
 class TestFugleStatus:
     """Test FugleMarketFeed status reporting."""
 

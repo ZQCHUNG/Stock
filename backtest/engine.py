@@ -56,6 +56,7 @@ class BacktestResult:
     max_consecutive_losses: int = 0
     dividend_income: float = 0.0
     params_description: str = ""  # 策略參數快照（由 StrategyV4Config.describe() 產生）
+    corporate_action_warnings: list[str] = field(default_factory=list)  # R58: 企業行為警告
 
 
 class BacktestEngine:

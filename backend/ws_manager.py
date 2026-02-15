@@ -115,6 +115,8 @@ class ConnectionManager:
         # Union of all subscribed codes
         self._all_codes: set[str] = set()
         self._lock = asyncio.Lock()
+        # R58: Observer callbacks for code changes
+        self._code_change_callbacks: list = []
 
     async def connect(self, websocket) -> str:
         """Accept WebSocket connection, return connection ID."""
@@ -150,10 +152,35 @@ class ConnectionManager:
                 self._rebuild_codes()
 
     def _rebuild_codes(self):
-        """Rebuild the union of all subscribed codes."""
+        """Rebuild the union of all subscribed codes and notify observers."""
+        old_codes = self._all_codes.copy()
         self._all_codes = set()
         for codes in self.subscriptions.values():
             self._all_codes.update(codes)
+
+        # R58: Notify observers of code changes (event-driven)
+        added = self._all_codes - old_codes
+        removed = old_codes - self._all_codes
+        if added or removed:
+            for cb in self._code_change_callbacks:
+                try:
+                    cb(added, removed)
+                except Exception:
+                    pass
+
+    def on_codes_changed(self, callback):
+        """R58: Register callback for code change events.
+
+        Callback signature: fn(added: set[str], removed: set[str])
+        """
+        self._code_change_callbacks.append(callback)
+
+    def off_codes_changed(self, callback):
+        """R58: Unregister a code change callback."""
+        try:
+            self._code_change_callbacks.remove(callback)
+        except ValueError:
+            pass
 
     @property
     def all_subscribed_codes(self) -> set[str]:
@@ -355,9 +382,13 @@ class FugleMarketFeed:
 
     Uses Fugle MarketData WebSocket API (aggregates channel) for real-time quotes.
     Requires: FUGLE_API_KEY env var or config setting.
+
+    R58: Refactored to event-driven subscription via ConnectionManager callbacks
+    with debounce to avoid rapid subscribe/unsubscribe bursts.
     """
 
     FUGLE_WS_URL = "wss://api.fugle.tw/marketdata/v1.0/stock/streaming"
+    DEBOUNCE_SECONDS = 0.5  # Debounce subscription changes
 
     def __init__(self, manager: ConnectionManager):
         self.manager = manager
@@ -369,6 +400,11 @@ class FugleMarketFeed:
         self._consecutive_errors = 0
         self._last_message_time: float = 0
         self._api_key: str = os.environ.get("FUGLE_API_KEY", "")
+        # R58: Pending subscription changes (debounced)
+        self._pending_add: set[str] = set()
+        self._pending_remove: set[str] = set()
+        self._debounce_task: asyncio.Task | None = None
+        self._event_loop: asyncio.AbstractEventLoop | None = None
 
     def _get_api_key(self) -> str:
         """Get Fugle API key from env or config file."""
@@ -384,6 +420,40 @@ class FugleMarketFeed:
             pass
         return self._api_key
 
+    def _on_codes_changed(self, added: set[str], removed: set[str]):
+        """R58: Event callback from ConnectionManager — debounced."""
+        self._pending_add.update(added)
+        self._pending_remove.update(removed)
+        # Remove contradictions (added then removed, or vice versa)
+        self._pending_add -= self._pending_remove & self._pending_add
+        self._pending_remove -= self._pending_add & self._pending_remove
+
+        # Schedule debounced flush
+        if self._event_loop and self._running:
+            if self._debounce_task and not self._debounce_task.done():
+                self._debounce_task.cancel()
+            self._debounce_task = self._event_loop.create_task(self._flush_pending())
+
+    async def _flush_pending(self):
+        """R58: Flush pending subscription changes after debounce delay."""
+        await asyncio.sleep(self.DEBOUNCE_SECONDS)
+        if not self._ws or not self._running:
+            return
+
+        add_codes = self._pending_add.copy()
+        remove_codes = self._pending_remove.copy()
+        self._pending_add.clear()
+        self._pending_remove.clear()
+
+        for code in add_codes:
+            await self._subscribe_code(self._ws, code)
+        for code in remove_codes:
+            await self._unsubscribe_code(self._ws, code)
+        self._subscribed_codes = (self._subscribed_codes | add_codes) - remove_codes
+
+        if add_codes or remove_codes:
+            logger.debug(f"Fugle subscription sync: +{len(add_codes)} -{len(remove_codes)}")
+
     async def start(self):
         """Start the Fugle WebSocket connection."""
         if self._running:
@@ -393,12 +463,19 @@ class FugleMarketFeed:
             logger.warning("Fugle API key not configured. Set FUGLE_API_KEY env var or data/fugle_config.json")
             return
         self._running = True
+        self._event_loop = asyncio.get_event_loop()
+        # R58: Register event-driven subscription callback
+        self.manager.on_codes_changed(self._on_codes_changed)
         self._task = asyncio.create_task(self._ws_loop())
         logger.info("FugleMarketFeed started")
 
     async def stop(self):
         """Stop the Fugle WebSocket connection."""
         self._running = False
+        # R58: Unregister event callback
+        self.manager.off_codes_changed(self._on_codes_changed)
+        if self._debounce_task and not self._debounce_task.done():
+            self._debounce_task.cancel()
         if self._ws:
             try:
                 await self._ws.close()
@@ -445,24 +522,21 @@ class FugleMarketFeed:
                         for code in self._subscribed_codes:
                             await self._subscribe_code(ws, code)
 
-                    # Start subscription sync task
-                    sync_task = asyncio.create_task(self._sync_subscriptions(ws))
+                    # R58: Initial sync — subscribe to all currently watched codes
+                    initial_codes = self.manager.all_subscribed_codes
+                    for code in initial_codes:
+                        await self._subscribe_code(ws, code)
+                    self._subscribed_codes = initial_codes.copy()
 
-                    try:
-                        async for message in ws:
-                            if not self._running:
-                                break
-                            try:
-                                data = _json.loads(message)
-                                await self._handle_message(data)
-                            except Exception as e:
-                                logger.debug(f"Fugle message parse error: {e}")
-                    finally:
-                        sync_task.cancel()
+                    # Event-driven updates handled by _on_codes_changed callback
+                    async for message in ws:
+                        if not self._running:
+                            break
                         try:
-                            await sync_task
-                        except asyncio.CancelledError:
-                            pass
+                            data = _json.loads(message)
+                            await self._handle_message(data)
+                        except Exception as e:
+                            logger.debug(f"Fugle message parse error: {e}")
 
             except asyncio.CancelledError:
                 break
@@ -473,25 +547,7 @@ class FugleMarketFeed:
                 self._ws = None
                 await asyncio.sleep(backoff)
 
-    async def _sync_subscriptions(self, ws):
-        """Periodically sync subscriptions with ConnectionManager's codes."""
-        while self._running:
-            try:
-                current_codes = self.manager.all_subscribed_codes
-                new_codes = current_codes - self._subscribed_codes
-                old_codes = self._subscribed_codes - current_codes
-
-                for code in new_codes:
-                    await self._subscribe_code(ws, code)
-                for code in old_codes:
-                    await self._unsubscribe_code(ws, code)
-
-                self._subscribed_codes = current_codes.copy()
-                await asyncio.sleep(2)
-            except asyncio.CancelledError:
-                break
-            except Exception:
-                await asyncio.sleep(5)
+    # R58: _sync_subscriptions removed — replaced by event-driven _on_codes_changed
 
     async def _subscribe_code(self, ws, code: str):
         """Subscribe to a stock's aggregates channel."""
