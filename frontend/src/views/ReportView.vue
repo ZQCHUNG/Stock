@@ -4,6 +4,7 @@ import { NCard, NButton, NSpin, NAlert, NTabs, NTabPane, NDescriptions, NDescrip
 import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useReportStore } from '../stores/report'
+import { systemApi, downloadBlob } from '../api/system'
 import { fmtPct, priceColor } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
 import MetricCard from '../components/MetricCard.vue'
@@ -39,6 +40,9 @@ const priceTargetColumns: DataTableColumns = [
 
     <NSpace style="margin-bottom: 16px">
       <NButton type="primary" @click="generate" :loading="rpt.isGenerating">產生報告</NButton>
+      <NButton v-if="r" size="small" @click="async () => { try { const d = await systemApi.exportReportCsv(r); downloadBlob(d, `report_${app.currentStockCode}.csv`) } catch {} }">
+        匯出 CSV
+      </NButton>
     </NSpace>
 
     <NSpin :show="rpt.isGenerating">

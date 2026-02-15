@@ -5,7 +5,7 @@ import {
   NDataTable, NGrid, NGi, NSpin, NDivider, NStatistic,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
-import { alertsApi, type AlertConfig, type SchedulerStatus } from '../api/alerts'
+import { alertsApi, type AlertConfig, type SchedulerStatus, type CompoundRule, type CompoundCondition, type ConditionTypeOption } from '../api/alerts'
 import { systemApi } from '../api/system'
 import { portfolioApi } from '../api/portfolio'
 import { useWatchlistStore } from '../stores/watchlist'
@@ -42,6 +42,24 @@ const effLoading = ref(false)
 // R52 P2: Portfolio correlation alert
 const corrData = ref<any>(null)
 const corrLoading = ref(false)
+
+// R55-3: Compound alert rules
+const compoundRules = ref<CompoundRule[]>([])
+const conditionTypes = ref<ConditionTypeOption[]>([])
+const rulesLoading = ref(false)
+const showRuleEditor = ref(false)
+const ruleCheckResult = ref<any>(null)
+const ruleChecking = ref(false)
+const editingRule = ref({
+  name: '',
+  codes: [] as string[],
+  codesInput: '',
+  conditions: [{ type: 'v4_buy_signal', value: 0, params: {} }] as CompoundCondition[],
+  combine_mode: 'AND',
+  notify_browser: true,
+  notify_line: false,
+  cooldown_hours: 4,
+})
 
 async function loadConfig() {
   isLoading.value = true
@@ -199,10 +217,92 @@ function useWatchlistAsFilter() {
   config.value.watch_codes = wl.watchlist.map(s => s.code)
 }
 
+// R55-3: Compound rules methods
+async function loadCompoundRules() {
+  rulesLoading.value = true
+  try {
+    compoundRules.value = await alertsApi.listRules()
+  } catch { compoundRules.value = [] }
+  rulesLoading.value = false
+}
+
+async function loadConditionTypes() {
+  try {
+    conditionTypes.value = await alertsApi.getConditionTypes()
+  } catch { /* use empty */ }
+}
+
+function openRuleEditor() {
+  editingRule.value = {
+    name: '',
+    codes: [],
+    codesInput: '',
+    conditions: [{ type: 'v4_buy_signal', value: 0, params: {} }],
+    combine_mode: 'AND',
+    notify_browser: true,
+    notify_line: false,
+    cooldown_hours: 4,
+  }
+  showRuleEditor.value = true
+}
+
+function addCondition() {
+  editingRule.value.conditions.push({ type: 'price_above', value: 0, params: {} })
+}
+
+function removeCondition(idx: number) {
+  editingRule.value.conditions.splice(idx, 1)
+}
+
+async function saveRule() {
+  const r = editingRule.value
+  const codes = r.codesInput ? r.codesInput.split(',').map(s => s.trim()).filter(Boolean) : []
+  try {
+    await alertsApi.createRule({
+      name: r.name || '未命名規則',
+      codes,
+      conditions: r.conditions,
+      combine_mode: r.combine_mode,
+      notify_browser: r.notify_browser,
+      notify_line: r.notify_line,
+      cooldown_hours: r.cooldown_hours,
+    })
+    showRuleEditor.value = false
+    await loadCompoundRules()
+  } catch { /* error toast from interceptor */ }
+}
+
+async function toggleRule(rule: CompoundRule) {
+  try {
+    await alertsApi.updateRule(rule.id, { enabled: !rule.enabled })
+    await loadCompoundRules()
+  } catch { /* ignore */ }
+}
+
+async function deleteRuleById(id: string) {
+  try {
+    await alertsApi.deleteRule(id)
+    await loadCompoundRules()
+  } catch { /* ignore */ }
+}
+
+async function checkAllRules() {
+  ruleChecking.value = true
+  try {
+    ruleCheckResult.value = await alertsApi.checkRules()
+  } catch { ruleCheckResult.value = null }
+  ruleChecking.value = false
+}
+
+function conditionLabel(type: string): string {
+  const found = conditionTypes.value.find(ct => ct.value === type)
+  return found?.label || type
+}
+
 onMounted(async () => {
   await loadConfig()
   await loadAlerts()
-  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality(), loadOms(), loadOmsEfficiency(), loadCorrelation()])
+  await Promise.all([loadHistory(), loadSchedulerStatus(), loadHealth(), loadSystemHealth(), loadDataQuality(), loadOms(), loadOmsEfficiency(), loadCorrelation(), loadCompoundRules(), loadConditionTypes()])
 })
 
 const triggeredColumns: DataTableColumns = [
@@ -587,6 +687,104 @@ const historyColumns: DataTableColumns = [
           No high-correlation pairs detected (threshold: |p| > 0.7). Portfolio is well-diversified.
         </div>
       </NSpin>
+    </NCard>
+
+    <!-- R55-3: Compound Alert Rules -->
+    <NCard size="small" style="margin-top: 16px">
+      <template #header>
+        <NSpace align="center" :size="8">
+          <span>複合條件警報規則</span>
+          <NTag size="small" type="info">{{ compoundRules.length }} rules</NTag>
+          <NButton size="tiny" @click="openRuleEditor">新增規則</NButton>
+          <NButton size="tiny" type="primary" @click="checkAllRules" :loading="ruleChecking">檢查所有規則</NButton>
+        </NSpace>
+      </template>
+
+      <!-- Rule check results -->
+      <NAlert v-if="ruleCheckResult?.triggered?.length" type="success" style="margin-bottom: 8px" closable @close="ruleCheckResult = null">
+        觸發 {{ ruleCheckResult.triggered.length }} 筆警報！
+        <div v-for="(t, i) in ruleCheckResult.triggered" :key="i" style="font-size: 12px; margin-top: 2px">
+          {{ t.rule_name }}: {{ t.code }} ({{ t.combine_mode }}, {{ t.conditions_met }} conditions)
+        </div>
+      </NAlert>
+      <NAlert v-else-if="ruleCheckResult && !ruleCheckResult.triggered?.length" type="info" style="margin-bottom: 8px" closable @close="ruleCheckResult = null">
+        檢查完成，無觸發。({{ ruleCheckResult.rules_checked }} rules checked)
+      </NAlert>
+
+      <!-- Existing rules list -->
+      <NSpin :show="rulesLoading">
+        <template v-if="compoundRules.length">
+          <div v-for="rule in compoundRules" :key="rule.id" style="padding: 8px; margin-bottom: 6px; border: 1px solid #e8e8e8; border-radius: 6px">
+            <NSpace align="center" justify="space-between">
+              <NSpace align="center" :size="8">
+                <NSwitch :value="rule.enabled" size="small" @update:value="toggleRule(rule)" />
+                <strong>{{ rule.name }}</strong>
+                <NTag size="tiny" :type="rule.combine_mode === 'AND' ? 'info' : 'warning'">{{ rule.combine_mode }}</NTag>
+                <NTag v-if="rule.codes.length" size="tiny">{{ rule.codes.join(', ') }}</NTag>
+                <NTag v-else size="tiny" type="default">全部</NTag>
+              </NSpace>
+              <NSpace :size="4">
+                <NTag v-if="rule.trigger_count > 0" size="tiny" type="success">{{ rule.trigger_count }}x triggered</NTag>
+                <NButton size="tiny" type="error" quaternary @click="deleteRuleById(rule.id)">刪除</NButton>
+              </NSpace>
+            </NSpace>
+            <div style="margin-top: 4px; font-size: 12px; color: #666">
+              條件: <NTag v-for="(c, ci) in rule.conditions" :key="ci" size="tiny" style="margin: 1px">
+                {{ conditionLabel(c.type) }} {{ c.value || '' }}
+              </NTag>
+            </div>
+          </div>
+        </template>
+        <div v-else style="padding: 20px; text-align: center; color: #999">
+          尚無複合條件規則。點擊「新增規則」建立。
+        </div>
+      </NSpin>
+
+      <!-- Rule editor (inline) -->
+      <NCard v-if="showRuleEditor" size="small" style="margin-top: 12px; border-color: #2080f0" title="新增複合條件規則">
+        <NSpace vertical :size="10">
+          <div style="display: flex; gap: 10px; align-items: center">
+            <span style="min-width: 60px">規則名稱</span>
+            <NInput v-model:value="editingRule.name" size="small" placeholder="例：量增價漲突破" style="width: 200px" />
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center">
+            <span style="min-width: 60px">監控股票</span>
+            <NInput v-model:value="editingRule.codesInput" size="small" placeholder="代碼以逗號分隔，留空=全部" style="width: 300px" />
+          </div>
+          <div style="display: flex; gap: 10px; align-items: center">
+            <span style="min-width: 60px">組合模式</span>
+            <NTag :type="editingRule.combine_mode === 'AND' ? 'info' : 'warning'"
+                  style="cursor: pointer"
+                  @click="editingRule.combine_mode = editingRule.combine_mode === 'AND' ? 'OR' : 'AND'">
+              {{ editingRule.combine_mode }} (點擊切換)
+            </NTag>
+          </div>
+
+          <NDivider style="margin: 4px 0">條件</NDivider>
+
+          <div v-for="(cond, idx) in editingRule.conditions" :key="idx"
+               style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
+            <select v-model="cond.type" style="padding: 4px; border: 1px solid #ddd; border-radius: 4px; font-size: 12px">
+              <option v-for="ct in conditionTypes" :key="ct.value" :value="ct.value">{{ ct.label }}</option>
+            </select>
+            <NInputNumber v-model:value="cond.value" size="small" style="width: 100px"
+                          :disabled="['macd_cross_up','macd_cross_down','kd_cross_up','kd_cross_down','ma_cross_up','ma_cross_down','bb_upper_break','bb_lower_break','v4_buy_signal','v4_sell_signal'].includes(cond.type)" />
+            <NButton size="tiny" type="error" quaternary @click="removeCondition(idx)" :disabled="editingRule.conditions.length <= 1">X</NButton>
+          </div>
+
+          <NButton size="tiny" dashed @click="addCondition">+ 新增條件</NButton>
+
+          <NSpace :size="8">
+            <NSwitch v-model:value="editingRule.notify_browser" size="small" /> 瀏覽器通知
+            <NSwitch v-model:value="editingRule.notify_line" size="small" /> LINE 通知
+          </NSpace>
+
+          <NSpace>
+            <NButton type="primary" size="small" @click="saveRule">建立規則</NButton>
+            <NButton size="small" @click="showRuleEditor = false">取消</NButton>
+          </NSpace>
+        </NSpace>
+      </NCard>
     </NCard>
   </div>
 </template>

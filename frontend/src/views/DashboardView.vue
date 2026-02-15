@@ -2,29 +2,44 @@
 import { ref, onMounted, computed } from 'vue'
 import {
   NCard, NGrid, NGi, NStatistic, NSpin, NTag, NSpace, NAlert,
-  NDivider, NButton,
+  NDivider, NButton, NBadge,
 } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '../stores/app'
 import { systemApi } from '../api/system'
+import { useMarketData } from '../composables/useMarketData'
 
 const router = useRouter()
 const app = useAppStore()
 const loading = ref(true)
 const data = ref<any>(null)
 
+// R55-1: WebSocket live market data
+const { isConnected, quotes, subscribe, requestStatus } = useMarketData()
+
 async function loadDashboard() {
   loading.value = true
   try {
     data.value = await systemApi.dashboard()
+    // Subscribe to position stocks for live prices
+    const positionCodes = (data.value?.positions?.top_positions || []).map((p: any) => p.code).filter(Boolean)
+    const signalCodes = (data.value?.today_signals || []).map((s: any) => s.code).filter(Boolean)
+    const allCodes = [...new Set([...positionCodes, ...signalCodes])]
+    if (allCodes.length > 0) {
+      subscribe(allCodes)
+    }
   } catch {
     data.value = null
   }
   loading.value = false
 }
 
-onMounted(loadDashboard)
+onMounted(() => {
+  loadDashboard()
+  // Request feed status after connection
+  setTimeout(() => requestStatus(), 2000)
+})
 
 const pos = computed(() => data.value?.positions || {})
 const pnl = computed(() => data.value?.pnl || {})
@@ -91,9 +106,29 @@ function analyzeStock(code: string) {
 <template>
   <div>
     <NSpace align="center" justify="space-between" style="margin-bottom: 16px">
-      <h2 style="margin: 0">Dashboard</h2>
+      <NSpace align="center" :size="10">
+        <h2 style="margin: 0">Dashboard</h2>
+        <NBadge :dot="true" :type="isConnected ? 'success' : 'error'" :offset="[-2, 0]">
+          <NTag size="tiny" :bordered="false" :type="isConnected ? 'success' : 'default'">
+            {{ isConnected ? 'LIVE' : 'OFFLINE' }}
+          </NTag>
+        </NBadge>
+      </NSpace>
       <NButton size="small" @click="loadDashboard" :loading="loading">Refresh</NButton>
     </NSpace>
+
+    <!-- R55-1: Live Market Ticker -->
+    <div v-if="quotes.size > 0" style="display: flex; gap: 10px; overflow-x: auto; margin-bottom: 10px; padding: 6px 0">
+      <NTag v-for="[code, q] of quotes" :key="code" size="small" :bordered="true"
+            style="cursor: pointer; min-width: fit-content" @click="analyzeStock(code)">
+        <span style="font-weight: 600">{{ code }}</span>
+        <span style="margin-left: 6px">{{ q.last_price ?? '-' }}</span>
+        <span v-if="q.change_pct != null" style="margin-left: 4px"
+              :style="{ color: q.change_pct >= 0 ? '#18a058' : '#e53e3e' }">
+          {{ q.change_pct >= 0 ? '+' : '' }}{{ q.change_pct.toFixed(2) }}%
+        </span>
+      </NTag>
+    </div>
 
     <NSpin :show="loading">
       <!-- Row 1: Key Metrics -->

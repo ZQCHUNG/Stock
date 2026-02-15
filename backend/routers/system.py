@@ -151,6 +151,72 @@ def export_signals_csv(source: str | None = None):
     )
 
 
+# ---------------------------------------------------------------------------
+# R55-2: CSV Export for backtest results, portfolio, screener, report
+# ---------------------------------------------------------------------------
+
+@router.post("/export/backtest/csv")
+def export_backtest_csv(result: dict):
+    """R55-2: 匯出回測結果為 CSV"""
+    from backend.export_utils import backtest_to_csv
+    content = backtest_to_csv(result)
+    code = result.get("code", "unknown")
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=backtest_{code}.csv"},
+    )
+
+
+@router.get("/export/portfolio/csv")
+def export_full_portfolio_csv():
+    """R55-2: 匯出完整投資組合報告為 CSV"""
+    from backend import db
+    from backend.export_utils import portfolio_to_csv
+    positions = db.get_open_positions()
+    closed = db.get_closed_positions(limit=200)
+    summary = {}
+    if positions:
+        total_value = sum(p.get("entry_price", 0) * p.get("lots", 0) * 1000 for p in positions)
+        summary = {
+            "total_positions": len(positions),
+            "total_market_value": total_value,
+        }
+    content = portfolio_to_csv(positions, closed, summary)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=portfolio.csv"},
+    )
+
+
+@router.post("/export/screener/csv")
+def export_screener_csv(payload: dict):
+    """R55-2: 匯出選股結果為 CSV"""
+    from backend.export_utils import screener_to_csv
+    results = payload.get("results", [])
+    filters = payload.get("filters")
+    content = screener_to_csv(results, filters)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=screener_results.csv"},
+    )
+
+
+@router.post("/export/report/csv")
+def export_report_csv(report: dict):
+    """R55-2: 匯出分析報告為 CSV"""
+    from backend.export_utils import report_to_csv
+    code = report.get("code", "unknown")
+    content = report_to_csv(report)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename=report_{code}.csv"},
+    )
+
+
 @router.get("/data-quality")
 def data_quality():
     """R48-2: 數據品質檢查

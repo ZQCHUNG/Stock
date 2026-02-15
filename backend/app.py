@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk, strategies
+from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk, strategies, ws
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +34,32 @@ app = FastAPI(title="台股技術分析系統 API", version="2.0")
 
 
 @app.on_event("startup")
-def startup_scheduler():
-    """R45: Start APScheduler for background alert checks."""
+async def startup_scheduler():
+    """R45: Start APScheduler for background alert checks.
+    R55: Start WebSocket market data feed.
+    """
     try:
         from backend.scheduler import start_scheduler
         start_scheduler(interval_minutes=5)
     except Exception as e:
         logger.warning(f"Failed to start scheduler: {e}")
+
+    # R55-1: Start WebSocket market feed
+    try:
+        from backend.ws_manager import market_feed
+        await market_feed.start()
+    except Exception as e:
+        logger.warning(f"Failed to start market feed: {e}")
+
+
+@app.on_event("shutdown")
+async def shutdown_cleanup():
+    """R55: Stop market feed on shutdown."""
+    try:
+        from backend.ws_manager import market_feed
+        await market_feed.stop()
+    except Exception:
+        pass
 
 
 @app.exception_handler(Exception)
@@ -173,6 +192,9 @@ app.include_router(alerts.router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(sqs_performance.router, prefix="/api/sqs-performance", tags=["sqs-performance"])
 app.include_router(risk.router, prefix="/api/risk", tags=["risk"])
 app.include_router(strategies.router, prefix="/api/strategies", tags=["strategies"])
+
+# R55-1: WebSocket + market data REST endpoints (no prefix — ws routes are top-level)
+app.include_router(ws.router, tags=["websocket"])
 
 # Production: 伺服 Vue build 靜態檔
 DIST_DIR = PROJECT_ROOT / "frontend" / "dist"

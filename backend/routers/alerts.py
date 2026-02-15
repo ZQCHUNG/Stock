@@ -232,3 +232,159 @@ def scheduler_health():
 def get_alert_history():
     """取得警報歷史紀錄"""
     return _load_history()
+
+
+# ---------------------------------------------------------------------------
+# R55-3: Compound Alert Rules
+# ---------------------------------------------------------------------------
+
+class CompoundRuleRequest(BaseModel):
+    name: str
+    codes: list[str] = []
+    conditions: list[dict] = []
+    combine_mode: str = "AND"
+    notify_line: bool = False
+    notify_browser: bool = True
+    cooldown_hours: float = 4.0
+
+
+@router.get("/rules")
+def list_compound_rules():
+    """列出所有複合條件警報規則"""
+    from backend.compound_alerts import load_rules
+    return [r.to_dict() for r in load_rules()]
+
+
+@router.post("/rules")
+def create_compound_rule(req: CompoundRuleRequest):
+    """建立複合條件警報規則"""
+    import time
+    from uuid import uuid4
+    from backend.compound_alerts import CompoundRule, Condition, add_rule
+
+    rule = CompoundRule(
+        id=str(uuid4())[:8],
+        name=req.name,
+        codes=req.codes,
+        conditions=[Condition.from_dict(c) for c in req.conditions],
+        combine_mode=req.combine_mode,
+        notify_line=req.notify_line,
+        notify_browser=req.notify_browser,
+        cooldown_hours=req.cooldown_hours,
+        created_at=time.time(),
+    )
+    add_rule(rule)
+    return rule.to_dict()
+
+
+@router.patch("/rules/{rule_id}")
+def update_compound_rule(rule_id: str, updates: dict):
+    """更新複合條件警報規則"""
+    from backend.compound_alerts import update_rule
+    rule = update_rule(rule_id, updates)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return rule.to_dict()
+
+
+@router.delete("/rules/{rule_id}")
+def delete_compound_rule(rule_id: str):
+    """刪除複合條件警報規則"""
+    from backend.compound_alerts import delete_rule
+    if not delete_rule(rule_id):
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"ok": True}
+
+
+@router.post("/rules/check")
+def check_compound_rules(codes: list[str] | None = None):
+    """檢查所有啟用的複合條件警報規則
+
+    可選傳入 codes 只檢查特定股票，否則依每條規則設定的 codes。
+    """
+    from backend.compound_alerts import (
+        load_rules, evaluate_rule, check_cooldown,
+        get_stock_indicator_data, save_rules,
+    )
+    import time
+
+    rules = load_rules()
+    triggered = []
+    updated = False
+
+    for rule in rules:
+        if not rule.enabled:
+            continue
+        if not check_cooldown(rule):
+            continue
+
+        check_codes = codes or rule.codes
+        if not check_codes:
+            # Default: use scan stocks from config
+            try:
+                from config import SCAN_STOCKS
+                check_codes = SCAN_STOCKS[:20]  # Limit for performance
+            except Exception:
+                check_codes = []
+
+        for code in check_codes:
+            try:
+                stock_data = get_stock_indicator_data(code)
+                if not stock_data:
+                    continue
+                if evaluate_rule(rule, stock_data):
+                    triggered.append({
+                        "rule_id": rule.id,
+                        "rule_name": rule.name,
+                        "code": code,
+                        "combine_mode": rule.combine_mode,
+                        "conditions_met": len(rule.conditions),
+                        "notify_browser": rule.notify_browser,
+                        "notify_line": rule.notify_line,
+                    })
+                    rule.last_triggered = time.time()
+                    rule.trigger_count += 1
+                    updated = True
+            except Exception as e:
+                logger.debug(f"Rule check error for {code}: {e}")
+
+    if updated:
+        save_rules(rules)
+
+    return {"triggered": triggered, "rules_checked": len([r for r in rules if r.enabled])}
+
+
+@router.get("/condition-types")
+def list_condition_types():
+    """列出所有可用的條件類型（供前端下拉選單用）"""
+    from backend.compound_alerts import ConditionType
+    return [
+        {"value": ct.value, "label": _condition_label(ct)}
+        for ct in ConditionType
+    ]
+
+
+def _condition_label(ct) -> str:
+    """Human-readable label for condition type."""
+    labels = {
+        "price_above": "價格 > 指定值",
+        "price_below": "價格 < 指定值",
+        "price_change_pct": "漲跌幅 (%) ≥",
+        "volume_above": "成交量 > 指定值",
+        "volume_ratio": "量能比（vs 20日均量）≥",
+        "rsi_above": "RSI >",
+        "rsi_below": "RSI <",
+        "macd_cross_up": "MACD 黃金交叉",
+        "macd_cross_down": "MACD 死亡交叉",
+        "kd_cross_up": "KD 黃金交叉",
+        "kd_cross_down": "KD 死亡交叉",
+        "ma_cross_up": "均線黃金交叉",
+        "ma_cross_down": "均線死亡交叉",
+        "adx_above": "ADX >",
+        "bb_upper_break": "突破布林上軌",
+        "bb_lower_break": "跌破布林下軌",
+        "sqs_above": "SQS ≥",
+        "v4_buy_signal": "V4 買入信號",
+        "v4_sell_signal": "V4 賣出信號",
+    }
+    return labels.get(ct.value, ct.value)

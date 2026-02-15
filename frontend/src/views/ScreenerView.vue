@@ -5,6 +5,7 @@ import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
 import { useScreenerStore } from '../stores/screener'
 import { useWatchlistStore } from '../stores/watchlist'
+import { systemApi, downloadBlob } from '../api/system'
 import { fmtPct, fmtNum, priceColor } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
 import ProgressBar from '../components/ProgressBar.vue'
@@ -178,6 +179,11 @@ function runScreener() {
     />
 
     <NCard v-if="scr.results.length" :title="`篩選結果 (${scr.results.length} 隻)`" size="small">
+      <template #header-extra>
+        <NButton size="tiny" @click="async () => { try { const d = await systemApi.exportScreenerCsv(scr.results); downloadBlob(d, 'screener_results.csv') } catch {} }">
+          匯出 CSV
+        </NButton>
+      </template>
       <NDataTable
         :columns="resultColumns"
         :data="scr.results"

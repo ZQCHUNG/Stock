@@ -19,4 +19,35 @@ export const systemApi = {
   omsEfficiency: () => client.get<any, any>('/system/oms-efficiency'),
   performanceAttribution: () => client.get<any, any>('/system/performance-attribution'),
   dashboard: () => client.get<any, any>('/system/dashboard', { timeout: 30000 }),
+
+  // R55-2: CSV export (returns Blob for download)
+  exportBacktestCsv: (result: any) =>
+    client.post('/system/export/backtest/csv', result, {
+      responseType: 'blob' as any, timeout: 30000,
+    }),
+  exportPortfolioCsv: () =>
+    client.get('/system/export/portfolio/csv', {
+      responseType: 'blob' as any, timeout: 30000,
+    }),
+  exportScreenerCsv: (results: any[], filters?: any) =>
+    client.post('/system/export/screener/csv', { results, filters }, {
+      responseType: 'blob' as any, timeout: 30000,
+    }),
+  exportReportCsv: (report: any) =>
+    client.post('/system/export/report/csv', report, {
+      responseType: 'blob' as any, timeout: 30000,
+    }),
+}
+
+/** Trigger browser file download from Blob response */
+export function downloadBlob(data: any, filename: string) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
