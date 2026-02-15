@@ -273,6 +273,14 @@ STRATEGY_V4_PARAMS = {
         (0.20, 0.10),   # 20-50% profit → 10% trail
         (0.00, 0.15),   # 0-20% profit → 15% trail (wide, let it run)
     ],
+    # R74: ATR-Adaptive Trail — trail width = k × ATR_14 / price
+    # Hypothesis: volatility-normalized trail adapts to each stock's characteristics
+    # Pending validation via sweep experiment
+    "atr_trail_enabled": False,   # off by default until validated
+    "atr_trail_k": 2.0,          # multiplier: trail_pct = k × ATR / price
+    "atr_trail_period": 14,      # ATR lookback period
+    "atr_trail_floor": 0.01,     # minimum trail = 1%
+    "atr_trail_cap": 0.10,       # maximum trail = 10%
     # 部位
     "max_position_pct": 0.9,    # 單筆最大部位 90%
 }

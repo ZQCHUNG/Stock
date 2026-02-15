@@ -313,6 +313,27 @@ class BacktestEngine:
             (0.50, 0.08), (0.20, 0.10), (0.00, 0.15),
         ])
 
+        # R74: ATR-Adaptive Trail — trail width = k × ATR_14 / price
+        # Adapts to each stock's volatility: wider trail for volatile stocks, tighter for calm ones
+        atr_trail_enabled = p.get("atr_trail_enabled", False)
+        atr_trail_k = p.get("atr_trail_k", 2.0)
+        atr_trail_period = p.get("atr_trail_period", 14)
+        atr_trail_floor = p.get("atr_trail_floor", 0.01)  # minimum 1% trail
+        atr_trail_cap = p.get("atr_trail_cap", 0.10)      # maximum 10% trail
+
+        # Pre-compute ATR series for ATR-trail mode
+        _atr_series = pd.Series(dtype=float)
+        if atr_trail_enabled and len(signals_df) > atr_trail_period:
+            _h = signals_df["high"] if "high" in signals_df.columns else signals_df["close"]
+            _l = signals_df["low"] if "low" in signals_df.columns else signals_df["close"]
+            _c = signals_df["close"]
+            _tr = pd.concat([
+                _h - _l,
+                (_h - _c.shift(1)).abs(),
+                (_l - _c.shift(1)).abs(),
+            ], axis=1).max(axis=1)
+            _atr_series = _tr.rolling(atr_trail_period, min_periods=max(1, atr_trail_period // 2)).mean()
+
         # R71-A: Volatility guard — skip entries in high-vol bearish regimes — HYPOTHESIS
         # Only blocks NEW entries when BOTH conditions met:
         #   1. ATR_20 > historical 90th percentile (high volatility)
@@ -365,8 +386,17 @@ class BacktestEngine:
                 highest_since_entry = max(highest_since_entry, high)
                 hold_days += 1
 
+                # R74: ATR-Adaptive Trail — trail width = k × ATR / price
+                if atr_trail_enabled and not _atr_series.empty:
+                    _atr_val = _atr_series.get(date, None)
+                    if _atr_val is not None and not np.isnan(_atr_val) and price > 0:
+                        atr_trail_pct = (_atr_val / price) * atr_trail_k
+                        atr_trail_pct = max(atr_trail_floor, min(atr_trail_cap, atr_trail_pct))
+                        new_sl = highest_since_entry * (1 - atr_trail_pct)
+                        if new_sl > sl_price:
+                            sl_price = new_sl
                 # R73: Dynamic Trail — compute trail width based on current profit
-                if dynamic_trail_enabled and current_trade is not None:
+                elif dynamic_trail_enabled and current_trade is not None:
                     gain = (highest_since_entry / current_trade.price_open) - 1
                     effective_trail = trailing_pct  # fallback
                     for threshold, trail in dynamic_trail_tiers:
