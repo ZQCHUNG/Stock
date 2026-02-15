@@ -119,13 +119,18 @@ const sqsRadarOption = computed(() => {
         { name: '期望值', max: 100 },
         { name: '板塊熱度', max: 100 },
         { name: '成熟度', max: 100 },
+        { name: '估值合理', max: 100 },
+        { name: '成長動能', max: 100 },
       ],
       radius: '65%',
     },
     series: [{
       type: 'radar',
       data: [{
-        value: [b.fitness, b.regime, b.institutional ?? 50, b.net_ev, b.heat, b.maturity],
+        value: [
+          b.fitness, b.regime, b.institutional ?? 50, b.net_ev,
+          b.heat, b.maturity, b.valuation ?? 50, b.growth ?? 50,
+        ],
         name: `SQS ${sqs.sqs}`,
         areaStyle: { opacity: 0.3 },
         lineStyle: { width: 2 },

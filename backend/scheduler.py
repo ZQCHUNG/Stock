@@ -436,6 +436,15 @@ def start_scheduler(interval_minutes: int = 5):
         replace_existing=True,
         max_instances=1,
     )
+    # R64: Daily TWSE/TPEX data sync (every 4 hours during trading hours)
+    _scheduler.add_job(
+        _run_twse_daily_sync,
+        trigger=IntervalTrigger(hours=4),
+        id="twse_daily_sync",
+        name="TWSE/TPEX Daily Sync",
+        replace_existing=True,
+        max_instances=1,
+    )
 
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
@@ -683,6 +692,60 @@ def _notify_oms_exits(actions: list[dict]):
             f"@ ${a['exit_price']:.2f} (P&L ${a.get('net_pnl', 0):,.0f})"
         )
     _send_notification("\n".join(lines))
+
+
+def _run_twse_daily_sync():
+    """R64: Scheduled job — sync today's TWSE/TPEX data for watchlist + positions.
+
+    Runs every 4 hours. After market close (13:30 TW), this picks up
+    the final closing prices. Also syncs TAIEX index.
+    """
+    try:
+        from data.twse_provider import sync_stock, sync_taiex
+
+        codes = set()
+        # Watchlist stocks
+        try:
+            from backend.routers.watchlist import _load_watchlist
+            codes.update(_load_watchlist()[:50])
+        except Exception:
+            pass
+        # Open positions
+        try:
+            from backend import db
+            positions = db.get_open_positions()
+            codes.update(p["code"] for p in positions)
+        except Exception:
+            pass
+        # Recent stocks
+        try:
+            from backend.routers.system import _load_recent
+            codes.update(_load_recent()[:10])
+        except Exception:
+            pass
+
+        if not codes:
+            logger.debug("TWSE sync: no stocks to sync")
+            return
+
+        synced = 0
+        for code in codes:
+            try:
+                count = sync_stock(code, months_back=1)
+                if count > 0:
+                    synced += 1
+            except Exception as e:
+                logger.debug(f"TWSE sync failed for {code}: {e}")
+
+        # Also sync TAIEX
+        try:
+            sync_taiex(months_back=1)
+        except Exception:
+            pass
+
+        logger.info(f"TWSE daily sync: {synced}/{len(codes)} stocks updated")
+    except Exception as e:
+        logger.warning(f"TWSE daily sync failed: {e}")
 
 
 def stop_scheduler():

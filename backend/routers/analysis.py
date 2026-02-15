@@ -926,3 +926,42 @@ def get_revenue(code: str, months: int = Query(default=12, ge=1, le=36)):
         })
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# R64: 相似線型匹配 (Pattern Matching via DTW)
+# ============================================================
+
+@router.get("/{code}/similar-stocks")
+def find_similar_stocks(
+    code: str,
+    window: int = Query(20, ge=5, le=120, description="比對天數 (20=月線, 60=季線)"),
+    top_n: int = Query(10, ge=1, le=50),
+    candidate_codes: str | None = Query(None, description="指定比對股票 (逗號分隔)"),
+):
+    """找出與目標股票近期走勢相似的股票 (DTW 演算法)"""
+    from analysis.pattern_matcher import find_similar_stocks as _find
+    try:
+        codes = candidate_codes.split(",") if candidate_codes else None
+        results = _find(code, window=window, top_n=top_n, candidate_codes=codes)
+        return {"code": code, "window": window, "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/similar-history")
+def find_similar_in_history(
+    code: str,
+    window: int = Query(20, ge=5, le=120),
+    search_code: str | None = Query(None, description="搜尋目標股票 (預設=自身歷史)"),
+    lookback_days: int = Query(365, ge=60, le=1825),
+):
+    """在歷史中找出類似的線型區段 + 之後走勢"""
+    from analysis.pattern_matcher import find_similar_pattern_in_history as _find
+    try:
+        results = _find(code, window=window, search_code=search_code,
+                        lookback_days=lookback_days)
+        return {"code": code, "window": window, "search_code": search_code or code,
+                "results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
