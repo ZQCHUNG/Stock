@@ -11,6 +11,7 @@ import { strategiesApi, type Strategy } from '../api/strategies'
 import { analysisApi } from '../api/analysis'
 import { useAppStore } from '../stores/app'
 import FitnessView from './FitnessView.vue'
+import BacktestView from './BacktestView.vue'
 
 const msg = useMessage()
 const app = useAppStore()
@@ -472,6 +473,10 @@ onMounted(async () => {
       </NSpin>
     </NCard>
 
+      </NTabPane>
+
+      <NTabPane name="backtest" tab="回測與分析" display-directive="if">
+        <BacktestView />
       </NTabPane>
 
       <NTabPane name="fitness" tab="策略適配" display-directive="if">

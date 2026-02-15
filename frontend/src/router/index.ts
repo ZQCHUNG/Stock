@@ -22,12 +22,7 @@ const router = createRouter({
       component: () => import('../views/WatchlistView.vue'),
       meta: { title: '自選股總覽' },
     },
-    {
-      path: '/backtest',
-      name: 'backtest',
-      component: () => import('../views/BacktestView.vue'),
-      meta: { title: '回測報告' },
-    },
+    { path: '/backtest', redirect: '/strategies' },
     {
       path: '/recommend',
       name: 'recommend',

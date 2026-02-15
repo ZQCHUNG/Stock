@@ -34,13 +34,12 @@ const menuItems = [
   { label: '0  Dashboard', key: 'dashboard' },
   { label: '1  技術分析', key: 'technical' },
   { label: '2  自選股總覽', key: 'watchlist' },
-  { label: '3  回測報告', key: 'backtest' },
-  { label: '4  推薦股票', key: 'recommend' },
-  { label: '5  分析報告', key: 'report' },
-  { label: '6  條件選股', key: 'screener' },
-  { label: '7  模擬倉位', key: 'portfolio' },
-  { label: '8  風險監控', key: 'risk' },
-  { label: '9  策略工作台', key: 'strategies' },
+  { label: '3  推薦股票', key: 'recommend' },
+  { label: '4  分析報告', key: 'report' },
+  { label: '5  條件選股', key: 'screener' },
+  { label: '6  模擬倉位', key: 'portfolio' },
+  { label: '7  風險監控', key: 'risk' },
+  { label: '8  策略中心', key: 'strategies' },
 ]
 
 const activeKey = computed(() => route.name as string)

@@ -295,7 +295,7 @@ function analyzeStock(code: string) {
       <NSpace :size="6" :wrap="true">
         <NButton size="small" @click="nav('technical')">Technical</NButton>
         <NButton size="small" @click="nav('recommend')">Recommend</NButton>
-        <NButton size="small" @click="nav('backtest')">Backtest</NButton>
+        <NButton size="small" @click="nav('strategies')">Backtest</NButton>
         <NButton size="small" @click="nav('screener')">Screener</NButton>
         <NButton size="small" @click="nav('portfolio')">Portfolio</NButton>
         <NButton size="small" @click="nav('risk')">Risk</NButton>
