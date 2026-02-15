@@ -313,6 +313,14 @@ class BacktestEngine:
             (0.50, 0.08), (0.20, 0.10), (0.00, 0.15),
         ])
 
+        # R75: Auto Trail Classifier — automatically select trail mode per stock
+        # Based on WFO validation: ATR% >= 1.8% → flat 2%, ATR% < 1.8% → ATR k=1.0
+        auto_trail_classifier = p.get("auto_trail_classifier", True)
+        auto_trail_threshold = p.get("auto_trail_threshold", 0.018)  # 1.8%
+        auto_trail_k = p.get("auto_trail_k", 1.0)
+        _auto_atr_pct_series = pd.Series(dtype=float)  # rolling median ATR%
+        _auto_trail_mode = "flat"  # will be determined dynamically
+
         # R74: ATR-Adaptive Trail — trail width = k × ATR_14 / price
         # Adapts to each stock's volatility: wider trail for volatile stocks, tighter for calm ones
         atr_trail_enabled = p.get("atr_trail_enabled", False)
@@ -321,9 +329,10 @@ class BacktestEngine:
         atr_trail_floor = p.get("atr_trail_floor", 0.01)  # minimum 1% trail
         atr_trail_cap = p.get("atr_trail_cap", 0.10)      # maximum 10% trail
 
-        # Pre-compute ATR series for ATR-trail mode
+        # Pre-compute ATR series (used by both ATR trail and auto classifier)
         _atr_series = pd.Series(dtype=float)
-        if atr_trail_enabled and len(signals_df) > atr_trail_period:
+        _need_atr = atr_trail_enabled or auto_trail_classifier
+        if _need_atr and len(signals_df) > atr_trail_period:
             _h = signals_df["high"] if "high" in signals_df.columns else signals_df["close"]
             _l = signals_df["low"] if "low" in signals_df.columns else signals_df["close"]
             _c = signals_df["close"]
@@ -333,6 +342,11 @@ class BacktestEngine:
                 (_l - _c.shift(1)).abs(),
             ], axis=1).max(axis=1)
             _atr_series = _tr.rolling(atr_trail_period, min_periods=max(1, atr_trail_period // 2)).mean()
+
+        # R75: Pre-compute rolling ATR% for auto classifier
+        if auto_trail_classifier and not _atr_series.empty:
+            _atr_pct = _atr_series / signals_df["close"]
+            _auto_atr_pct_series = _atr_pct.rolling(60, min_periods=20).median()
 
         # R71-A: Volatility guard — skip entries in high-vol bearish regimes — HYPOTHESIS
         # Only blocks NEW entries when BOTH conditions met:
@@ -386,8 +400,17 @@ class BacktestEngine:
                 highest_since_entry = max(highest_since_entry, high)
                 hold_days += 1
 
-                # R74: ATR-Adaptive Trail — trail width = k × ATR / price
-                if atr_trail_enabled and not _atr_series.empty:
+                # R75: Auto Trail Classifier — use ATR k=1.0 for low-vol, flat 2% for high-vol
+                if auto_trail_classifier and _auto_trail_mode == "atr" and not _atr_series.empty:
+                    _atr_val = _atr_series.get(date, None)
+                    if _atr_val is not None and not np.isnan(_atr_val) and price > 0:
+                        atr_trail_pct = (_atr_val / price) * auto_trail_k
+                        atr_trail_pct = max(atr_trail_floor, min(atr_trail_cap, atr_trail_pct))
+                        new_sl = highest_since_entry * (1 - atr_trail_pct)
+                        if new_sl > sl_price:
+                            sl_price = new_sl
+                # R74: ATR-Adaptive Trail — trail width = k × ATR / price (manual override)
+                elif atr_trail_enabled and not _atr_series.empty:
                     _atr_val = _atr_series.get(date, None)
                     if _atr_val is not None and not np.isnan(_atr_val) and price > 0:
                         atr_trail_pct = (_atr_val / price) * atr_trail_k
@@ -467,6 +490,15 @@ class BacktestEngine:
                     tp_price = trade.price_open * (1 + tp_pct) if tp_pct > 0 else float("inf")
                     sl_price = trade.price_open * (1 - sl_pct)
                     original_sl_price = sl_price
+
+                    # R75: Auto Trail Classifier — decide trail mode at entry
+                    if auto_trail_classifier and not _auto_atr_pct_series.empty:
+                        _cur_atr_pct = _auto_atr_pct_series.get(date, None)
+                        if _cur_atr_pct is not None and not np.isnan(_cur_atr_pct):
+                            if _cur_atr_pct < auto_trail_threshold:
+                                _auto_trail_mode = "atr"  # low vol → ATR k=1.0
+                            else:
+                                _auto_trail_mode = "flat"  # high vol → flat 2%
 
         # 期末平倉
         if position > 0 and current_trade is not None:

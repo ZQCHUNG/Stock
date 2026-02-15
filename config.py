@@ -276,11 +276,17 @@ STRATEGY_V4_PARAMS = {
     # R74: ATR-Adaptive Trail — trail width = k × ATR_14 / price
     # Hypothesis: volatility-normalized trail adapts to each stock's characteristics
     # Pending validation via sweep experiment
-    "atr_trail_enabled": False,   # off by default until validated
+    "atr_trail_enabled": False,   # off by default (R74: manual ATR trail)
     "atr_trail_k": 2.0,          # multiplier: trail_pct = k × ATR / price
     "atr_trail_period": 14,      # ATR lookback period
     "atr_trail_floor": 0.01,     # minimum trail = 1%
     "atr_trail_cap": 0.10,       # maximum trail = 10%
+    # R75: Auto Trail Classifier — WFO-validated stock personality classifier
+    # ATR% >= 1.8% → flat 2% trail (momentum scalping), < 1.8% → ATR k=1.0 (precision trender)
+    # WFO validation: 5/7 stocks show stable k preference across 5 time windows (4 years)
+    "auto_trail_classifier": True,   # VALIDATED via WFO
+    "auto_trail_threshold": 0.018,   # 1.8% ATR% boundary
+    "auto_trail_k": 1.0,            # k for low-vol stocks (Occam's razor: one k value)
     # 部位
     "max_position_pct": 0.9,    # 單筆最大部位 90%
 }
