@@ -607,3 +607,94 @@ def run_attribution(code: str, req: BacktestRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# R59: Forward Testing endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/forward-test/summary")
+def get_forward_test_summary():
+    """R59: Get forward test summary statistics."""
+    from backtest.forward_test import get_summary
+    s = get_summary()
+    return {
+        "total_signals": s.total_signals,
+        "signals_opened": s.signals_opened,
+        "signals_skipped": s.signals_skipped,
+        "signals_pending": s.signals_pending,
+        "total_positions": s.total_positions,
+        "open_positions": s.open_positions,
+        "closed_positions": s.closed_positions,
+        "win_rate": s.win_rate,
+        "avg_return": s.avg_return,
+        "total_pnl": s.total_pnl,
+        "avg_hold_days": s.avg_hold_days,
+        "best_trade": s.best_trade,
+        "worst_trade": s.worst_trade,
+    }
+
+
+@router.get("/forward-test/signals")
+def get_forward_signals(limit: int = 50, status: str | None = None):
+    """R59: Get recent forward test signals."""
+    from backtest.forward_test import get_signals
+    return get_signals(limit=limit, status=status)
+
+
+@router.get("/forward-test/positions")
+def get_forward_positions(limit: int = 50, status: str | None = None):
+    """R59: Get recent forward test positions."""
+    from backtest.forward_test import get_positions
+    return get_positions(limit=limit, status=status)
+
+
+@router.post("/forward-test/scan")
+def run_forward_scan(stock_codes: list[str] | None = None):
+    """R59: Run forward test signal scan (post-market)."""
+    from backtest.forward_test import scan_and_record_signals
+    signals = scan_and_record_signals(stock_codes=stock_codes)
+    return {
+        "signals_found": len(signals),
+        "signals": [
+            {
+                "id": s.id,
+                "code": s.stock_code,
+                "price": s.signal_price,
+                "confidence": s.confidence,
+            }
+            for s in signals
+        ],
+    }
+
+
+@router.post("/forward-test/open/{signal_id}")
+def open_forward_position(signal_id: int, capital: float = 500_000):
+    """R59: Open a virtual position from a signal."""
+    from backtest.forward_test import open_virtual_position
+    pos = open_virtual_position(signal_id, capital=capital)
+    if not pos:
+        raise HTTPException(status_code=400, detail="Failed to open position")
+    return {
+        "position_id": pos.id,
+        "code": pos.stock_code,
+        "open_price": pos.open_price,
+        "shares": pos.shares,
+        "tp_price": pos.tp_price,
+        "sl_price": pos.sl_price,
+    }
+
+
+@router.post("/forward-test/update")
+def update_forward_positions():
+    """R59: Update all open forward test positions (daily check)."""
+    from backtest.forward_test import update_positions_daily
+    actions = update_positions_daily()
+    return {"actions": actions, "total": len(actions)}
+
+
+@router.get("/forward-test/compare")
+def compare_forward_backtest(stock_code: str | None = None):
+    """R59: Compare forward test vs backtest results."""
+    from backtest.forward_test import compare_with_backtest
+    return compare_with_backtest(stock_code=stock_code)
