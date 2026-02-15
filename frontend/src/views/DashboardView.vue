@@ -199,7 +199,7 @@ function analyzeStock(code: string) {
         <NGi>
           <NCard size="small" title="OMS Efficiency" :bordered="true">
             <template #header-extra>
-              <NButton size="tiny" text @click="nav('alerts')">Details</NButton>
+              <NButton size="tiny" text @click="nav('risk')">Details</NButton>
             </template>
             <NGrid :cols="3" :x-gap="8">
               <NGi><NStatistic label="Auto Coverage" :value="`${((oms.auto_coverage || 0) * 100).toFixed(0)}%`" /></NGi>
@@ -273,7 +273,7 @@ function analyzeStock(code: string) {
         <NGi :span="1">
           <NCard size="small" title="Alerts" :bordered="true" style="height: 220px">
             <template #header-extra>
-              <NButton size="tiny" text @click="nav('alerts')">All</NButton>
+              <NButton size="tiny" text @click="nav('risk')">All</NButton>
             </template>
             <template v-if="alerts.length">
               <div v-for="(a, idx) in alerts" :key="idx"

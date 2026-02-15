@@ -3,13 +3,14 @@ import { h, ref, onMounted, computed } from 'vue'
 import {
   NCard, NButton, NSpace, NGrid, NGi, NTag, NInput, NInputNumber,
   NDataTable, NSpin, NDivider, NStatistic, NAlert, NModal, NForm,
-  NFormItem, useMessage,
+  NFormItem, NTabs, NTabPane, useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { strategiesApi, type Strategy } from '../api/strategies'
 import { analysisApi } from '../api/analysis'
 import { useAppStore } from '../stores/app'
+import FitnessView from './FitnessView.vue'
 
 const msg = useMessage()
 const app = useAppStore()
@@ -28,6 +29,7 @@ const adaptiveLoading = ref(false)
 const showAdaptiveBt = ref(false)
 const adaptiveBtResult = ref<any>(null)
 const adaptiveBtLoading = ref(false)
+const activeTab = ref('manage')
 
 // Create form
 const createForm = ref({
@@ -251,6 +253,9 @@ onMounted(async () => {
   <div>
     <h2 style="margin: 0 0 16px">策略工作台</h2>
 
+    <NTabs v-model:value="activeTab" type="line" style="margin-bottom: 16px">
+      <NTabPane name="manage" tab="策略管理" display-directive="show:lazy">
+
     <!-- Market Regime ML -->
     <NCard size="small" style="margin-bottom: 16px">
       <template #header>
@@ -422,6 +427,13 @@ onMounted(async () => {
         </div>
       </NSpin>
     </NCard>
+
+      </NTabPane>
+
+      <NTabPane name="fitness" tab="策略適配" display-directive="if">
+        <FitnessView />
+      </NTabPane>
+    </NTabs>
 
     <!-- Create Strategy Modal -->
     <NModal v-model:show="showCreate" preset="card" title="新增策略" style="width: 520px">

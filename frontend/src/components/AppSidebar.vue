@@ -39,11 +39,8 @@ const menuItems = [
   { label: '5  分析報告', key: 'report' },
   { label: '6  條件選股', key: 'screener' },
   { label: '7  模擬倉位', key: 'portfolio' },
-  { label: '8  策略適配', key: 'fitness' },
-  { label: '9  SQS 警報', key: 'alerts' },
-  { label: '10 SQS 績效', key: 'sqs-performance' },
-  { label: '11 風險監控', key: 'risk' },
-  { label: '12 策略工作台', key: 'strategies' },
+  { label: '8  風險監控', key: 'risk' },
+  { label: '9  策略工作台', key: 'strategies' },
 ]
 
 const activeKey = computed(() => route.name as string)

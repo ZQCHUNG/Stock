@@ -52,24 +52,10 @@ const router = createRouter({
       component: () => import('../views/PortfolioView.vue'),
       meta: { title: '模擬倉位' },
     },
-    {
-      path: '/fitness',
-      name: 'fitness',
-      component: () => import('../views/FitnessView.vue'),
-      meta: { title: '策略適配' },
-    },
-    {
-      path: '/alerts',
-      name: 'alerts',
-      component: () => import('../views/AlertsView.vue'),
-      meta: { title: 'SQS 警報' },
-    },
-    {
-      path: '/sqs-performance',
-      name: 'sqs-performance',
-      component: () => import('../views/SqsPerformanceView.vue'),
-      meta: { title: 'SQS 績效' },
-    },
+    // Redirects for consolidated pages
+    { path: '/fitness', redirect: '/strategies' },
+    { path: '/alerts', redirect: '/risk' },
+    { path: '/sqs-performance', redirect: '/risk' },
     {
       path: '/risk',
       name: 'risk',

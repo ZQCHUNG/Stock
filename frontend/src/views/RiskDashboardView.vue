@@ -3,10 +3,13 @@ import { ref, computed, onMounted } from 'vue'
 import {
   NCard, NButton, NTag, NGrid, NGi, NSpin,
   NStatistic, NAlert, NEmpty, NDataTable,
+  NTabs, NTabPane,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { riskApi } from '../api/risk'
+import AlertsView from './AlertsView.vue'
+import SqsPerformanceView from './SqsPerformanceView.vue'
 
 const isLoading = ref(false)
 const data = ref<any>(null)
@@ -15,6 +18,7 @@ const scenarioData = ref<any>(null)
 const scenarioLoading = ref(false)
 const varValidation = ref<any>(null)
 const varValidLoading = ref(false)
+const activeTab = ref('risk')
 
 async function loadRisk() {
   isLoading.value = true
@@ -154,6 +158,9 @@ const corrPairColumns: DataTableColumns = [
 <template>
   <div>
     <h2 style="margin: 0 0 16px">風險監控儀表板</h2>
+
+    <NTabs v-model:value="activeTab" type="line" style="margin-bottom: 16px">
+      <NTabPane name="risk" tab="風險概覽" display-directive="show:lazy">
 
     <NAlert v-if="error" type="error" style="margin-bottom: 12px" closable @close="error = ''">
       {{ error }}
@@ -374,5 +381,16 @@ const corrPairColumns: DataTableColumns = [
 
       <NEmpty v-else-if="!isLoading" :description="data?.message || '無持倉資料。請先在模擬倉位中建立部位。'" />
     </NSpin>
+
+      </NTabPane>
+
+      <NTabPane name="alerts" tab="警報監控" display-directive="if">
+        <AlertsView />
+      </NTabPane>
+
+      <NTabPane name="sqs" tab="SQS 績效" display-directive="if">
+        <SqsPerformanceView />
+      </NTabPane>
+    </NTabs>
   </div>
 </template>
