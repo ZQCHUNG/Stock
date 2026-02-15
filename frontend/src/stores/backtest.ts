@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { backtestApi, type BacktestParams } from '../api/backtest'
+import { backtestApi, type BacktestParams, type BoldBacktestParams } from '../api/backtest'
 import { message } from '../utils/discrete'
 
 export const useBacktestStore = defineStore('backtest', () => {
@@ -10,6 +10,7 @@ export const useBacktestStore = defineStore('backtest', () => {
   const rollingResult = ref<any>(null)
   const sensitivityResult = ref<any>(null)
   const alphaBetaResult = ref<any>(null)
+  const boldResult = ref<any>(null)
   const strategyComparison = ref<any>(null)
   const isLoading = ref(false)
   const error = ref('')
@@ -92,6 +93,19 @@ export const useBacktestStore = defineStore('backtest', () => {
     }
   }
 
+  async function runBold(code: string, req?: BoldBacktestParams) {
+    isLoading.value = true
+    error.value = ''
+    try {
+      boldResult.value = await backtestApi.bold(code, req)
+      message.success(`Bold 回測完成：${boldResult.value.total_trades || 0} 筆交易`)
+    } catch (e: any) {
+      error.value = e.message
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   async function runStrategyComparison(code: string, req?: { period_days?: number; initial_capital?: number }) {
     isLoading.value = true
     error.value = ''
@@ -106,10 +120,10 @@ export const useBacktestStore = defineStore('backtest', () => {
   }
 
   return {
-    singleResult, portfolioResult, simulationResult,
+    singleResult, portfolioResult, simulationResult, boldResult,
     rollingResult, sensitivityResult, alphaBetaResult, strategyComparison,
     isLoading, error,
-    runSingle, runPortfolio, runSimulation,
+    runSingle, runPortfolio, runSimulation, runBold,
     runRolling, runSensitivity, runAlphaBeta, runStrategyComparison,
   }
 })

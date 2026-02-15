@@ -18,6 +18,7 @@ export const analysisApi = {
   sectorHeat: () => client.get<any, any>('/analysis/sector-heat'),
   v5Signal: (code: string) => client.get<any, any>(`/analysis/${code}/v5-signal`),
   adaptiveSignal: (code: string) => client.get<any, any>(`/analysis/${code}/adaptive-signal`),
+  boldSignal: (code: string) => client.get<any, any>(`/analysis/${code}/bold-signal`),
   riskBudget: (code: string) => client.get<any, any>(`/analysis/${code}/risk-budget`),
   strategyFitness: (codes?: string) => client.get<any, any>('/analysis/strategy-fitness', {
     params: codes ? { codes } : {},

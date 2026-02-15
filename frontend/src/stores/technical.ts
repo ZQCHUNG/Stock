@@ -28,6 +28,7 @@ export const useTechnicalStore = defineStore('technical', () => {
   const institutional = ref<TimeSeriesData | null>(null)
   const stockData = ref<TimeSeriesData | null>(null)
   const adaptiveSignal = ref<any>(null)
+  const boldSignal = ref<any>(null)
   const riskBudget = ref<any>(null)
   const signalSummary = ref<any>(null)
   const sqsData = ref<any>(null)
@@ -137,6 +138,17 @@ export const useTechnicalStore = defineStore('technical', () => {
     }
   }
 
+  async function loadBoldSignal(code: string) {
+    const seq = _loadSeq
+    try {
+      const data = await analysisApi.boldSignal(code)
+      if (seq !== _loadSeq) return
+      boldSignal.value = data
+    } catch {
+      boldSignal.value = null
+    }
+  }
+
   async function loadRiskBudget(code: string) {
     const seq = _loadSeq
     try {
@@ -196,8 +208,8 @@ export const useTechnicalStore = defineStore('technical', () => {
   }
 
   return {
-    indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, riskBudget, signalSummary, sqsData,
+    indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, boldSignal, riskBudget, signalSummary, sqsData,
     supportResistance, volumePatterns, institutional, stockData, fundamentals,
-    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadRiskBudget, loadSignalSummary, loadSqs, loadFundamentals,
+    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadRiskBudget, loadSignalSummary, loadSqs, loadFundamentals,
   }
 })

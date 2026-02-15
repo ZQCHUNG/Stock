@@ -12,6 +12,7 @@ import BacktestAdvanced from '../components/BacktestAdvanced.vue'
 import BacktestHistory from '../components/BacktestHistory.vue'
 import StrategyComparison from '../components/StrategyComparison.vue'
 import BacktestMetaStrategy from '../components/BacktestMetaStrategy.vue'
+import BacktestBold from '../components/BacktestBold.vue'
 import BacktestSqsValidation from '../components/BacktestSqsValidation.vue'
 import ConfigManager from '../components/ConfigManager.vue'
 import { parseUrlConfig } from '../utils/urlConfig'
@@ -91,6 +92,7 @@ onMounted(() => {
     <!-- Mode Selector -->
     <NTabs v-model:value="mode" type="segment" style="margin-bottom: 16px">
       <NTabPane name="single" tab="單一回測" />
+      <NTabPane name="bold" tab="Bold策略" />
       <NTabPane name="portfolio" tab="投資組合" />
       <NTabPane name="simulation" tab="模擬交易" />
       <NTabPane name="comparison" tab="策略比較" />
@@ -144,6 +146,7 @@ onMounted(() => {
       <NAlert v-if="bt.error" type="error" style="margin-bottom: 16px">{{ bt.error }}</NAlert>
 
       <BacktestSingle v-if="mode === 'single'" :period-days="periodDays" :capital="capital" :cost-params="costParams()" />
+      <BacktestBold v-if="mode === 'bold'" :period-days="periodDays" :capital="capital" :cost-params="costParams()" />
       <BacktestPortfolio v-if="mode === 'portfolio'" :period-days="periodDays" :capital="capital" />
       <BacktestSimulation v-if="mode === 'simulation'" :period-days="periodDays" :capital="capital" />
       <StrategyComparison v-if="mode === 'comparison'" :period-days="periodDays" :capital="capital" />

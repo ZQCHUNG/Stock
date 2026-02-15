@@ -32,6 +32,7 @@ async function loadData() {
   await tech.loadAll(code)
   await tech.loadV4SignalsFull(code)
   tech.loadAdaptiveSignal(code)  // Non-blocking: load adaptive signal in background
+  tech.loadBoldSignal(code)      // Non-blocking: load bold signal in background
   tech.loadRiskBudget(code)      // Non-blocking: load risk budget in background
   tech.loadSignalSummary(code)   // Non-blocking: load forward testing data
   tech.loadSqs(code)             // Non-blocking: load SQS data
@@ -241,6 +242,54 @@ function sqsGradeIcon(grade: string): string {
             />
           </NGi>
         </NGrid>
+      </NCard>
+
+      <!-- Bold 大膽策略訊號 (R66-R68) -->
+      <NCard v-if="tech.boldSignal" size="small" style="margin-bottom: 16px">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <span style="font-weight: 700">Bold 大膽策略</span>
+            <NTag size="small" :bordered="false" type="warning">衛星倉位</NTag>
+            <NTag v-if="tech.boldSignal.squeeze" size="small" type="error">擠壓中</NTag>
+          </NSpace>
+        </template>
+        <NGrid :cols="signalCols" :x-gap="12" :y-gap="12">
+          <NGi>
+            <MetricCard title="Bold 訊號">
+              <template #default>
+                <SignalBadge :signal="tech.boldSignal.signal || 'HOLD'" size="large" />
+              </template>
+            </MetricCard>
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="進場類型"
+              :value="tech.boldSignal.entry_type === 'squeeze_breakout' ? '能量擠壓' :
+                      tech.boldSignal.entry_type === 'oversold_bounce' ? '超賣反彈' :
+                      tech.boldSignal.entry_type === 'volume_ramp' ? '量能爬坡' : '無'"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="量能比"
+              :value="(tech.boldSignal.vol_ratio || 0).toFixed(1) + 'x'"
+              :color="tech.boldSignal.vol_ratio >= 2 ? '#e53e3e' : undefined"
+            />
+          </NGi>
+          <NGi>
+            <MetricCard
+              title="ATR%"
+              :value="((tech.boldSignal.atr_pct || 0) * 100).toFixed(1) + '%'"
+              subtitle="波動率指標"
+            />
+          </NGi>
+        </NGrid>
+        <NText v-if="tech.boldSignal.squeeze_days_in_10" depth="3" style="font-size: 11px; margin-top: 8px; display: block">
+          近 10 日擠壓天數: {{ tech.boldSignal.squeeze_days_in_10 }}
+          {{ tech.boldSignal.near_52w_low ? ' | 接近 52 週低點' : '' }}
+          | RSI: {{ tech.boldSignal.rsi }}
+          | BB 帶寬: {{ ((tech.boldSignal.bb_bandwidth || 0) * 100).toFixed(1) }}%
+        </NText>
       </NCard>
 
       <!-- SQS 信號品質分數 (Gemini R43) -->
