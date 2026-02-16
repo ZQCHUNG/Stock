@@ -33,11 +33,13 @@ Stock/
 │   └── market_regime.py      # Bull/Bear/Sideways detection
 ├── backtest/
 │   ├── engine.py             # Backtest engine (v4/v5/bold/portfolio)
+│   ├── risk_manager.py       # VaR + Sizing + Concentration + Circuit Breaker (R60/R80)
 │   ├── sqs_backtest.py       # SQS effectiveness validation
 │   └── bold_parameter_sweep.py  # Parameter sensitivity analysis (R67)
 ├── data/
 │   ├── fetcher.py            # yfinance + FinMind + TWSE + Redis cache
 │   ├── twse_provider.py      # TWSE/TPEX unified provider + SQLite
+│   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
 ├── tests/                    # 400+ tests (pytest, synthetic fixtures)
@@ -192,76 +194,88 @@ python -m pytest tests/ -q
 | R62 | SQS v2 (8 dimensions: Valuation + Growth) | Done |
 | R63 | TWSE/TPEX data provider + SQLite + Shadow mode | Done |
 | R64-R65 | DTW pattern matching + PatternView UI | Done |
-| R66 | Bold strategy (Energy Squeeze + Step-up Buffer) | Done |
-| R67 | Ultra-Wide → Conviction 2.0 (Regime-Based Trail) + Sweep | Done |
-| R68 | Frontend Bold strategy toggle UI (回測+技術分析) | Done |
+| R66-R68 | Bold strategy + Conviction 2.0 + Frontend UI | Done |
 | R69 | Liquidity Score (DTL + Spread + ADV_Ratio + Tick Size) | Done |
+| R72 | V4 Vol Guard + V5 Z-Score 動態進場 + 策略選擇器 | Done |
+| R73 | Stock Split Detector + Dynamic Trail 實驗 (REJECTED) | Done |
+| R74 | ATR-Adaptive Trail 實驗 + 成本壓力測試 | Done |
+| R75 | Auto Trail Classifier (WFO-validated, ATR% 1.8% threshold) | Done |
+| R76 | Regime Badge UI — 股票性格分類視覺化 | Done |
+| R77 | Full SCAN_STOCKS 驗證 (108 stocks, 1.8% threshold) | Done |
+| R78 | Mode Switching Frequency Analysis | Done |
+| R79 | Hysteresis Buffer + BacktestView Mode 欄位 | Done |
+| R80 | Risk-Adaptive Position Sizing (Equal Risk + 1-Lot Floor) | Done |
+| R81 | Sizing Advisor UI — Traffic Light System | Done |
+| R82 | Portfolio-Aware Sizing — 板塊集中度 + 零股模式 | Done |
+| R82.2 | Concentration-Cap 取代 binary 0.6x (Protocol v2 首次交付) | Done |
 
-### R69 完成摘要
+### Auto Trail Classifier (R73-R79)
 
-- [x] `analysis/liquidity.py` — 三維度流動性評分（DTL 出清天數 + Spread 價差 + ADV 量能佔比）
-- [x] 台股跳動單位表（6 級距: 0.01/0.05/0.10/0.50/1.00/5.00）
-- [x] Market Impact 估算（Square Root Law / Kyle's Lambda）
-- [x] API endpoint: `/{code}/liquidity?position_ntd=1000000`
-- [x] Frontend: TechnicalView 流動性風險卡 + BacktestBold 風險 badge
-- [x] 44 unit tests passing
-- [x] 所有權重/門檻標記 PLACEHOLDER_NEEDS_DATA（假精確 protocol）
-- [x] Gemini 討論：Joe feedback 6 項批評 → 標記制度改善 + POST_HOC_RATIONALE 新增
+以 Walk-Forward Optimization 驗證的波動率自適應移動停利系統：
 
-### R67 完成摘要
+| 模式 | 條件 | Trail 策略 | 適用 |
+|------|------|-----------|------|
+| **Momentum Scalper** | ATR% ≥ 1.8% | Flat 2% trail | 高波動（小型電子、生技）|
+| **Precision Trender** | ATR% < 1.8% | ATR k=1.0 trail | 低波動（金融、大型權值）|
 
-- [x] Bold 策略核心：能量擠壓突破 + 階梯式停利
-- [x] Ultra-Wide Conviction 模式（MA200 斜率保護）
-- [x] Volume Ramp 進場（小型股 30 張門檻）
-- [x] API endpoints (backtest + analysis)
-- [x] 27 unit tests passing
-- [x] Gemini 討論：假精確 feedback + 實驗導向型對話協議
-- [x] **Parameter Sweep 完成** — conviction_hold_gain × trail_level3_pct × ATR × SL
-- [x] Sweep 結果分析 + robustness band + cross-stock overlap
-- [x] 參數標記 VALIDATED/HYPOTHESIS/DEAD_PARAMETER
-- [x] **Conviction 2.0**: 移除 DEAD `conviction_hold_gain`，改為 Regime-Based Trail
+- R77 全市場驗證：108 stocks，Momentum Scalper 佔 60%，Precision Trender 佔 40%
+- R79 Hysteresis Buffer: 0.2% 緩衝避免邊界頻繁切換
+- UI: Fire Red badge (Scalper) / Deep Blue badge (Trender) on TechnicalView
 
-### Conviction 2.0 (Regime-Based Trail)
+### Risk-Adaptive Position Sizing (R80-R82.2)
 
-Sweep 證明 `conviction_hold_gain` 是 **DEAD PARAMETER**（Mechanism Pre-emption: trail stop 永遠先觸發）。
-Gemini 提議 Conviction 2.0：基於 MA200 斜率的動態 trail 寬度。
+Equal Risk 倉位計算 + Portfolio-Aware 風險控制：
 
-**變更**:
-- 移除: `conviction_hold_gain`, `conviction_hold_min_days`, `ma_slope_protection`, `trail_ultra_wide_pct`
-- 新增: `regime_trail_enabled` (bool), `trail_regime_wide_pct` (0.20, VALIDATED)
-- 邏輯: MA200 slope > 0 AND gain > 50% → trail 從 0.15 放寬至 0.20
-- 簡化: max_hold_days 無 bypass（conviction_hold 已移除）
+```
+Position% = Max_Risk_Per_Trade / Stop_Loss% × Regime_Multiplier
+Shares = floor(Position% × Equity / Entry_Price / 1000) × 1000
+```
 
-### Regime Trail Sweep 結果 (Conviction 2.0 驗證)
+| 參數 | 值 | 標記 |
+|------|-----|------|
+| max_risk_per_trade | 3.0% | VALIDATED (Gemini CTO R80) |
+| hard_stop_loss | 7.0% | VALIDATED (V4 default) |
+| ATR% threshold | 1.8% | VALIDATED (R77 全市場) |
+| sector penalty (old 0.6x) | **REMOVED** | [VERIFIED: HARMFUL] |
+| Concentration-Cap T_cap | 1.0 (disabled) | [VERIFIED: 實測無益] |
 
-| Stock | regime=OFF | regime=0.15 | regime=0.20 | regime=0.25 | regime=0.35 |
-|-------|-----------|-------------|-------------|-------------|-------------|
-| 6748 | 11.6% | 11.6% | 11.6% | 11.6% | 11.6% |
-| 6139 | 44.4% | 80.7% | **273.5%** | 273.5% | 273.5% |
-| 6442 | **35.0%** | 35.0% | 32.3% | 29.5% | 23.9% |
+**R82.2 實證** (102 stocks, 3040 trades, 3 年回測):
+- Disabled (no penalty): Calmar **115.36** (最佳)
+- Binary 0.6x: Calmar **94.63** (-18%, 有害)
+- 14 L1 sectors 自然分散已足夠 (max ~21%)
 
-**發現**:
-- 6748: regime trail 無效果（Level 3 never reached）
-- 6139: regime trail **至關重要**（OFF=44% vs ON=274%），0.20 是最低有效值
-- 6442: regime trail **略微有害**（越寬越差），最佳=0.15（不放寬）
-- **0.20 是折衷最優**：完整捕獲 6139 爆發，6442 僅損失 -2.7pp
+Traffic Light System (UI):
+- 🟢 GREEN: 標準倉位
+- 🟡 YELLOW: 高集中度 / 1-Lot Floor 超出風險預算
+- 🔴 RED: 資金不足（買不起 1 張）
 
-### 參數驗證總結
+### AI Multi-Agent Collaboration Protocol v2
 
-| 參數 | 狀態 | 值 |
-|------|------|-----|
-| trail_level3_pct | VALIDATED(n=3, 2021-2026) | 0.15 optimal, 0.15-0.35 robust |
-| regime_trail_enabled | VALIDATED(n=3) | 6139: 44%→274% 巨大提升 |
-| trail_regime_wide_pct | VALIDATED(n=3, 2021-2026) | **0.20** optimal, 0.15-0.25 robust |
-| conviction_hold_gain | DEAD_PARAMETER → **已移除** | Regime-Based Trail 取代 |
-| ATR multiplier | NEEDS_MORE_DATA | 方向不一致 |
-| stop_loss_pct | VALIDATED(n=3) | 15-18% sweet spot |
-| Cross-stock overlap | ONE_SIZE_FITS_ALL | 80-100% overlap |
+三方協作模式，所有參數必須通過實證審查：
 
-### 待辦
+| 角色 | Agent | 職責 |
+|------|-------|------|
+| **Lead Developer** | Claude Code | 代碼實作、架構設計 |
+| **Architect Critic** | Gemini Pro | 紅隊演習（性能、過擬合、邏輯漏洞）|
+| **Execution Secretary** | Gemini Deep Think | 監控假精確、環境認知錯誤 |
 
-- ATR/Price 分群自動調整 trail（Gemini HYPOTHESIS）
-- Liquidity Score calculation
+**工作流**: Plan → Debate (≥2 反對意見) → Audit → Delivery
+
+**參數標記制度**:
+- `[VERIFIED]` — 有回測/sweep 數據支持
+- `[HYPOTHESIS]` — 有邏輯推導但無數據驗證
+- `[PLACEHOLDER_NEEDS_DATA]` — 等待實驗
+
+### 待辦 (Backlog)
+
+| 優先級 | 項目 | 說明 |
+|--------|------|------|
+| P1 | Sector Correlation Monitor | 監控板塊間相關性，> 0.85 時警報（Gemini 建議）|
+| P1 | Risk Dashboard R_sector 可見度 | 顯示板塊集中度 > 30% 但不懲罰（Visibility without Interference）|
+| P2 | Financials Strategy Gap | V4 不適用金融股，需探索替代策略 |
+| P2 | ADV-Liquidity Cap | 倉位上限 = k_liq% × 20 日均量（防止流動性風險）|
+| P3 | ATR/Price 分群自動調整 trail | Gemini HYPOTHESIS，需實驗 |
+| P3 | Sector-Specific T_cap | 不同板塊不同上限（半導體 vs 金融 VaR 差異大）|
 
 ---
 
