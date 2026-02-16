@@ -1415,3 +1415,35 @@ def get_vcp_endpoint(code: str, period_days: int = 365):
         return make_serializable(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/stop-levels")
+def get_stop_levels_endpoint(
+    code: str,
+    entry_price: float,
+    entry_type: str = "squeeze_breakout",
+    period_days: int = 365,
+):
+    """R86: ATR-Based Stop-Loss Calculator.
+
+    Calculates stop levels using 3 methods (structural, ATR, percentage),
+    with VCP pivot override and gap risk estimation.
+    Returns initial stop, trailing stop targets, and R-value.
+    """
+    from data.fetcher import get_stock_data
+    from analysis.indicators import calculate_all_indicators
+    from analysis.stop_loss import get_stop_context
+    from analysis.vcp_detector import get_vcp_context
+    from backend.dependencies import make_serializable
+
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        df = calculate_all_indicators(df)
+
+        # Get VCP context for potential pivot override
+        vcp_context = get_vcp_context(df)
+
+        result = get_stop_context(df, entry_price, entry_type, vcp_context)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

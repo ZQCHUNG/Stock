@@ -39,6 +39,12 @@ async function loadData() {
   tech.loadBoldStatus(code)      // Non-blocking: load bold status panel (R63)
   tech.loadSectorContext(code)   // Non-blocking: load sector RS context (R64)
   tech.loadVcp(code)             // Non-blocking: load VCP detection (R85)
+  // R86: Load stop levels using current close as hypothetical entry
+  const lastClose = tech.stockData?.columns?.close?.slice(-1)?.[0]
+  if (lastClose) {
+    const entryType = tech.v4Enhanced?.entry_type || 'squeeze_breakout'
+    tech.loadStopLevels(code, lastClose, entryType)
+  }
   tech.loadLiquidity(code)       // Non-blocking: load liquidity score (R69)
   tech.loadRiskBudget(code)      // Non-blocking: load risk budget in background
   tech.loadSignalSummary(code)   // Non-blocking: load forward testing data
@@ -83,6 +89,17 @@ const exitLines = computed(() => {
   }
   if (staticStopLoss.value) {
     lines.push({ price: staticStopLoss.value, source: '靜態停損 (-7%)' })
+  }
+  // R86: Stop levels from ATR-based calculator
+  const sl = tech.stopLevels
+  if (sl?.initial_stop > 0) {
+    lines.push({ price: sl.initial_stop, source: `停損 R86 (${sl.stop_method})` })
+    if (sl.targets?.target_1r > 0) {
+      lines.push({ price: sl.targets.target_1r, source: '停利 +1R' })
+    }
+    if (sl.targets?.target_2r > 0) {
+      lines.push({ price: sl.targets.target_2r, source: '停利 +2R' })
+    }
   }
   return lines
 })

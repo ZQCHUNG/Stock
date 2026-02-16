@@ -28,6 +28,12 @@ const r60Data = ref<any>(null)
 const r60Loading = ref(false)
 const circuitBreaker = ref<any>(null)
 
+// R86: Portfolio Heat + R-Multiples
+const heatData = ref<any>(null)
+const heatLoading = ref(false)
+const rMultipleData = ref<any>(null)
+const rMultipleLoading = ref(false)
+
 async function loadRisk() {
   isLoading.value = true
   error.value = ''
@@ -66,10 +72,28 @@ async function loadR60Risk() {
   r60Loading.value = false
 }
 
+async function loadHeat() {
+  heatLoading.value = true
+  try {
+    heatData.value = await riskApi.getPortfolioHeat()
+  } catch { heatData.value = null }
+  heatLoading.value = false
+}
+
+async function loadRMultiples() {
+  rMultipleLoading.value = true
+  try {
+    rMultipleData.value = await riskApi.getRMultiples()
+  } catch { rMultipleData.value = null }
+  rMultipleLoading.value = false
+}
+
 onMounted(() => {
   loadRisk()
   loadScenario()
   loadR60Risk()
+  loadHeat()
+  loadRMultiples()
 })
 
 // Correlation Heatmap
@@ -408,6 +432,142 @@ const corrPairColumns: DataTableColumns = [
 
       <NTabPane name="sqs" tab="SQS 績效" display-directive="if">
         <SqsPerformanceView />
+      </NTabPane>
+
+      <NTabPane name="heat" tab="Portfolio Heat (R86)" display-directive="show:lazy">
+        <NSpin :show="heatLoading">
+          <template v-if="heatData">
+            <!-- Heat Gauge -->
+            <NGrid :cols="isMobile ? 1 : 4" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Portfolio Heat">
+                    <template #default>
+                      <span :style="{ color: heatData.color, fontSize: '24px', fontWeight: 700 }">
+                        {{ (heatData.effective_heat * 100).toFixed(1) }}%
+                      </span>
+                    </template>
+                    <template #suffix>
+                      <NTag :type="heatData.zone === 'Cool' ? 'success' : heatData.zone === 'Warm' ? 'warning' : 'error'" size="small">
+                        {{ heatData.zone }}
+                      </NTag>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Correlation Penalty" :value="heatData.correlation_penalty + 'x'" />
+                  <div style="font-size: 11px; color: var(--text-muted)">
+                    Avg Top-3 Corr: {{ (heatData.avg_top3_correlation ?? 0).toFixed(2) }}
+                  </div>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Positions" :value="heatData.position_count" />
+                  <div style="font-size: 11px; color: var(--text-muted)">
+                    Raw Heat: {{ (heatData.raw_heat * 100).toFixed(1) }}%
+                  </div>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Action">
+                    <template #default>
+                      <span style="font-size: 13px">{{ heatData.action }}</span>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+            </NGrid>
+            <!-- Sector warning -->
+            <NAlert v-if="heatData.sector_warning" type="warning" style="margin-bottom: 12px">
+              {{ heatData.sector_warning.message }}
+            </NAlert>
+            <NAlert v-if="heatData.blocked_sectors?.length" type="error" style="margin-bottom: 12px">
+              Blocked sectors: {{ heatData.blocked_sectors.join(', ') }}
+            </NAlert>
+            <!-- Position heat table -->
+            <NCard title="Position Heat Breakdown" size="small" v-if="heatData.positions?.length">
+              <NDataTable
+                :columns="[
+                  { title: 'Code', key: 'code', width: 80 },
+                  { title: 'Name', key: 'name', width: 100 },
+                  { title: 'Sector', key: 'sector', width: 100 },
+                  { title: 'Risk %', key: 'risk_pct', width: 80, render: (r: any) => (r.risk_pct * 100).toFixed(2) + '%' },
+                  { title: 'Heat', key: 'heat_contribution', width: 80, render: (r: any) => (r.heat_contribution * 100).toFixed(2) + '%' },
+                ]"
+                :data="heatData.positions"
+                :max-height="250"
+                size="small"
+                :bordered="false"
+              />
+            </NCard>
+          </template>
+          <NEmpty v-else-if="!heatLoading" description="No portfolio heat data" />
+        </NSpin>
+
+        <!-- System Expectancy -->
+        <NCard title="System Expectancy (R86)" size="small" style="margin-top: 16px">
+          <NSpin :show="rMultipleLoading">
+            <template v-if="rMultipleData?.expectancy">
+              <NGrid :cols="isMobile ? 2 : 4" :x-gap="12" :y-gap="12">
+                <NGi>
+                  <NStatistic label="Expectancy">
+                    <template #default>
+                      <span :style="{ color: rMultipleData.expectancy.grade_color, fontSize: '24px', fontWeight: 700 }">
+                        {{ rMultipleData.expectancy.expectancy.toFixed(2) }}
+                      </span>
+                    </template>
+                    <template #suffix>
+                      <NTag :style="{ color: rMultipleData.expectancy.grade_color }" size="small" :bordered="false">
+                        {{ rMultipleData.expectancy.grade }}
+                      </NTag>
+                    </template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="Win Rate" :value="(rMultipleData.expectancy.win_rate * 100).toFixed(0) + '%'" />
+                </NGi>
+                <NGi>
+                  <NStatistic label="Avg Win R" :value="rMultipleData.expectancy.avg_win_r.toFixed(1) + 'R'" />
+                </NGi>
+                <NGi>
+                  <NStatistic label="Avg Loss R" :value="rMultipleData.expectancy.avg_loss_r.toFixed(1) + 'R'" />
+                </NGi>
+              </NGrid>
+              <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px">
+                Total Trades: {{ rMultipleData.expectancy.total_trades }}
+                | Wins: {{ rMultipleData.expectancy.wins }}
+                | Losses: {{ rMultipleData.expectancy.losses }}
+                | Best: {{ rMultipleData.expectancy.best_r }}R
+                | Worst: {{ rMultipleData.expectancy.worst_r }}R
+              </div>
+            </template>
+            <NEmpty v-else-if="!rMultipleLoading" description="No trade data for expectancy calculation" />
+          </NSpin>
+        </NCard>
+
+        <!-- R-Multiple Positions -->
+        <NCard title="Position R-Multiples" size="small" style="margin-top: 16px" v-if="rMultipleData?.positions?.length">
+          <NDataTable
+            :columns="[
+              { title: 'Code', key: 'code', width: 80 },
+              { title: 'Entry', key: 'entry_price', width: 80 },
+              { title: 'Current', key: 'current_price', width: 80 },
+              { title: 'Stop', key: 'stop_price', width: 80 },
+              { title: 'R', key: 'intended_r', width: 60, render: (r: any) => r.intended_r.toFixed(1) + 'R' },
+              { title: 'Status', key: 'r_status', width: 100 },
+              { title: 'Note', key: 'display_text', width: 200 },
+            ]"
+            :data="rMultipleData.positions"
+            :max-height="300"
+            size="small"
+            :bordered="false"
+            :row-class-name="(r: any) => r.intended_r >= 3 ? 'home-run-row' : r.intended_r < -1 ? 'big-loss-row' : ''"
+          />
+        </NCard>
       </NTabPane>
 
       <NTabPane name="r60" tab="進階風控 (R60)" display-directive="show:lazy">

@@ -326,3 +326,114 @@ def validate_var():
     )
 
     return make_serializable(result)
+
+
+@router.get("/r-multiples")
+def get_r_multiples():
+    """R86: R-Multiple tracking for all open positions.
+
+    Returns R-multiple (realized vs intended), status labels,
+    and system expectancy for closed trades.
+    """
+    from backend import db
+    from backend.dependencies import make_serializable
+    from analysis.r_tracker import track_position_r, compute_system_expectancy
+
+    positions = db.get_open_positions()
+    if not positions:
+        return {
+            "positions": [],
+            "expectancy": compute_system_expectancy([]),
+        }
+
+    # Enrich positions with stop prices from stored data
+    enriched = []
+    for p in positions:
+        enriched.append({
+            "code": p.get("code", ""),
+            "name": p.get("name", ""),
+            "lots": p.get("lots", 0),
+            "entry_price": p.get("entry_price", 0),
+            "current_price": p.get("current_price", p.get("entry_price", 0)),
+            "stop_price": p.get("stop_price", p.get("entry_price", 0) * 0.93),
+        })
+
+    r_positions = track_position_r(enriched)
+
+    # Get closed trades for expectancy calculation
+    closed_trades = db.get_closed_trades() if hasattr(db, "get_closed_trades") else []
+    expectancy = compute_system_expectancy(closed_trades)
+
+    return make_serializable({
+        "positions": r_positions,
+        "expectancy": expectancy,
+    })
+
+
+@router.get("/portfolio-heat")
+def get_portfolio_heat():
+    """R86: Correlation-adjusted portfolio heat map.
+
+    Returns effective heat with correlation penalty,
+    heat zone classification, and sector breakdown.
+    """
+    from backend import db
+    from backend.dependencies import make_serializable
+    from analysis.portfolio_heat import compute_portfolio_heat
+    from analysis.risk import calculate_correlation_matrix
+    from data.fetcher import get_stock_data
+
+    positions = db.get_open_positions()
+    if not positions:
+        return make_serializable(compute_portfolio_heat([]))
+
+    # Build position list with risk percentages
+    heat_positions = []
+    stock_data = {}
+    account_value = sum(
+        p.get("lots", 0) * 1000 * p.get("current_price", p.get("entry_price", 0))
+        for p in positions
+    ) or 1_000_000
+
+    for p in positions:
+        code = p.get("code", "")
+        entry = p.get("entry_price", 0)
+        stop = p.get("stop_price", entry * 0.93)
+        lots = p.get("lots", 0)
+        current = p.get("current_price", entry)
+        position_value = lots * 1000 * current
+
+        # Risk = (entry - stop) * shares / account_value
+        risk_amount = (entry - stop) * lots * 1000 if entry > stop else 0
+        risk_pct = risk_amount / account_value if account_value > 0 else 0
+
+        heat_positions.append({
+            "code": code,
+            "name": p.get("name", ""),
+            "lots": lots,
+            "entry_price": entry,
+            "stop_price": stop,
+            "current_price": current,
+            "risk_pct": risk_pct,
+            "sector": p.get("sector", "未分類"),
+            "market_value": position_value,
+        })
+
+        # Fetch stock data for correlation
+        try:
+            df = get_stock_data(code, period_days=120)
+            if df is not None and len(df) > 30:
+                stock_data[code] = df
+        except Exception:
+            pass
+
+    # Compute correlation matrix
+    corr_matrix = None
+    if len(stock_data) >= 2:
+        try:
+            corr_matrix = calculate_correlation_matrix(stock_data, days=60)
+        except Exception:
+            pass
+
+    result = compute_portfolio_heat(heat_positions, corr_matrix)
+    return make_serializable(result)

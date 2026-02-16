@@ -67,4 +67,9 @@ export const analysisApi = {
   sectorContext: (code: string) => client.get<any, any>(`/analysis/${code}/sector-context`),
   // R85: VCP (Volatility Contraction Pattern)
   vcp: (code: string) => client.get<any, any>(`/analysis/${code}/vcp`),
+  // R86: ATR-Based Stop-Loss Calculator
+  stopLevels: (code: string, entryPrice: number, entryType = 'squeeze_breakout') =>
+    client.get<any, any>(`/analysis/${code}/stop-levels`, {
+      params: { entry_price: entryPrice, entry_type: entryType },
+    }),
 }

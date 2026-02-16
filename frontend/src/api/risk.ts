@@ -13,4 +13,7 @@ export const riskApi = {
     client.post<any, any>('/risk/scenario', { account_value: account_value || 1000000 }, { timeout: 30000 }),
   validateVar: () =>
     client.post<any, any>('/risk/validate-var', {}, { timeout: 120000 }),
+  // R86: R-Multiple + Portfolio Heat
+  getRMultiples: () => client.get<any, any>('/risk/r-multiples', { timeout: 30000 }),
+  getPortfolioHeat: () => client.get<any, any>('/risk/portfolio-heat', { timeout: 60000 }),
 }
