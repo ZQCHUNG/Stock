@@ -65,4 +65,6 @@ export const analysisApi = {
     }),
   // R64: Sector RS & Peer Alpha
   sectorContext: (code: string) => client.get<any, any>(`/analysis/${code}/sector-context`),
+  // R85: VCP (Volatility Contraction Pattern)
+  vcp: (code: string) => client.get<any, any>(`/analysis/${code}/vcp`),
 }

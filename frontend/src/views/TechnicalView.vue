@@ -38,6 +38,7 @@ async function loadData() {
   tech.loadBoldSignal(code)      // Non-blocking: load bold signal in background
   tech.loadBoldStatus(code)      // Non-blocking: load bold status panel (R63)
   tech.loadSectorContext(code)   // Non-blocking: load sector RS context (R64)
+  tech.loadVcp(code)             // Non-blocking: load VCP detection (R85)
   tech.loadLiquidity(code)       // Non-blocking: load liquidity score (R69)
   tech.loadRiskBudget(code)      // Non-blocking: load risk budget in background
   tech.loadSignalSummary(code)   // Non-blocking: load forward testing data
@@ -255,7 +256,7 @@ function sqsGradeIcon(grade: string): string {
       </NCard>
 
       <!-- Bold Status Panel (R63: RS + MLS + ECF) -->
-      <BoldStatusPanel v-if="tech.boldStatus" :data="tech.boldStatus" :sector-context="tech.sectorContext" />
+      <BoldStatusPanel v-if="tech.boldStatus" :data="tech.boldStatus" :sector-context="tech.sectorContext" :vcp-context="tech.vcpContext" />
 
       <!-- 流動性風險評分 (R69) -->
       <NCard v-if="tech.liquidity" size="small" style="margin-bottom: 16px">

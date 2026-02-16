@@ -37,6 +37,7 @@ export const useTechnicalStore = defineStore('technical', () => {
   const fundamentals = ref<any>(null)
   const trailClassifier = ref<any>(null)
   const sectorContext = ref<any>(null)
+  const vcpContext = ref<any>(null)
   const isLoading = ref(false)
   const error = ref('')
 
@@ -92,6 +93,7 @@ export const useTechnicalStore = defineStore('technical', () => {
     liquidity.value = null
     trailClassifier.value = null
     sectorContext.value = null
+    vcpContext.value = null
 
     // Check cache first — instant switch for previously viewed stocks
     const cached = _getCached(code)
@@ -250,6 +252,17 @@ export const useTechnicalStore = defineStore('technical', () => {
     }
   }
 
+  async function loadVcp(code: string) {
+    const seq = _loadSeq
+    try {
+      const data = await analysisApi.vcp(code)
+      if (seq !== _loadSeq) return
+      vcpContext.value = data
+    } catch {
+      vcpContext.value = null
+    }
+  }
+
   async function loadV4SignalsFull(code: string) {
     // v4SignalsFull is cleared in loadAll on stock switch, so this only skips
     // if the data was already restored from cache for the same stock
@@ -266,7 +279,7 @@ export const useTechnicalStore = defineStore('technical', () => {
 
   return {
     indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, boldSignal, boldStatus, riskBudget, signalSummary, sqsData, liquidity,
-    supportResistance, volumePatterns, institutional, stockData, fundamentals, trailClassifier, sectorContext,
-    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadBoldStatus, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals, loadTrailClassifier, loadSectorContext,
+    supportResistance, volumePatterns, institutional, stockData, fundamentals, trailClassifier, sectorContext, vcpContext,
+    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadBoldStatus, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals, loadTrailClassifier, loadSectorContext, loadVcp,
   }
 })

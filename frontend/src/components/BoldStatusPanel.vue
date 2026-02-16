@@ -4,12 +4,13 @@ import { NCard, NGrid, NGi, NTag, NSpace, NText, NTooltip } from 'naive-ui'
 import MetricCard from './MetricCard.vue'
 import SignalBadge from './SignalBadge.vue'
 
-const props = defineProps<{ data: any; sectorContext?: any }>()
+const props = defineProps<{ data: any; sectorContext?: any; vcpContext?: any }>()
 
 const bold = computed(() => props.data?.bold)
 const rs = computed(() => props.data?.rs)
 const params = computed(() => props.data?.params)
 const sc = computed(() => props.sectorContext)
+const vcp = computed(() => props.vcpContext)
 
 const rsGradeColor = computed(() => {
   const g = rs.value?.grade
@@ -73,6 +74,24 @@ const clusterRiskIcon = computed(() => {
   if (level === 'unknown') return '\u26AA'          // ⚪
   return '\u2705'                                    // ✅
 })
+
+// R85: VCP styling
+const vcpColor = computed(() => {
+  const score = vcp.value?.vcp_score ?? 0
+  if (score >= 70) return '#a855f7'   // Diamond purple — Rocket Launch
+  if (score >= 50) return '#22c55e'   // Green — forming
+  if (score >= 30) return '#f59e0b'   // Amber — weak
+  return '#6b7280'                     // Grey
+})
+
+const vcpLabel = computed(() => {
+  if (!vcp.value?.has_vcp) return '--'
+  const score = vcp.value.vcp_score
+  const bases = vcp.value.base_count
+  const label = `T${bases} (${score})`
+  if (vcp.value.has_coiled_spring) return `${label} \uD83C\uDFAF`  // 🎯 Coiled Spring
+  return label
+})
 </script>
 
 <template>
@@ -80,7 +99,7 @@ const clusterRiskIcon = computed(() => {
     <template #header>
       <NSpace align="center" :size="8">
         <span style="font-weight: 700">Bold Status Panel</span>
-        <NTag size="small" :bordered="false" type="warning">R64</NTag>
+        <NTag size="small" :bordered="false" type="warning">R85</NTag>
         <NTag
           v-if="rs?.grade && rs.grade !== 'unknown'"
           size="small"
@@ -117,6 +136,23 @@ const clusterRiskIcon = computed(() => {
         >
           &#x26AA; Sector Blind Spot
         </NTag>
+        <!-- R85: VCP badge -->
+        <NTag
+          v-if="vcp?.has_vcp && vcp.vcp_score >= 70"
+          size="small"
+          :bordered="false"
+          :style="{ color: '#a855f7', fontWeight: 700 }"
+        >
+          &#x1F680; VCP Rocket
+        </NTag>
+        <NTag
+          v-else-if="vcp?.has_vcp && vcp.vcp_score < 30"
+          size="small"
+          :bordered="false"
+          :style="{ color: '#f59e0b', fontWeight: 600 }"
+        >
+          &#x26A0;&#xFE0F; Thin Base
+        </NTag>
         <NTag
           v-if="bold?.signal === 'BUY'"
           size="small"
@@ -128,7 +164,7 @@ const clusterRiskIcon = computed(() => {
       </NSpace>
     </template>
 
-    <NGrid :cols="5" :x-gap="12" :y-gap="12">
+    <NGrid :cols="6" :x-gap="12" :y-gap="12">
       <!-- RS Rating -->
       <NGi>
         <MetricCard title="RS Rating">
@@ -206,6 +242,44 @@ const clusterRiskIcon = computed(() => {
           </template>
           <div v-if="sc?.cluster_risk?.advice">{{ sc.cluster_risk.advice }}</div>
           <div v-else>Sector cluster risk assessment</div>
+        </NTooltip>
+      </NGi>
+
+      <!-- VCP (R85) -->
+      <NGi>
+        <NTooltip>
+          <template #trigger>
+            <MetricCard title="VCP">
+              <template #default>
+                <span
+                  :style="{ color: vcpColor, fontSize: '16px', fontWeight: 700 }"
+                >
+                  {{ vcpLabel }}
+                </span>
+                <div v-if="vcp?.has_vcp" style="font-size: 11px; color: var(--text-muted); margin-top: 2px">
+                  {{ vcp.ghost_day_count }} ghost{{ vcp.ghost_day_count !== 1 ? 's' : '' }}
+                  <span v-if="vcp.is_breakout" style="color: #ef4444; font-weight: 600"> BREAKOUT!</span>
+                </div>
+                <div v-else-if="vcp?.disqualify_reason" style="font-size: 10px; color: #6b7280; margin-top: 2px">
+                  {{ vcp.volume_floor_fail ? 'Low volume' : 'No pattern' }}
+                </div>
+              </template>
+            </MetricCard>
+          </template>
+          <div v-if="vcp?.has_vcp">
+            VCP Score: {{ vcp.vcp_score }}/100
+            <br>Bases: {{ vcp.base_count }} ({{ vcp.base_count >= 3 ? 'Gold Standard T3' : 'T2' }})
+            <br>Ghost Days: {{ vcp.ghost_day_count }}
+            <br>Pivot: {{ vcp.pivot_price ? '$' + vcp.pivot_price.toFixed(1) : '--' }}
+            <br v-if="vcp.has_coiled_spring">Coiled Spring: {{ vcp.coiled_spring_days }}d
+            <br>Signal: {{ vcp.signal_action_label }}
+            <div v-if="vcp.contractions?.length" style="margin-top: 4px; font-size: 11px">
+              <div v-for="c in vcp.contractions" :key="c.base">
+                T{{ c.base }}: {{ (c.depth * 100).toFixed(1) }}% depth, {{ c.duration }}d
+              </div>
+            </div>
+          </div>
+          <div v-else>{{ vcp?.disqualify_reason || 'VCP not detected' }}</div>
         </NTooltip>
       </NGi>
     </NGrid>

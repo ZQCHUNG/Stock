@@ -1394,3 +1394,24 @@ def get_sector_context_endpoint(code: str):
         return make_serializable(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/vcp")
+def get_vcp_endpoint(code: str, period_days: int = 365):
+    """R85: VCP (Volatility Contraction Pattern) detection.
+
+    Minervini-style VCP with Taiwan-market adaptations.
+    Returns VCP score, base count, ghost days, coiled spring, pivot price.
+    """
+    from data.fetcher import get_stock_data
+    from analysis.indicators import calculate_all_indicators
+    from analysis.vcp_detector import get_vcp_context
+    from backend.dependencies import make_serializable
+
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        df = calculate_all_indicators(df)
+        result = get_vcp_context(df)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
