@@ -816,3 +816,43 @@ def get_suggested_position(
         over_risk=over_risk,
         reasoning=reasoning,
     )
+
+
+# ---------------------------------------------------------------------------
+# R82: Sector-Based Correlation Penalty
+# ---------------------------------------------------------------------------
+
+def get_sector_penalty_multiplier(
+    new_trade_sector: str,
+    current_positions: list[dict],
+    penalty_factor: float = 0.6,
+) -> tuple[float, str]:
+    """Calculate risk multiplier based on existing sector exposure.
+
+    Prevents sector over-concentration by penalizing trades in sectors
+    already represented in the portfolio.
+
+    Args:
+        new_trade_sector: Sector of the incoming signal (L1, e.g. "半導體").
+        current_positions: List of dicts with at least "sector" key.
+        penalty_factor: Multiplier when sector overlap exists (default 0.6).
+
+    Returns:
+        (multiplier, reason): 1.0 if no overlap, penalty_factor if overlap.
+    """
+    if not new_trade_sector or new_trade_sector == "未分類":
+        return 1.0, ""
+    if not current_positions:
+        return 1.0, ""
+
+    matching = [p for p in current_positions
+                if p.get("sector", "") == new_trade_sector]
+
+    if not matching:
+        return 1.0, ""
+
+    codes = [p.get("code", "?") for p in matching]
+    reason = (f"Sector Overlap: {new_trade_sector} "
+              f"({len(matching)} existing: {', '.join(codes[:3])}) "
+              f"-> {penalty_factor:.0%} penalty")
+    return penalty_factor, reason

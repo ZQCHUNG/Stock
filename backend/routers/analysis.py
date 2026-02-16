@@ -1069,18 +1069,22 @@ def get_sizing_advisor(
     code: str,
     capital: float = Query(1_000_000, ge=100_000, le=100_000_000),
     risk_pct: float = Query(3.0, ge=0.5, le=10.0, description="Max risk per trade (%)"),
+    odd_lot: bool = Query(False, description="零股模式 (1-share increments)"),
 ):
-    """R81: Sizing Advisor — Equal Risk position sizing recommendation.
+    """R81/R82: Sizing Advisor — Equal Risk position sizing with sector penalty.
 
-    Traffic light system (Gemini CTO spec):
+    Traffic light system:
     - GREEN: Standard sizing, within risk budget
-    - YELLOW: Concentrated (1-lot floor, over-risk) or high capital intensity
-    - RED: Insufficient capital (can't afford 1 lot)
+    - YELLOW: Concentrated (1-lot floor, over-risk) or sector penalty applied
+    - RED: Insufficient capital (can't afford 1 lot / 1 share)
     """
     import numpy as np
     import pandas as pd
     from data.fetcher import get_stock_data
-    from backtest.risk_manager import get_suggested_position, SIZING_DEFAULTS
+    from data.sector_mapping import get_stock_sector
+    from backtest.risk_manager import (
+        get_suggested_position, get_sector_penalty_multiplier, SIZING_DEFAULTS,
+    )
 
     try:
         df = get_stock_data(code, period_days=365)
@@ -1108,15 +1112,45 @@ def get_sizing_advisor(
     threshold = 0.018
 
     mode = "Trender" if current_atr_pct < threshold else "Scalper"
+    stock_sector = get_stock_sector(code, level=1)
 
-    # Call sizing module
-    sizing = get_suggested_position(
-        mode=mode,
-        atr_pct=current_atr_pct,
-        equity=capital,
-        entry_price=entry_price,
-        params={"max_risk_per_trade": risk_pct / 100},
+    # R82: Sector penalty from portfolio positions
+    sector_mult = 1.0
+    sector_reason = ""
+    try:
+        from backend.db import get_open_positions
+        positions = get_open_positions()
+        if positions:
+            sector_mult, sector_reason = get_sector_penalty_multiplier(
+                stock_sector, positions,
+            )
+    except Exception:
+        pass  # DB not available or empty — no penalty
+
+    # Sizing params
+    sizing_params = {"max_risk_per_trade": risk_pct / 100}
+    if odd_lot:
+        sizing_params["trade_unit"] = 1
+        sizing_params["min_lot_floor"] = False
+
+    # Call sizing module (base, without sector penalty)
+    sizing_base = get_suggested_position(
+        mode=mode, atr_pct=current_atr_pct,
+        equity=capital, entry_price=entry_price,
+        params=sizing_params,
     )
+
+    # Apply sector penalty to get adjusted sizing
+    if sector_mult < 1.0 and sizing_base.shares > 0:
+        adjusted_params = dict(sizing_params)
+        adjusted_params["max_risk_per_trade"] = (risk_pct / 100) * sector_mult
+        sizing = get_suggested_position(
+            mode=mode, atr_pct=current_atr_pct,
+            equity=capital, entry_price=entry_price,
+            params=adjusted_params,
+        )
+    else:
+        sizing = sizing_base
 
     # Traffic light
     if sizing.shares == 0:
@@ -1125,14 +1159,22 @@ def get_sizing_advisor(
     elif sizing.over_risk:
         light = "yellow"
         light_label = "高資本集中度"
+    elif sector_mult < 1.0:
+        light = "yellow"
+        light_label = "板塊集中"
     else:
         light = "green"
         light_label = "標準倉位"
 
-    lots = sizing.shares // 1000
+    trade_unit = 1 if odd_lot else 1000
+    lots = sizing.shares // trade_unit
     cost = sizing.shares * entry_price
     cost_pct = cost / capital * 100 if capital > 0 else 0
-    one_lot_cost = 1000 * entry_price
+    one_lot_cost = trade_unit * entry_price
+
+    # Base (naive) sizing for comparison
+    base_lots = sizing_base.shares // trade_unit
+    base_cost = sizing_base.shares * entry_price
 
     return {
         "code": code,
@@ -1140,7 +1182,9 @@ def get_sizing_advisor(
         "atr_pct": round(current_atr_pct * 100, 2),
         "entry_price": round(entry_price, 2),
         "capital": capital,
-        # Sizing result
+        "sector": stock_sector,
+        "odd_lot": odd_lot,
+        # Adjusted sizing result
         "suggested_lots": lots,
         "suggested_shares": sizing.shares,
         "position_pct": round(sizing.position_pct * 100, 1),
@@ -1149,6 +1193,13 @@ def get_sizing_advisor(
         "regime_multiplier": round(sizing.regime_multiplier, 2),
         "risk_per_trade_pct": round(sizing.risk_per_trade_pct * 100, 2),
         "max_risk_pct": risk_pct,
+        # Base (naive) sizing for comparison
+        "base_lots": base_lots,
+        "base_cost": round(base_cost, 0),
+        # Sector penalty
+        "sector_multiplier": round(sector_mult, 2),
+        "sector_penalty_applied": sector_mult < 1.0,
+        "sector_reason": sector_reason,
         # Traffic light
         "light": light,
         "light_label": light_label,

@@ -51,8 +51,8 @@ export const analysisApi = {
     client.post<any, any>('/analysis/batch-sqs', { stocks }),
   sqsDistribution: () => client.get<any, any>('/analysis/sqs-distribution'),
   trailClassifier: (code: string) => client.get<any, any>(`/analysis/${code}/trail-classifier`),
-  sizingAdvisor: (code: string, capital = 1_000_000, riskPct = 3.0) =>
+  sizingAdvisor: (code: string, capital = 1_000_000, riskPct = 3.0, oddLot = false) =>
     client.get<any, any>(`/analysis/${code}/sizing-advisor`, {
-      params: { capital, risk_pct: riskPct },
+      params: { capital, risk_pct: riskPct, odd_lot: oddLot },
     }),
 }
