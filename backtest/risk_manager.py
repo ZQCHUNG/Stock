@@ -687,6 +687,7 @@ class SizingResult:
     regime_multiplier: float = 1.0  # Mode-based adjustment factor
     risk_per_trade_pct: float = 0.0 # Actual risk per trade (should ≈ target)
     mode: str = ""                  # Trender / Scalper
+    over_risk: bool = False         # True if 1-lot floor exceeded risk budget
     reasoning: str = ""             # Human-readable explanation
 
     def to_dict(self) -> dict:
@@ -695,12 +696,13 @@ class SizingResult:
 
 # Default sizing parameters
 SIZING_DEFAULTS = {
-    "max_risk_per_trade": 0.015,    # 1.5% of equity at risk per trade
+    "max_risk_per_trade": 0.030,    # 3.0% of equity at risk per trade (Gemini CTO: R80)
     "hard_stop_loss": 0.07,         # 7% stop loss (V4 default)
     "max_position_pct": 0.90,       # Max 90% of equity in single position
     "min_position_pct": 0.05,       # Min 5% (avoid dust positions)
     "atr_threshold": 0.018,         # 1.8% ATR% boundary (Scalper/Trender)
     "trade_unit": 1000,             # Taiwan stock: 1 lot = 1000 shares
+    "min_lot_floor": True,          # Force at least 1 lot if cash allows (R80)
 }
 
 
@@ -766,13 +768,24 @@ def get_suggested_position(
     position_pct = base_position_pct * regime_mult
     position_pct = max(min_pos, min(max_pos, position_pct))
 
-    # Step 4: Calculate concrete amounts (for display/reference)
+    # Step 4: Calculate concrete amounts
     position_amount = equity * position_pct
     raw_shares = position_amount / entry_price
     # Round down to lot size (Taiwan: 1000 shares per lot)
     shares = int(raw_shares // trade_unit) * trade_unit
+
+    # R80: Min-1-lot floor — if sizing says 0 lots but cash can afford 1 lot,
+    # force 1 lot and flag as over_risk (Gemini CTO: don't let sizing become a "buy ban")
+    over_risk = False
+    min_lot_floor = p.get("min_lot_floor", True)
+    one_lot_cost = trade_unit * entry_price
+
     if shares < trade_unit:
-        shares = trade_unit  # At least 1 lot
+        if min_lot_floor and equity >= one_lot_cost * 1.01:  # 1% buffer for commission
+            shares = trade_unit
+            over_risk = True  # This trade exceeds risk budget
+        else:
+            shares = 0  # Truly can't afford (capital too small for 1 lot)
 
     # Actual values after lot rounding (for display)
     actual_amount = shares * entry_price
@@ -780,21 +793,26 @@ def get_suggested_position(
     actual_risk = actual_pct * sl_pct
     target_risk = position_pct * sl_pct
 
+    # When over_risk, use the actual 1-lot pct as position_pct (so engine can buy)
+    effective_pct = actual_pct if over_risk else position_pct
+
     # Build reasoning
+    over_risk_tag = " [OVER-RISK: 1-lot floor]" if over_risk else ""
     reasoning = (
-        f"Equal Risk: {max_risk:.1%} equity risk ÷ {sl_pct:.1%} SL = "
+        f"Equal Risk: {max_risk:.1%} equity risk / {sl_pct:.1%} SL = "
         f"{base_position_pct:.1%} base. "
-        f"Mode={mode} (ATR%={atr_pct*100:.2f}%), mult={regime_mult:.2f} → "
-        f"{position_pct:.1%} target → {shares:,} shares (${actual_amount:,.0f}, "
-        f"actual risk={actual_risk:.2%})"
+        f"Mode={mode} (ATR%={atr_pct*100:.2f}%), mult={regime_mult:.2f} -> "
+        f"{position_pct:.1%} target -> {shares:,} shares (${actual_amount:,.0f}, "
+        f"actual risk={actual_risk:.2%}){over_risk_tag}"
     )
 
     return SizingResult(
-        position_pct=round(position_pct, 4),  # target pct (engine uses this as cap)
+        position_pct=round(effective_pct, 4),  # engine uses this as cap
         position_amount=round(actual_amount, 0),
         shares=shares,
         regime_multiplier=round(regime_mult, 4),
-        risk_per_trade_pct=round(target_risk, 4),  # target risk (before lot rounding)
+        risk_per_trade_pct=round(actual_risk if over_risk else target_risk, 4),
         mode=mode,
+        over_risk=over_risk,
         reasoning=reasoning,
     )

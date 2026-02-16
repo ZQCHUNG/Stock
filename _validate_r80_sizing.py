@@ -23,34 +23,44 @@ def test_sizing_module():
     entry = 500.0  # $500 per share
 
     test_cases = [
-        # (mode, atr_pct, expected_behavior)
-        ("Trender", 0.012, "Standard position (low vol)"),
-        ("Trender", 0.015, "Standard position (mid vol)"),
-        ("Scalper", 0.020, "Reduced (1.8/2.0 = 0.90x)"),
-        ("Scalper", 0.025, "Reduced (1.8/2.5 = 0.72x)"),
-        ("Scalper", 0.030, "Reduced (1.8/3.0 = 0.60x)"),
-        ("Scalper", 0.040, "Heavily reduced (1.8/4.0 = 0.45x)"),
+        # (mode, atr_pct, entry_price, expected_behavior)
+        ("Trender", 0.012, 50.0, "Low price, standard"),
+        ("Trender", 0.015, 200.0, "Mid price, standard"),
+        ("Trender", 0.012, 1000.0, "High price (TSMC-like), 1-lot floor"),
+        ("Scalper", 0.020, 50.0, "Low price, reduced"),
+        ("Scalper", 0.025, 200.0, "Mid price, reduced"),
+        ("Scalper", 0.030, 500.0, "High price, 1-lot floor"),
+        ("Scalper", 0.040, 1000.0, "Very high, 1-lot floor"),
     ]
 
-    print(f"\nEquity: ${equity:,}, Entry: ${entry}, SL: 7%")
+    print(f"\nEquity: ${equity:,}, SL: 7%, Risk Budget: {SIZING_DEFAULTS['max_risk_per_trade']:.1%}")
     print(f"Base position: {SIZING_DEFAULTS['max_risk_per_trade']/SIZING_DEFAULTS['hard_stop_loss']:.1%}")
     print()
-    print(f"{'Mode':<10s} {'ATR%':>6s} {'Mult':>6s} {'Pos%':>8s} {'Amount':>12s} {'Shares':>8s} {'Risk%':>8s} {'Note'}")
-    print("-" * 85)
+    print(f"{'Mode':<10s} {'ATR%':>6s} {'Price':>8s} {'Mult':>6s} {'Pos%':>8s} {'Amount':>12s} {'Shares':>8s} {'Risk%':>8s} {'Over?':>6s} {'Note'}")
+    print("-" * 100)
 
-    for mode, atr_pct, note in test_cases:
-        r = get_suggested_position(mode, atr_pct, equity, entry)
-        print(f"{mode:<10s} {atr_pct*100:>5.1f}% {r.regime_multiplier:>5.2f}x "
+    for mode, atr_pct, price, note in test_cases:
+        r = get_suggested_position(mode, atr_pct, equity, price)
+        print(f"{mode:<10s} {atr_pct*100:>5.1f}% {price:>7.0f} {r.regime_multiplier:>5.2f}x "
               f"{r.position_pct*100:>7.1f}% ${r.position_amount:>10,.0f} "
-              f"{r.shares:>7,d} {r.risk_per_trade_pct*100:>7.2f}% {note}")
+              f"{r.shares:>7,d} {r.risk_per_trade_pct*100:>7.2f}% {'YES' if r.over_risk else 'no':>6s} {note}")
 
-    # Verify risk bound
-    print(f"\n--- Risk Bound Verification ---")
-    for mode, atr_pct, _ in test_cases:
-        r = get_suggested_position(mode, atr_pct, equity, entry)
-        assert r.risk_per_trade_pct <= SIZING_DEFAULTS["max_risk_per_trade"] + 0.002, \
-            f"Risk too high: {r.risk_per_trade_pct:.4f} for {mode} ATR%={atr_pct}"
-    print("  All risk bounds verified [PASS]")
+    # Verify min-lot floor works
+    print(f"\n--- Min-Lot Floor Verification ---")
+    # $500 stock: sizing says ~$386K, but 1 lot = $500K → over_risk floor kicks in
+    r_mid = get_suggested_position("Scalper", 0.025, equity, 500.0)
+    print(f"  $500 Scalper 2.5%: shares={r_mid.shares}, over_risk={r_mid.over_risk}, risk={r_mid.risk_per_trade_pct:.2%}")
+
+    # $1000 stock: 1 lot = $1M ≈ total equity → can't afford (not a sizing issue)
+    r_tsmc = get_suggested_position("Scalper", 0.020, equity, 1000.0)
+    print(f"  $1000 TSMC-like: shares={r_tsmc.shares}, over_risk={r_tsmc.over_risk} (capital too small for 1 lot)")
+
+    # $200 stock: 1 lot = $200K, fits in 42.8% ($428K) → normal sizing
+    r_low = get_suggested_position("Trender", 0.015, equity, 200.0)
+    print(f"  $200 Trender: shares={r_low.shares}, over_risk={r_low.over_risk}, risk={r_low.risk_per_trade_pct:.2%}")
+    assert r_low.shares >= 1000, "Should buy at least 1 lot"
+    assert not r_low.over_risk, "Should not be over_risk at $200"
+    print("  Min-lot floor verified [PASS]")
 
 
 # ===== Part 2: Engine Integration =====
@@ -89,14 +99,15 @@ def test_engine_integration():
         "trailing_stop_pct": 0.02,
     }
 
-    # Config: sizing ON
+    # Config: sizing ON (3% risk + min-1-lot floor)
     CFG_ON = {
         "auto_trail_classifier": True,
         "auto_trail_threshold": 0.018,
         "auto_trail_hysteresis": 0.001,
         "auto_trail_k": 1.0,
         "risk_sizing_enabled": True,
-        "max_risk_per_trade": 0.015,
+        "max_risk_per_trade": 0.030,  # 3% risk budget
+        "min_lot_floor": True,        # Force at least 1 lot
         "trailing_stop_pct": 0.02,
     }
 

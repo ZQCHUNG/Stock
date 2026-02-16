@@ -294,7 +294,7 @@ STRATEGY_V4_PARAMS = {
     # When enabled, position size is computed from max_risk_per_trade / stop_loss_pct,
     # with regime multiplier (Scalper shrinks, Trender standard)
     "risk_sizing_enabled": False,   # opt-in (pending validation)
-    "max_risk_per_trade": 0.015,    # 1.5% of equity at risk per trade
+    "max_risk_per_trade": 0.030,    # 3.0% of equity at risk per trade (R80: calibrated for Taiwan lots)
 
 }
 
