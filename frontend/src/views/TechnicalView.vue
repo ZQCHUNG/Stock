@@ -17,6 +17,7 @@ import KdChart from '../components/KdChart.vue'
 import RsiChart from '../components/RsiChart.vue'
 import BiasChart from '../components/BiasChart.vue'
 import PositionCalculator from '../components/PositionCalculator.vue'
+import SizingAdvisor from '../components/SizingAdvisor.vue'
 import TrailModeBadge from '../components/TrailModeBadge.vue'
 import VChart from 'vue-echarts'
 
@@ -449,6 +450,13 @@ function sqsGradeIcon(grade: string): string {
         :code="app.currentStockCode"
         :current-price="tech.v4Enhanced.close || 0"
         @risk-loaded="onRiskLoaded"
+      />
+
+      <!-- R81: 風險倉位顧問 -->
+      <SizingAdvisor
+        v-if="tech.v4Enhanced"
+        :code="app.currentStockCode"
+        :current-price="tech.v4Enhanced.close || 0"
       />
 
       <!-- K 線圖 -->

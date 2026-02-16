@@ -1062,3 +1062,99 @@ def get_trail_classifier(code: str):
         "close": round(float(c.iloc[-1]), 2),
         "history": [round(float(v) * 100, 2) for v in recent_atr_pct.values],
     }
+
+
+@router.get("/{code}/sizing-advisor")
+def get_sizing_advisor(
+    code: str,
+    capital: float = Query(1_000_000, ge=100_000, le=100_000_000),
+    risk_pct: float = Query(3.0, ge=0.5, le=10.0, description="Max risk per trade (%)"),
+):
+    """R81: Sizing Advisor — Equal Risk position sizing recommendation.
+
+    Traffic light system (Gemini CTO spec):
+    - GREEN: Standard sizing, within risk budget
+    - YELLOW: Concentrated (1-lot floor, over-risk) or high capital intensity
+    - RED: Insufficient capital (can't afford 1 lot)
+    """
+    import numpy as np
+    import pandas as pd
+    from data.fetcher import get_stock_data
+    from backtest.risk_manager import get_suggested_position, SIZING_DEFAULTS
+
+    try:
+        df = get_stock_data(code, period_days=365)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch data: {e}")
+
+    if df is None or len(df) < 30:
+        raise HTTPException(status_code=400, detail="Insufficient data")
+
+    # Compute ATR% (same logic as trail-classifier)
+    h = df["high"] if "high" in df.columns else df["close"]
+    lo = df["low"] if "low" in df.columns else df["close"]
+    c = df["close"]
+    tr = pd.concat([
+        h - lo,
+        (h - c.shift(1)).abs(),
+        (lo - c.shift(1)).abs(),
+    ], axis=1).max(axis=1)
+    atr_14 = tr.rolling(14, min_periods=7).mean()
+    atr_pct = atr_14 / c
+    atr_pct_median = atr_pct.rolling(60, min_periods=20).median()
+
+    current_atr_pct = float(atr_pct_median.iloc[-1]) if not np.isnan(atr_pct_median.iloc[-1]) else float(atr_pct.iloc[-1])
+    entry_price = float(c.iloc[-1])
+    threshold = 0.018
+
+    mode = "Trender" if current_atr_pct < threshold else "Scalper"
+
+    # Call sizing module
+    sizing = get_suggested_position(
+        mode=mode,
+        atr_pct=current_atr_pct,
+        equity=capital,
+        entry_price=entry_price,
+        params={"max_risk_per_trade": risk_pct / 100},
+    )
+
+    # Traffic light
+    if sizing.shares == 0:
+        light = "red"
+        light_label = "資金不足"
+    elif sizing.over_risk:
+        light = "yellow"
+        light_label = "高資本集中度"
+    else:
+        light = "green"
+        light_label = "標準倉位"
+
+    lots = sizing.shares // 1000
+    cost = sizing.shares * entry_price
+    cost_pct = cost / capital * 100 if capital > 0 else 0
+    one_lot_cost = 1000 * entry_price
+
+    return {
+        "code": code,
+        "mode": mode,
+        "atr_pct": round(current_atr_pct * 100, 2),
+        "entry_price": round(entry_price, 2),
+        "capital": capital,
+        # Sizing result
+        "suggested_lots": lots,
+        "suggested_shares": sizing.shares,
+        "position_pct": round(sizing.position_pct * 100, 1),
+        "cost": round(cost, 0),
+        "cost_pct": round(cost_pct, 1),
+        "regime_multiplier": round(sizing.regime_multiplier, 2),
+        "risk_per_trade_pct": round(sizing.risk_per_trade_pct * 100, 2),
+        "max_risk_pct": risk_pct,
+        # Traffic light
+        "light": light,
+        "light_label": light_label,
+        "over_risk": sizing.over_risk,
+        # Context
+        "one_lot_cost": round(one_lot_cost, 0),
+        "capital_barrier": one_lot_cost > capital,
+        "reasoning": sizing.reasoning,
+    }
