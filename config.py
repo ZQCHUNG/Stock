@@ -279,7 +279,7 @@ STRATEGY_V4_PARAMS = {
     "atr_trail_enabled": False,   # off by default (R74: manual ATR trail)
     "atr_trail_k": 2.0,          # multiplier: trail_pct = k × ATR / price
     "atr_trail_period": 14,      # ATR lookback period
-    "atr_trail_floor": 0.01,     # minimum trail = 1%
+    "atr_trail_floor": 0.01,     # minimum trail = 1% (1.5% tested R78: hurts success stories)
     "atr_trail_cap": 0.10,       # maximum trail = 10%
     # R75: Auto Trail Classifier — WFO-validated stock personality classifier
     # ATR% >= 1.8% → flat 2% trail (momentum scalping), < 1.8% → ATR k=1.0 (precision trender)
