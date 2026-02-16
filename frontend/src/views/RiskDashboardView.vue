@@ -34,6 +34,10 @@ const heatLoading = ref(false)
 const rMultipleData = ref<any>(null)
 const rMultipleLoading = ref(false)
 
+// R87: Sector Correlation Monitor
+const sectorCorrData = ref<any>(null)
+const sectorCorrLoading = ref(false)
+
 async function loadRisk() {
   isLoading.value = true
   error.value = ''
@@ -86,6 +90,14 @@ async function loadRMultiples() {
     rMultipleData.value = await riskApi.getRMultiples()
   } catch { rMultipleData.value = null }
   rMultipleLoading.value = false
+}
+
+async function loadSectorCorrelation() {
+  sectorCorrLoading.value = true
+  try {
+    sectorCorrData.value = await riskApi.getSectorCorrelation()
+  } catch { sectorCorrData.value = null }
+  sectorCorrLoading.value = false
 }
 
 onMounted(() => {
@@ -185,6 +197,40 @@ const posColumns: DataTableColumns = [
   { title: '佔比', key: 'pct', width: 70, render: (r: any) => r.pct + '%' },
   { title: 'Beta', key: 'beta', width: 60, render: (r: any) => r.beta?.toFixed(2) || '-' },
 ]
+
+// R87: Sector Correlation Heatmap chart option
+const sectorCorrChartOption = computed(() => {
+  const sc = sectorCorrData.value
+  if (!sc?.sectors?.length || !sc?.correlation_matrix) return null
+
+  const sectors = sc.sectors as string[]
+  const matrixData: any[] = []
+  for (let i = 0; i < sectors.length; i++) {
+    for (let j = 0; j < sectors.length; j++) {
+      const val = sc.correlation_matrix[sectors[i]]?.[sectors[j]] ?? 0
+      matrixData.push([j, i, +val.toFixed(3)])
+    }
+  }
+
+  return {
+    tooltip: {
+      formatter: (p: any) => `${sectors[p.value[1]]} / ${sectors[p.value[0]]}: ${p.value[2].toFixed(3)}`,
+    },
+    grid: { top: 10, bottom: 80, left: 100, right: 30 },
+    xAxis: { type: 'category' as const, data: sectors, axisLabel: { rotate: 45, fontSize: 11 } },
+    yAxis: { type: 'category' as const, data: sectors, axisLabel: { fontSize: 11 } },
+    visualMap: {
+      min: -1, max: 1, calculable: true,
+      inRange: { color: ['#2563eb', '#93c5fd', '#f5f5f5', '#fdba74', '#f97316', '#dc2626'] },
+      orient: 'horizontal' as const, left: 'center', bottom: 0,
+    },
+    series: [{
+      type: 'heatmap' as const,
+      data: matrixData,
+      label: { show: sectors.length <= 10, fontSize: 10, formatter: (p: any) => p.value[2].toFixed(2) },
+    }],
+  }
+})
 
 const corrPairColumns: DataTableColumns = [
   { title: '股票A', key: 'stock_a', width: 80 },
@@ -568,6 +614,119 @@ const corrPairColumns: DataTableColumns = [
             :row-class-name="(r: any) => r.intended_r >= 3 ? 'home-run-row' : r.intended_r < -1 ? 'big-loss-row' : ''"
           />
         </NCard>
+      </NTabPane>
+
+      <NTabPane name="sector-corr" tab="Sector Correlation (R87)" display-directive="show:lazy">
+        <NSpin :show="sectorCorrLoading">
+          <template v-if="!sectorCorrData && !sectorCorrLoading">
+            <div style="text-align: center; padding: 40px">
+              <p style="margin-bottom: 12px; color: var(--n-text-color-3)">
+                Sector correlation analysis requires fetching data for ~108 mapped stocks.
+              </p>
+              <NButton type="primary" @click="loadSectorCorrelation" :loading="sectorCorrLoading">
+                Load Sector Correlation
+              </NButton>
+            </div>
+          </template>
+          <template v-else-if="sectorCorrData">
+            <!-- Systemic Risk Score -->
+            <NGrid :cols="isMobile ? 1 : 3" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Systemic Risk Score">
+                    <template #default>
+                      <span :style="{
+                        color: sectorCorrData.systemic_risk?.level === 'systemic' ? '#ef4444'
+                             : sectorCorrData.systemic_risk?.level === 'elevated' ? '#f59e0b' : '#22c55e',
+                        fontSize: '24px', fontWeight: 700
+                      }">
+                        {{ ((sectorCorrData.systemic_risk?.score ?? 0) * 100).toFixed(0) }}%
+                      </span>
+                    </template>
+                    <template #suffix>
+                      <NTag :type="sectorCorrData.systemic_risk?.level === 'systemic' ? 'error'
+                                   : sectorCorrData.systemic_risk?.level === 'elevated' ? 'warning' : 'success'" size="small">
+                        {{ sectorCorrData.systemic_risk?.label || 'Normal' }}
+                      </NTag>
+                    </template>
+                  </NStatistic>
+                  <div style="font-size: 11px; color: var(--n-text-color-3); margin-top: 4px">
+                    Spiking pairs: {{ sectorCorrData.systemic_risk?.spiking_pairs ?? 0 }}
+                    / {{ sectorCorrData.systemic_risk?.total_pairs ?? 0 }}
+                  </div>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Sectors Tracked" :value="sectorCorrData.sectors?.length || 0" />
+                  <div style="font-size: 11px; color: var(--n-text-color-3); margin-top: 4px">
+                    Cap-weighted L1 sectors
+                  </div>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Risk Buckets" :value="sectorCorrData.risk_buckets?.buckets?.length || 0" />
+                  <div style="font-size: 11px; color: var(--n-text-color-3); margin-top: 4px">
+                    Correlated sector groups (Union-Find)
+                  </div>
+                </NCard>
+              </NGi>
+            </NGrid>
+
+            <!-- Tighten Stops Warning -->
+            <NAlert v-if="sectorCorrData.systemic_risk?.tighten_stops" type="error" style="margin-bottom: 12px">
+              SYSTEMIC FLUSH DETECTED — Auto-tighten trailing stops by 20% recommended
+            </NAlert>
+
+            <!-- Z-Score Alerts -->
+            <NAlert v-for="(a, idx) in (sectorCorrData.zscore_alerts || [])" :key="'zs' + idx"
+                    :type="a.alert_type === 'absolute_extreme' ? 'error' : 'warning'" style="margin-bottom: 8px">
+              <strong>{{ a.sector_a }} / {{ a.sector_b }}</strong>:
+              Corr {{ a.current_corr.toFixed(3) }}
+              (Hist mean {{ a.historical_mean.toFixed(3) }}, Z={{ a.z_score.toFixed(1) }})
+              — {{ a.alert_type === 'absolute_extreme' ? 'Extreme Absolute' : 'Z-Score Spike' }}
+            </NAlert>
+
+            <!-- Flash Alerts -->
+            <NAlert v-for="(a, idx) in (sectorCorrData.flash_alerts || [])" :key="'fl' + idx"
+                    type="error" style="margin-bottom: 8px">
+              <strong>FLASH: {{ a.sector_a }} / {{ a.sector_b }}</strong>:
+              15d corr {{ a.corr_15d.toFixed(3) }} vs 90d {{ a.corr_90d.toFixed(3) }}
+              (spike +{{ a.spike.toFixed(3) }}) — Correlation Convergence
+            </NAlert>
+
+            <!-- Correlation Heatmap -->
+            <NCard title="Sector Correlation Matrix (90d, Cap-Weighted)" size="small" style="margin-bottom: 16px">
+              <VChart v-if="sectorCorrChartOption" :option="sectorCorrChartOption"
+                      :style="{ height: Math.max(350, (sectorCorrData.sectors?.length || 6) * 35) + 'px' }" autoresize />
+              <NEmpty v-else description="Insufficient data for correlation heatmap" />
+            </NCard>
+
+            <!-- Risk Buckets -->
+            <NCard v-if="sectorCorrData.risk_buckets?.buckets?.length" title="Risk Buckets (Correlated Groups)"
+                   size="small" style="margin-bottom: 16px">
+              <div v-for="(b, idx) in sectorCorrData.risk_buckets.buckets" :key="'rb' + idx"
+                   style="padding: 8px; margin-bottom: 8px; background: var(--n-color-embedded); border-radius: 6px">
+                <div style="font-weight: 600; margin-bottom: 4px">
+                  Bucket {{ idx + 1 }}
+                  <NTag type="error" size="small" style="margin-left: 8px">
+                    Combined Cap {{ (b.combined_cap * 100).toFixed(0) }}%
+                  </NTag>
+                </div>
+                <div>
+                  <NTag v-for="m in b.members" :key="m" size="small" style="margin-right: 6px; margin-bottom: 4px">
+                    {{ m }}
+                  </NTag>
+                </div>
+              </div>
+            </NCard>
+
+            <div style="text-align: right; margin-top: 12px">
+              <NButton size="small" @click="loadSectorCorrelation" :loading="sectorCorrLoading">Refresh</NButton>
+            </div>
+          </template>
+        </NSpin>
       </NTabPane>
 
       <NTabPane name="r60" tab="進階風控 (R60)" display-directive="show:lazy">

@@ -16,4 +16,6 @@ export const riskApi = {
   // R86: R-Multiple + Portfolio Heat
   getRMultiples: () => client.get<any, any>('/risk/r-multiples', { timeout: 30000 }),
   getPortfolioHeat: () => client.get<any, any>('/risk/portfolio-heat', { timeout: 60000 }),
+  // R87: Sector Correlation Monitor
+  getSectorCorrelation: () => client.get<any, any>('/risk/sector-correlation', { timeout: 120000 }),
 }

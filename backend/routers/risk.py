@@ -437,3 +437,87 @@ def get_portfolio_heat():
 
     result = compute_portfolio_heat(heat_positions, corr_matrix)
     return make_serializable(result)
+
+
+@router.get("/sector-correlation")
+def get_sector_correlation():
+    """R87: Sector Correlation Monitor.
+
+    Computes 14x14 L1 sector correlation matrix using cap-weighted returns.
+    Includes Z-Score alerts, 15d flash alerts, systemic risk score,
+    and Union-Find risk buckets.
+    """
+    from backend.dependencies import make_serializable
+    from analysis.sector_correlation import compute_full_sector_correlation
+    from data.sector_mapping import SECTOR_L1_GROUPS
+    from data.fetcher import get_stock_data, get_stock_info
+
+    # Collect all mapped stock codes
+    all_codes = set()
+    for codes in SECTOR_L1_GROUPS.values():
+        all_codes.update(codes)
+
+    # Fetch stock data in parallel (need ~800 days for 3-year Z-score baseline)
+    stock_data = {}
+
+    def _fetch(code):
+        try:
+            return code, get_stock_data(code, period_days=900)
+        except Exception:
+            return code, None
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for code, df in ex.map(_fetch, list(all_codes)):
+            if df is not None and len(df) >= 30:
+                stock_data[code] = df
+
+    if not stock_data:
+        return make_serializable({
+            "sectors": [],
+            "correlation_matrix": {},
+            "heatmap": [],
+            "zscore_alerts": [],
+            "flash_alerts": [],
+            "systemic_risk": {"score": 0, "level": "normal", "label": "No data", "tighten_stops": False},
+            "risk_buckets": {"buckets": [], "sector_to_bucket": {}},
+        })
+
+    # Build daily returns DataFrame
+    import pandas as pd
+    # Align all stocks to common dates
+    all_dates = None
+    for code, df in stock_data.items():
+        if all_dates is None:
+            all_dates = set(df.index)
+        else:
+            all_dates &= set(df.index)
+
+    if not all_dates:
+        all_dates = set()
+        for df in stock_data.values():
+            all_dates |= set(df.index)
+
+    common_dates = sorted(all_dates)
+    returns_dict = {}
+    for code, df in stock_data.items():
+        try:
+            aligned = df.reindex(pd.DatetimeIndex(common_dates))
+            pct = aligned["close"].pct_change().fillna(0)
+            returns_dict[code] = pct
+        except Exception:
+            continue
+
+    stock_returns = pd.DataFrame(returns_dict)
+
+    # Fetch market caps (use cached info where possible)
+    market_caps = {}
+    for code in stock_data:
+        try:
+            info = get_stock_info(code)
+            cap = info.get("marketCap", 0) or info.get("market_cap", 0) or 0
+            market_caps[code] = cap
+        except Exception:
+            market_caps[code] = 0
+
+    result = compute_full_sector_correlation(stock_returns, market_caps)
+    return make_serializable(result)
