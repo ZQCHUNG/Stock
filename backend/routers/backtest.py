@@ -122,6 +122,7 @@ def _serialize_backtest_result(result) -> dict:
         "daily_returns": series_to_response(result.daily_returns),
         "trades": trades,
         "corporate_action_warnings": getattr(result, "corporate_action_warnings", []),
+        "trail_mode_info": getattr(result, "trail_mode_info", {}),
     }
 
 

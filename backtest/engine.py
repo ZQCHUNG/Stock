@@ -61,6 +61,8 @@ class BacktestResult:
     dividend_income: float = 0.0
     params_description: str = ""  # 策略參數快照（由 StrategyV4Config.describe() 產生）
     corporate_action_warnings: list[str] = field(default_factory=list)  # R58: 企業行為警告
+    # R79: Trail mode metadata for UI display
+    trail_mode_info: dict = field(default_factory=dict)  # {mode, atr_pct_median, switches, stability}
 
 
 class BacktestEngine:
@@ -318,8 +320,14 @@ class BacktestEngine:
         auto_trail_classifier = p.get("auto_trail_classifier", True)
         auto_trail_threshold = p.get("auto_trail_threshold", 0.018)  # 1.8%
         auto_trail_k = p.get("auto_trail_k", 1.0)
+        # R79: Hysteresis buffer — prevents mode oscillation near threshold
+        # Without hysteresis: hard 1.8% boundary → frequent switching for borderline stocks
+        # With hysteresis: need to cross 1.9% to become Scalper, drop below 1.7% to become Trender
+        auto_trail_hysteresis = p.get("auto_trail_hysteresis", 0.001)  # ±0.1%
         _auto_atr_pct_series = pd.Series(dtype=float)  # rolling median ATR%
         _auto_trail_mode = "flat"  # will be determined dynamically
+        _last_classified_mode = None  # R79: persists across trades for hysteresis
+        _mode_switches = 0  # R79: count mode changes for stability metric
 
         # R74: ATR-Adaptive Trail — trail width = k × ATR_14 / price
         # Adapts to each stock's volatility: wider trail for volatile stocks, tighter for calm ones
@@ -491,14 +499,27 @@ class BacktestEngine:
                     sl_price = trade.price_open * (1 - sl_pct)
                     original_sl_price = sl_price
 
-                    # R75: Auto Trail Classifier — decide trail mode at entry
+                    # R75+R79: Auto Trail Classifier with hysteresis
                     if auto_trail_classifier and not _auto_atr_pct_series.empty:
                         _cur_atr_pct = _auto_atr_pct_series.get(date, None)
                         if _cur_atr_pct is not None and not np.isnan(_cur_atr_pct):
-                            if _cur_atr_pct < auto_trail_threshold:
-                                _auto_trail_mode = "atr"  # low vol → ATR k=1.0
+                            if _last_classified_mode is None or auto_trail_hysteresis <= 0:
+                                # First entry or hysteresis disabled: use hard threshold
+                                new_mode = "flat" if _cur_atr_pct >= auto_trail_threshold else "atr"
                             else:
-                                _auto_trail_mode = "flat"  # high vol → flat 2%
+                                # R79: Hysteresis — need to cross upper/lower to switch
+                                upper = auto_trail_threshold + auto_trail_hysteresis  # 1.9%
+                                lower = auto_trail_threshold - auto_trail_hysteresis  # 1.7%
+                                if _last_classified_mode == "atr" and _cur_atr_pct >= upper:
+                                    new_mode = "flat"  # was Trender, crossed above 1.9% → Scalper
+                                elif _last_classified_mode == "flat" and _cur_atr_pct < lower:
+                                    new_mode = "atr"   # was Scalper, dropped below 1.7% → Trender
+                                else:
+                                    new_mode = _last_classified_mode  # stay in current mode
+                            if _last_classified_mode is not None and new_mode != _last_classified_mode:
+                                _mode_switches += 1
+                            _auto_trail_mode = new_mode
+                            _last_classified_mode = new_mode
 
         # 期末平倉
         if position > 0 and current_trade is not None:
@@ -507,11 +528,27 @@ class BacktestEngine:
                                          signals_df.index[-1], "end_of_period")
             trades.append(current_trade)
 
+        # R79: Compute trail mode metadata for UI
+        _trail_mode_info = {}
+        if auto_trail_classifier and not _auto_atr_pct_series.empty:
+            _final_atr_pct = _auto_atr_pct_series.dropna()
+            _atr_pct_median = float(_final_atr_pct.median()) if len(_final_atr_pct) > 0 else None
+            _current_mode = _last_classified_mode or ("atr" if (_atr_pct_median or 0) < auto_trail_threshold else "flat")
+            _stability = "STABLE" if _mode_switches == 0 else ("MARGINAL" if _mode_switches <= 2 else "UNSTABLE")
+            _trail_mode_info = {
+                "mode": "Trender" if _current_mode == "atr" else "Scalper",
+                "atr_pct_median": round(_atr_pct_median * 100, 2) if _atr_pct_median else None,
+                "switches": _mode_switches,
+                "stability": _stability,
+                "hysteresis_enabled": auto_trail_hysteresis > 0,
+            }
+
         result = BacktestResult(
             trades=trades,
             equity_curve=self._build_equity_curve(equity_history),
             dividend_income=total_dividend_income,
             params_description=_params_desc,
+            trail_mode_info=_trail_mode_info,
         )
         self._calculate_metrics(result)
         return result

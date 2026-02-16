@@ -286,6 +286,7 @@ STRATEGY_V4_PARAMS = {
     # WFO validation: 5/7 stocks show stable k preference across 5 time windows (4 years)
     "auto_trail_classifier": True,   # VALIDATED via WFO
     "auto_trail_threshold": 0.018,   # 1.8% ATR% boundary
+    "auto_trail_hysteresis": 0.001,  # R79: ±0.1% buffer (1.7%-1.9%) — reduces 67% unstable switching
     "auto_trail_k": 1.0,            # k for low-vol stocks (Occam's razor: one k value)
     # 部位
     "max_position_pct": 0.9,    # 單筆最大部位 90%

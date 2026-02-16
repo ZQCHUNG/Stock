@@ -349,6 +349,23 @@ const tradeColumns = [
     </NSpace>
 
     <template v-if="bt.singleResult">
+      <!-- R79: Trail Mode Info Banner -->
+      <div v-if="bt.singleResult.trail_mode_info?.mode" style="margin-bottom: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+        <NTag :type="bt.singleResult.trail_mode_info.mode === 'Trender' ? 'info' : 'warning'" size="medium" round>
+          {{ bt.singleResult.trail_mode_info.mode === 'Trender' ? '🎯 Precision Trender' : '⚡ Momentum Scalper' }}
+        </NTag>
+        <NTag size="small" :bordered="false">
+          ATR% {{ bt.singleResult.trail_mode_info.atr_pct_median?.toFixed(2) || '?' }}%
+        </NTag>
+        <NTag size="small" :bordered="false"
+          :type="bt.singleResult.trail_mode_info.stability === 'STABLE' ? 'success' : (bt.singleResult.trail_mode_info.stability === 'UNSTABLE' ? 'error' : 'warning')">
+          {{ bt.singleResult.trail_mode_info.stability }} ({{ bt.singleResult.trail_mode_info.switches }} switches)
+        </NTag>
+        <NTag v-if="bt.singleResult.trail_mode_info.hysteresis_enabled" size="small" :bordered="false" type="default">
+          Hysteresis ±0.1%
+        </NTag>
+      </div>
+
       <NGrid :cols="metricCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
         <NGi><MetricCard title="總報酬率" :value="fmtPct(bt.singleResult.total_return)" :color="priceColor(bt.singleResult.total_return)" /></NGi>
         <NGi><MetricCard title="年化報酬" :value="fmtPct(bt.singleResult.annual_return)" :color="priceColor(bt.singleResult.annual_return)" /></NGi>
