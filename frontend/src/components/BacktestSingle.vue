@@ -358,7 +358,7 @@ const tradeColumns = [
           ATR% {{ bt.singleResult.trail_mode_info.atr_pct_median?.toFixed(2) || '?' }}%
         </NTag>
         <NTag size="small" :bordered="false"
-          :type="bt.singleResult.trail_mode_info.stability === 'STABLE' ? 'success' : (bt.singleResult.trail_mode_info.stability === 'UNSTABLE' ? 'error' : 'warning')">
+          :type="bt.singleResult.trail_mode_info.stability === 'STABLE' ? 'success' : (bt.singleResult.trail_mode_info.stability === 'TURBULENT' ? 'error' : 'warning')">
           {{ bt.singleResult.trail_mode_info.stability }} ({{ bt.singleResult.trail_mode_info.switches }} switches)
         </NTag>
         <NTag v-if="bt.singleResult.trail_mode_info.hysteresis_enabled" size="small" :bordered="false" type="default">

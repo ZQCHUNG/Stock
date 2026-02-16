@@ -290,6 +290,12 @@ STRATEGY_V4_PARAMS = {
     "auto_trail_k": 1.0,            # k for low-vol stocks (Occam's razor: one k value)
     # 部位
     "max_position_pct": 0.9,    # 單筆最大部位 90%
+    # R80: Risk-Adaptive Position Sizing (Equal Risk Contribution)
+    # When enabled, position size is computed from max_risk_per_trade / stop_loss_pct,
+    # with regime multiplier (Scalper shrinks, Trender standard)
+    "risk_sizing_enabled": False,   # opt-in (pending validation)
+    "max_risk_per_trade": 0.015,    # 1.5% of equity at risk per trade
+
 }
 
 # 台股交易單位

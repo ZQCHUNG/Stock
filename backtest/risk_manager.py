@@ -670,3 +670,131 @@ def assess_portfolio_risk(
         risk_score=risk_score,
         alerts=alerts,
     )
+
+
+# ---------------------------------------------------------------------------
+# R80: Risk-Adaptive Position Sizing (Equal Risk Contribution)
+# ---------------------------------------------------------------------------
+# Gemini CTO spec: each trade's max loss on stop-loss should be a fixed % of equity.
+# Regime Premium: Scalper gets smaller position (higher gap risk), Trender gets standard.
+
+@dataclass
+class SizingResult:
+    """Per-trade position sizing recommendation."""
+    position_pct: float = 0.0       # Recommended position as % of equity (0-1)
+    position_amount: float = 0.0    # Dollar amount to allocate
+    shares: int = 0                 # Number of shares (rounded to 1000-share lots)
+    regime_multiplier: float = 1.0  # Mode-based adjustment factor
+    risk_per_trade_pct: float = 0.0 # Actual risk per trade (should ≈ target)
+    mode: str = ""                  # Trender / Scalper
+    reasoning: str = ""             # Human-readable explanation
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+# Default sizing parameters
+SIZING_DEFAULTS = {
+    "max_risk_per_trade": 0.015,    # 1.5% of equity at risk per trade
+    "hard_stop_loss": 0.07,         # 7% stop loss (V4 default)
+    "max_position_pct": 0.90,       # Max 90% of equity in single position
+    "min_position_pct": 0.05,       # Min 5% (avoid dust positions)
+    "atr_threshold": 0.018,         # 1.8% ATR% boundary (Scalper/Trender)
+    "trade_unit": 1000,             # Taiwan stock: 1 lot = 1000 shares
+}
+
+
+def get_suggested_position(
+    mode: str,
+    atr_pct: float,
+    equity: float,
+    entry_price: float,
+    stop_loss_pct: float | None = None,
+    params: dict | None = None,
+) -> SizingResult:
+    """Calculate risk-adaptive position size based on stock personality.
+
+    Equal Risk Contribution: Position sized so that hitting stop-loss
+    loses exactly `max_risk_per_trade` of equity.
+
+    Regime Premium (Gemini CTO spec):
+    - Trender (low vol): multiplier = 1.0 (standard position)
+    - Scalper (high vol): multiplier = 1.8% / ATR% (shrinks with higher vol)
+
+    Args:
+        mode: "Trender" or "Scalper" (from auto trail classifier)
+        atr_pct: Rolling median ATR% (e.g., 0.025 = 2.5%)
+        equity: Current account equity
+        entry_price: Expected entry price per share
+        stop_loss_pct: Override stop loss % (default 7%)
+        params: Override sizing parameters
+
+    Returns:
+        SizingResult with recommended position details
+    """
+    p = dict(SIZING_DEFAULTS)
+    if params:
+        p.update(params)
+
+    max_risk = p["max_risk_per_trade"]
+    sl_pct = stop_loss_pct or p["hard_stop_loss"]
+    max_pos = p["max_position_pct"]
+    min_pos = p["min_position_pct"]
+    threshold = p["atr_threshold"]
+    trade_unit = p["trade_unit"]
+
+    if equity <= 0 or entry_price <= 0 or sl_pct <= 0:
+        return SizingResult(reasoning="Invalid inputs")
+
+    # Step 1: Base position from equal risk formula
+    # If SL = 7%, and we want max 1.5% equity loss:
+    # position_pct = max_risk / sl_pct = 0.015 / 0.07 ≈ 21.4%
+    base_position_pct = max_risk / sl_pct
+
+    # Step 2: Regime multiplier
+    if mode == "Trender":
+        regime_mult = 1.0
+    else:
+        # Scalper: shrink position proportional to excess volatility
+        # multiplier = threshold / atr_pct (e.g., 1.8% / 2.5% = 0.72)
+        if atr_pct > 0:
+            regime_mult = min(1.0, threshold / atr_pct)
+        else:
+            regime_mult = 1.0
+
+    # Step 3: Apply regime multiplier and clamp
+    position_pct = base_position_pct * regime_mult
+    position_pct = max(min_pos, min(max_pos, position_pct))
+
+    # Step 4: Calculate concrete amounts (for display/reference)
+    position_amount = equity * position_pct
+    raw_shares = position_amount / entry_price
+    # Round down to lot size (Taiwan: 1000 shares per lot)
+    shares = int(raw_shares // trade_unit) * trade_unit
+    if shares < trade_unit:
+        shares = trade_unit  # At least 1 lot
+
+    # Actual values after lot rounding (for display)
+    actual_amount = shares * entry_price
+    actual_pct = actual_amount / equity if equity > 0 else 0
+    actual_risk = actual_pct * sl_pct
+    target_risk = position_pct * sl_pct
+
+    # Build reasoning
+    reasoning = (
+        f"Equal Risk: {max_risk:.1%} equity risk ÷ {sl_pct:.1%} SL = "
+        f"{base_position_pct:.1%} base. "
+        f"Mode={mode} (ATR%={atr_pct*100:.2f}%), mult={regime_mult:.2f} → "
+        f"{position_pct:.1%} target → {shares:,} shares (${actual_amount:,.0f}, "
+        f"actual risk={actual_risk:.2%})"
+    )
+
+    return SizingResult(
+        position_pct=round(position_pct, 4),  # target pct (engine uses this as cap)
+        position_amount=round(actual_amount, 0),
+        shares=shares,
+        regime_multiplier=round(regime_mult, 4),
+        risk_per_trade_pct=round(target_risk, 4),  # target risk (before lot rounding)
+        mode=mode,
+        reasoning=reasoning,
+    )

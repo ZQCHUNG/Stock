@@ -329,6 +329,10 @@ class BacktestEngine:
         _last_classified_mode = None  # R79: persists across trades for hysteresis
         _mode_switches = 0  # R79: count mode changes for stability metric
 
+        # R80: Risk-Adaptive Position Sizing
+        risk_sizing_enabled = p.get("risk_sizing_enabled", False)  # opt-in until validated
+        _sizing_log: list[dict] = []  # track per-trade sizing decisions
+
         # R74: ATR-Adaptive Trail — trail width = k × ATR_14 / price
         # Adapts to each stock's volatility: wider trail for volatile stocks, tighter for calm ones
         atr_trail_enabled = p.get("atr_trail_enabled", False)
@@ -488,8 +492,28 @@ class BacktestEngine:
                             # High vol + bearish → skip this entry entirely
                             continue
 
+                # R80: Risk-adaptive sizing — adjust position based on mode + ATR%
+                _effective_pos_pct = max_pos_pct
+                if risk_sizing_enabled and auto_trail_classifier and not _auto_atr_pct_series.empty:
+                    _cur_atr = _auto_atr_pct_series.get(date, None)
+                    if _cur_atr is not None and not np.isnan(_cur_atr):
+                        from backtest.risk_manager import get_suggested_position
+                        _cur_mode = "Trender" if _cur_atr < auto_trail_threshold else "Scalper"
+                        _sizing = get_suggested_position(
+                            mode=_cur_mode, atr_pct=float(_cur_atr),
+                            equity=cash, entry_price=price,
+                            stop_loss_pct=sl_pct, params=p,
+                        )
+                        _effective_pos_pct = _sizing.position_pct if _sizing.position_pct > 0 else max_pos_pct
+                        _sizing_log.append({
+                            "date": date.isoformat(), "mode": _cur_mode,
+                            "atr_pct": round(float(_cur_atr) * 100, 2),
+                            "position_pct": round(_effective_pos_pct * 100, 1),
+                            "regime_mult": _sizing.regime_multiplier,
+                        })
+
                 trade, shares, cash = self._open_position(
-                    price, high, volume, cash, max_pos_pct, date)
+                    price, high, volume, cash, _effective_pos_pct, date)
                 if trade is not None:
                     position = shares
                     current_trade = trade
@@ -534,13 +558,15 @@ class BacktestEngine:
             _final_atr_pct = _auto_atr_pct_series.dropna()
             _atr_pct_median = float(_final_atr_pct.median()) if len(_final_atr_pct) > 0 else None
             _current_mode = _last_classified_mode or ("atr" if (_atr_pct_median or 0) < auto_trail_threshold else "flat")
-            _stability = "STABLE" if _mode_switches == 0 else ("MARGINAL" if _mode_switches <= 2 else "UNSTABLE")
+            _stability = "STABLE" if _mode_switches <= 1 else ("EVOLVING" if _mode_switches <= 4 else "TURBULENT")
             _trail_mode_info = {
                 "mode": "Trender" if _current_mode == "atr" else "Scalper",
                 "atr_pct_median": round(_atr_pct_median * 100, 2) if _atr_pct_median else None,
                 "switches": _mode_switches,
                 "stability": _stability,
                 "hysteresis_enabled": auto_trail_hysteresis > 0,
+                "risk_sizing_enabled": risk_sizing_enabled,
+                "sizing_log": _sizing_log[-5:] if _sizing_log else [],  # last 5 entries
             }
 
         result = BacktestResult(
