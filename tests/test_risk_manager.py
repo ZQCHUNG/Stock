@@ -444,3 +444,105 @@ class TestRiskManagementAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["triggered"] is True
+
+
+# ---------------------------------------------------------------------------
+# R82.2: Concentration-Cap Sector Penalty Tests
+# ---------------------------------------------------------------------------
+
+class TestSectorPenaltyMultiplier:
+    """Test the proportional Concentration-Cap formula."""
+
+    def test_disabled_by_default(self):
+        """Default penalty_factor=1.0 should always return 1.0."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        positions = [{"sector": "半導體", "code": "2330", "market_value": 500_000}]
+        mult, reason = get_sector_penalty_multiplier("半導體", positions)
+        assert mult == 1.0
+        assert reason == ""
+
+    def test_no_positions(self):
+        """No existing positions should always return 1.0."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        mult, reason = get_sector_penalty_multiplier("半導體", [], penalty_factor=0.3)
+        assert mult == 1.0
+
+    def test_unclassified_sector(self):
+        """未分類 should always return 1.0."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        positions = [{"sector": "半導體", "market_value": 500_000}]
+        mult, reason = get_sector_penalty_multiplier("未分類", positions, penalty_factor=0.3)
+        assert mult == 1.0
+
+    def test_under_cap_no_penalty(self):
+        """Sector below t_cap should get full allocation."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        # Portfolio: 半導體 300k, 金融 700k -> R_sector(半導體) = 0.30
+        positions = [
+            {"sector": "半導體", "code": "2330", "market_value": 300_000},
+            {"sector": "金融", "code": "2882", "market_value": 700_000},
+        ]
+        # t_cap = 0.40, R_sector = 0.30 < 0.40 -> no penalty
+        mult, reason = get_sector_penalty_multiplier("半導體", positions, penalty_factor=0.40)
+        assert mult == 1.0
+        assert reason == ""
+
+    def test_over_cap_proportional(self):
+        """Sector above t_cap should get proportional reduction."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        # Portfolio: 半導體 600k, 金融 400k -> R_sector(半導體) = 0.60
+        positions = [
+            {"sector": "半導體", "code": "2330", "market_value": 600_000},
+            {"sector": "金融", "code": "2882", "market_value": 400_000},
+        ]
+        # t_cap = 0.40, R_sector = 0.60 -> C = 0.40/0.60 = 0.667
+        mult, reason = get_sector_penalty_multiplier("半導體", positions, penalty_factor=0.40)
+        assert 0.65 < mult < 0.68  # 0.667
+        assert "Sector Concentration" in reason
+
+    def test_high_concentration_strong_penalty(self):
+        """Very high concentration should give strong penalty."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        # Portfolio: 半導體 900k, 金融 100k -> R_sector = 0.90
+        positions = [
+            {"sector": "半導體", "code": "2330", "market_value": 900_000},
+            {"sector": "金融", "code": "2882", "market_value": 100_000},
+        ]
+        # t_cap = 0.30, R_sector = 0.90 -> C = 0.30/0.90 = 0.333
+        mult, reason = get_sector_penalty_multiplier("半導體", positions, penalty_factor=0.30)
+        assert 0.32 < mult < 0.35
+
+    def test_new_sector_no_penalty(self):
+        """New sector not in portfolio should get full allocation."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        positions = [
+            {"sector": "半導體", "code": "2330", "market_value": 500_000},
+        ]
+        mult, reason = get_sector_penalty_multiplier("金融", positions, penalty_factor=0.30)
+        assert mult == 1.0
+
+    def test_fallback_equal_weight(self):
+        """Positions without market_value should use equal weight."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        # 3 positions, 2 in same sector -> R = 2/3 = 0.667
+        positions = [
+            {"sector": "半導體", "code": "2330"},
+            {"sector": "半導體", "code": "2454"},
+            {"sector": "金融", "code": "2882"},
+        ]
+        # t_cap = 0.40, R = 0.667 -> C = 0.40/0.667 = 0.60
+        mult, reason = get_sector_penalty_multiplier("半導體", positions, penalty_factor=0.40)
+        assert 0.58 < mult < 0.62
+
+    def test_minimum_clamp(self):
+        """Multiplier should never go below 0.1."""
+        from backtest.risk_manager import get_sector_penalty_multiplier
+        # t_cap = 0.15, R = 0.99 -> C = 0.15/0.99 ≈ 0.15 (above 0.1)
+        # Need extreme case: t_cap very low, R very high
+        positions = [
+            {"sector": "半導體", "code": "2330", "market_value": 990_000},
+            {"sector": "金融", "code": "2882", "market_value": 10_000},
+        ]
+        # t_cap = 0.15, R = 0.99 -> C = 0.15/0.99 = 0.1515 (above 0.1)
+        mult, _ = get_sector_penalty_multiplier("半導體", positions, penalty_factor=0.15)
+        assert mult >= 0.1

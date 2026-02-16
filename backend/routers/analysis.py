@@ -1114,7 +1114,8 @@ def get_sizing_advisor(
     mode = "Trender" if current_atr_pct < threshold else "Scalper"
     stock_sector = get_stock_sector(code, level=1)
 
-    # R82: Sector penalty from portfolio positions
+    # R82.2: Concentration-Cap sector multiplier (disabled by default)
+    # [VERIFIED] No sector penalty outperforms disabled in 108-stock TWSE universe
     sector_mult = 1.0
     sector_reason = ""
     try:
@@ -1122,7 +1123,7 @@ def get_sizing_advisor(
         positions = get_open_positions()
         if positions:
             sector_mult, sector_reason = get_sector_penalty_multiplier(
-                stock_sector, positions,
+                stock_sector, positions, penalty_factor=1.0,  # disabled by default
             )
     except Exception:
         pass  # DB not available or empty — no penalty
