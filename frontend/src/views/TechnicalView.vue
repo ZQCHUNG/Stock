@@ -444,19 +444,19 @@ function sqsGradeIcon(grade: string): string {
         </NGrid>
       </NCard>
 
+      <!-- R81: 風險倉位顧問 (Macro: sizing → above Micro: position) -->
+      <SizingAdvisor
+        v-if="tech.v4Enhanced"
+        :code="app.currentStockCode"
+        :current-price="tech.v4Enhanced.close || 0"
+      />
+
       <!-- 下單計算機 -->
       <PositionCalculator
         v-if="tech.v4Enhanced"
         :code="app.currentStockCode"
         :current-price="tech.v4Enhanced.close || 0"
         @risk-loaded="onRiskLoaded"
-      />
-
-      <!-- R81: 風險倉位顧問 -->
-      <SizingAdvisor
-        v-if="tech.v4Enhanced"
-        :code="app.currentStockCode"
-        :current-price="tech.v4Enhanced.close || 0"
       />
 
       <!-- K 線圖 -->

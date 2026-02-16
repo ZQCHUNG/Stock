@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import {
-  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput, NSpin, NSelect, NTag,
+  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NPopover, NInput, NSpin, NSelect, NTag, NSwitch, NTooltip,
 } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart, PieChart, BarChart, ScatterChart } from 'echarts/charts'
@@ -41,16 +41,23 @@ const strategyOptions = [
   { label: 'Bold 大膽', value: 'bold', description: '爆發波段 — 能量擠壓突破 + 階梯式停利' },
 ]
 
+// R81: Risk-Adaptive Position Sizing toggle
+const riskSizingEnabled = ref(false)
+
 // K-line data for trade chart tab
 const klineData = ref<TimeSeriesData | null>(null)
 const klineLoading = ref(false)
 
 async function runBacktest() {
-  await bt.runSingle(app.currentStockCode, {
+  const req: any = {
     period_days: props.periodDays,
     initial_capital: props.capital,
     ...props.costParams,
-  }, bt.singleStrategy)
+  }
+  if (riskSizingEnabled.value) {
+    req.params = { ...(req.params || {}), risk_sizing_enabled: true }
+  }
+  await bt.runSingle(app.currentStockCode, req, bt.singleStrategy)
 }
 
 // Auto-fetch K-line data when backtest result is available
@@ -332,7 +339,23 @@ const tradeColumns = [
         style="width: 180px"
         :render-label="(opt: any) => opt.label"
       />
+      <NTooltip trigger="hover">
+        <template #trigger>
+          <NSpace align="center" :size="4">
+            <NSwitch v-model:value="riskSizingEnabled" size="small" />
+            <span style="font-size: 12px; cursor: help" :style="{ color: riskSizingEnabled ? '#18a058' : 'var(--n-text-color-3)' }">
+              風險倉位
+            </span>
+          </NSpace>
+        </template>
+        <div style="max-width: 280px">
+          <div style="font-weight: 600; margin-bottom: 4px">Max Drawdown Shield (R80)</div>
+          <div>啟用風險權重倉位：每筆交易按 Equal Risk (3%/7%SL) 計算倉位大小，Scalper 自動縮倉</div>
+          <div style="color: #f0a020; margin-top: 4px">注意：將改變回測倉位邏輯</div>
+        </div>
+      </NTooltip>
       <NButton type="primary" @click="runBacktest" :loading="bt.isLoading">執行回測</NButton>
+      <NTag v-if="riskSizingEnabled" type="success" size="small">風險倉位 ON</NTag>
       <NTag v-if="bt.singleResult" size="small" :bordered="false">
         {{ strategyOptions.find(o => o.value === bt.singleStrategy)?.description }}
       </NTag>
@@ -363,6 +386,9 @@ const tradeColumns = [
         </NTag>
         <NTag v-if="bt.singleResult.trail_mode_info.hysteresis_enabled" size="small" :bordered="false" type="default">
           Hysteresis ±0.1%
+        </NTag>
+        <NTag v-if="bt.singleResult.trail_mode_info.risk_sizing_enabled" size="small" :bordered="false" type="success">
+          Risk Sizing ON
         </NTag>
       </div>
 
