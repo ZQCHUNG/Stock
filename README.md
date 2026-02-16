@@ -27,6 +27,8 @@ Stock/
 │   ├── strategy_adaptive.py  # Adaptive 混合策略
 │   ├── strategy_bold.py      # Bold 大膽策略 (R66)
 │   ├── scoring.py            # SQS 信號品質評分 (8 dimensions)
+│   ├── rs_scanner.py         # Full-market RS Scanner (927 stocks) (R83)
+│   ├── sector_rs.py          # Sector RS + Peer Alpha + Cluster Risk (R84)
 │   ├── pattern_matcher.py    # DTW 相似線型比對 (R64)
 │   ├── signal_tracker.py     # Forward testing (SQLite)
 │   ├── liquidity.py          # Liquidity Score (DTL + Spread + Tick Size) (R69)
@@ -208,6 +210,33 @@ python -m pytest tests/ -q
 | R81 | Sizing Advisor UI — Traffic Light System | Done |
 | R82 | Portfolio-Aware Sizing — 板塊集中度 + 零股模式 | Done |
 | R82.2 | Concentration-Cap 取代 binary 0.6x (Protocol v2 首次交付) | Done |
+| R83 | RS Rating System — 全市場相對強度掃描 (927 stocks) | Done |
+| R84 | Sector RS + Peer Alpha + Cluster Risk (Gemini CTO Approved) | Done |
+
+### RS Rating & Sector Context (R83-R84)
+
+全市場相對強度排名 + 行業同儕比較系統：
+
+**RS Rating (R83):**
+- 927 檔全市場掃描，加權 RS: `(base_return)^0.6 × (recent_return)^0.4`
+- 百分位排名 0-100，等級: Diamond ≥80 / Gold ≥60 / Silver ≥40 / Noise <40
+- Entry D 過濾器: Bold 策略 momentum breakout 需 RS ≥ 80
+
+**Sector RS & Peer Alpha (R84):**
+- Sector RS: L1 行業中位數 (Median, 非 Mean — Gemini mandate)
+- Peer Alpha = Stock RS / Sector RS → Leader(≥1.2) / Rider / Laggard(<0.8)
+- Beta Trap 保護: Peer Alpha < 0.8 → Diamond 降級為 Gold
+- Cluster Risk 三級警報: Normal / Caution(30%+0.6) / Danger(50%+0.75)
+- Blind Spot Protocol: 820 未分類股票顯示灰色 "Sector Blind Spot" 徽章
+
+| 指標 | 閾值 | 意義 |
+|------|------|------|
+| Peer Alpha ≥ 1.2 | Leader | 真正領先同業 |
+| Peer Alpha 0.8-1.2 | Rider | 隨行業同步 |
+| Peer Alpha < 0.8 | Laggard | 落後同業（Beta Trap）|
+| Cluster Normal | <30% Diamond + <0.6 Heat | 正常 |
+| Cluster Caution | 30-50% + 0.6-0.75 | 行業過熱中 |
+| Cluster Danger | >50% + >0.75 | 拋物線風險 |
 
 ### Auto Trail Classifier (R73-R79)
 
@@ -249,7 +278,7 @@ Traffic Light System (UI):
 - 🟡 YELLOW: 高集中度 / 1-Lot Floor 超出風險預算
 - 🔴 RED: 資金不足（買不起 1 張）
 
-### AI Multi-Agent Collaboration Protocol v2
+### AI Multi-Agent Collaboration Protocol v3
 
 三方協作模式，所有參數必須通過實證審查：
 
@@ -270,6 +299,7 @@ Traffic Light System (UI):
 
 | 優先級 | 項目 | 說明 |
 |--------|------|------|
+| P0 | R85: Volume Profile & VCP | 量能驗證 + Minervini VCP 偵測（Gemini R84 推薦）|
 | P1 | Sector Correlation Monitor | 監控板塊間相關性，> 0.85 時警報（Gemini 建議）|
 | P1 | Risk Dashboard R_sector 可見度 | 顯示板塊集中度 > 30% 但不懲罰（Visibility without Interference）|
 | P2 | Financials Strategy Gap | V4 不適用金融股，需探索替代策略 |
