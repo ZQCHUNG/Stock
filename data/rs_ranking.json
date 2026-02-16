@@ -1,0 +1,8358 @@
+{
+  "scan_date": "2026-02-16 17:12",
+  "total_stocks": 927,
+  "params": {
+    "lookback": 120,
+    "exclude_recent": 5
+  },
+  "stats": {
+    "mean_rs": 1.1156,
+    "median_rs": 1.0,
+    "std_rs": 0.4746
+  },
+  "rankings": [
+    {
+      "code": "2408",
+      "name": "南亞科",
+      "rs_ratio": 6.4061,
+      "last_price": 278.0,
+      "avg_vol_lots": 84972.0,
+      "data_len": 399,
+      "rs_rating": 100.0
+    },
+    {
+      "code": "2344",
+      "name": "華邦電",
+      "rs_ratio": 5.9945,
+      "last_price": 105.5,
+      "avg_vol_lots": 162452.0,
+      "data_len": 399,
+      "rs_rating": 99.9
+    },
+    {
+      "code": "8110",
+      "name": "華東",
+      "rs_ratio": 5.1595,
+      "last_price": 61.3,
+      "avg_vol_lots": 52843.0,
+      "data_len": 399,
+      "rs_rating": 99.8
+    },
+    {
+      "code": "2337",
+      "name": "旺宏",
+      "rs_ratio": 4.6357,
+      "last_price": 98.5,
+      "avg_vol_lots": 206933.0,
+      "data_len": 399,
+      "rs_rating": 99.7
+    },
+    {
+      "code": "6770",
+      "name": "力積電",
+      "rs_ratio": 4.2876,
+      "last_price": 63.1,
+      "avg_vol_lots": 253466.0,
+      "data_len": 399,
+      "rs_rating": 99.6
+    },
+    {
+      "code": "6515",
+      "name": "穎崴",
+      "rs_ratio": 4.0132,
+      "last_price": 5005.0,
+      "avg_vol_lots": 650.0,
+      "data_len": 399,
+      "rs_rating": 99.5
+    },
+    {
+      "code": "2485",
+      "name": "兆赫",
+      "rs_ratio": 3.62,
+      "last_price": 36.8,
+      "avg_vol_lots": 50675.0,
+      "data_len": 399,
+      "rs_rating": 99.4
+    },
+    {
+      "code": "4967",
+      "name": "十銓",
+      "rs_ratio": 3.2714,
+      "last_price": 199.5,
+      "avg_vol_lots": 10554.0,
+      "data_len": 399,
+      "rs_rating": 99.2
+    },
+    {
+      "code": "3006",
+      "name": "晶豪科",
+      "rs_ratio": 3.1743,
+      "last_price": 154.0,
+      "avg_vol_lots": 28978.0,
+      "data_len": 399,
+      "rs_rating": 99.1
+    },
+    {
+      "code": "4764",
+      "name": "雙鍵",
+      "rs_ratio": 2.8279,
+      "last_price": 102.5,
+      "avg_vol_lots": 2001.0,
+      "data_len": 399,
+      "rs_rating": 99.0
+    },
+    {
+      "code": "3037",
+      "name": "欣興",
+      "rs_ratio": 2.8116,
+      "last_price": 369.0,
+      "avg_vol_lots": 67540.0,
+      "data_len": 399,
+      "rs_rating": 98.9
+    },
+    {
+      "code": "3135",
+      "name": "凌航",
+      "rs_ratio": 2.727,
+      "last_price": 114.5,
+      "avg_vol_lots": 3483.0,
+      "data_len": 400,
+      "rs_rating": 98.8
+    },
+    {
+      "code": "8131",
+      "name": "福懋科",
+      "rs_ratio": 2.7241,
+      "last_price": 69.3,
+      "avg_vol_lots": 19982.0,
+      "data_len": 399,
+      "rs_rating": 98.7
+    },
+    {
+      "code": "6442",
+      "name": "光聖",
+      "rs_ratio": 2.7035,
+      "last_price": 1950.0,
+      "avg_vol_lots": 2973.0,
+      "data_len": 399,
+      "rs_rating": 98.6
+    },
+    {
+      "code": "2313",
+      "name": "華通",
+      "rs_ratio": 2.7004,
+      "last_price": 186.5,
+      "avg_vol_lots": 94163.0,
+      "data_len": 399,
+      "rs_rating": 98.5
+    },
+    {
+      "code": "6443",
+      "name": "元晶",
+      "rs_ratio": 2.689,
+      "last_price": 37.1,
+      "avg_vol_lots": 115667.0,
+      "data_len": 399,
+      "rs_rating": 98.4
+    },
+    {
+      "code": "3189",
+      "name": "景碩",
+      "rs_ratio": 2.6262,
+      "last_price": 265.5,
+      "avg_vol_lots": 52733.0,
+      "data_len": 399,
+      "rs_rating": 98.3
+    },
+    {
+      "code": "2413",
+      "name": "環科",
+      "rs_ratio": 2.5541,
+      "last_price": 41.5,
+      "avg_vol_lots": 6120.0,
+      "data_len": 399,
+      "rs_rating": 98.2
+    },
+    {
+      "code": "8996",
+      "name": "高力",
+      "rs_ratio": 2.4795,
+      "last_price": 906.0,
+      "avg_vol_lots": 2916.0,
+      "data_len": 399,
+      "rs_rating": 98.1
+    },
+    {
+      "code": "7795",
+      "name": "長廣",
+      "rs_ratio": 2.4627,
+      "last_price": 346.5,
+      "avg_vol_lots": 2044.0,
+      "data_len": 295,
+      "rs_rating": 98.0
+    },
+    {
+      "code": "8021",
+      "name": "尖點",
+      "rs_ratio": 2.4205,
+      "last_price": 203.0,
+      "avg_vol_lots": 10831.0,
+      "data_len": 399,
+      "rs_rating": 97.8
+    },
+    {
+      "code": "6155",
+      "name": "鈞寶",
+      "rs_ratio": 2.3825,
+      "last_price": 45.4,
+      "avg_vol_lots": 6365.0,
+      "data_len": 399,
+      "rs_rating": 97.7
+    },
+    {
+      "code": "8046",
+      "name": "南電",
+      "rs_ratio": 2.3768,
+      "last_price": 416.0,
+      "avg_vol_lots": 15859.0,
+      "data_len": 399,
+      "rs_rating": 97.6
+    },
+    {
+      "code": "2451",
+      "name": "創見",
+      "rs_ratio": 2.285,
+      "last_price": 219.0,
+      "avg_vol_lots": 14561.0,
+      "data_len": 399,
+      "rs_rating": 97.5
+    },
+    {
+      "code": "8150",
+      "name": "南茂",
+      "rs_ratio": 2.2297,
+      "last_price": 53.4,
+      "avg_vol_lots": 45123.0,
+      "data_len": 399,
+      "rs_rating": 97.4
+    },
+    {
+      "code": "2367",
+      "name": "燿華",
+      "rs_ratio": 2.1814,
+      "last_price": 52.5,
+      "avg_vol_lots": 144783.0,
+      "data_len": 399,
+      "rs_rating": 97.3
+    },
+    {
+      "code": "3443",
+      "name": "創意",
+      "rs_ratio": 2.1717,
+      "last_price": 2475.0,
+      "avg_vol_lots": 3312.0,
+      "data_len": 399,
+      "rs_rating": 97.2
+    },
+    {
+      "code": "3653",
+      "name": "健策",
+      "rs_ratio": 2.1522,
+      "last_price": 3205.0,
+      "avg_vol_lots": 2017.0,
+      "data_len": 399,
+      "rs_rating": 97.1
+    },
+    {
+      "code": "2449",
+      "name": "京元電子",
+      "rs_ratio": 2.1214,
+      "last_price": 313.5,
+      "avg_vol_lots": 21151.0,
+      "data_len": 399,
+      "rs_rating": 97.0
+    },
+    {
+      "code": "6239",
+      "name": "力成",
+      "rs_ratio": 2.0528,
+      "last_price": 243.0,
+      "avg_vol_lots": 17197.0,
+      "data_len": 399,
+      "rs_rating": 96.9
+    },
+    {
+      "code": "3711",
+      "name": "日月光投控",
+      "rs_ratio": 2.037,
+      "last_price": 354.5,
+      "avg_vol_lots": 22806.0,
+      "data_len": 399,
+      "rs_rating": 96.8
+    },
+    {
+      "code": "2360",
+      "name": "致茂",
+      "rs_ratio": 2.0236,
+      "last_price": 1050.0,
+      "avg_vol_lots": 2381.0,
+      "data_len": 399,
+      "rs_rating": 96.7
+    },
+    {
+      "code": "3138",
+      "name": "耀登",
+      "rs_ratio": 2.0102,
+      "last_price": 155.5,
+      "avg_vol_lots": 4169.0,
+      "data_len": 399,
+      "rs_rating": 96.5
+    },
+    {
+      "code": "3576",
+      "name": "聯合再生",
+      "rs_ratio": 1.9679,
+      "last_price": 15.1,
+      "avg_vol_lots": 37072.0,
+      "data_len": 399,
+      "rs_rating": 96.4
+    },
+    {
+      "code": "2327",
+      "name": "國巨*",
+      "rs_ratio": 1.956,
+      "last_price": 256.0,
+      "avg_vol_lots": 40712.0,
+      "data_len": 399,
+      "rs_rating": 96.3
+    },
+    {
+      "code": "6209",
+      "name": "今國光",
+      "rs_ratio": 1.9231,
+      "last_price": 58.3,
+      "avg_vol_lots": 10605.0,
+      "data_len": 399,
+      "rs_rating": 96.2
+    },
+    {
+      "code": "4722",
+      "name": "國精化",
+      "rs_ratio": 1.8943,
+      "last_price": 170.0,
+      "avg_vol_lots": 1492.0,
+      "data_len": 399,
+      "rs_rating": 96.1
+    },
+    {
+      "code": "6706",
+      "name": "惠特",
+      "rs_ratio": 1.8842,
+      "last_price": 109.0,
+      "avg_vol_lots": 5792.0,
+      "data_len": 399,
+      "rs_rating": 96.0
+    },
+    {
+      "code": "1717",
+      "name": "長興",
+      "rs_ratio": 1.8746,
+      "last_price": 56.8,
+      "avg_vol_lots": 46983.0,
+      "data_len": 399,
+      "rs_rating": 95.9
+    },
+    {
+      "code": "3481",
+      "name": "群創",
+      "rs_ratio": 1.8699,
+      "last_price": 22.0,
+      "avg_vol_lots": 448034.0,
+      "data_len": 399,
+      "rs_rating": 95.8
+    },
+    {
+      "code": "6573",
+      "name": "虹揚-KY",
+      "rs_ratio": 1.8639,
+      "last_price": 14.6,
+      "avg_vol_lots": 599.0,
+      "data_len": 399,
+      "rs_rating": 95.7
+    },
+    {
+      "code": "8039",
+      "name": "台虹",
+      "rs_ratio": 1.8559,
+      "last_price": 80.9,
+      "avg_vol_lots": 14417.0,
+      "data_len": 399,
+      "rs_rating": 95.6
+    },
+    {
+      "code": "3535",
+      "name": "晶彩科",
+      "rs_ratio": 1.832,
+      "last_price": 103.5,
+      "avg_vol_lots": 11746.0,
+      "data_len": 399,
+      "rs_rating": 95.5
+    },
+    {
+      "code": "1303",
+      "name": "南亞",
+      "rs_ratio": 1.8216,
+      "last_price": 78.8,
+      "avg_vol_lots": 145051.0,
+      "data_len": 399,
+      "rs_rating": 95.4
+    },
+    {
+      "code": "6282",
+      "name": "康舒",
+      "rs_ratio": 1.8156,
+      "last_price": 48.0,
+      "avg_vol_lots": 78048.0,
+      "data_len": 399,
+      "rs_rating": 95.3
+    },
+    {
+      "code": "2308",
+      "name": "台達電",
+      "rs_ratio": 1.7926,
+      "last_price": 1260.0,
+      "avg_vol_lots": 12282.0,
+      "data_len": 399,
+      "rs_rating": 95.1
+    },
+    {
+      "code": "8112",
+      "name": "至上",
+      "rs_ratio": 1.791,
+      "last_price": 72.3,
+      "avg_vol_lots": 32387.0,
+      "data_len": 399,
+      "rs_rating": 95.0
+    },
+    {
+      "code": "2369",
+      "name": "菱生",
+      "rs_ratio": 1.7669,
+      "last_price": 25.2,
+      "avg_vol_lots": 22096.0,
+      "data_len": 399,
+      "rs_rating": 94.9
+    },
+    {
+      "code": "2489",
+      "name": "瑞軒",
+      "rs_ratio": 1.7545,
+      "last_price": 27.1,
+      "avg_vol_lots": 25521.0,
+      "data_len": 399,
+      "rs_rating": 94.8
+    },
+    {
+      "code": "2481",
+      "name": "強茂",
+      "rs_ratio": 1.7525,
+      "last_price": 84.2,
+      "avg_vol_lots": 31381.0,
+      "data_len": 399,
+      "rs_rating": 94.7
+    },
+    {
+      "code": "3016",
+      "name": "嘉晶",
+      "rs_ratio": 1.7504,
+      "last_price": 55.5,
+      "avg_vol_lots": 8496.0,
+      "data_len": 399,
+      "rs_rating": 94.6
+    },
+    {
+      "code": "6431",
+      "name": "光麗-KY",
+      "rs_ratio": 1.7484,
+      "last_price": 26.6,
+      "avg_vol_lots": 417.0,
+      "data_len": 399,
+      "rs_rating": 94.5
+    },
+    {
+      "code": "6949",
+      "name": "沛爾生醫-創",
+      "rs_ratio": 1.744,
+      "last_price": 678.0,
+      "avg_vol_lots": 295.0,
+      "data_len": 399,
+      "rs_rating": 94.4
+    },
+    {
+      "code": "2368",
+      "name": "金像電",
+      "rs_ratio": 1.7326,
+      "last_price": 829.0,
+      "avg_vol_lots": 9813.0,
+      "data_len": 399,
+      "rs_rating": 94.3
+    },
+    {
+      "code": "6139",
+      "name": "亞翔",
+      "rs_ratio": 1.7321,
+      "last_price": 519.0,
+      "avg_vol_lots": 4435.0,
+      "data_len": 399,
+      "rs_rating": 94.2
+    },
+    {
+      "code": "2383",
+      "name": "台光電",
+      "rs_ratio": 1.7223,
+      "last_price": 2195.0,
+      "avg_vol_lots": 4216.0,
+      "data_len": 399,
+      "rs_rating": 94.1
+    },
+    {
+      "code": "1605",
+      "name": "華新",
+      "rs_ratio": 1.7192,
+      "last_price": 34.7,
+      "avg_vol_lots": 159891.0,
+      "data_len": 399,
+      "rs_rating": 94.0
+    },
+    {
+      "code": "2491",
+      "name": "吉祥全",
+      "rs_ratio": 1.7129,
+      "last_price": 16.2,
+      "avg_vol_lots": 588.0,
+      "data_len": 399,
+      "rs_rating": 93.9
+    },
+    {
+      "code": "6285",
+      "name": "啟碁",
+      "rs_ratio": 1.7078,
+      "last_price": 172.0,
+      "avg_vol_lots": 37946.0,
+      "data_len": 399,
+      "rs_rating": 93.7
+    },
+    {
+      "code": "5521",
+      "name": "工信",
+      "rs_ratio": 1.704,
+      "last_price": 20.5,
+      "avg_vol_lots": 7692.0,
+      "data_len": 399,
+      "rs_rating": 93.6
+    },
+    {
+      "code": "6446",
+      "name": "藥華藥",
+      "rs_ratio": 1.698,
+      "last_price": 725.0,
+      "avg_vol_lots": 4675.0,
+      "data_len": 399,
+      "rs_rating": 93.5
+    },
+    {
+      "code": "8271",
+      "name": "宇瞻",
+      "rs_ratio": 1.6878,
+      "last_price": 118.0,
+      "avg_vol_lots": 9936.0,
+      "data_len": 399,
+      "rs_rating": 93.4
+    },
+    {
+      "code": "3532",
+      "name": "台勝科",
+      "rs_ratio": 1.6647,
+      "last_price": 148.0,
+      "avg_vol_lots": 6945.0,
+      "data_len": 399,
+      "rs_rating": 93.3
+    },
+    {
+      "code": "6426",
+      "name": "統新",
+      "rs_ratio": 1.6646,
+      "last_price": 154.5,
+      "avg_vol_lots": 4630.0,
+      "data_len": 399,
+      "rs_rating": 93.2
+    },
+    {
+      "code": "8210",
+      "name": "勤誠",
+      "rs_ratio": 1.6467,
+      "last_price": 975.0,
+      "avg_vol_lots": 2565.0,
+      "data_len": 399,
+      "rs_rating": 93.1
+    },
+    {
+      "code": "2467",
+      "name": "志聖",
+      "rs_ratio": 1.6391,
+      "last_price": 273.0,
+      "avg_vol_lots": 3528.0,
+      "data_len": 399,
+      "rs_rating": 93.0
+    },
+    {
+      "code": "4934",
+      "name": "太極",
+      "rs_ratio": 1.6355,
+      "last_price": 16.2,
+      "avg_vol_lots": 3694.0,
+      "data_len": 399,
+      "rs_rating": 92.9
+    },
+    {
+      "code": "3715",
+      "name": "定穎投控",
+      "rs_ratio": 1.6237,
+      "last_price": 141.0,
+      "avg_vol_lots": 35470.0,
+      "data_len": 399,
+      "rs_rating": 92.8
+    },
+    {
+      "code": "3701",
+      "name": "大眾控",
+      "rs_ratio": 1.6225,
+      "last_price": 47.2,
+      "avg_vol_lots": 7346.0,
+      "data_len": 399,
+      "rs_rating": 92.7
+    },
+    {
+      "code": "2486",
+      "name": "一詮",
+      "rs_ratio": 1.6208,
+      "last_price": 152.0,
+      "avg_vol_lots": 13929.0,
+      "data_len": 399,
+      "rs_rating": 92.6
+    },
+    {
+      "code": "2492",
+      "name": "華新科",
+      "rs_ratio": 1.6173,
+      "last_price": 123.5,
+      "avg_vol_lots": 16936.0,
+      "data_len": 399,
+      "rs_rating": 92.4
+    },
+    {
+      "code": "3060",
+      "name": "銘異",
+      "rs_ratio": 1.615,
+      "last_price": 30.3,
+      "avg_vol_lots": 9809.0,
+      "data_len": 399,
+      "rs_rating": 92.3
+    },
+    {
+      "code": "3149",
+      "name": "正達",
+      "rs_ratio": 1.6043,
+      "last_price": 49.2,
+      "avg_vol_lots": 20124.0,
+      "data_len": 399,
+      "rs_rating": 92.2
+    },
+    {
+      "code": "6257",
+      "name": "矽格",
+      "rs_ratio": 1.6042,
+      "last_price": 127.5,
+      "avg_vol_lots": 9721.0,
+      "data_len": 399,
+      "rs_rating": 92.1
+    },
+    {
+      "code": "4989",
+      "name": "榮科",
+      "rs_ratio": 1.6037,
+      "last_price": 50.2,
+      "avg_vol_lots": 17864.0,
+      "data_len": 399,
+      "rs_rating": 92.0
+    },
+    {
+      "code": "3028",
+      "name": "增你強",
+      "rs_ratio": 1.5955,
+      "last_price": 48.0,
+      "avg_vol_lots": 9298.0,
+      "data_len": 399,
+      "rs_rating": 91.9
+    },
+    {
+      "code": "1590",
+      "name": "亞德客-KY",
+      "rs_ratio": 1.5839,
+      "last_price": 1200.0,
+      "avg_vol_lots": 950.0,
+      "data_len": 399,
+      "rs_rating": 91.8
+    },
+    {
+      "code": "2495",
+      "name": "普安",
+      "rs_ratio": 1.5835,
+      "last_price": 31.6,
+      "avg_vol_lots": 10635.0,
+      "data_len": 399,
+      "rs_rating": 91.7
+    },
+    {
+      "code": "3049",
+      "name": "精金",
+      "rs_ratio": 1.5806,
+      "last_price": 9.2,
+      "avg_vol_lots": 14150.0,
+      "data_len": 399,
+      "rs_rating": 91.6
+    },
+    {
+      "code": "6152",
+      "name": "百一",
+      "rs_ratio": 1.5642,
+      "last_price": 15.2,
+      "avg_vol_lots": 5934.0,
+      "data_len": 399,
+      "rs_rating": 91.5
+    },
+    {
+      "code": "2342",
+      "name": "茂矽",
+      "rs_ratio": 1.5343,
+      "last_price": 30.5,
+      "avg_vol_lots": 6397.0,
+      "data_len": 399,
+      "rs_rating": 91.4
+    },
+    {
+      "code": "2331",
+      "name": "精英",
+      "rs_ratio": 1.5294,
+      "last_price": 25.4,
+      "avg_vol_lots": 14839.0,
+      "data_len": 399,
+      "rs_rating": 91.3
+    },
+    {
+      "code": "6271",
+      "name": "同欣電",
+      "rs_ratio": 1.5243,
+      "last_price": 153.0,
+      "avg_vol_lots": 9390.0,
+      "data_len": 399,
+      "rs_rating": 91.2
+    },
+    {
+      "code": "2303",
+      "name": "聯電",
+      "rs_ratio": 1.5166,
+      "last_price": 62.8,
+      "avg_vol_lots": 254544.0,
+      "data_len": 399,
+      "rs_rating": 91.0
+    },
+    {
+      "code": "1504",
+      "name": "東元",
+      "rs_ratio": 1.5119,
+      "last_price": 79.8,
+      "avg_vol_lots": 31792.0,
+      "data_len": 399,
+      "rs_rating": 90.9
+    },
+    {
+      "code": "3017",
+      "name": "奇鋐",
+      "rs_ratio": 1.5086,
+      "last_price": 1605.0,
+      "avg_vol_lots": 6107.0,
+      "data_len": 399,
+      "rs_rating": 90.8
+    },
+    {
+      "code": "3002",
+      "name": "歐格",
+      "rs_ratio": 1.5047,
+      "last_price": 21.5,
+      "avg_vol_lots": 542.0,
+      "data_len": 399,
+      "rs_rating": 90.7
+    },
+    {
+      "code": "2330",
+      "name": "台積電",
+      "rs_ratio": 1.4984,
+      "last_price": 1915.0,
+      "avg_vol_lots": 33424.0,
+      "data_len": 399,
+      "rs_rating": 90.6
+    },
+    {
+      "code": "5469",
+      "name": "瀚宇博",
+      "rs_ratio": 1.4964,
+      "last_price": 95.1,
+      "avg_vol_lots": 8577.0,
+      "data_len": 399,
+      "rs_rating": 90.5
+    },
+    {
+      "code": "2478",
+      "name": "大毅",
+      "rs_ratio": 1.4881,
+      "last_price": 59.6,
+      "avg_vol_lots": 3300.0,
+      "data_len": 399,
+      "rs_rating": 90.4
+    },
+    {
+      "code": "2867",
+      "name": "三商壽",
+      "rs_ratio": 1.4785,
+      "last_price": 8.0,
+      "avg_vol_lots": 13517.0,
+      "data_len": 399,
+      "rs_rating": 90.3
+    },
+    {
+      "code": "3048",
+      "name": "益登",
+      "rs_ratio": 1.4674,
+      "last_price": 38.2,
+      "avg_vol_lots": 3913.0,
+      "data_len": 399,
+      "rs_rating": 90.2
+    },
+    {
+      "code": "6944",
+      "name": "兆聯實業",
+      "rs_ratio": 1.4667,
+      "last_price": 677.0,
+      "avg_vol_lots": 847.0,
+      "data_len": 186,
+      "rs_rating": 90.1
+    },
+    {
+      "code": "2375",
+      "name": "凱美",
+      "rs_ratio": 1.4635,
+      "last_price": 85.3,
+      "avg_vol_lots": 6318.0,
+      "data_len": 399,
+      "rs_rating": 89.9
+    },
+    {
+      "code": "3229",
+      "name": "晟鈦",
+      "rs_ratio": 1.4635,
+      "last_price": 20.9,
+      "avg_vol_lots": 206.0,
+      "data_len": 399,
+      "rs_rating": 89.9
+    },
+    {
+      "code": "6805",
+      "name": "富世達",
+      "rs_ratio": 1.4593,
+      "last_price": 1545.0,
+      "avg_vol_lots": 2238.0,
+      "data_len": 400,
+      "rs_rating": 89.8
+    },
+    {
+      "code": "2312",
+      "name": "金寶",
+      "rs_ratio": 1.4553,
+      "last_price": 24.1,
+      "avg_vol_lots": 81345.0,
+      "data_len": 399,
+      "rs_rating": 89.6
+    },
+    {
+      "code": "2441",
+      "name": "超豐",
+      "rs_ratio": 1.4544,
+      "last_price": 88.6,
+      "avg_vol_lots": 13375.0,
+      "data_len": 399,
+      "rs_rating": 89.5
+    },
+    {
+      "code": "6225",
+      "name": "天瀚",
+      "rs_ratio": 1.452,
+      "last_price": 17.1,
+      "avg_vol_lots": 14.0,
+      "data_len": 399,
+      "rs_rating": 89.4
+    },
+    {
+      "code": "3686",
+      "name": "達能",
+      "rs_ratio": 1.4483,
+      "last_price": 18.9,
+      "avg_vol_lots": 1198.0,
+      "data_len": 399,
+      "rs_rating": 89.3
+    },
+    {
+      "code": "2887",
+      "name": "台新新光金",
+      "rs_ratio": 1.4272,
+      "last_price": 24.0,
+      "avg_vol_lots": 76335.0,
+      "data_len": 399,
+      "rs_rating": 89.2
+    },
+    {
+      "code": "2855",
+      "name": "統一證",
+      "rs_ratio": 1.4201,
+      "last_price": 29.5,
+      "avg_vol_lots": 6966.0,
+      "data_len": 399,
+      "rs_rating": 89.1
+    },
+    {
+      "code": "6531",
+      "name": "愛普*",
+      "rs_ratio": 1.4123,
+      "last_price": 396.0,
+      "avg_vol_lots": 4433.0,
+      "data_len": 399,
+      "rs_rating": 89.0
+    },
+    {
+      "code": "1721",
+      "name": "三晃",
+      "rs_ratio": 1.4115,
+      "last_price": 17.0,
+      "avg_vol_lots": 4802.0,
+      "data_len": 399,
+      "rs_rating": 88.9
+    },
+    {
+      "code": "3025",
+      "name": "星通",
+      "rs_ratio": 1.4103,
+      "last_price": 54.1,
+      "avg_vol_lots": 1979.0,
+      "data_len": 399,
+      "rs_rating": 88.8
+    },
+    {
+      "code": "6830",
+      "name": "汎銓",
+      "rs_ratio": 1.3986,
+      "last_price": 218.5,
+      "avg_vol_lots": 2303.0,
+      "data_len": 399,
+      "rs_rating": 88.7
+    },
+    {
+      "code": "2406",
+      "name": "國碩",
+      "rs_ratio": 1.3976,
+      "last_price": 29.5,
+      "avg_vol_lots": 28529.0,
+      "data_len": 399,
+      "rs_rating": 88.6
+    },
+    {
+      "code": "2472",
+      "name": "立隆電",
+      "rs_ratio": 1.3891,
+      "last_price": 108.5,
+      "avg_vol_lots": 3562.0,
+      "data_len": 399,
+      "rs_rating": 88.5
+    },
+    {
+      "code": "5234",
+      "name": "達興材料",
+      "rs_ratio": 1.3869,
+      "last_price": 388.5,
+      "avg_vol_lots": 1181.0,
+      "data_len": 399,
+      "rs_rating": 88.3
+    },
+    {
+      "code": "6715",
+      "name": "嘉基",
+      "rs_ratio": 1.3825,
+      "last_price": 143.5,
+      "avg_vol_lots": 398.0,
+      "data_len": 399,
+      "rs_rating": 88.2
+    },
+    {
+      "code": "2009",
+      "name": "第一銅",
+      "rs_ratio": 1.3776,
+      "last_price": 44.7,
+      "avg_vol_lots": 11080.0,
+      "data_len": 399,
+      "rs_rating": 88.1
+    },
+    {
+      "code": "3450",
+      "name": "聯鈞",
+      "rs_ratio": 1.3698,
+      "last_price": 243.0,
+      "avg_vol_lots": 8597.0,
+      "data_len": 399,
+      "rs_rating": 88.0
+    },
+    {
+      "code": "2419",
+      "name": "仲琦",
+      "rs_ratio": 1.3671,
+      "last_price": 27.8,
+      "avg_vol_lots": 7614.0,
+      "data_len": 399,
+      "rs_rating": 87.9
+    },
+    {
+      "code": "8103",
+      "name": "瀚荃",
+      "rs_ratio": 1.3656,
+      "last_price": 109.5,
+      "avg_vol_lots": 3515.0,
+      "data_len": 399,
+      "rs_rating": 87.8
+    },
+    {
+      "code": "3305",
+      "name": "昇貿",
+      "rs_ratio": 1.3642,
+      "last_price": 109.0,
+      "avg_vol_lots": 9633.0,
+      "data_len": 399,
+      "rs_rating": 87.7
+    },
+    {
+      "code": "3308",
+      "name": "聯德",
+      "rs_ratio": 1.3564,
+      "last_price": 21.4,
+      "avg_vol_lots": 477.0,
+      "data_len": 399,
+      "rs_rating": 87.6
+    },
+    {
+      "code": "3665",
+      "name": "貿聯-KY",
+      "rs_ratio": 1.3549,
+      "last_price": 1365.0,
+      "avg_vol_lots": 3398.0,
+      "data_len": 399,
+      "rs_rating": 87.5
+    },
+    {
+      "code": "3092",
+      "name": "鴻碩",
+      "rs_ratio": 1.3501,
+      "last_price": 23.1,
+      "avg_vol_lots": 1225.0,
+      "data_len": 399,
+      "rs_rating": 87.4
+    },
+    {
+      "code": "6005",
+      "name": "群益證",
+      "rs_ratio": 1.3497,
+      "last_price": 29.3,
+      "avg_vol_lots": 9404.0,
+      "data_len": 399,
+      "rs_rating": 87.3
+    },
+    {
+      "code": "6862",
+      "name": "三集瑞-KY",
+      "rs_ratio": 1.3489,
+      "last_price": 170.0,
+      "avg_vol_lots": 929.0,
+      "data_len": 320,
+      "rs_rating": 87.2
+    },
+    {
+      "code": "2329",
+      "name": "華泰",
+      "rs_ratio": 1.3466,
+      "last_price": 50.2,
+      "avg_vol_lots": 24191.0,
+      "data_len": 399,
+      "rs_rating": 87.1
+    },
+    {
+      "code": "2484",
+      "name": "希華",
+      "rs_ratio": 1.3459,
+      "last_price": 26.4,
+      "avg_vol_lots": 5834.0,
+      "data_len": 399,
+      "rs_rating": 86.9
+    },
+    {
+      "code": "2454",
+      "name": "聯發科",
+      "rs_ratio": 1.3393,
+      "last_price": 1855.0,
+      "avg_vol_lots": 11070.0,
+      "data_len": 399,
+      "rs_rating": 86.8
+    },
+    {
+      "code": "1809",
+      "name": "中釉",
+      "rs_ratio": 1.3385,
+      "last_price": 23.5,
+      "avg_vol_lots": 8260.0,
+      "data_len": 399,
+      "rs_rating": 86.7
+    },
+    {
+      "code": "1560",
+      "name": "中砂",
+      "rs_ratio": 1.335,
+      "last_price": 425.0,
+      "avg_vol_lots": 2691.0,
+      "data_len": 399,
+      "rs_rating": 86.6
+    },
+    {
+      "code": "5284",
+      "name": "jpp-KY",
+      "rs_ratio": 1.3333,
+      "last_price": 254.0,
+      "avg_vol_lots": 728.0,
+      "data_len": 399,
+      "rs_rating": 86.5
+    },
+    {
+      "code": "3704",
+      "name": "合勤控",
+      "rs_ratio": 1.3327,
+      "last_price": 32.7,
+      "avg_vol_lots": 8934.0,
+      "data_len": 399,
+      "rs_rating": 86.4
+    },
+    {
+      "code": "2069",
+      "name": "運錩",
+      "rs_ratio": 1.3322,
+      "last_price": 18.7,
+      "avg_vol_lots": 662.0,
+      "data_len": 399,
+      "rs_rating": 86.3
+    },
+    {
+      "code": "6861",
+      "name": "睿生光電",
+      "rs_ratio": 1.3161,
+      "last_price": 78.4,
+      "avg_vol_lots": 855.0,
+      "data_len": 399,
+      "rs_rating": 86.2
+    },
+    {
+      "code": "1471",
+      "name": "首利",
+      "rs_ratio": 1.3122,
+      "last_price": 10.8,
+      "avg_vol_lots": 2578.0,
+      "data_len": 399,
+      "rs_rating": 86.1
+    },
+    {
+      "code": "2885",
+      "name": "元大金",
+      "rs_ratio": 1.3107,
+      "last_price": 44.8,
+      "avg_vol_lots": 21158.0,
+      "data_len": 399,
+      "rs_rating": 86.0
+    },
+    {
+      "code": "1587",
+      "name": "吉茂",
+      "rs_ratio": 1.3079,
+      "last_price": 46.5,
+      "avg_vol_lots": 1420.0,
+      "data_len": 399,
+      "rs_rating": 85.9
+    },
+    {
+      "code": "3090",
+      "name": "日電貿",
+      "rs_ratio": 1.3074,
+      "last_price": 92.9,
+      "avg_vol_lots": 4016.0,
+      "data_len": 399,
+      "rs_rating": 85.8
+    },
+    {
+      "code": "3054",
+      "name": "立萬利",
+      "rs_ratio": 1.3042,
+      "last_price": 30.9,
+      "avg_vol_lots": 48.0,
+      "data_len": 399,
+      "rs_rating": 85.7
+    },
+    {
+      "code": "3026",
+      "name": "禾伸堂",
+      "rs_ratio": 1.303,
+      "last_price": 104.5,
+      "avg_vol_lots": 1710.0,
+      "data_len": 399,
+      "rs_rating": 85.5
+    },
+    {
+      "code": "5243",
+      "name": "乙盛-KY",
+      "rs_ratio": 1.303,
+      "last_price": 82.5,
+      "avg_vol_lots": 3283.0,
+      "data_len": 399,
+      "rs_rating": 85.5
+    },
+    {
+      "code": "2905",
+      "name": "三商",
+      "rs_ratio": 1.2998,
+      "last_price": 15.6,
+      "avg_vol_lots": 837.0,
+      "data_len": 399,
+      "rs_rating": 85.3
+    },
+    {
+      "code": "3321",
+      "name": "同泰",
+      "rs_ratio": 1.2997,
+      "last_price": 17.7,
+      "avg_vol_lots": 643.0,
+      "data_len": 399,
+      "rs_rating": 85.2
+    },
+    {
+      "code": "2431",
+      "name": "聯昌",
+      "rs_ratio": 1.2996,
+      "last_price": 15.2,
+      "avg_vol_lots": 4205.0,
+      "data_len": 399,
+      "rs_rating": 85.1
+    },
+    {
+      "code": "2457",
+      "name": "飛宏",
+      "rs_ratio": 1.2913,
+      "last_price": 28.1,
+      "avg_vol_lots": 23344.0,
+      "data_len": 399,
+      "rs_rating": 85.0
+    },
+    {
+      "code": "6226",
+      "name": "光鼎",
+      "rs_ratio": 1.2912,
+      "last_price": 8.8,
+      "avg_vol_lots": 1088.0,
+      "data_len": 399,
+      "rs_rating": 84.9
+    },
+    {
+      "code": "8201",
+      "name": "無敵",
+      "rs_ratio": 1.2909,
+      "last_price": 13.9,
+      "avg_vol_lots": 287.0,
+      "data_len": 399,
+      "rs_rating": 84.8
+    },
+    {
+      "code": "3055",
+      "name": "蔚華科",
+      "rs_ratio": 1.2883,
+      "last_price": 64.6,
+      "avg_vol_lots": 669.0,
+      "data_len": 399,
+      "rs_rating": 84.7
+    },
+    {
+      "code": "2301",
+      "name": "光寶科",
+      "rs_ratio": 1.2856,
+      "last_price": 179.5,
+      "avg_vol_lots": 27111.0,
+      "data_len": 399,
+      "rs_rating": 84.6
+    },
+    {
+      "code": "8033",
+      "name": "雷虎",
+      "rs_ratio": 1.2844,
+      "last_price": 148.0,
+      "avg_vol_lots": 3745.0,
+      "data_len": 399,
+      "rs_rating": 84.5
+    },
+    {
+      "code": "6449",
+      "name": "鈺邦",
+      "rs_ratio": 1.284,
+      "last_price": 159.5,
+      "avg_vol_lots": 1121.0,
+      "data_len": 399,
+      "rs_rating": 84.4
+    },
+    {
+      "code": "6753",
+      "name": "龍德造船",
+      "rs_ratio": 1.2833,
+      "last_price": 145.0,
+      "avg_vol_lots": 3811.0,
+      "data_len": 399,
+      "rs_rating": 84.3
+    },
+    {
+      "code": "2208",
+      "name": "台船",
+      "rs_ratio": 1.2781,
+      "last_price": 23.5,
+      "avg_vol_lots": 8776.0,
+      "data_len": 399,
+      "rs_rating": 84.1
+    },
+    {
+      "code": "2323",
+      "name": "中環",
+      "rs_ratio": 1.2764,
+      "last_price": 10.4,
+      "avg_vol_lots": 7123.0,
+      "data_len": 399,
+      "rs_rating": 84.0
+    },
+    {
+      "code": "3036",
+      "name": "文曄",
+      "rs_ratio": 1.276,
+      "last_price": 175.0,
+      "avg_vol_lots": 8116.0,
+      "data_len": 399,
+      "rs_rating": 83.9
+    },
+    {
+      "code": "2305",
+      "name": "全友",
+      "rs_ratio": 1.271,
+      "last_price": 12.8,
+      "avg_vol_lots": 2273.0,
+      "data_len": 399,
+      "rs_rating": 83.8
+    },
+    {
+      "code": "2515",
+      "name": "中工",
+      "rs_ratio": 1.2678,
+      "last_price": 15.8,
+      "avg_vol_lots": 15220.0,
+      "data_len": 399,
+      "rs_rating": 83.7
+    },
+    {
+      "code": "4927",
+      "name": "泰鼎-KY",
+      "rs_ratio": 1.2659,
+      "last_price": 33.3,
+      "avg_vol_lots": 9136.0,
+      "data_len": 399,
+      "rs_rating": 83.6
+    },
+    {
+      "code": "3044",
+      "name": "健鼎",
+      "rs_ratio": 1.2656,
+      "last_price": 388.0,
+      "avg_vol_lots": 5536.0,
+      "data_len": 399,
+      "rs_rating": 83.5
+    },
+    {
+      "code": "1236",
+      "name": "宏亞",
+      "rs_ratio": 1.2643,
+      "last_price": 26.3,
+      "avg_vol_lots": 98.0,
+      "data_len": 399,
+      "rs_rating": 83.3
+    },
+    {
+      "code": "6405",
+      "name": "悅城",
+      "rs_ratio": 1.2643,
+      "last_price": 31.0,
+      "avg_vol_lots": 668.0,
+      "data_len": 399,
+      "rs_rating": 83.3
+    },
+    {
+      "code": "2409",
+      "name": "友達",
+      "rs_ratio": 1.2573,
+      "last_price": 16.1,
+      "avg_vol_lots": 271766.0,
+      "data_len": 399,
+      "rs_rating": 83.2
+    },
+    {
+      "code": "6919",
+      "name": "康霈*",
+      "rs_ratio": 1.2565,
+      "last_price": 160.0,
+      "avg_vol_lots": 9066.0,
+      "data_len": 395,
+      "rs_rating": 83.1
+    },
+    {
+      "code": "2355",
+      "name": "敬鵬",
+      "rs_ratio": 1.2536,
+      "last_price": 38.3,
+      "avg_vol_lots": 16631.0,
+      "data_len": 399,
+      "rs_rating": 83.0
+    },
+    {
+      "code": "6598",
+      "name": "ABC-KY",
+      "rs_ratio": 1.2513,
+      "last_price": 24.0,
+      "avg_vol_lots": 347.0,
+      "data_len": 399,
+      "rs_rating": 82.8
+    },
+    {
+      "code": "1503",
+      "name": "士電",
+      "rs_ratio": 1.2479,
+      "last_price": 211.5,
+      "avg_vol_lots": 9785.0,
+      "data_len": 399,
+      "rs_rating": 82.7
+    },
+    {
+      "code": "5515",
+      "name": "建國",
+      "rs_ratio": 1.2456,
+      "last_price": 32.7,
+      "avg_vol_lots": 534.0,
+      "data_len": 399,
+      "rs_rating": 82.6
+    },
+    {
+      "code": "1514",
+      "name": "亞力",
+      "rs_ratio": 1.2441,
+      "last_price": 122.0,
+      "avg_vol_lots": 18035.0,
+      "data_len": 399,
+      "rs_rating": 82.5
+    },
+    {
+      "code": "4906",
+      "name": "正文",
+      "rs_ratio": 1.2413,
+      "last_price": 25.7,
+      "avg_vol_lots": 4268.0,
+      "data_len": 399,
+      "rs_rating": 82.4
+    },
+    {
+      "code": "2399",
+      "name": "映泰",
+      "rs_ratio": 1.2401,
+      "last_price": 21.7,
+      "avg_vol_lots": 4198.0,
+      "data_len": 399,
+      "rs_rating": 82.3
+    },
+    {
+      "code": "2455",
+      "name": "全新",
+      "rs_ratio": 1.2389,
+      "last_price": 180.0,
+      "avg_vol_lots": 18020.0,
+      "data_len": 399,
+      "rs_rating": 82.2
+    },
+    {
+      "code": "4958",
+      "name": "臻鼎-KY",
+      "rs_ratio": 1.236,
+      "last_price": 178.0,
+      "avg_vol_lots": 31869.0,
+      "data_len": 399,
+      "rs_rating": 82.1
+    },
+    {
+      "code": "2014",
+      "name": "中鴻",
+      "rs_ratio": 1.2357,
+      "last_price": 18.1,
+      "avg_vol_lots": 23297.0,
+      "data_len": 399,
+      "rs_rating": 82.0
+    },
+    {
+      "code": "6164",
+      "name": "華興",
+      "rs_ratio": 1.2319,
+      "last_price": 12.1,
+      "avg_vol_lots": 748.0,
+      "data_len": 399,
+      "rs_rating": 81.8
+    },
+    {
+      "code": "6552",
+      "name": "易華電",
+      "rs_ratio": 1.2319,
+      "last_price": 29.1,
+      "avg_vol_lots": 642.0,
+      "data_len": 399,
+      "rs_rating": 81.8
+    },
+    {
+      "code": "2614",
+      "name": "東森",
+      "rs_ratio": 1.2308,
+      "last_price": 20.5,
+      "avg_vol_lots": 1032.0,
+      "data_len": 399,
+      "rs_rating": 81.7
+    },
+    {
+      "code": "2605",
+      "name": "新興",
+      "rs_ratio": 1.2288,
+      "last_price": 29.1,
+      "avg_vol_lots": 13639.0,
+      "data_len": 399,
+      "rs_rating": 81.6
+    },
+    {
+      "code": "6451",
+      "name": "訊芯-KY",
+      "rs_ratio": 1.2271,
+      "last_price": 166.0,
+      "avg_vol_lots": 3778.0,
+      "data_len": 399,
+      "rs_rating": 81.4
+    },
+    {
+      "code": "4977",
+      "name": "眾達-KY",
+      "rs_ratio": 1.2252,
+      "last_price": 125.5,
+      "avg_vol_lots": 7121.0,
+      "data_len": 399,
+      "rs_rating": 81.3
+    },
+    {
+      "code": "6120",
+      "name": "達運",
+      "rs_ratio": 1.2239,
+      "last_price": 12.6,
+      "avg_vol_lots": 4150.0,
+      "data_len": 399,
+      "rs_rating": 81.2
+    },
+    {
+      "code": "2349",
+      "name": "錸德",
+      "rs_ratio": 1.2236,
+      "last_price": 13.2,
+      "avg_vol_lots": 10595.0,
+      "data_len": 399,
+      "rs_rating": 81.1
+    },
+    {
+      "code": "3533",
+      "name": "嘉澤",
+      "rs_ratio": 1.2234,
+      "last_price": 1645.0,
+      "avg_vol_lots": 1845.0,
+      "data_len": 399,
+      "rs_rating": 81.0
+    },
+    {
+      "code": "6202",
+      "name": "盛群",
+      "rs_ratio": 1.2231,
+      "last_price": 56.5,
+      "avg_vol_lots": 6359.0,
+      "data_len": 399,
+      "rs_rating": 80.9
+    },
+    {
+      "code": "6796",
+      "name": "晉弘",
+      "rs_ratio": 1.2197,
+      "last_price": 85.0,
+      "avg_vol_lots": 92.0,
+      "data_len": 399,
+      "rs_rating": 80.8
+    },
+    {
+      "code": "6133",
+      "name": "金橋",
+      "rs_ratio": 1.219,
+      "last_price": 22.9,
+      "avg_vol_lots": 7086.0,
+      "data_len": 399,
+      "rs_rating": 80.7
+    },
+    {
+      "code": "1477",
+      "name": "聚陽",
+      "rs_ratio": 1.218,
+      "last_price": 310.5,
+      "avg_vol_lots": 1210.0,
+      "data_len": 399,
+      "rs_rating": 80.6
+    },
+    {
+      "code": "6116",
+      "name": "彩晶",
+      "rs_ratio": 1.2173,
+      "last_price": 8.5,
+      "avg_vol_lots": 29802.0,
+      "data_len": 399,
+      "rs_rating": 80.5
+    },
+    {
+      "code": "2030",
+      "name": "彰源",
+      "rs_ratio": 1.214,
+      "last_price": 16.5,
+      "avg_vol_lots": 2427.0,
+      "data_len": 399,
+      "rs_rating": 80.4
+    },
+    {
+      "code": "2231",
+      "name": "為升",
+      "rs_ratio": 1.2137,
+      "last_price": 90.8,
+      "avg_vol_lots": 649.0,
+      "data_len": 399,
+      "rs_rating": 80.3
+    },
+    {
+      "code": "5292",
+      "name": "華懋",
+      "rs_ratio": 1.2134,
+      "last_price": 182.0,
+      "avg_vol_lots": 429.0,
+      "data_len": 399,
+      "rs_rating": 80.2
+    },
+    {
+      "code": "2612",
+      "name": "中航",
+      "rs_ratio": 1.2128,
+      "last_price": 60.6,
+      "avg_vol_lots": 1914.0,
+      "data_len": 399,
+      "rs_rating": 80.0
+    },
+    {
+      "code": "6691",
+      "name": "洋基工程",
+      "rs_ratio": 1.2117,
+      "last_price": 599.0,
+      "avg_vol_lots": 859.0,
+      "data_len": 399,
+      "rs_rating": 79.9
+    },
+    {
+      "code": "2328",
+      "name": "廣宇",
+      "rs_ratio": 1.2115,
+      "last_price": 47.8,
+      "avg_vol_lots": 11712.0,
+      "data_len": 399,
+      "rs_rating": 79.8
+    },
+    {
+      "code": "6789",
+      "name": "采鈺",
+      "rs_ratio": 1.21,
+      "last_price": 297.0,
+      "avg_vol_lots": 2014.0,
+      "data_len": 399,
+      "rs_rating": 79.7
+    },
+    {
+      "code": "3543",
+      "name": "州巧",
+      "rs_ratio": 1.2096,
+      "last_price": 44.5,
+      "avg_vol_lots": 5329.0,
+      "data_len": 399,
+      "rs_rating": 79.6
+    },
+    {
+      "code": "1524",
+      "name": "耿鼎",
+      "rs_ratio": 1.2094,
+      "last_price": 30.9,
+      "avg_vol_lots": 4690.0,
+      "data_len": 399,
+      "rs_rating": 79.5
+    },
+    {
+      "code": "2440",
+      "name": "太空梭",
+      "rs_ratio": 1.208,
+      "last_price": 15.3,
+      "avg_vol_lots": 460.0,
+      "data_len": 399,
+      "rs_rating": 79.4
+    },
+    {
+      "code": "3010",
+      "name": "華立",
+      "rs_ratio": 1.2049,
+      "last_price": 122.0,
+      "avg_vol_lots": 1883.0,
+      "data_len": 399,
+      "rs_rating": 79.3
+    },
+    {
+      "code": "6505",
+      "name": "台塑化",
+      "rs_ratio": 1.2029,
+      "last_price": 49.8,
+      "avg_vol_lots": 11344.0,
+      "data_len": 399,
+      "rs_rating": 79.2
+    },
+    {
+      "code": "5285",
+      "name": "界霖",
+      "rs_ratio": 1.2027,
+      "last_price": 51.1,
+      "avg_vol_lots": 518.0,
+      "data_len": 399,
+      "rs_rating": 79.1
+    },
+    {
+      "code": "6957",
+      "name": "裕慶-KY",
+      "rs_ratio": 1.2013,
+      "last_price": 174.0,
+      "avg_vol_lots": 101.0,
+      "data_len": 400,
+      "rs_rating": 79.0
+    },
+    {
+      "code": "1735",
+      "name": "日勝化",
+      "rs_ratio": 1.2006,
+      "last_price": 16.3,
+      "avg_vol_lots": 444.0,
+      "data_len": 399,
+      "rs_rating": 78.9
+    },
+    {
+      "code": "3588",
+      "name": "通嘉",
+      "rs_ratio": 1.2005,
+      "last_price": 52.0,
+      "avg_vol_lots": 886.0,
+      "data_len": 399,
+      "rs_rating": 78.7
+    },
+    {
+      "code": "2890",
+      "name": "永豐金",
+      "rs_ratio": 1.2,
+      "last_price": 31.1,
+      "avg_vol_lots": 22836.0,
+      "data_len": 399,
+      "rs_rating": 78.6
+    },
+    {
+      "code": "2302",
+      "name": "麗正",
+      "rs_ratio": 1.1994,
+      "last_price": 18.0,
+      "avg_vol_lots": 2018.0,
+      "data_len": 399,
+      "rs_rating": 78.5
+    },
+    {
+      "code": "2882",
+      "name": "國泰金",
+      "rs_ratio": 1.1962,
+      "last_price": 78.8,
+      "avg_vol_lots": 21007.0,
+      "data_len": 399,
+      "rs_rating": 78.4
+    },
+    {
+      "code": "2380",
+      "name": "虹光",
+      "rs_ratio": 1.1957,
+      "last_price": 4.9,
+      "avg_vol_lots": 151.0,
+      "data_len": 399,
+      "rs_rating": 78.3
+    },
+    {
+      "code": "2241",
+      "name": "艾姆勒",
+      "rs_ratio": 1.1957,
+      "last_price": 29.8,
+      "avg_vol_lots": 462.0,
+      "data_len": 399,
+      "rs_rating": 78.3
+    },
+    {
+      "code": "2880",
+      "name": "華南金",
+      "rs_ratio": 1.1946,
+      "last_price": 34.6,
+      "avg_vol_lots": 11317.0,
+      "data_len": 399,
+      "rs_rating": 78.1
+    },
+    {
+      "code": "2022",
+      "name": "聚亨",
+      "rs_ratio": 1.1938,
+      "last_price": 9.0,
+      "avg_vol_lots": 928.0,
+      "data_len": 399,
+      "rs_rating": 78.0
+    },
+    {
+      "code": "8070",
+      "name": "長華*",
+      "rs_ratio": 1.1916,
+      "last_price": 42.9,
+      "avg_vol_lots": 4689.0,
+      "data_len": 399,
+      "rs_rating": 77.9
+    },
+    {
+      "code": "2340",
+      "name": "台亞",
+      "rs_ratio": 1.1907,
+      "last_price": 24.6,
+      "avg_vol_lots": 3381.0,
+      "data_len": 399,
+      "rs_rating": 77.7
+    },
+    {
+      "code": "2891",
+      "name": "中信金",
+      "rs_ratio": 1.1907,
+      "last_price": 52.2,
+      "avg_vol_lots": 28156.0,
+      "data_len": 399,
+      "rs_rating": 77.7
+    },
+    {
+      "code": "3622",
+      "name": "洋華",
+      "rs_ratio": 1.1901,
+      "last_price": 58.1,
+      "avg_vol_lots": 1068.0,
+      "data_len": 399,
+      "rs_rating": 77.6
+    },
+    {
+      "code": "4943",
+      "name": "康控-KY",
+      "rs_ratio": 1.19,
+      "last_price": 11.8,
+      "avg_vol_lots": 34.0,
+      "data_len": 399,
+      "rs_rating": 77.5
+    },
+    {
+      "code": "2211",
+      "name": "長榮鋼",
+      "rs_ratio": 1.1891,
+      "last_price": 100.5,
+      "avg_vol_lots": 1096.0,
+      "data_len": 399,
+      "rs_rating": 77.3
+    },
+    {
+      "code": "2008",
+      "name": "高興昌",
+      "rs_ratio": 1.188,
+      "last_price": 29.8,
+      "avg_vol_lots": 21.0,
+      "data_len": 399,
+      "rs_rating": 77.2
+    },
+    {
+      "code": "3419",
+      "name": "譁裕",
+      "rs_ratio": 1.1875,
+      "last_price": 15.3,
+      "avg_vol_lots": 366.0,
+      "data_len": 399,
+      "rs_rating": 77.1
+    },
+    {
+      "code": "4912",
+      "name": "聯德控股-KY",
+      "rs_ratio": 1.1823,
+      "last_price": 87.8,
+      "avg_vol_lots": 1062.0,
+      "data_len": 399,
+      "rs_rating": 77.0
+    },
+    {
+      "code": "4916",
+      "name": "事欣科",
+      "rs_ratio": 1.1802,
+      "last_price": 60.2,
+      "avg_vol_lots": 13062.0,
+      "data_len": 399,
+      "rs_rating": 76.9
+    },
+    {
+      "code": "1517",
+      "name": "利奇",
+      "rs_ratio": 1.1801,
+      "last_price": 11.8,
+      "avg_vol_lots": 749.0,
+      "data_len": 399,
+      "rs_rating": 76.8
+    },
+    {
+      "code": "1714",
+      "name": "和桐",
+      "rs_ratio": 1.18,
+      "last_price": 9.2,
+      "avg_vol_lots": 3989.0,
+      "data_len": 399,
+      "rs_rating": 76.7
+    },
+    {
+      "code": "2883",
+      "name": "凱基金",
+      "rs_ratio": 1.1799,
+      "last_price": 19.2,
+      "avg_vol_lots": 47957.0,
+      "data_len": 399,
+      "rs_rating": 76.6
+    },
+    {
+      "code": "1215",
+      "name": "卜蜂",
+      "rs_ratio": 1.1772,
+      "last_price": 148.5,
+      "avg_vol_lots": 806.0,
+      "data_len": 399,
+      "rs_rating": 76.5
+    },
+    {
+      "code": "3380",
+      "name": "明泰",
+      "rs_ratio": 1.1757,
+      "last_price": 30.1,
+      "avg_vol_lots": 3629.0,
+      "data_len": 399,
+      "rs_rating": 76.4
+    },
+    {
+      "code": "6205",
+      "name": "詮欣",
+      "rs_ratio": 1.1746,
+      "last_price": 48.6,
+      "avg_vol_lots": 1087.0,
+      "data_len": 399,
+      "rs_rating": 76.3
+    },
+    {
+      "code": "6196",
+      "name": "帆宣",
+      "rs_ratio": 1.1741,
+      "last_price": 263.0,
+      "avg_vol_lots": 2679.0,
+      "data_len": 399,
+      "rs_rating": 76.1
+    },
+    {
+      "code": "6213",
+      "name": "聯茂",
+      "rs_ratio": 1.1741,
+      "last_price": 121.0,
+      "avg_vol_lots": 12101.0,
+      "data_len": 399,
+      "rs_rating": 76.1
+    },
+    {
+      "code": "2007",
+      "name": "燁興",
+      "rs_ratio": 1.1724,
+      "last_price": 8.3,
+      "avg_vol_lots": 854.0,
+      "data_len": 399,
+      "rs_rating": 75.9
+    },
+    {
+      "code": "6153",
+      "name": "嘉聯益",
+      "rs_ratio": 1.1707,
+      "last_price": 15.7,
+      "avg_vol_lots": 6038.0,
+      "data_len": 399,
+      "rs_rating": 75.8
+    },
+    {
+      "code": "2374",
+      "name": "佳能",
+      "rs_ratio": 1.169,
+      "last_price": 77.5,
+      "avg_vol_lots": 20882.0,
+      "data_len": 399,
+      "rs_rating": 75.7
+    },
+    {
+      "code": "2637",
+      "name": "慧洋-KY",
+      "rs_ratio": 1.1686,
+      "last_price": 70.2,
+      "avg_vol_lots": 3269.0,
+      "data_len": 399,
+      "rs_rating": 75.6
+    },
+    {
+      "code": "2426",
+      "name": "鼎元",
+      "rs_ratio": 1.1682,
+      "last_price": 18.6,
+      "avg_vol_lots": 2732.0,
+      "data_len": 399,
+      "rs_rating": 75.5
+    },
+    {
+      "code": "4564",
+      "name": "元翎",
+      "rs_ratio": 1.1667,
+      "last_price": 16.5,
+      "avg_vol_lots": 972.0,
+      "data_len": 399,
+      "rs_rating": 75.4
+    },
+    {
+      "code": "2444",
+      "name": "兆勁",
+      "rs_ratio": 1.1667,
+      "last_price": 12.4,
+      "avg_vol_lots": 1423.0,
+      "data_len": 399,
+      "rs_rating": 75.4
+    },
+    {
+      "code": "2606",
+      "name": "裕民",
+      "rs_ratio": 1.1639,
+      "last_price": 62.6,
+      "avg_vol_lots": 7446.0,
+      "data_len": 399,
+      "rs_rating": 75.2
+    },
+    {
+      "code": "4439",
+      "name": "冠星-KY",
+      "rs_ratio": 1.1638,
+      "last_price": 102.0,
+      "avg_vol_lots": 20.0,
+      "data_len": 399,
+      "rs_rating": 75.1
+    },
+    {
+      "code": "2428",
+      "name": "興勤",
+      "rs_ratio": 1.1637,
+      "last_price": 173.5,
+      "avg_vol_lots": 516.0,
+      "data_len": 399,
+      "rs_rating": 75.0
+    },
+    {
+      "code": "2731",
+      "name": "雄獅",
+      "rs_ratio": 1.1621,
+      "last_price": 175.5,
+      "avg_vol_lots": 965.0,
+      "data_len": 399,
+      "rs_rating": 74.9
+    },
+    {
+      "code": "6794",
+      "name": "向榮生技",
+      "rs_ratio": 1.1597,
+      "last_price": 87.0,
+      "avg_vol_lots": 51.0,
+      "data_len": 400,
+      "rs_rating": 74.8
+    },
+    {
+      "code": "8028",
+      "name": "昇陽半導體",
+      "rs_ratio": 1.1586,
+      "last_price": 167.0,
+      "avg_vol_lots": 5031.0,
+      "data_len": 399,
+      "rs_rating": 74.6
+    },
+    {
+      "code": "4739",
+      "name": "康普",
+      "rs_ratio": 1.1581,
+      "last_price": 68.0,
+      "avg_vol_lots": 1894.0,
+      "data_len": 399,
+      "rs_rating": 74.5
+    },
+    {
+      "code": "6168",
+      "name": "宏齊",
+      "rs_ratio": 1.1579,
+      "last_price": 20.1,
+      "avg_vol_lots": 2967.0,
+      "data_len": 399,
+      "rs_rating": 74.4
+    },
+    {
+      "code": "3046",
+      "name": "建碁",
+      "rs_ratio": 1.1573,
+      "last_price": 48.7,
+      "avg_vol_lots": 382.0,
+      "data_len": 399,
+      "rs_rating": 74.3
+    },
+    {
+      "code": "8463",
+      "name": "潤泰材",
+      "rs_ratio": 1.153,
+      "last_price": 27.0,
+      "avg_vol_lots": 69.0,
+      "data_len": 399,
+      "rs_rating": 74.2
+    },
+    {
+      "code": "4807",
+      "name": "日成-KY",
+      "rs_ratio": 1.1511,
+      "last_price": 17.6,
+      "avg_vol_lots": 11.0,
+      "data_len": 399,
+      "rs_rating": 74.1
+    },
+    {
+      "code": "1432",
+      "name": "大魯閣",
+      "rs_ratio": 1.1506,
+      "last_price": 19.1,
+      "avg_vol_lots": 372.0,
+      "data_len": 399,
+      "rs_rating": 73.9
+    },
+    {
+      "code": "6177",
+      "name": "達麗",
+      "rs_ratio": 1.1506,
+      "last_price": 48.4,
+      "avg_vol_lots": 1288.0,
+      "data_len": 399,
+      "rs_rating": 73.9
+    },
+    {
+      "code": "1409",
+      "name": "新纖",
+      "rs_ratio": 1.1487,
+      "last_price": 15.3,
+      "avg_vol_lots": 4421.0,
+      "data_len": 399,
+      "rs_rating": 73.8
+    },
+    {
+      "code": "2049",
+      "name": "上銀",
+      "rs_ratio": 1.1483,
+      "last_price": 232.0,
+      "avg_vol_lots": 8217.0,
+      "data_len": 399,
+      "rs_rating": 73.7
+    },
+    {
+      "code": "2324",
+      "name": "仁寶",
+      "rs_ratio": 1.1472,
+      "last_price": 30.6,
+      "avg_vol_lots": 47620.0,
+      "data_len": 399,
+      "rs_rating": 73.6
+    },
+    {
+      "code": "2402",
+      "name": "毅嘉",
+      "rs_ratio": 1.1464,
+      "last_price": 53.0,
+      "avg_vol_lots": 6142.0,
+      "data_len": 399,
+      "rs_rating": 73.5
+    },
+    {
+      "code": "8499",
+      "name": "鼎炫-KY",
+      "rs_ratio": 1.1456,
+      "last_price": 277.0,
+      "avg_vol_lots": 178.0,
+      "data_len": 399,
+      "rs_rating": 73.4
+    },
+    {
+      "code": "5222",
+      "name": "全訊",
+      "rs_ratio": 1.144,
+      "last_price": 133.5,
+      "avg_vol_lots": 1306.0,
+      "data_len": 399,
+      "rs_rating": 73.2
+    },
+    {
+      "code": "2421",
+      "name": "建準",
+      "rs_ratio": 1.1429,
+      "last_price": 144.5,
+      "avg_vol_lots": 2172.0,
+      "data_len": 399,
+      "rs_rating": 73.1
+    },
+    {
+      "code": "2436",
+      "name": "偉詮電",
+      "rs_ratio": 1.1404,
+      "last_price": 59.4,
+      "avg_vol_lots": 5331.0,
+      "data_len": 399,
+      "rs_rating": 73.0
+    },
+    {
+      "code": "2527",
+      "name": "宏璟",
+      "rs_ratio": 1.1396,
+      "last_price": 29.5,
+      "avg_vol_lots": 397.0,
+      "data_len": 399,
+      "rs_rating": 72.9
+    },
+    {
+      "code": "4540",
+      "name": "全球傳動",
+      "rs_ratio": 1.1356,
+      "last_price": 47.8,
+      "avg_vol_lots": 6534.0,
+      "data_len": 399,
+      "rs_rating": 72.8
+    },
+    {
+      "code": "2248",
+      "name": "華勝-KY",
+      "rs_ratio": 1.1347,
+      "last_price": 48.2,
+      "avg_vol_lots": 22.0,
+      "data_len": 235,
+      "rs_rating": 72.7
+    },
+    {
+      "code": "2345",
+      "name": "智邦",
+      "rs_ratio": 1.134,
+      "last_price": 1450.0,
+      "avg_vol_lots": 4939.0,
+      "data_len": 399,
+      "rs_rating": 72.6
+    },
+    {
+      "code": "2634",
+      "name": "漢翔",
+      "rs_ratio": 1.133,
+      "last_price": 54.4,
+      "avg_vol_lots": 11675.0,
+      "data_len": 399,
+      "rs_rating": 72.5
+    },
+    {
+      "code": "2501",
+      "name": "國建",
+      "rs_ratio": 1.132,
+      "last_price": 22.5,
+      "avg_vol_lots": 1572.0,
+      "data_len": 399,
+      "rs_rating": 72.4
+    },
+    {
+      "code": "2911",
+      "name": "麗嬰房",
+      "rs_ratio": 1.1317,
+      "last_price": 5.1,
+      "avg_vol_lots": 36.0,
+      "data_len": 399,
+      "rs_rating": 72.3
+    },
+    {
+      "code": "2243",
+      "name": "宏旭-KY",
+      "rs_ratio": 1.1304,
+      "last_price": 11.9,
+      "avg_vol_lots": 236.0,
+      "data_len": 399,
+      "rs_rating": 72.2
+    },
+    {
+      "code": "2351",
+      "name": "順德",
+      "rs_ratio": 1.1295,
+      "last_price": 86.0,
+      "avg_vol_lots": 3226.0,
+      "data_len": 399,
+      "rs_rating": 72.1
+    },
+    {
+      "code": "2464",
+      "name": "盟立",
+      "rs_ratio": 1.1285,
+      "last_price": 71.1,
+      "avg_vol_lots": 9045.0,
+      "data_len": 399,
+      "rs_rating": 72.0
+    },
+    {
+      "code": "2233",
+      "name": "宇隆",
+      "rs_ratio": 1.1283,
+      "last_price": 223.0,
+      "avg_vol_lots": 3888.0,
+      "data_len": 399,
+      "rs_rating": 71.8
+    },
+    {
+      "code": "1526",
+      "name": "日馳",
+      "rs_ratio": 1.128,
+      "last_price": 20.1,
+      "avg_vol_lots": 708.0,
+      "data_len": 399,
+      "rs_rating": 71.7
+    },
+    {
+      "code": "5288",
+      "name": "豐祥-KY",
+      "rs_ratio": 1.128,
+      "last_price": 151.0,
+      "avg_vol_lots": 219.0,
+      "data_len": 399,
+      "rs_rating": 71.7
+    },
+    {
+      "code": "2535",
+      "name": "達欣工",
+      "rs_ratio": 1.1272,
+      "last_price": 71.0,
+      "avg_vol_lots": 422.0,
+      "data_len": 399,
+      "rs_rating": 71.5
+    },
+    {
+      "code": "2851",
+      "name": "中再保",
+      "rs_ratio": 1.125,
+      "last_price": 27.5,
+      "avg_vol_lots": 997.0,
+      "data_len": 399,
+      "rs_rating": 71.4
+    },
+    {
+      "code": "6672",
+      "name": "騰輝電子-KY",
+      "rs_ratio": 1.1225,
+      "last_price": 94.6,
+      "avg_vol_lots": 2821.0,
+      "data_len": 399,
+      "rs_rating": 71.3
+    },
+    {
+      "code": "6525",
+      "name": "捷敏-KY",
+      "rs_ratio": 1.1222,
+      "last_price": 79.6,
+      "avg_vol_lots": 247.0,
+      "data_len": 399,
+      "rs_rating": 71.2
+    },
+    {
+      "code": "5007",
+      "name": "三星",
+      "rs_ratio": 1.121,
+      "last_price": 59.2,
+      "avg_vol_lots": 168.0,
+      "data_len": 399,
+      "rs_rating": 71.1
+    },
+    {
+      "code": "8404",
+      "name": "百和興業-KY",
+      "rs_ratio": 1.1198,
+      "last_price": 23.6,
+      "avg_vol_lots": 540.0,
+      "data_len": 399,
+      "rs_rating": 71.0
+    },
+    {
+      "code": "2548",
+      "name": "華固",
+      "rs_ratio": 1.1192,
+      "last_price": 108.5,
+      "avg_vol_lots": 712.0,
+      "data_len": 399,
+      "rs_rating": 70.9
+    },
+    {
+      "code": "1342",
+      "name": "八貫",
+      "rs_ratio": 1.117,
+      "last_price": 100.5,
+      "avg_vol_lots": 473.0,
+      "data_len": 399,
+      "rs_rating": 70.8
+    },
+    {
+      "code": "2347",
+      "name": "聯強",
+      "rs_ratio": 1.1164,
+      "last_price": 68.7,
+      "avg_vol_lots": 4942.0,
+      "data_len": 399,
+      "rs_rating": 70.7
+    },
+    {
+      "code": "6931",
+      "name": "青松健康",
+      "rs_ratio": 1.1145,
+      "last_price": 54.3,
+      "avg_vol_lots": 296.0,
+      "data_len": 399,
+      "rs_rating": 70.6
+    },
+    {
+      "code": "2006",
+      "name": "東和鋼鐵",
+      "rs_ratio": 1.1141,
+      "last_price": 72.0,
+      "avg_vol_lots": 1602.0,
+      "data_len": 399,
+      "rs_rating": 70.4
+    },
+    {
+      "code": "6937",
+      "name": "天虹",
+      "rs_ratio": 1.1127,
+      "last_price": 220.0,
+      "avg_vol_lots": 404.0,
+      "data_len": 399,
+      "rs_rating": 70.3
+    },
+    {
+      "code": "2832",
+      "name": "台產",
+      "rs_ratio": 1.1099,
+      "last_price": 48.9,
+      "avg_vol_lots": 190.0,
+      "data_len": 399,
+      "rs_rating": 70.2
+    },
+    {
+      "code": "6192",
+      "name": "巨路",
+      "rs_ratio": 1.1091,
+      "last_price": 122.0,
+      "avg_vol_lots": 389.0,
+      "data_len": 399,
+      "rs_rating": 70.1
+    },
+    {
+      "code": "1314",
+      "name": "中石化",
+      "rs_ratio": 1.1074,
+      "last_price": 7.9,
+      "avg_vol_lots": 21796.0,
+      "data_len": 399,
+      "rs_rating": 70.0
+    },
+    {
+      "code": "5434",
+      "name": "崇越",
+      "rs_ratio": 1.1072,
+      "last_price": 321.0,
+      "avg_vol_lots": 737.0,
+      "data_len": 399,
+      "rs_rating": 69.9
+    },
+    {
+      "code": "1720",
+      "name": "生達",
+      "rs_ratio": 1.1062,
+      "last_price": 60.7,
+      "avg_vol_lots": 224.0,
+      "data_len": 399,
+      "rs_rating": 69.8
+    },
+    {
+      "code": "2509",
+      "name": "全坤建",
+      "rs_ratio": 1.1061,
+      "last_price": 14.5,
+      "avg_vol_lots": 197.0,
+      "data_len": 399,
+      "rs_rating": 69.7
+    },
+    {
+      "code": "1104",
+      "name": "環泥",
+      "rs_ratio": 1.1056,
+      "last_price": 29.5,
+      "avg_vol_lots": 507.0,
+      "data_len": 399,
+      "rs_rating": 69.6
+    },
+    {
+      "code": "6988",
+      "name": "威力暘-創",
+      "rs_ratio": 1.105,
+      "last_price": 18.1,
+      "avg_vol_lots": 108.0,
+      "data_len": 320,
+      "rs_rating": 69.5
+    },
+    {
+      "code": "2032",
+      "name": "新鋼",
+      "rs_ratio": 1.1042,
+      "last_price": 16.7,
+      "avg_vol_lots": 1720.0,
+      "data_len": 399,
+      "rs_rating": 69.4
+    },
+    {
+      "code": "2617",
+      "name": "台航",
+      "rs_ratio": 1.1036,
+      "last_price": 30.1,
+      "avg_vol_lots": 836.0,
+      "data_len": 399,
+      "rs_rating": 69.3
+    },
+    {
+      "code": "2317",
+      "name": "鴻海",
+      "rs_ratio": 1.1033,
+      "last_price": 227.0,
+      "avg_vol_lots": 50040.0,
+      "data_len": 399,
+      "rs_rating": 69.1
+    },
+    {
+      "code": "4956",
+      "name": "光鋐",
+      "rs_ratio": 1.1023,
+      "last_price": 24.2,
+      "avg_vol_lots": 6195.0,
+      "data_len": 399,
+      "rs_rating": 69.0
+    },
+    {
+      "code": "4545",
+      "name": "銘鈺",
+      "rs_ratio": 1.1019,
+      "last_price": 33.4,
+      "avg_vol_lots": 444.0,
+      "data_len": 399,
+      "rs_rating": 68.9
+    },
+    {
+      "code": "3530",
+      "name": "晶相光",
+      "rs_ratio": 1.1015,
+      "last_price": 62.9,
+      "avg_vol_lots": 320.0,
+      "data_len": 399,
+      "rs_rating": 68.8
+    },
+    {
+      "code": "2903",
+      "name": "遠百",
+      "rs_ratio": 1.1005,
+      "last_price": 23.0,
+      "avg_vol_lots": 2794.0,
+      "data_len": 399,
+      "rs_rating": 68.7
+    },
+    {
+      "code": "6224",
+      "name": "聚鼎",
+      "rs_ratio": 1.1005,
+      "last_price": 41.3,
+      "avg_vol_lots": 209.0,
+      "data_len": 399,
+      "rs_rating": 68.7
+    },
+    {
+      "code": "5906",
+      "name": "台南-KY",
+      "rs_ratio": 1.0986,
+      "last_price": 52.0,
+      "avg_vol_lots": 23.0,
+      "data_len": 399,
+      "rs_rating": 68.5
+    },
+    {
+      "code": "2401",
+      "name": "凌陽",
+      "rs_ratio": 1.0982,
+      "last_price": 21.5,
+      "avg_vol_lots": 3790.0,
+      "data_len": 399,
+      "rs_rating": 68.4
+    },
+    {
+      "code": "3231",
+      "name": "緯創",
+      "rs_ratio": 1.0979,
+      "last_price": 131.5,
+      "avg_vol_lots": 38293.0,
+      "data_len": 399,
+      "rs_rating": 68.3
+    },
+    {
+      "code": "2316",
+      "name": "楠梓電",
+      "rs_ratio": 1.0965,
+      "last_price": 95.8,
+      "avg_vol_lots": 3164.0,
+      "data_len": 399,
+      "rs_rating": 68.2
+    },
+    {
+      "code": "3550",
+      "name": "聯穎",
+      "rs_ratio": 1.096,
+      "last_price": 19.6,
+      "avg_vol_lots": 7033.0,
+      "data_len": 399,
+      "rs_rating": 68.1
+    },
+    {
+      "code": "2462",
+      "name": "良得電",
+      "rs_ratio": 1.0957,
+      "last_price": 25.0,
+      "avg_vol_lots": 1421.0,
+      "data_len": 399,
+      "rs_rating": 67.9
+    },
+    {
+      "code": "2850",
+      "name": "新產",
+      "rs_ratio": 1.0957,
+      "last_price": 114.0,
+      "avg_vol_lots": 271.0,
+      "data_len": 399,
+      "rs_rating": 67.9
+    },
+    {
+      "code": "2236",
+      "name": "百達-KY",
+      "rs_ratio": 1.0952,
+      "last_price": 112.5,
+      "avg_vol_lots": 310.0,
+      "data_len": 399,
+      "rs_rating": 67.7
+    },
+    {
+      "code": "4108",
+      "name": "懷特",
+      "rs_ratio": 1.0937,
+      "last_price": 14.6,
+      "avg_vol_lots": 274.0,
+      "data_len": 399,
+      "rs_rating": 67.6
+    },
+    {
+      "code": "2838",
+      "name": "聯邦銀",
+      "rs_ratio": 1.0936,
+      "last_price": 19.5,
+      "avg_vol_lots": 2252.0,
+      "data_len": 399,
+      "rs_rating": 67.5
+    },
+    {
+      "code": "3669",
+      "name": "圓展",
+      "rs_ratio": 1.0928,
+      "last_price": 32.8,
+      "avg_vol_lots": 165.0,
+      "data_len": 399,
+      "rs_rating": 67.4
+    },
+    {
+      "code": "3031",
+      "name": "佰鴻",
+      "rs_ratio": 1.0921,
+      "last_price": 20.0,
+      "avg_vol_lots": 555.0,
+      "data_len": 399,
+      "rs_rating": 67.3
+    },
+    {
+      "code": "4994",
+      "name": "傳奇",
+      "rs_ratio": 1.0921,
+      "last_price": 102.0,
+      "avg_vol_lots": 22.0,
+      "data_len": 399,
+      "rs_rating": 67.3
+    },
+    {
+      "code": "2010",
+      "name": "春源",
+      "rs_ratio": 1.092,
+      "last_price": 22.5,
+      "avg_vol_lots": 1963.0,
+      "data_len": 399,
+      "rs_rating": 67.1
+    },
+    {
+      "code": "2460",
+      "name": "建通",
+      "rs_ratio": 1.0916,
+      "last_price": 26.4,
+      "avg_vol_lots": 567.0,
+      "data_len": 399,
+      "rs_rating": 67.0
+    },
+    {
+      "code": "8213",
+      "name": "志超",
+      "rs_ratio": 1.0912,
+      "last_price": 36.3,
+      "avg_vol_lots": 892.0,
+      "data_len": 399,
+      "rs_rating": 66.9
+    },
+    {
+      "code": "2945",
+      "name": "三商家購",
+      "rs_ratio": 1.0908,
+      "last_price": 41.9,
+      "avg_vol_lots": 74.0,
+      "data_len": 399,
+      "rs_rating": 66.8
+    },
+    {
+      "code": "1319",
+      "name": "東陽",
+      "rs_ratio": 1.09,
+      "last_price": 103.0,
+      "avg_vol_lots": 5006.0,
+      "data_len": 399,
+      "rs_rating": 66.7
+    },
+    {
+      "code": "3607",
+      "name": "谷崧",
+      "rs_ratio": 1.0896,
+      "last_price": 13.6,
+      "avg_vol_lots": 379.0,
+      "data_len": 399,
+      "rs_rating": 66.6
+    },
+    {
+      "code": "2881",
+      "name": "富邦金",
+      "rs_ratio": 1.0872,
+      "last_price": 95.2,
+      "avg_vol_lots": 16839.0,
+      "data_len": 399,
+      "rs_rating": 66.5
+    },
+    {
+      "code": "6669",
+      "name": "緯穎",
+      "rs_ratio": 1.0871,
+      "last_price": 3740.0,
+      "avg_vol_lots": 1540.0,
+      "data_len": 399,
+      "rs_rating": 66.3
+    },
+    {
+      "code": "5608",
+      "name": "四維航",
+      "rs_ratio": 1.0871,
+      "last_price": 17.8,
+      "avg_vol_lots": 2479.0,
+      "data_len": 399,
+      "rs_rating": 66.3
+    },
+    {
+      "code": "4755",
+      "name": "三福化",
+      "rs_ratio": 1.0862,
+      "last_price": 125.0,
+      "avg_vol_lots": 544.0,
+      "data_len": 399,
+      "rs_rating": 66.1
+    },
+    {
+      "code": "1308",
+      "name": "亞聚",
+      "rs_ratio": 1.0847,
+      "last_price": 13.4,
+      "avg_vol_lots": 2290.0,
+      "data_len": 399,
+      "rs_rating": 66.0
+    },
+    {
+      "code": "5471",
+      "name": "松翰",
+      "rs_ratio": 1.0831,
+      "last_price": 38.8,
+      "avg_vol_lots": 1122.0,
+      "data_len": 399,
+      "rs_rating": 65.9
+    },
+    {
+      "code": "4720",
+      "name": "德淵",
+      "rs_ratio": 1.0817,
+      "last_price": 16.2,
+      "avg_vol_lots": 908.0,
+      "data_len": 399,
+      "rs_rating": 65.8
+    },
+    {
+      "code": "3257",
+      "name": "虹冠電",
+      "rs_ratio": 1.0814,
+      "last_price": 60.0,
+      "avg_vol_lots": 1117.0,
+      "data_len": 399,
+      "rs_rating": 65.7
+    },
+    {
+      "code": "1712",
+      "name": "興農",
+      "rs_ratio": 1.0785,
+      "last_price": 45.7,
+      "avg_vol_lots": 500.0,
+      "data_len": 399,
+      "rs_rating": 65.6
+    },
+    {
+      "code": "3406",
+      "name": "玉晶光",
+      "rs_ratio": 1.0774,
+      "last_price": 429.5,
+      "avg_vol_lots": 750.0,
+      "data_len": 399,
+      "rs_rating": 65.5
+    },
+    {
+      "code": "6191",
+      "name": "精成科",
+      "rs_ratio": 1.0762,
+      "last_price": 104.0,
+      "avg_vol_lots": 7687.0,
+      "data_len": 399,
+      "rs_rating": 65.4
+    },
+    {
+      "code": "8101",
+      "name": "華冠",
+      "rs_ratio": 1.0753,
+      "last_price": 15.3,
+      "avg_vol_lots": 7.0,
+      "data_len": 399,
+      "rs_rating": 65.3
+    },
+    {
+      "code": "3593",
+      "name": "力銘",
+      "rs_ratio": 1.0742,
+      "last_price": 11.9,
+      "avg_vol_lots": 19.0,
+      "data_len": 399,
+      "rs_rating": 65.2
+    },
+    {
+      "code": "2498",
+      "name": "宏達電",
+      "rs_ratio": 1.0739,
+      "last_price": 44.2,
+      "avg_vol_lots": 7306.0,
+      "data_len": 399,
+      "rs_rating": 65.0
+    },
+    {
+      "code": "2610",
+      "name": "華航",
+      "rs_ratio": 1.0735,
+      "last_price": 22.7,
+      "avg_vol_lots": 36986.0,
+      "data_len": 399,
+      "rs_rating": 64.9
+    },
+    {
+      "code": "4532",
+      "name": "瑞智",
+      "rs_ratio": 1.0723,
+      "last_price": 25.5,
+      "avg_vol_lots": 1310.0,
+      "data_len": 399,
+      "rs_rating": 64.8
+    },
+    {
+      "code": "3591",
+      "name": "艾笛森",
+      "rs_ratio": 1.0722,
+      "last_price": 19.2,
+      "avg_vol_lots": 981.0,
+      "data_len": 399,
+      "rs_rating": 64.7
+    },
+    {
+      "code": "1513",
+      "name": "中興電",
+      "rs_ratio": 1.0722,
+      "last_price": 163.5,
+      "avg_vol_lots": 20056.0,
+      "data_len": 399,
+      "rs_rating": 64.7
+    },
+    {
+      "code": "2356",
+      "name": "英業達",
+      "rs_ratio": 1.0692,
+      "last_price": 45.3,
+      "avg_vol_lots": 40909.0,
+      "data_len": 399,
+      "rs_rating": 64.5
+    },
+    {
+      "code": "3706",
+      "name": "神達",
+      "rs_ratio": 1.069,
+      "last_price": 78.4,
+      "avg_vol_lots": 11815.0,
+      "data_len": 399,
+      "rs_rating": 64.4
+    },
+    {
+      "code": "5538",
+      "name": "東明-KY",
+      "rs_ratio": 1.0688,
+      "last_price": 31.3,
+      "avg_vol_lots": 39.0,
+      "data_len": 399,
+      "rs_rating": 64.3
+    },
+    {
+      "code": "4588",
+      "name": "玖鼎電力",
+      "rs_ratio": 1.0681,
+      "last_price": 65.0,
+      "avg_vol_lots": 318.0,
+      "data_len": 399,
+      "rs_rating": 64.2
+    },
+    {
+      "code": "1460",
+      "name": "宏遠",
+      "rs_ratio": 1.068,
+      "last_price": 6.8,
+      "avg_vol_lots": 729.0,
+      "data_len": 399,
+      "rs_rating": 64.1
+    },
+    {
+      "code": "3038",
+      "name": "全台",
+      "rs_ratio": 1.0676,
+      "last_price": 22.8,
+      "avg_vol_lots": 400.0,
+      "data_len": 399,
+      "rs_rating": 64.0
+    },
+    {
+      "code": "2034",
+      "name": "允強",
+      "rs_ratio": 1.0675,
+      "last_price": 21.1,
+      "avg_vol_lots": 3194.0,
+      "data_len": 399,
+      "rs_rating": 63.9
+    },
+    {
+      "code": "3437",
+      "name": "榮創",
+      "rs_ratio": 1.0673,
+      "last_price": 15.4,
+      "avg_vol_lots": 2143.0,
+      "data_len": 399,
+      "rs_rating": 63.8
+    },
+    {
+      "code": "2546",
+      "name": "根基",
+      "rs_ratio": 1.0666,
+      "last_price": 86.0,
+      "avg_vol_lots": 110.0,
+      "data_len": 399,
+      "rs_rating": 63.6
+    },
+    {
+      "code": "6606",
+      "name": "建德工業",
+      "rs_ratio": 1.0663,
+      "last_price": 25.4,
+      "avg_vol_lots": 155.0,
+      "data_len": 399,
+      "rs_rating": 63.5
+    },
+    {
+      "code": "2002",
+      "name": "中鋼",
+      "rs_ratio": 1.0662,
+      "last_price": 20.9,
+      "avg_vol_lots": 79964.0,
+      "data_len": 399,
+      "rs_rating": 63.4
+    },
+    {
+      "code": "1414",
+      "name": "東和",
+      "rs_ratio": 1.0662,
+      "last_price": 19.9,
+      "avg_vol_lots": 443.0,
+      "data_len": 399,
+      "rs_rating": 63.4
+    },
+    {
+      "code": "3051",
+      "name": "力特",
+      "rs_ratio": 1.064,
+      "last_price": 22.1,
+      "avg_vol_lots": 3135.0,
+      "data_len": 399,
+      "rs_rating": 63.2
+    },
+    {
+      "code": "4106",
+      "name": "雃博",
+      "rs_ratio": 1.0639,
+      "last_price": 23.1,
+      "avg_vol_lots": 125.0,
+      "data_len": 399,
+      "rs_rating": 63.1
+    },
+    {
+      "code": "4904",
+      "name": "遠傳",
+      "rs_ratio": 1.0638,
+      "last_price": 91.9,
+      "avg_vol_lots": 5071.0,
+      "data_len": 399,
+      "rs_rating": 63.0
+    },
+    {
+      "code": "3167",
+      "name": "大量",
+      "rs_ratio": 1.0623,
+      "last_price": 271.5,
+      "avg_vol_lots": 6902.0,
+      "data_len": 399,
+      "rs_rating": 62.9
+    },
+    {
+      "code": "6235",
+      "name": "華孚",
+      "rs_ratio": 1.0613,
+      "last_price": 58.0,
+      "avg_vol_lots": 860.0,
+      "data_len": 399,
+      "rs_rating": 62.8
+    },
+    {
+      "code": "1521",
+      "name": "大億",
+      "rs_ratio": 1.0609,
+      "last_price": 27.0,
+      "avg_vol_lots": 145.0,
+      "data_len": 399,
+      "rs_rating": 62.7
+    },
+    {
+      "code": "2496",
+      "name": "卓越",
+      "rs_ratio": 1.0605,
+      "last_price": 69.3,
+      "avg_vol_lots": 26.0,
+      "data_len": 399,
+      "rs_rating": 62.6
+    },
+    {
+      "code": "4142",
+      "name": "國光生",
+      "rs_ratio": 1.06,
+      "last_price": 18.0,
+      "avg_vol_lots": 3114.0,
+      "data_len": 399,
+      "rs_rating": 62.5
+    },
+    {
+      "code": "3030",
+      "name": "德律",
+      "rs_ratio": 1.0595,
+      "last_price": 185.0,
+      "avg_vol_lots": 3348.0,
+      "data_len": 399,
+      "rs_rating": 62.4
+    },
+    {
+      "code": "2415",
+      "name": "錩新",
+      "rs_ratio": 1.0592,
+      "last_price": 28.0,
+      "avg_vol_lots": 155.0,
+      "data_len": 399,
+      "rs_rating": 62.2
+    },
+    {
+      "code": "1808",
+      "name": "潤隆",
+      "rs_ratio": 1.059,
+      "last_price": 31.8,
+      "avg_vol_lots": 1272.0,
+      "data_len": 399,
+      "rs_rating": 62.1
+    },
+    {
+      "code": "2028",
+      "name": "威致",
+      "rs_ratio": 1.0574,
+      "last_price": 18.8,
+      "avg_vol_lots": 571.0,
+      "data_len": 399,
+      "rs_rating": 62.0
+    },
+    {
+      "code": "3058",
+      "name": "立德",
+      "rs_ratio": 1.0557,
+      "last_price": 9.8,
+      "avg_vol_lots": 1302.0,
+      "data_len": 399,
+      "rs_rating": 61.9
+    },
+    {
+      "code": "2314",
+      "name": "台揚",
+      "rs_ratio": 1.0552,
+      "last_price": 20.5,
+      "avg_vol_lots": 202.0,
+      "data_len": 399,
+      "rs_rating": 61.8
+    },
+    {
+      "code": "3035",
+      "name": "智原",
+      "rs_ratio": 1.0548,
+      "last_price": 162.0,
+      "avg_vol_lots": 3680.0,
+      "data_len": 399,
+      "rs_rating": 61.7
+    },
+    {
+      "code": "3714",
+      "name": "富采",
+      "rs_ratio": 1.0546,
+      "last_price": 35.7,
+      "avg_vol_lots": 5048.0,
+      "data_len": 399,
+      "rs_rating": 61.6
+    },
+    {
+      "code": "3094",
+      "name": "聯傑",
+      "rs_ratio": 1.0545,
+      "last_price": 24.5,
+      "avg_vol_lots": 687.0,
+      "data_len": 399,
+      "rs_rating": 61.5
+    },
+    {
+      "code": "6416",
+      "name": "瑞祺電通",
+      "rs_ratio": 1.0542,
+      "last_price": 80.8,
+      "avg_vol_lots": 229.0,
+      "data_len": 399,
+      "rs_rating": 61.4
+    },
+    {
+      "code": "2459",
+      "name": "敦吉",
+      "rs_ratio": 1.0541,
+      "last_price": 66.0,
+      "avg_vol_lots": 67.0,
+      "data_len": 399,
+      "rs_rating": 61.3
+    },
+    {
+      "code": "6835",
+      "name": "圓裕",
+      "rs_ratio": 1.054,
+      "last_price": 40.0,
+      "avg_vol_lots": 109.0,
+      "data_len": 399,
+      "rs_rating": 61.2
+    },
+    {
+      "code": "2816",
+      "name": "旺旺保",
+      "rs_ratio": 1.0538,
+      "last_price": 28.9,
+      "avg_vol_lots": 121.0,
+      "data_len": 399,
+      "rs_rating": 61.1
+    },
+    {
+      "code": "6902",
+      "name": "GOGOLOOK",
+      "rs_ratio": 1.0531,
+      "last_price": 78.9,
+      "avg_vol_lots": 46.0,
+      "data_len": 376,
+      "rs_rating": 60.9
+    },
+    {
+      "code": "4942",
+      "name": "嘉彰",
+      "rs_ratio": 1.0529,
+      "last_price": 37.6,
+      "avg_vol_lots": 127.0,
+      "data_len": 399,
+      "rs_rating": 60.8
+    },
+    {
+      "code": "5519",
+      "name": "隆大",
+      "rs_ratio": 1.0515,
+      "last_price": 30.9,
+      "avg_vol_lots": 310.0,
+      "data_len": 399,
+      "rs_rating": 60.7
+    },
+    {
+      "code": "2025",
+      "name": "千興",
+      "rs_ratio": 1.0498,
+      "last_price": 12.1,
+      "avg_vol_lots": 479.0,
+      "data_len": 395,
+      "rs_rating": 60.6
+    },
+    {
+      "code": "1603",
+      "name": "華電",
+      "rs_ratio": 1.049,
+      "last_price": 37.9,
+      "avg_vol_lots": 1057.0,
+      "data_len": 399,
+      "rs_rating": 60.5
+    },
+    {
+      "code": "2321",
+      "name": "東訊",
+      "rs_ratio": 1.049,
+      "last_price": 16.5,
+      "avg_vol_lots": 6.0,
+      "data_len": 399,
+      "rs_rating": 60.5
+    },
+    {
+      "code": "3454",
+      "name": "晶睿",
+      "rs_ratio": 1.0487,
+      "last_price": 99.2,
+      "avg_vol_lots": 131.0,
+      "data_len": 399,
+      "rs_rating": 60.3
+    },
+    {
+      "code": "6834",
+      "name": "天二科技",
+      "rs_ratio": 1.0464,
+      "last_price": 30.1,
+      "avg_vol_lots": 1488.0,
+      "data_len": 399,
+      "rs_rating": 60.2
+    },
+    {
+      "code": "1713",
+      "name": "國化",
+      "rs_ratio": 1.046,
+      "last_price": 47.5,
+      "avg_vol_lots": 692.0,
+      "data_len": 399,
+      "rs_rating": 60.1
+    },
+    {
+      "code": "2852",
+      "name": "第一保",
+      "rs_ratio": 1.0441,
+      "last_price": 27.2,
+      "avg_vol_lots": 398.0,
+      "data_len": 399,
+      "rs_rating": 60.0
+    },
+    {
+      "code": "6579",
+      "name": "研揚",
+      "rs_ratio": 1.0437,
+      "last_price": 113.5,
+      "avg_vol_lots": 216.0,
+      "data_len": 399,
+      "rs_rating": 59.9
+    },
+    {
+      "code": "3050",
+      "name": "鈺德",
+      "rs_ratio": 1.0435,
+      "last_price": 12.9,
+      "avg_vol_lots": 1401.0,
+      "data_len": 399,
+      "rs_rating": 59.8
+    },
+    {
+      "code": "1903",
+      "name": "士紙",
+      "rs_ratio": 1.0432,
+      "last_price": 55.3,
+      "avg_vol_lots": 389.0,
+      "data_len": 399,
+      "rs_rating": 59.7
+    },
+    {
+      "code": "1617",
+      "name": "榮星",
+      "rs_ratio": 1.0418,
+      "last_price": 16.0,
+      "avg_vol_lots": 782.0,
+      "data_len": 399,
+      "rs_rating": 59.5
+    },
+    {
+      "code": "3209",
+      "name": "全科",
+      "rs_ratio": 1.0417,
+      "last_price": 37.4,
+      "avg_vol_lots": 1343.0,
+      "data_len": 399,
+      "rs_rating": 59.3
+    },
+    {
+      "code": "1476",
+      "name": "儒鴻",
+      "rs_ratio": 1.0417,
+      "last_price": 426.0,
+      "avg_vol_lots": 776.0,
+      "data_len": 399,
+      "rs_rating": 59.3
+    },
+    {
+      "code": "2434",
+      "name": "統懋",
+      "rs_ratio": 1.0417,
+      "last_price": 29.8,
+      "avg_vol_lots": 33.0,
+      "data_len": 399,
+      "rs_rating": 59.3
+    },
+    {
+      "code": "6024",
+      "name": "群益期",
+      "rs_ratio": 1.0416,
+      "last_price": 52.3,
+      "avg_vol_lots": 319.0,
+      "data_len": 399,
+      "rs_rating": 59.1
+    },
+    {
+      "code": "3673",
+      "name": "TPK-KY",
+      "rs_ratio": 1.0413,
+      "last_price": 38.8,
+      "avg_vol_lots": 1958.0,
+      "data_len": 399,
+      "rs_rating": 59.0
+    },
+    {
+      "code": "2497",
+      "name": "怡利電",
+      "rs_ratio": 1.0406,
+      "last_price": 45.1,
+      "avg_vol_lots": 448.0,
+      "data_len": 399,
+      "rs_rating": 58.9
+    },
+    {
+      "code": "3296",
+      "name": "勝德",
+      "rs_ratio": 1.0405,
+      "last_price": 23.8,
+      "avg_vol_lots": 133.0,
+      "data_len": 399,
+      "rs_rating": 58.8
+    },
+    {
+      "code": "6277",
+      "name": "宏正",
+      "rs_ratio": 1.0399,
+      "last_price": 60.0,
+      "avg_vol_lots": 127.0,
+      "data_len": 399,
+      "rs_rating": 58.7
+    },
+    {
+      "code": "2038",
+      "name": "海光",
+      "rs_ratio": 1.0395,
+      "last_price": 15.6,
+      "avg_vol_lots": 2501.0,
+      "data_len": 399,
+      "rs_rating": 58.6
+    },
+    {
+      "code": "5522",
+      "name": "遠雄",
+      "rs_ratio": 1.0391,
+      "last_price": 67.7,
+      "avg_vol_lots": 770.0,
+      "data_len": 399,
+      "rs_rating": 58.5
+    },
+    {
+      "code": "4952",
+      "name": "凌通",
+      "rs_ratio": 1.0387,
+      "last_price": 40.8,
+      "avg_vol_lots": 533.0,
+      "data_len": 399,
+      "rs_rating": 58.4
+    },
+    {
+      "code": "2801",
+      "name": "彰銀",
+      "rs_ratio": 1.0381,
+      "last_price": 20.8,
+      "avg_vol_lots": 16128.0,
+      "data_len": 399,
+      "rs_rating": 58.3
+    },
+    {
+      "code": "4949",
+      "name": "有成精密",
+      "rs_ratio": 1.0365,
+      "last_price": 44.0,
+      "avg_vol_lots": 2619.0,
+      "data_len": 400,
+      "rs_rating": 58.1
+    },
+    {
+      "code": "1773",
+      "name": "勝一",
+      "rs_ratio": 1.0364,
+      "last_price": 146.0,
+      "avg_vol_lots": 1066.0,
+      "data_len": 399,
+      "rs_rating": 58.0
+    },
+    {
+      "code": "1710",
+      "name": "東聯",
+      "rs_ratio": 1.0357,
+      "last_price": 12.6,
+      "avg_vol_lots": 3593.0,
+      "data_len": 399,
+      "rs_rating": 57.9
+    },
+    {
+      "code": "2338",
+      "name": "光罩",
+      "rs_ratio": 1.0356,
+      "last_price": 33.7,
+      "avg_vol_lots": 2627.0,
+      "data_len": 399,
+      "rs_rating": 57.8
+    },
+    {
+      "code": "1305",
+      "name": "華夏",
+      "rs_ratio": 1.0351,
+      "last_price": 11.9,
+      "avg_vol_lots": 4320.0,
+      "data_len": 399,
+      "rs_rating": 57.7
+    },
+    {
+      "code": "2033",
+      "name": "佳大",
+      "rs_ratio": 1.0341,
+      "last_price": 16.4,
+      "avg_vol_lots": 253.0,
+      "data_len": 399,
+      "rs_rating": 57.6
+    },
+    {
+      "code": "3356",
+      "name": "奇偶",
+      "rs_ratio": 1.0333,
+      "last_price": 46.5,
+      "avg_vol_lots": 513.0,
+      "data_len": 399,
+      "rs_rating": 57.5
+    },
+    {
+      "code": "4583",
+      "name": "台灣精銳",
+      "rs_ratio": 1.033,
+      "last_price": 689.0,
+      "avg_vol_lots": 450.0,
+      "data_len": 399,
+      "rs_rating": 57.4
+    },
+    {
+      "code": "2108",
+      "name": "南帝",
+      "rs_ratio": 1.0322,
+      "last_price": 24.0,
+      "avg_vol_lots": 949.0,
+      "data_len": 399,
+      "rs_rating": 57.3
+    },
+    {
+      "code": "2889",
+      "name": "國票金",
+      "rs_ratio": 1.0314,
+      "last_price": 17.2,
+      "avg_vol_lots": 4338.0,
+      "data_len": 399,
+      "rs_rating": 57.2
+    },
+    {
+      "code": "2645",
+      "name": "長榮航太",
+      "rs_ratio": 1.0309,
+      "last_price": 164.5,
+      "avg_vol_lots": 4815.0,
+      "data_len": 399,
+      "rs_rating": 57.1
+    },
+    {
+      "code": "2597",
+      "name": "潤弘",
+      "rs_ratio": 1.0307,
+      "last_price": 170.5,
+      "avg_vol_lots": 297.0,
+      "data_len": 399,
+      "rs_rating": 57.0
+    },
+    {
+      "code": "1568",
+      "name": "倉佑",
+      "rs_ratio": 1.0306,
+      "last_price": 22.6,
+      "avg_vol_lots": 406.0,
+      "data_len": 399,
+      "rs_rating": 56.8
+    },
+    {
+      "code": "8081",
+      "name": "致新",
+      "rs_ratio": 1.0306,
+      "last_price": 241.0,
+      "avg_vol_lots": 768.0,
+      "data_len": 399,
+      "rs_rating": 56.8
+    },
+    {
+      "code": "1539",
+      "name": "巨庭",
+      "rs_ratio": 1.0304,
+      "last_price": 18.0,
+      "avg_vol_lots": 451.0,
+      "data_len": 399,
+      "rs_rating": 56.6
+    },
+    {
+      "code": "2836",
+      "name": "高雄銀",
+      "rs_ratio": 1.0299,
+      "last_price": 12.4,
+      "avg_vol_lots": 1434.0,
+      "data_len": 399,
+      "rs_rating": 56.5
+    },
+    {
+      "code": "3062",
+      "name": "建漢",
+      "rs_ratio": 1.0295,
+      "last_price": 25.4,
+      "avg_vol_lots": 4652.0,
+      "data_len": 399,
+      "rs_rating": 56.4
+    },
+    {
+      "code": "4960",
+      "name": "誠美材",
+      "rs_ratio": 1.0283,
+      "last_price": 13.4,
+      "avg_vol_lots": 3533.0,
+      "data_len": 399,
+      "rs_rating": 56.3
+    },
+    {
+      "code": "2474",
+      "name": "可成",
+      "rs_ratio": 1.0263,
+      "last_price": 192.5,
+      "avg_vol_lots": 2672.0,
+      "data_len": 399,
+      "rs_rating": 56.2
+    },
+    {
+      "code": "6582",
+      "name": "申豐",
+      "rs_ratio": 1.026,
+      "last_price": 32.3,
+      "avg_vol_lots": 189.0,
+      "data_len": 399,
+      "rs_rating": 56.0
+    },
+    {
+      "code": "6776",
+      "name": "展碁國際",
+      "rs_ratio": 1.026,
+      "last_price": 58.9,
+      "avg_vol_lots": 1926.0,
+      "data_len": 399,
+      "rs_rating": 56.0
+    },
+    {
+      "code": "6719",
+      "name": "力智",
+      "rs_ratio": 1.0255,
+      "last_price": 184.0,
+      "avg_vol_lots": 707.0,
+      "data_len": 399,
+      "rs_rating": 55.8
+    },
+    {
+      "code": "1103",
+      "name": "嘉泥",
+      "rs_ratio": 1.0255,
+      "last_price": 14.1,
+      "avg_vol_lots": 338.0,
+      "data_len": 399,
+      "rs_rating": 55.8
+    },
+    {
+      "code": "4137",
+      "name": "麗豐-KY",
+      "rs_ratio": 1.025,
+      "last_price": 110.0,
+      "avg_vol_lots": 143.0,
+      "data_len": 399,
+      "rs_rating": 55.7
+    },
+    {
+      "code": "6670",
+      "name": "復盛應用",
+      "rs_ratio": 1.0241,
+      "last_price": 265.5,
+      "avg_vol_lots": 346.0,
+      "data_len": 399,
+      "rs_rating": 55.6
+    },
+    {
+      "code": "2382",
+      "name": "廣達",
+      "rs_ratio": 1.0239,
+      "last_price": 286.0,
+      "avg_vol_lots": 14815.0,
+      "data_len": 399,
+      "rs_rating": 55.4
+    },
+    {
+      "code": "5215",
+      "name": "科嘉-KY",
+      "rs_ratio": 1.0231,
+      "last_price": 37.9,
+      "avg_vol_lots": 60.0,
+      "data_len": 399,
+      "rs_rating": 55.3
+    },
+    {
+      "code": "3679",
+      "name": "新至陞",
+      "rs_ratio": 1.0223,
+      "last_price": 114.0,
+      "avg_vol_lots": 42.0,
+      "data_len": 399,
+      "rs_rating": 55.2
+    },
+    {
+      "code": "6136",
+      "name": "富爾特",
+      "rs_ratio": 1.0214,
+      "last_price": 24.1,
+      "avg_vol_lots": 158.0,
+      "data_len": 399,
+      "rs_rating": 55.1
+    },
+    {
+      "code": "2516",
+      "name": "新建",
+      "rs_ratio": 1.0211,
+      "last_price": 14.6,
+      "avg_vol_lots": 310.0,
+      "data_len": 399,
+      "rs_rating": 55.0
+    },
+    {
+      "code": "2488",
+      "name": "漢平",
+      "rs_ratio": 1.0209,
+      "last_price": 47.3,
+      "avg_vol_lots": 160.0,
+      "data_len": 399,
+      "rs_rating": 54.9
+    },
+    {
+      "code": "6951",
+      "name": "青新-創",
+      "rs_ratio": 1.0209,
+      "last_price": 77.4,
+      "avg_vol_lots": 108.0,
+      "data_len": 400,
+      "rs_rating": 54.9
+    },
+    {
+      "code": "2458",
+      "name": "義隆",
+      "rs_ratio": 1.0206,
+      "last_price": 119.0,
+      "avg_vol_lots": 1730.0,
+      "data_len": 399,
+      "rs_rating": 54.7
+    },
+    {
+      "code": "3563",
+      "name": "牧德",
+      "rs_ratio": 1.0189,
+      "last_price": 485.0,
+      "avg_vol_lots": 852.0,
+      "data_len": 399,
+      "rs_rating": 54.6
+    },
+    {
+      "code": "1734",
+      "name": "杏輝",
+      "rs_ratio": 1.0185,
+      "last_price": 30.5,
+      "avg_vol_lots": 228.0,
+      "data_len": 399,
+      "rs_rating": 54.5
+    },
+    {
+      "code": "2059",
+      "name": "川湖",
+      "rs_ratio": 1.0177,
+      "last_price": 3030.0,
+      "avg_vol_lots": 930.0,
+      "data_len": 399,
+      "rs_rating": 54.4
+    },
+    {
+      "code": "3042",
+      "name": "晶技",
+      "rs_ratio": 1.0175,
+      "last_price": 88.1,
+      "avg_vol_lots": 1905.0,
+      "data_len": 399,
+      "rs_rating": 54.3
+    },
+    {
+      "code": "6955",
+      "name": "邦睿生技-創",
+      "rs_ratio": 1.0168,
+      "last_price": 171.5,
+      "avg_vol_lots": 14.0,
+      "data_len": 361,
+      "rs_rating": 54.2
+    },
+    {
+      "code": "2908",
+      "name": "特力",
+      "rs_ratio": 1.015,
+      "last_price": 20.9,
+      "avg_vol_lots": 102.0,
+      "data_len": 399,
+      "rs_rating": 54.0
+    },
+    {
+      "code": "3057",
+      "name": "喬鼎",
+      "rs_ratio": 1.0149,
+      "last_price": 16.0,
+      "avg_vol_lots": 421.0,
+      "data_len": 399,
+      "rs_rating": 53.9
+    },
+    {
+      "code": "2477",
+      "name": "美隆電",
+      "rs_ratio": 1.0148,
+      "last_price": 24.1,
+      "avg_vol_lots": 542.0,
+      "data_len": 399,
+      "rs_rating": 53.8
+    },
+    {
+      "code": "6655",
+      "name": "科定",
+      "rs_ratio": 1.0146,
+      "last_price": 128.5,
+      "avg_vol_lots": 13.0,
+      "data_len": 399,
+      "rs_rating": 53.7
+    },
+    {
+      "code": "4736",
+      "name": "泰博",
+      "rs_ratio": 1.0137,
+      "last_price": 125.5,
+      "avg_vol_lots": 257.0,
+      "data_len": 400,
+      "rs_rating": 53.6
+    },
+    {
+      "code": "5484",
+      "name": "慧友",
+      "rs_ratio": 1.0128,
+      "last_price": 37.8,
+      "avg_vol_lots": 646.0,
+      "data_len": 399,
+      "rs_rating": 53.5
+    },
+    {
+      "code": "2820",
+      "name": "華票",
+      "rs_ratio": 1.0124,
+      "last_price": 17.2,
+      "avg_vol_lots": 1254.0,
+      "data_len": 399,
+      "rs_rating": 53.4
+    },
+    {
+      "code": "4571",
+      "name": "鈞興-KY",
+      "rs_ratio": 1.0111,
+      "last_price": 172.0,
+      "avg_vol_lots": 1037.0,
+      "data_len": 399,
+      "rs_rating": 53.3
+    },
+    {
+      "code": "1423",
+      "name": "利華",
+      "rs_ratio": 1.0106,
+      "last_price": 38.3,
+      "avg_vol_lots": 16.0,
+      "data_len": 399,
+      "rs_rating": 53.2
+    },
+    {
+      "code": "7631",
+      "name": "聚賢研發-創",
+      "rs_ratio": 1.0104,
+      "last_price": 121.0,
+      "avg_vol_lots": 20.0,
+      "data_len": 380,
+      "rs_rating": 53.0
+    },
+    {
+      "code": "6666",
+      "name": "羅麗芬-KY",
+      "rs_ratio": 1.0104,
+      "last_price": 43.5,
+      "avg_vol_lots": 20.0,
+      "data_len": 399,
+      "rs_rating": 53.0
+    },
+    {
+      "code": "1907",
+      "name": "永豐餘",
+      "rs_ratio": 1.01,
+      "last_price": 25.9,
+      "avg_vol_lots": 1005.0,
+      "data_len": 399,
+      "rs_rating": 52.9
+    },
+    {
+      "code": "6108",
+      "name": "競國",
+      "rs_ratio": 1.0098,
+      "last_price": 14.4,
+      "avg_vol_lots": 262.0,
+      "data_len": 399,
+      "rs_rating": 52.8
+    },
+    {
+      "code": "6142",
+      "name": "友勁",
+      "rs_ratio": 1.0092,
+      "last_price": 9.6,
+      "avg_vol_lots": 1013.0,
+      "data_len": 399,
+      "rs_rating": 52.6
+    },
+    {
+      "code": "3432",
+      "name": "台端",
+      "rs_ratio": 1.0089,
+      "last_price": 17.4,
+      "avg_vol_lots": 320.0,
+      "data_len": 399,
+      "rs_rating": 52.5
+    },
+    {
+      "code": "3043",
+      "name": "科風",
+      "rs_ratio": 1.0086,
+      "last_price": 21.5,
+      "avg_vol_lots": 393.0,
+      "data_len": 399,
+      "rs_rating": 52.4
+    },
+    {
+      "code": "1452",
+      "name": "宏益",
+      "rs_ratio": 1.0085,
+      "last_price": 11.7,
+      "avg_vol_lots": 91.0,
+      "data_len": 399,
+      "rs_rating": 52.3
+    },
+    {
+      "code": "1531",
+      "name": "高林股",
+      "rs_ratio": 1.0083,
+      "last_price": 12.4,
+      "avg_vol_lots": 162.0,
+      "data_len": 399,
+      "rs_rating": 52.2
+    },
+    {
+      "code": "2107",
+      "name": "厚生",
+      "rs_ratio": 1.0081,
+      "last_price": 25.2,
+      "avg_vol_lots": 206.0,
+      "data_len": 399,
+      "rs_rating": 52.1
+    },
+    {
+      "code": "4155",
+      "name": "訊映",
+      "rs_ratio": 1.0069,
+      "last_price": 14.1,
+      "avg_vol_lots": 148.0,
+      "data_len": 399,
+      "rs_rating": 52.0
+    },
+    {
+      "code": "2102",
+      "name": "泰豐",
+      "rs_ratio": 1.005,
+      "last_price": 19.8,
+      "avg_vol_lots": 515.0,
+      "data_len": 399,
+      "rs_rating": 51.9
+    },
+    {
+      "code": "3518",
+      "name": "柏騰",
+      "rs_ratio": 1.0047,
+      "last_price": 20.8,
+      "avg_vol_lots": 438.0,
+      "data_len": 399,
+      "rs_rating": 51.8
+    },
+    {
+      "code": "2897",
+      "name": "王道銀行",
+      "rs_ratio": 1.0044,
+      "last_price": 9.7,
+      "avg_vol_lots": 3838.0,
+      "data_len": 399,
+      "rs_rating": 51.7
+    },
+    {
+      "code": "4552",
+      "name": "力達-KY",
+      "rs_ratio": 1.0042,
+      "last_price": 23.5,
+      "avg_vol_lots": 92.0,
+      "data_len": 399,
+      "rs_rating": 51.6
+    },
+    {
+      "code": "2892",
+      "name": "第一金",
+      "rs_ratio": 1.0035,
+      "last_price": 29.5,
+      "avg_vol_lots": 17784.0,
+      "data_len": 399,
+      "rs_rating": 51.5
+    },
+    {
+      "code": "6115",
+      "name": "鎰勝",
+      "rs_ratio": 1.0033,
+      "last_price": 47.2,
+      "avg_vol_lots": 122.0,
+      "data_len": 399,
+      "rs_rating": 51.3
+    },
+    {
+      "code": "1108",
+      "name": "幸福",
+      "rs_ratio": 1.0033,
+      "last_price": 15.1,
+      "avg_vol_lots": 214.0,
+      "data_len": 399,
+      "rs_rating": 51.3
+    },
+    {
+      "code": "1315",
+      "name": "達新",
+      "rs_ratio": 1.003,
+      "last_price": 64.9,
+      "avg_vol_lots": 35.0,
+      "data_len": 399,
+      "rs_rating": 51.1
+    },
+    {
+      "code": "2704",
+      "name": "國賓",
+      "rs_ratio": 1.0023,
+      "last_price": 42.7,
+      "avg_vol_lots": 130.0,
+      "data_len": 399,
+      "rs_rating": 51.0
+    },
+    {
+      "code": "6183",
+      "name": "關貿",
+      "rs_ratio": 1.0022,
+      "last_price": 95.2,
+      "avg_vol_lots": 36.0,
+      "data_len": 399,
+      "rs_rating": 50.9
+    },
+    {
+      "code": "6923",
+      "name": "中台",
+      "rs_ratio": 1.0021,
+      "last_price": 93.2,
+      "avg_vol_lots": 400.0,
+      "data_len": 343,
+      "rs_rating": 50.8
+    },
+    {
+      "code": "2471",
+      "name": "資通",
+      "rs_ratio": 1.002,
+      "last_price": 50.7,
+      "avg_vol_lots": 212.0,
+      "data_len": 399,
+      "rs_rating": 50.7
+    },
+    {
+      "code": "3705",
+      "name": "永信",
+      "rs_ratio": 1.0018,
+      "last_price": 55.3,
+      "avg_vol_lots": 390.0,
+      "data_len": 399,
+      "rs_rating": 50.6
+    },
+    {
+      "code": "2542",
+      "name": "興富發",
+      "rs_ratio": 1.0014,
+      "last_price": 38.8,
+      "avg_vol_lots": 3990.0,
+      "data_len": 399,
+      "rs_rating": 50.5
+    },
+    {
+      "code": "1726",
+      "name": "永記",
+      "rs_ratio": 1.0013,
+      "last_price": 76.5,
+      "avg_vol_lots": 19.0,
+      "data_len": 399,
+      "rs_rating": 50.3
+    },
+    {
+      "code": "5534",
+      "name": "長虹",
+      "rs_ratio": 1.0013,
+      "last_price": 76.8,
+      "avg_vol_lots": 708.0,
+      "data_len": 399,
+      "rs_rating": 50.3
+    },
+    {
+      "code": "4915",
+      "name": "致伸",
+      "rs_ratio": 1.0,
+      "last_price": 81.3,
+      "avg_vol_lots": 2663.0,
+      "data_len": 399,
+      "rs_rating": 50.0
+    },
+    {
+      "code": "2023",
+      "name": "燁輝",
+      "rs_ratio": 1.0,
+      "last_price": 14.9,
+      "avg_vol_lots": 2560.0,
+      "data_len": 399,
+      "rs_rating": 50.0
+    },
+    {
+      "code": "6914",
+      "name": "阜爾運通",
+      "rs_ratio": 1.0,
+      "last_price": 141.0,
+      "avg_vol_lots": 66.0,
+      "data_len": 398,
+      "rs_rating": 50.0
+    },
+    {
+      "code": "1731",
+      "name": "美吾華",
+      "rs_ratio": 1.0,
+      "last_price": 22.0,
+      "avg_vol_lots": 96.0,
+      "data_len": 399,
+      "rs_rating": 50.0
+    },
+    {
+      "code": "9931",
+      "name": "欣高",
+      "rs_ratio": 0.9985,
+      "last_price": 34.2,
+      "avg_vol_lots": 11.0,
+      "data_len": 399,
+      "rs_rating": 49.7
+    },
+    {
+      "code": "3047",
+      "name": "訊舟",
+      "rs_ratio": 0.9976,
+      "last_price": 17.4,
+      "avg_vol_lots": 2134.0,
+      "data_len": 399,
+      "rs_rating": 49.6
+    },
+    {
+      "code": "2204",
+      "name": "中華",
+      "rs_ratio": 0.9964,
+      "last_price": 59.3,
+      "avg_vol_lots": 1167.0,
+      "data_len": 399,
+      "rs_rating": 49.5
+    },
+    {
+      "code": "1611",
+      "name": "中電",
+      "rs_ratio": 0.9962,
+      "last_price": 13.1,
+      "avg_vol_lots": 744.0,
+      "data_len": 399,
+      "rs_rating": 49.4
+    },
+    {
+      "code": "7732",
+      "name": "金興精密",
+      "rs_ratio": 0.996,
+      "last_price": 38.0,
+      "avg_vol_lots": 7.0,
+      "data_len": 399,
+      "rs_rating": 49.3
+    },
+    {
+      "code": "2020",
+      "name": "美亞",
+      "rs_ratio": 0.9959,
+      "last_price": 24.4,
+      "avg_vol_lots": 516.0,
+      "data_len": 399,
+      "rs_rating": 49.2
+    },
+    {
+      "code": "6641",
+      "name": "基士德-KY",
+      "rs_ratio": 0.9954,
+      "last_price": 21.1,
+      "avg_vol_lots": 279.0,
+      "data_len": 399,
+      "rs_rating": 49.0
+    },
+    {
+      "code": "6581",
+      "name": "鋼聯",
+      "rs_ratio": 0.9954,
+      "last_price": 109.0,
+      "avg_vol_lots": 9.0,
+      "data_len": 399,
+      "rs_rating": 49.0
+    },
+    {
+      "code": "6936",
+      "name": "永鴻生技",
+      "rs_ratio": 0.9944,
+      "last_price": 36.1,
+      "avg_vol_lots": 62.0,
+      "data_len": 207,
+      "rs_rating": 48.9
+    },
+    {
+      "code": "2015",
+      "name": "豐興",
+      "rs_ratio": 0.994,
+      "last_price": 67.3,
+      "avg_vol_lots": 273.0,
+      "data_len": 399,
+      "rs_rating": 48.8
+    },
+    {
+      "code": "1558",
+      "name": "伸興",
+      "rs_ratio": 0.9938,
+      "last_price": 95.1,
+      "avg_vol_lots": 37.0,
+      "data_len": 399,
+      "rs_rating": 48.7
+    },
+    {
+      "code": "5306",
+      "name": "桂盟",
+      "rs_ratio": 0.9936,
+      "last_price": 95.0,
+      "avg_vol_lots": 136.0,
+      "data_len": 399,
+      "rs_rating": 48.5
+    },
+    {
+      "code": "6589",
+      "name": "台康生技",
+      "rs_ratio": 0.9936,
+      "last_price": 61.2,
+      "avg_vol_lots": 595.0,
+      "data_len": 147,
+      "rs_rating": 48.5
+    },
+    {
+      "code": "1466",
+      "name": "聚隆",
+      "rs_ratio": 0.9932,
+      "last_price": 17.4,
+      "avg_vol_lots": 800.0,
+      "data_len": 399,
+      "rs_rating": 48.3
+    },
+    {
+      "code": "2910",
+      "name": "統領",
+      "rs_ratio": 0.9929,
+      "last_price": 21.5,
+      "avg_vol_lots": 7.0,
+      "data_len": 399,
+      "rs_rating": 48.2
+    },
+    {
+      "code": "2414",
+      "name": "精技",
+      "rs_ratio": 0.9927,
+      "last_price": 41.8,
+      "avg_vol_lots": 115.0,
+      "data_len": 399,
+      "rs_rating": 48.1
+    },
+    {
+      "code": "2849",
+      "name": "安泰銀",
+      "rs_ratio": 0.9925,
+      "last_price": 13.4,
+      "avg_vol_lots": 81.0,
+      "data_len": 399,
+      "rs_rating": 48.0
+    },
+    {
+      "code": "4555",
+      "name": "氣立",
+      "rs_ratio": 0.9923,
+      "last_price": 38.2,
+      "avg_vol_lots": 166.0,
+      "data_len": 399,
+      "rs_rating": 47.8
+    },
+    {
+      "code": "1817",
+      "name": "凱撒衛",
+      "rs_ratio": 0.9923,
+      "last_price": 38.8,
+      "avg_vol_lots": 39.0,
+      "data_len": 399,
+      "rs_rating": 47.8
+    },
+    {
+      "code": "9907",
+      "name": "統一實",
+      "rs_ratio": 0.9917,
+      "last_price": 18.3,
+      "avg_vol_lots": 2330.0,
+      "data_len": 399,
+      "rs_rating": 47.6
+    },
+    {
+      "code": "4771",
+      "name": "望隼",
+      "rs_ratio": 0.9917,
+      "last_price": 178.0,
+      "avg_vol_lots": 106.0,
+      "data_len": 399,
+      "rs_rating": 47.6
+    },
+    {
+      "code": "3346",
+      "name": "麗清",
+      "rs_ratio": 0.9905,
+      "last_price": 20.8,
+      "avg_vol_lots": 983.0,
+      "data_len": 399,
+      "rs_rating": 47.5
+    },
+    {
+      "code": "2834",
+      "name": "臺企銀",
+      "rs_ratio": 0.9903,
+      "last_price": 15.8,
+      "avg_vol_lots": 17853.0,
+      "data_len": 399,
+      "rs_rating": 47.4
+    },
+    {
+      "code": "1737",
+      "name": "臺鹽",
+      "rs_ratio": 0.9902,
+      "last_price": 31.4,
+      "avg_vol_lots": 93.0,
+      "data_len": 399,
+      "rs_rating": 47.2
+    },
+    {
+      "code": "9908",
+      "name": "大台北",
+      "rs_ratio": 0.99,
+      "last_price": 29.9,
+      "avg_vol_lots": 160.0,
+      "data_len": 399,
+      "rs_rating": 47.1
+    },
+    {
+      "code": "1232",
+      "name": "大統益",
+      "rs_ratio": 0.9899,
+      "last_price": 149.5,
+      "avg_vol_lots": 69.0,
+      "data_len": 399,
+      "rs_rating": 47.0
+    },
+    {
+      "code": "2884",
+      "name": "玉山金",
+      "rs_ratio": 0.9897,
+      "last_price": 34.2,
+      "avg_vol_lots": 30340.0,
+      "data_len": 399,
+      "rs_rating": 46.9
+    },
+    {
+      "code": "2524",
+      "name": "京城",
+      "rs_ratio": 0.9892,
+      "last_price": 41.4,
+      "avg_vol_lots": 135.0,
+      "data_len": 399,
+      "rs_rating": 46.8
+    },
+    {
+      "code": "2701",
+      "name": "萬企",
+      "rs_ratio": 0.9891,
+      "last_price": 11.1,
+      "avg_vol_lots": 101.0,
+      "data_len": 399,
+      "rs_rating": 46.7
+    },
+    {
+      "code": "2412",
+      "name": "中華電",
+      "rs_ratio": 0.9888,
+      "last_price": 133.0,
+      "avg_vol_lots": 9728.0,
+      "data_len": 399,
+      "rs_rating": 46.5
+    },
+    {
+      "code": "1730",
+      "name": "花仙子",
+      "rs_ratio": 0.9888,
+      "last_price": 53.2,
+      "avg_vol_lots": 52.0,
+      "data_len": 399,
+      "rs_rating": 46.5
+    },
+    {
+      "code": "3008",
+      "name": "大立光",
+      "rs_ratio": 0.9887,
+      "last_price": 2290.0,
+      "avg_vol_lots": 646.0,
+      "data_len": 399,
+      "rs_rating": 46.4
+    },
+    {
+      "code": "4919",
+      "name": "新唐",
+      "rs_ratio": 0.9884,
+      "last_price": 60.3,
+      "avg_vol_lots": 6037.0,
+      "data_len": 399,
+      "rs_rating": 46.3
+    },
+    {
+      "code": "1467",
+      "name": "南緯",
+      "rs_ratio": 0.9882,
+      "last_price": 7.4,
+      "avg_vol_lots": 281.0,
+      "data_len": 399,
+      "rs_rating": 46.2
+    },
+    {
+      "code": "3023",
+      "name": "信邦",
+      "rs_ratio": 0.9881,
+      "last_price": 233.0,
+      "avg_vol_lots": 2971.0,
+      "data_len": 399,
+      "rs_rating": 46.0
+    },
+    {
+      "code": "1541",
+      "name": "錩泰",
+      "rs_ratio": 0.9881,
+      "last_price": 25.4,
+      "avg_vol_lots": 217.0,
+      "data_len": 399,
+      "rs_rating": 46.0
+    },
+    {
+      "code": "2027",
+      "name": "大成鋼",
+      "rs_ratio": 0.9861,
+      "last_price": 37.3,
+      "avg_vol_lots": 26781.0,
+      "data_len": 399,
+      "rs_rating": 45.8
+    },
+    {
+      "code": "4438",
+      "name": "廣越",
+      "rs_ratio": 0.9855,
+      "last_price": 68.6,
+      "avg_vol_lots": 99.0,
+      "data_len": 399,
+      "rs_rating": 45.7
+    },
+    {
+      "code": "4581",
+      "name": "光隆精密-KY",
+      "rs_ratio": 0.9846,
+      "last_price": 51.0,
+      "avg_vol_lots": 38.0,
+      "data_len": 399,
+      "rs_rating": 45.6
+    },
+    {
+      "code": "2706",
+      "name": "第一店",
+      "rs_ratio": 0.984,
+      "last_price": 12.9,
+      "avg_vol_lots": 121.0,
+      "data_len": 399,
+      "rs_rating": 45.5
+    },
+    {
+      "code": "1459",
+      "name": "聯發",
+      "rs_ratio": 0.9832,
+      "last_price": 11.9,
+      "avg_vol_lots": 121.0,
+      "data_len": 399,
+      "rs_rating": 45.4
+    },
+    {
+      "code": "6541",
+      "name": "泰福-KY",
+      "rs_ratio": 0.9829,
+      "last_price": 48.1,
+      "avg_vol_lots": 832.0,
+      "data_len": 399,
+      "rs_rating": 45.3
+    },
+    {
+      "code": "1615",
+      "name": "大山",
+      "rs_ratio": 0.9828,
+      "last_price": 47.8,
+      "avg_vol_lots": 156.0,
+      "data_len": 399,
+      "rs_rating": 45.1
+    },
+    {
+      "code": "2904",
+      "name": "匯僑",
+      "rs_ratio": 0.9828,
+      "last_price": 17.0,
+      "avg_vol_lots": 36.0,
+      "data_len": 399,
+      "rs_rating": 45.1
+    },
+    {
+      "code": "9919",
+      "name": "康那香",
+      "rs_ratio": 0.9827,
+      "last_price": 16.8,
+      "avg_vol_lots": 1808.0,
+      "data_len": 399,
+      "rs_rating": 45.0
+    },
+    {
+      "code": "3716",
+      "name": "中化控股",
+      "rs_ratio": 0.9826,
+      "last_price": 33.9,
+      "avg_vol_lots": 93.0,
+      "data_len": 353,
+      "rs_rating": 44.9
+    },
+    {
+      "code": "2013",
+      "name": "中鋼構",
+      "rs_ratio": 0.9824,
+      "last_price": 41.8,
+      "avg_vol_lots": 198.0,
+      "data_len": 399,
+      "rs_rating": 44.8
+    },
+    {
+      "code": "3045",
+      "name": "台灣大",
+      "rs_ratio": 0.9812,
+      "last_price": 106.5,
+      "avg_vol_lots": 5455.0,
+      "data_len": 399,
+      "rs_rating": 44.7
+    },
+    {
+      "code": "1455",
+      "name": "集盛",
+      "rs_ratio": 0.981,
+      "last_price": 8.5,
+      "avg_vol_lots": 1762.0,
+      "data_len": 399,
+      "rs_rating": 44.6
+    },
+    {
+      "code": "1618",
+      "name": "合機",
+      "rs_ratio": 0.9808,
+      "last_price": 44.8,
+      "avg_vol_lots": 4011.0,
+      "data_len": 399,
+      "rs_rating": 44.4
+    },
+    {
+      "code": "9912",
+      "name": "偉聯",
+      "rs_ratio": 0.9796,
+      "last_price": 12.0,
+      "avg_vol_lots": 33.0,
+      "data_len": 399,
+      "rs_rating": 44.3
+    },
+    {
+      "code": "6464",
+      "name": "台數科",
+      "rs_ratio": 0.9792,
+      "last_price": 78.0,
+      "avg_vol_lots": 23.0,
+      "data_len": 399,
+      "rs_rating": 44.2
+    },
+    {
+      "code": "3266",
+      "name": "昇陽",
+      "rs_ratio": 0.9787,
+      "last_price": 14.1,
+      "avg_vol_lots": 54.0,
+      "data_len": 399,
+      "rs_rating": 44.1
+    },
+    {
+      "code": "3504",
+      "name": "揚明光",
+      "rs_ratio": 0.9785,
+      "last_price": 53.8,
+      "avg_vol_lots": 551.0,
+      "data_len": 399,
+      "rs_rating": 44.0
+    },
+    {
+      "code": "6214",
+      "name": "精誠",
+      "rs_ratio": 0.9784,
+      "last_price": 111.5,
+      "avg_vol_lots": 866.0,
+      "data_len": 399,
+      "rs_rating": 43.9
+    },
+    {
+      "code": "3413",
+      "name": "京鼎",
+      "rs_ratio": 0.9782,
+      "last_price": 289.0,
+      "avg_vol_lots": 1708.0,
+      "data_len": 399,
+      "rs_rating": 43.8
+    },
+    {
+      "code": "2483",
+      "name": "百容",
+      "rs_ratio": 0.9772,
+      "last_price": 20.3,
+      "avg_vol_lots": 366.0,
+      "data_len": 399,
+      "rs_rating": 43.7
+    },
+    {
+      "code": "2114",
+      "name": "鑫永銓",
+      "rs_ratio": 0.9771,
+      "last_price": 89.5,
+      "avg_vol_lots": 29.0,
+      "data_len": 399,
+      "rs_rating": 43.6
+    },
+    {
+      "code": "1463",
+      "name": "強盛新",
+      "rs_ratio": 0.9767,
+      "last_price": 18.1,
+      "avg_vol_lots": 55.0,
+      "data_len": 399,
+      "rs_rating": 43.5
+    },
+    {
+      "code": "3703",
+      "name": "欣陸",
+      "rs_ratio": 0.9764,
+      "last_price": 22.9,
+      "avg_vol_lots": 845.0,
+      "data_len": 399,
+      "rs_rating": 43.4
+    },
+    {
+      "code": "3021",
+      "name": "鴻名",
+      "rs_ratio": 0.9761,
+      "last_price": 17.1,
+      "avg_vol_lots": 162.0,
+      "data_len": 399,
+      "rs_rating": 43.3
+    },
+    {
+      "code": "1732",
+      "name": "毛寶",
+      "rs_ratio": 0.9759,
+      "last_price": 27.6,
+      "avg_vol_lots": 1136.0,
+      "data_len": 399,
+      "rs_rating": 43.1
+    },
+    {
+      "code": "1904",
+      "name": "正隆",
+      "rs_ratio": 0.9755,
+      "last_price": 18.6,
+      "avg_vol_lots": 1034.0,
+      "data_len": 399,
+      "rs_rating": 43.0
+    },
+    {
+      "code": "9918",
+      "name": "欣天然",
+      "rs_ratio": 0.9754,
+      "last_price": 40.0,
+      "avg_vol_lots": 18.0,
+      "data_len": 399,
+      "rs_rating": 42.9
+    },
+    {
+      "code": "2423",
+      "name": "固緯",
+      "rs_ratio": 0.9743,
+      "last_price": 47.1,
+      "avg_vol_lots": 207.0,
+      "data_len": 399,
+      "rs_rating": 42.8
+    },
+    {
+      "code": "2707",
+      "name": "晶華",
+      "rs_ratio": 0.974,
+      "last_price": 190.0,
+      "avg_vol_lots": 117.0,
+      "data_len": 399,
+      "rs_rating": 42.7
+    },
+    {
+      "code": "3501",
+      "name": "維熹",
+      "rs_ratio": 0.974,
+      "last_price": 50.5,
+      "avg_vol_lots": 1093.0,
+      "data_len": 399,
+      "rs_rating": 42.7
+    },
+    {
+      "code": "3005",
+      "name": "神基",
+      "rs_ratio": 0.9739,
+      "last_price": 110.5,
+      "avg_vol_lots": 3349.0,
+      "data_len": 399,
+      "rs_rating": 42.5
+    },
+    {
+      "code": "9944",
+      "name": "新麗",
+      "rs_ratio": 0.9737,
+      "last_price": 16.9,
+      "avg_vol_lots": 84.0,
+      "data_len": 399,
+      "rs_rating": 42.4
+    },
+    {
+      "code": "1220",
+      "name": "台榮",
+      "rs_ratio": 0.9735,
+      "last_price": 13.1,
+      "avg_vol_lots": 276.0,
+      "data_len": 399,
+      "rs_rating": 42.2
+    },
+    {
+      "code": "6243",
+      "name": "迅杰",
+      "rs_ratio": 0.9735,
+      "last_price": 33.5,
+      "avg_vol_lots": 213.0,
+      "data_len": 399,
+      "rs_rating": 42.2
+    },
+    {
+      "code": "2618",
+      "name": "長榮航",
+      "rs_ratio": 0.9734,
+      "last_price": 38.8,
+      "avg_vol_lots": 35065.0,
+      "data_len": 399,
+      "rs_rating": 42.1
+    },
+    {
+      "code": "3033",
+      "name": "威健",
+      "rs_ratio": 0.9731,
+      "last_price": 31.5,
+      "avg_vol_lots": 4203.0,
+      "data_len": 399,
+      "rs_rating": 42.0
+    },
+    {
+      "code": "1612",
+      "name": "宏泰",
+      "rs_ratio": 0.9729,
+      "last_price": 35.7,
+      "avg_vol_lots": 2169.0,
+      "data_len": 399,
+      "rs_rating": 41.9
+    },
+    {
+      "code": "1217",
+      "name": "愛之味",
+      "rs_ratio": 0.9722,
+      "last_price": 10.6,
+      "avg_vol_lots": 571.0,
+      "data_len": 399,
+      "rs_rating": 41.7
+    },
+    {
+      "code": "6585",
+      "name": "鼎基",
+      "rs_ratio": 0.9719,
+      "last_price": 87.3,
+      "avg_vol_lots": 73.0,
+      "data_len": 399,
+      "rs_rating": 41.6
+    },
+    {
+      "code": "6269",
+      "name": "台郡",
+      "rs_ratio": 0.9718,
+      "last_price": 60.9,
+      "avg_vol_lots": 2163.0,
+      "data_len": 399,
+      "rs_rating": 41.5
+    },
+    {
+      "code": "2505",
+      "name": "國揚",
+      "rs_ratio": 0.9716,
+      "last_price": 18.9,
+      "avg_vol_lots": 306.0,
+      "data_len": 399,
+      "rs_rating": 41.4
+    },
+    {
+      "code": "3708",
+      "name": "上緯投控",
+      "rs_ratio": 0.971,
+      "last_price": 103.0,
+      "avg_vol_lots": 1444.0,
+      "data_len": 399,
+      "rs_rating": 41.3
+    },
+    {
+      "code": "4976",
+      "name": "佳凌",
+      "rs_ratio": 0.9707,
+      "last_price": 30.2,
+      "avg_vol_lots": 1399.0,
+      "data_len": 399,
+      "rs_rating": 41.2
+    },
+    {
+      "code": "2476",
+      "name": "鉅祥",
+      "rs_ratio": 0.9706,
+      "last_price": 82.9,
+      "avg_vol_lots": 1554.0,
+      "data_len": 399,
+      "rs_rating": 41.1
+    },
+    {
+      "code": "2727",
+      "name": "王品",
+      "rs_ratio": 0.9704,
+      "last_price": 215.5,
+      "avg_vol_lots": 235.0,
+      "data_len": 399,
+      "rs_rating": 40.9
+    },
+    {
+      "code": "2608",
+      "name": "嘉里大榮",
+      "rs_ratio": 0.9704,
+      "last_price": 32.7,
+      "avg_vol_lots": 177.0,
+      "data_len": 399,
+      "rs_rating": 40.9
+    },
+    {
+      "code": "5907",
+      "name": "大洋-KY",
+      "rs_ratio": 0.9702,
+      "last_price": 5.9,
+      "avg_vol_lots": 614.0,
+      "data_len": 399,
+      "rs_rating": 40.8
+    },
+    {
+      "code": "2528",
+      "name": "皇普",
+      "rs_ratio": 0.9698,
+      "last_price": 27.7,
+      "avg_vol_lots": 732.0,
+      "data_len": 399,
+      "rs_rating": 40.7
+    },
+    {
+      "code": "2845",
+      "name": "遠東銀",
+      "rs_ratio": 0.9696,
+      "last_price": 12.6,
+      "avg_vol_lots": 7503.0,
+      "data_len": 399,
+      "rs_rating": 40.6
+    },
+    {
+      "code": "2901",
+      "name": "欣欣",
+      "rs_ratio": 0.9695,
+      "last_price": 24.5,
+      "avg_vol_lots": 23.0,
+      "data_len": 399,
+      "rs_rating": 40.5
+    },
+    {
+      "code": "6790",
+      "name": "永豐實",
+      "rs_ratio": 0.9694,
+      "last_price": 38.2,
+      "avg_vol_lots": 167.0,
+      "data_len": 399,
+      "rs_rating": 40.3
+    },
+    {
+      "code": "2371",
+      "name": "大同",
+      "rs_ratio": 0.9685,
+      "last_price": 36.8,
+      "avg_vol_lots": 61954.0,
+      "data_len": 399,
+      "rs_rating": 40.2
+    },
+    {
+      "code": "2450",
+      "name": "神腦",
+      "rs_ratio": 0.9682,
+      "last_price": 28.9,
+      "avg_vol_lots": 116.0,
+      "data_len": 399,
+      "rs_rating": 40.1
+    },
+    {
+      "code": "4566",
+      "name": "時碩工業",
+      "rs_ratio": 0.9674,
+      "last_price": 58.2,
+      "avg_vol_lots": 595.0,
+      "data_len": 399,
+      "rs_rating": 40.0
+    },
+    {
+      "code": "4935",
+      "name": "茂林-KY",
+      "rs_ratio": 0.9666,
+      "last_price": 38.7,
+      "avg_vol_lots": 97.0,
+      "data_len": 399,
+      "rs_rating": 39.9
+    },
+    {
+      "code": "5283",
+      "name": "禾聯碩",
+      "rs_ratio": 0.9663,
+      "last_price": 59.2,
+      "avg_vol_lots": 85.0,
+      "data_len": 399,
+      "rs_rating": 39.8
+    },
+    {
+      "code": "2633",
+      "name": "台灣高鐵",
+      "rs_ratio": 0.9661,
+      "last_price": 27.1,
+      "avg_vol_lots": 5324.0,
+      "data_len": 399,
+      "rs_rating": 39.7
+    },
+    {
+      "code": "2012",
+      "name": "春雨",
+      "rs_ratio": 0.9659,
+      "last_price": 17.0,
+      "avg_vol_lots": 65.0,
+      "data_len": 399,
+      "rs_rating": 39.6
+    },
+    {
+      "code": "2642",
+      "name": "宅配通",
+      "rs_ratio": 0.9656,
+      "last_price": 24.5,
+      "avg_vol_lots": 92.0,
+      "data_len": 399,
+      "rs_rating": 39.5
+    },
+    {
+      "code": "1512",
+      "name": "瑞利",
+      "rs_ratio": 0.965,
+      "last_price": 7.9,
+      "avg_vol_lots": 257.0,
+      "data_len": 399,
+      "rs_rating": 39.4
+    },
+    {
+      "code": "3702",
+      "name": "大聯大",
+      "rs_ratio": 0.964,
+      "last_price": 64.5,
+      "avg_vol_lots": 5546.0,
+      "data_len": 399,
+      "rs_rating": 39.3
+    },
+    {
+      "code": "2537",
+      "name": "聯上發",
+      "rs_ratio": 0.9635,
+      "last_price": 10.6,
+      "avg_vol_lots": 1292.0,
+      "data_len": 399,
+      "rs_rating": 39.2
+    },
+    {
+      "code": "2762",
+      "name": "世界健身-KY",
+      "rs_ratio": 0.9629,
+      "last_price": 73.0,
+      "avg_vol_lots": 49.0,
+      "data_len": 399,
+      "rs_rating": 39.1
+    },
+    {
+      "code": "9930",
+      "name": "中聯資源",
+      "rs_ratio": 0.9627,
+      "last_price": 70.1,
+      "avg_vol_lots": 88.0,
+      "data_len": 399,
+      "rs_rating": 38.9
+    },
+    {
+      "code": "2062",
+      "name": "橋椿",
+      "rs_ratio": 0.9625,
+      "last_price": 21.1,
+      "avg_vol_lots": 532.0,
+      "data_len": 399,
+      "rs_rating": 38.8
+    },
+    {
+      "code": "2239",
+      "name": "英利-KY",
+      "rs_ratio": 0.9621,
+      "last_price": 27.1,
+      "avg_vol_lots": 113.0,
+      "data_len": 399,
+      "rs_rating": 38.7
+    },
+    {
+      "code": "8443",
+      "name": "阿瘦",
+      "rs_ratio": 0.962,
+      "last_price": 11.6,
+      "avg_vol_lots": 26.0,
+      "data_len": 399,
+      "rs_rating": 38.6
+    },
+    {
+      "code": "8011",
+      "name": "台通",
+      "rs_ratio": 0.9611,
+      "last_price": 20.5,
+      "avg_vol_lots": 1393.0,
+      "data_len": 399,
+      "rs_rating": 38.4
+    },
+    {
+      "code": "2258",
+      "name": "鴻華先進-創",
+      "rs_ratio": 0.9611,
+      "last_price": 39.5,
+      "avg_vol_lots": 561.0,
+      "data_len": 398,
+      "rs_rating": 38.4
+    },
+    {
+      "code": "2461",
+      "name": "光群雷",
+      "rs_ratio": 0.9611,
+      "last_price": 16.5,
+      "avg_vol_lots": 386.0,
+      "data_len": 399,
+      "rs_rating": 38.4
+    },
+    {
+      "code": "6792",
+      "name": "詠業",
+      "rs_ratio": 0.961,
+      "last_price": 57.7,
+      "avg_vol_lots": 123.0,
+      "data_len": 399,
+      "rs_rating": 38.2
+    },
+    {
+      "code": "2482",
+      "name": "連宇",
+      "rs_ratio": 0.9605,
+      "last_price": 17.8,
+      "avg_vol_lots": 149.0,
+      "data_len": 399,
+      "rs_rating": 38.1
+    },
+    {
+      "code": "6671",
+      "name": "三能-KY",
+      "rs_ratio": 0.9599,
+      "last_price": 36.6,
+      "avg_vol_lots": 33.0,
+      "data_len": 399,
+      "rs_rating": 38.0
+    },
+    {
+      "code": "2547",
+      "name": "日勝生",
+      "rs_ratio": 0.9598,
+      "last_price": 10.8,
+      "avg_vol_lots": 1333.0,
+      "data_len": 399,
+      "rs_rating": 37.9
+    },
+    {
+      "code": "8104",
+      "name": "錸寶",
+      "rs_ratio": 0.9596,
+      "last_price": 34.3,
+      "avg_vol_lots": 5007.0,
+      "data_len": 399,
+      "rs_rating": 37.8
+    },
+    {
+      "code": "1109",
+      "name": "信大",
+      "rs_ratio": 0.9595,
+      "last_price": 15.4,
+      "avg_vol_lots": 108.0,
+      "data_len": 399,
+      "rs_rating": 37.6
+    },
+    {
+      "code": "2390",
+      "name": "云辰",
+      "rs_ratio": 0.9593,
+      "last_price": 10.2,
+      "avg_vol_lots": 677.0,
+      "data_len": 399,
+      "rs_rating": 37.5
+    },
+    {
+      "code": "2227",
+      "name": "裕日車",
+      "rs_ratio": 0.9593,
+      "last_price": 53.8,
+      "avg_vol_lots": 60.0,
+      "data_len": 399,
+      "rs_rating": 37.5
+    },
+    {
+      "code": "6994",
+      "name": "富威電力",
+      "rs_ratio": 0.9585,
+      "last_price": 82.0,
+      "avg_vol_lots": 503.0,
+      "data_len": 399,
+      "rs_rating": 37.3
+    },
+    {
+      "code": "6605",
+      "name": "帝寶",
+      "rs_ratio": 0.9585,
+      "last_price": 145.0,
+      "avg_vol_lots": 782.0,
+      "data_len": 399,
+      "rs_rating": 37.3
+    },
+    {
+      "code": "1465",
+      "name": "偉全",
+      "rs_ratio": 0.9577,
+      "last_price": 12.4,
+      "avg_vol_lots": 56.0,
+      "data_len": 399,
+      "rs_rating": 37.1
+    },
+    {
+      "code": "3041",
+      "name": "揚智",
+      "rs_ratio": 0.9574,
+      "last_price": 24.5,
+      "avg_vol_lots": 1645.0,
+      "data_len": 399,
+      "rs_rating": 37.0
+    },
+    {
+      "code": "5880",
+      "name": "合庫金",
+      "rs_ratio": 0.9573,
+      "last_price": 23.9,
+      "avg_vol_lots": 17392.0,
+      "data_len": 399,
+      "rs_rating": 36.9
+    },
+    {
+      "code": "4426",
+      "name": "利勤",
+      "rs_ratio": 0.957,
+      "last_price": 9.2,
+      "avg_vol_lots": 274.0,
+      "data_len": 399,
+      "rs_rating": 36.7
+    },
+    {
+      "code": "3130",
+      "name": "一零四",
+      "rs_ratio": 0.957,
+      "last_price": 223.0,
+      "avg_vol_lots": 21.0,
+      "data_len": 399,
+      "rs_rating": 36.7
+    },
+    {
+      "code": "2603",
+      "name": "長榮",
+      "rs_ratio": 0.9569,
+      "last_price": 186.0,
+      "avg_vol_lots": 8988.0,
+      "data_len": 399,
+      "rs_rating": 36.6
+    },
+    {
+      "code": "1449",
+      "name": "佳和",
+      "rs_ratio": 0.9568,
+      "last_price": 10.8,
+      "avg_vol_lots": 727.0,
+      "data_len": 399,
+      "rs_rating": 36.5
+    },
+    {
+      "code": "2705",
+      "name": "六福",
+      "rs_ratio": 0.9559,
+      "last_price": 16.2,
+      "avg_vol_lots": 232.0,
+      "data_len": 399,
+      "rs_rating": 36.4
+    },
+    {
+      "code": "2373",
+      "name": "震旦行",
+      "rs_ratio": 0.9549,
+      "last_price": 55.5,
+      "avg_vol_lots": 50.0,
+      "data_len": 399,
+      "rs_rating": 36.2
+    },
+    {
+      "code": "6477",
+      "name": "安集",
+      "rs_ratio": 0.9544,
+      "last_price": 33.2,
+      "avg_vol_lots": 1911.0,
+      "data_len": 399,
+      "rs_rating": 36.1
+    },
+    {
+      "code": "1472",
+      "name": "三洋實業",
+      "rs_ratio": 0.954,
+      "last_price": 90.4,
+      "avg_vol_lots": 33.0,
+      "data_len": 399,
+      "rs_rating": 36.0
+    },
+    {
+      "code": "2101",
+      "name": "南港",
+      "rs_ratio": 0.954,
+      "last_price": 35.2,
+      "avg_vol_lots": 1318.0,
+      "data_len": 399,
+      "rs_rating": 36.0
+    },
+    {
+      "code": "8940",
+      "name": "新天地",
+      "rs_ratio": 0.9527,
+      "last_price": 20.0,
+      "avg_vol_lots": 53.0,
+      "data_len": 399,
+      "rs_rating": 35.8
+    },
+    {
+      "code": "2514",
+      "name": "龍邦",
+      "rs_ratio": 0.9516,
+      "last_price": 14.8,
+      "avg_vol_lots": 194.0,
+      "data_len": 399,
+      "rs_rating": 35.7
+    },
+    {
+      "code": "1736",
+      "name": "喬山",
+      "rs_ratio": 0.951,
+      "last_price": 138.0,
+      "avg_vol_lots": 655.0,
+      "data_len": 399,
+      "rs_rating": 35.5
+    },
+    {
+      "code": "2616",
+      "name": "山隆",
+      "rs_ratio": 0.951,
+      "last_price": 13.7,
+      "avg_vol_lots": 80.0,
+      "data_len": 399,
+      "rs_rating": 35.5
+    },
+    {
+      "code": "4560",
+      "name": "強信-KY",
+      "rs_ratio": 0.951,
+      "last_price": 33.0,
+      "avg_vol_lots": 272.0,
+      "data_len": 399,
+      "rs_rating": 35.5
+    },
+    {
+      "code": "8162",
+      "name": "微矽電子-創",
+      "rs_ratio": 0.9509,
+      "last_price": 36.9,
+      "avg_vol_lots": 192.0,
+      "data_len": 395,
+      "rs_rating": 35.3
+    },
+    {
+      "code": "6189",
+      "name": "豐藝",
+      "rs_ratio": 0.9504,
+      "last_price": 46.3,
+      "avg_vol_lots": 2640.0,
+      "data_len": 399,
+      "rs_rating": 35.2
+    },
+    {
+      "code": "2723",
+      "name": "美食-KY",
+      "rs_ratio": 0.9501,
+      "last_price": 74.3,
+      "avg_vol_lots": 404.0,
+      "data_len": 399,
+      "rs_rating": 35.1
+    },
+    {
+      "code": "6916",
+      "name": "華凌",
+      "rs_ratio": 0.9485,
+      "last_price": 17.9,
+      "avg_vol_lots": 144.0,
+      "data_len": 399,
+      "rs_rating": 35.0
+    },
+    {
+      "code": "1410",
+      "name": "南染",
+      "rs_ratio": 0.9483,
+      "last_price": 33.5,
+      "avg_vol_lots": 89.0,
+      "data_len": 399,
+      "rs_rating": 34.8
+    },
+    {
+      "code": "2433",
+      "name": "互盛電",
+      "rs_ratio": 0.9481,
+      "last_price": 46.8,
+      "avg_vol_lots": 40.0,
+      "data_len": 399,
+      "rs_rating": 34.7
+    },
+    {
+      "code": "2915",
+      "name": "潤泰全",
+      "rs_ratio": 0.9478,
+      "last_price": 52.2,
+      "avg_vol_lots": 2059.0,
+      "data_len": 399,
+      "rs_rating": 34.6
+    },
+    {
+      "code": "1227",
+      "name": "佳格",
+      "rs_ratio": 0.9473,
+      "last_price": 29.5,
+      "avg_vol_lots": 827.0,
+      "data_len": 399,
+      "rs_rating": 34.5
+    },
+    {
+      "code": "1598",
+      "name": "岱宇",
+      "rs_ratio": 0.9463,
+      "last_price": 19.7,
+      "avg_vol_lots": 306.0,
+      "data_len": 399,
+      "rs_rating": 34.4
+    },
+    {
+      "code": "1464",
+      "name": "得力",
+      "rs_ratio": 0.9451,
+      "last_price": 11.1,
+      "avg_vol_lots": 487.0,
+      "data_len": 399,
+      "rs_rating": 34.3
+    },
+    {
+      "code": "6756",
+      "name": "威鋒電子",
+      "rs_ratio": 0.9451,
+      "last_price": 78.9,
+      "avg_vol_lots": 174.0,
+      "data_len": 399,
+      "rs_rating": 34.3
+    },
+    {
+      "code": "1762",
+      "name": "中化生",
+      "rs_ratio": 0.9445,
+      "last_price": 26.9,
+      "avg_vol_lots": 123.0,
+      "data_len": 399,
+      "rs_rating": 34.1
+    },
+    {
+      "code": "1323",
+      "name": "永裕",
+      "rs_ratio": 0.9443,
+      "last_price": 18.8,
+      "avg_vol_lots": 54.0,
+      "data_len": 399,
+      "rs_rating": 34.0
+    },
+    {
+      "code": "6698",
+      "name": "旭暉應材",
+      "rs_ratio": 0.9441,
+      "last_price": 32.8,
+      "avg_vol_lots": 405.0,
+      "data_len": 399,
+      "rs_rating": 33.9
+    },
+    {
+      "code": "3052",
+      "name": "夆典",
+      "rs_ratio": 0.944,
+      "last_price": 11.6,
+      "avg_vol_lots": 588.0,
+      "data_len": 399,
+      "rs_rating": 33.8
+    },
+    {
+      "code": "1906",
+      "name": "寶隆",
+      "rs_ratio": 0.9438,
+      "last_price": 11.9,
+      "avg_vol_lots": 49.0,
+      "data_len": 399,
+      "rs_rating": 33.7
+    },
+    {
+      "code": "1310",
+      "name": "台苯",
+      "rs_ratio": 0.9437,
+      "last_price": 9.0,
+      "avg_vol_lots": 3004.0,
+      "data_len": 399,
+      "rs_rating": 33.5
+    },
+    {
+      "code": "1339",
+      "name": "昭輝",
+      "rs_ratio": 0.9435,
+      "last_price": 43.0,
+      "avg_vol_lots": 105.0,
+      "data_len": 399,
+      "rs_rating": 33.4
+    },
+    {
+      "code": "6909",
+      "name": "創控",
+      "rs_ratio": 0.9433,
+      "last_price": 40.2,
+      "avg_vol_lots": 879.0,
+      "data_len": 182,
+      "rs_rating": 33.3
+    },
+    {
+      "code": "3022",
+      "name": "威強電",
+      "rs_ratio": 0.9432,
+      "last_price": 60.7,
+      "avg_vol_lots": 635.0,
+      "data_len": 399,
+      "rs_rating": 33.2
+    },
+    {
+      "code": "1702",
+      "name": "南僑",
+      "rs_ratio": 0.9425,
+      "last_price": 37.3,
+      "avg_vol_lots": 320.0,
+      "data_len": 399,
+      "rs_rating": 33.1
+    },
+    {
+      "code": "6184",
+      "name": "大豐電",
+      "rs_ratio": 0.9422,
+      "last_price": 47.8,
+      "avg_vol_lots": 75.0,
+      "data_len": 399,
+      "rs_rating": 33.0
+    },
+    {
+      "code": "3004",
+      "name": "豐達科",
+      "rs_ratio": 0.9421,
+      "last_price": 112.5,
+      "avg_vol_lots": 563.0,
+      "data_len": 399,
+      "rs_rating": 32.9
+    },
+    {
+      "code": "2206",
+      "name": "三陽工業",
+      "rs_ratio": 0.9417,
+      "last_price": 60.8,
+      "avg_vol_lots": 977.0,
+      "data_len": 399,
+      "rs_rating": 32.6
+    },
+    {
+      "code": "6799",
+      "name": "來頡",
+      "rs_ratio": 0.9417,
+      "last_price": 82.2,
+      "avg_vol_lots": 273.0,
+      "data_len": 399,
+      "rs_rating": 32.6
+    },
+    {
+      "code": "1447",
+      "name": "力鵬",
+      "rs_ratio": 0.9417,
+      "last_price": 5.3,
+      "avg_vol_lots": 1499.0,
+      "data_len": 399,
+      "rs_rating": 32.6
+    },
+    {
+      "code": "1909",
+      "name": "榮成",
+      "rs_ratio": 0.9417,
+      "last_price": 9.9,
+      "avg_vol_lots": 1966.0,
+      "data_len": 399,
+      "rs_rating": 32.6
+    },
+    {
+      "code": "8367",
+      "name": "建新國際",
+      "rs_ratio": 0.941,
+      "last_price": 43.1,
+      "avg_vol_lots": 34.0,
+      "data_len": 399,
+      "rs_rating": 32.4
+    },
+    {
+      "code": "4440",
+      "name": "宜新實業",
+      "rs_ratio": 0.9397,
+      "last_price": 17.4,
+      "avg_vol_lots": 81.0,
+      "data_len": 399,
+      "rs_rating": 32.3
+    },
+    {
+      "code": "1529",
+      "name": "樂事綠能",
+      "rs_ratio": 0.9381,
+      "last_price": 25.0,
+      "avg_vol_lots": 4294.0,
+      "data_len": 399,
+      "rs_rating": 32.1
+    },
+    {
+      "code": "5607",
+      "name": "遠雄港",
+      "rs_ratio": 0.9379,
+      "last_price": 49.0,
+      "avg_vol_lots": 393.0,
+      "data_len": 399,
+      "rs_rating": 32.0
+    },
+    {
+      "code": "1210",
+      "name": "大成",
+      "rs_ratio": 0.9375,
+      "last_price": 51.4,
+      "avg_vol_lots": 1578.0,
+      "data_len": 399,
+      "rs_rating": 31.9
+    },
+    {
+      "code": "2543",
+      "name": "皇昌",
+      "rs_ratio": 0.9375,
+      "last_price": 61.2,
+      "avg_vol_lots": 1638.0,
+      "data_len": 399,
+      "rs_rating": 31.9
+    },
+    {
+      "code": "4306",
+      "name": "炎洲",
+      "rs_ratio": 0.9371,
+      "last_price": 13.5,
+      "avg_vol_lots": 886.0,
+      "data_len": 399,
+      "rs_rating": 31.7
+    },
+    {
+      "code": "2254",
+      "name": "巨鎧精密-創",
+      "rs_ratio": 0.9368,
+      "last_price": 58.6,
+      "avg_vol_lots": 124.0,
+      "data_len": 395,
+      "rs_rating": 31.6
+    },
+    {
+      "code": "6768",
+      "name": "志強-KY",
+      "rs_ratio": 0.9358,
+      "last_price": 100.5,
+      "avg_vol_lots": 457.0,
+      "data_len": 399,
+      "rs_rating": 31.5
+    },
+    {
+      "code": "6216",
+      "name": "居易",
+      "rs_ratio": 0.9356,
+      "last_price": 27.1,
+      "avg_vol_lots": 309.0,
+      "data_len": 399,
+      "rs_rating": 31.4
+    },
+    {
+      "code": "2453",
+      "name": "凌群",
+      "rs_ratio": 0.9349,
+      "last_price": 52.2,
+      "avg_vol_lots": 1584.0,
+      "data_len": 399,
+      "rs_rating": 31.3
+    },
+    {
+      "code": "8016",
+      "name": "矽創",
+      "rs_ratio": 0.9348,
+      "last_price": 190.0,
+      "avg_vol_lots": 562.0,
+      "data_len": 399,
+      "rs_rating": 31.2
+    },
+    {
+      "code": "2201",
+      "name": "裕隆",
+      "rs_ratio": 0.9344,
+      "last_price": 30.6,
+      "avg_vol_lots": 3682.0,
+      "data_len": 399,
+      "rs_rating": 31.1
+    },
+    {
+      "code": "2207",
+      "name": "和泰車",
+      "rs_ratio": 0.934,
+      "last_price": 549.0,
+      "avg_vol_lots": 309.0,
+      "data_len": 399,
+      "rs_rating": 30.9
+    },
+    {
+      "code": "2420",
+      "name": "新巨",
+      "rs_ratio": 0.934,
+      "last_price": 51.0,
+      "avg_vol_lots": 301.0,
+      "data_len": 399,
+      "rs_rating": 30.9
+    },
+    {
+      "code": "2430",
+      "name": "燦坤",
+      "rs_ratio": 0.9339,
+      "last_price": 22.7,
+      "avg_vol_lots": 86.0,
+      "data_len": 399,
+      "rs_rating": 30.7
+    },
+    {
+      "code": "2379",
+      "name": "瑞昱",
+      "rs_ratio": 0.9338,
+      "last_price": 476.0,
+      "avg_vol_lots": 3588.0,
+      "data_len": 399,
+      "rs_rating": 30.6
+    },
+    {
+      "code": "2886",
+      "name": "兆豐金",
+      "rs_ratio": 0.9333,
+      "last_price": 40.0,
+      "avg_vol_lots": 20707.0,
+      "data_len": 399,
+      "rs_rating": 30.5
+    },
+    {
+      "code": "2247",
+      "name": "汎德永業",
+      "rs_ratio": 0.9325,
+      "last_price": 291.0,
+      "avg_vol_lots": 181.0,
+      "data_len": 399,
+      "rs_rating": 30.4
+    },
+    {
+      "code": "1341",
+      "name": "富林-KY",
+      "rs_ratio": 0.932,
+      "last_price": 60.6,
+      "avg_vol_lots": 6.0,
+      "data_len": 399,
+      "rs_rating": 30.3
+    },
+    {
+      "code": "4576",
+      "name": "大銀微系統",
+      "rs_ratio": 0.932,
+      "last_price": 113.5,
+      "avg_vol_lots": 1869.0,
+      "data_len": 399,
+      "rs_rating": 30.3
+    },
+    {
+      "code": "4930",
+      "name": "燦星網",
+      "rs_ratio": 0.9316,
+      "last_price": 21.9,
+      "avg_vol_lots": 55.0,
+      "data_len": 399,
+      "rs_rating": 30.1
+    },
+    {
+      "code": "6201",
+      "name": "亞弘電",
+      "rs_ratio": 0.931,
+      "last_price": 54.0,
+      "avg_vol_lots": 35.0,
+      "data_len": 399,
+      "rs_rating": 30.0
+    },
+    {
+      "code": "2812",
+      "name": "台中銀",
+      "rs_ratio": 0.9309,
+      "last_price": 20.5,
+      "avg_vol_lots": 11758.0,
+      "data_len": 399,
+      "rs_rating": 29.9
+    },
+    {
+      "code": "2024",
+      "name": "志聯",
+      "rs_ratio": 0.9306,
+      "last_price": 16.4,
+      "avg_vol_lots": 17.0,
+      "data_len": 399,
+      "rs_rating": 29.8
+    },
+    {
+      "code": "8442",
+      "name": "威宏-KY",
+      "rs_ratio": 0.9303,
+      "last_price": 67.8,
+      "avg_vol_lots": 59.0,
+      "data_len": 399,
+      "rs_rating": 29.7
+    },
+    {
+      "code": "6645",
+      "name": "金萬林-創",
+      "rs_ratio": 0.9299,
+      "last_price": 17.4,
+      "avg_vol_lots": 32.0,
+      "data_len": 400,
+      "rs_rating": 29.6
+    },
+    {
+      "code": "2031",
+      "name": "新光鋼",
+      "rs_ratio": 0.9297,
+      "last_price": 40.0,
+      "avg_vol_lots": 1130.0,
+      "data_len": 399,
+      "rs_rating": 29.4
+    },
+    {
+      "code": "5531",
+      "name": "鄉林",
+      "rs_ratio": 0.9296,
+      "last_price": 9.0,
+      "avg_vol_lots": 403.0,
+      "data_len": 399,
+      "rs_rating": 29.3
+    },
+    {
+      "code": "4526",
+      "name": "東台",
+      "rs_ratio": 0.9295,
+      "last_price": 32.5,
+      "avg_vol_lots": 6669.0,
+      "data_len": 399,
+      "rs_rating": 29.2
+    },
+    {
+      "code": "1216",
+      "name": "統一",
+      "rs_ratio": 0.9291,
+      "last_price": 73.4,
+      "avg_vol_lots": 8848.0,
+      "data_len": 399,
+      "rs_rating": 29.1
+    },
+    {
+      "code": "2029",
+      "name": "盛餘",
+      "rs_ratio": 0.9287,
+      "last_price": 21.9,
+      "avg_vol_lots": 235.0,
+      "data_len": 399,
+      "rs_rating": 29.0
+    },
+    {
+      "code": "1234",
+      "name": "黑松",
+      "rs_ratio": 0.9286,
+      "last_price": 37.2,
+      "avg_vol_lots": 99.0,
+      "data_len": 399,
+      "rs_rating": 28.9
+    },
+    {
+      "code": "6414",
+      "name": "樺漢",
+      "rs_ratio": 0.9277,
+      "last_price": 280.0,
+      "avg_vol_lots": 883.0,
+      "data_len": 399,
+      "rs_rating": 28.8
+    },
+    {
+      "code": "6166",
+      "name": "凌華",
+      "rs_ratio": 0.9271,
+      "last_price": 62.1,
+      "avg_vol_lots": 471.0,
+      "data_len": 399,
+      "rs_rating": 28.6
+    },
+    {
+      "code": "4104",
+      "name": "佳醫",
+      "rs_ratio": 0.9271,
+      "last_price": 77.7,
+      "avg_vol_lots": 277.0,
+      "data_len": 399,
+      "rs_rating": 28.6
+    },
+    {
+      "code": "8411",
+      "name": "福貞-KY",
+      "rs_ratio": 0.9269,
+      "last_price": 12.5,
+      "avg_vol_lots": 80.0,
+      "data_len": 399,
+      "rs_rating": 28.4
+    },
+    {
+      "code": "4133",
+      "name": "亞諾法",
+      "rs_ratio": 0.9269,
+      "last_price": 25.4,
+      "avg_vol_lots": 557.0,
+      "data_len": 399,
+      "rs_rating": 28.4
+    },
+    {
+      "code": "4590",
+      "name": "富田-創",
+      "rs_ratio": 0.9267,
+      "last_price": 77.3,
+      "avg_vol_lots": 342.0,
+      "data_len": 308,
+      "rs_rating": 28.3
+    },
+    {
+      "code": "2753",
+      "name": "八方雲集",
+      "rs_ratio": 0.9249,
+      "last_price": 184.0,
+      "avg_vol_lots": 273.0,
+      "data_len": 399,
+      "rs_rating": 28.2
+    },
+    {
+      "code": "2115",
+      "name": "六暉-KY",
+      "rs_ratio": 0.9247,
+      "last_price": 24.5,
+      "avg_vol_lots": 213.0,
+      "data_len": 399,
+      "rs_rating": 28.0
+    },
+    {
+      "code": "2417",
+      "name": "圓剛",
+      "rs_ratio": 0.9243,
+      "last_price": 36.8,
+      "avg_vol_lots": 1084.0,
+      "data_len": 399,
+      "rs_rating": 27.9
+    },
+    {
+      "code": "3376",
+      "name": "新日興",
+      "rs_ratio": 0.9242,
+      "last_price": 192.5,
+      "avg_vol_lots": 6192.0,
+      "data_len": 399,
+      "rs_rating": 27.8
+    },
+    {
+      "code": "8163",
+      "name": "達方",
+      "rs_ratio": 0.9238,
+      "last_price": 30.1,
+      "avg_vol_lots": 833.0,
+      "data_len": 399,
+      "rs_rating": 27.7
+    },
+    {
+      "code": "3652",
+      "name": "精聯",
+      "rs_ratio": 0.9233,
+      "last_price": 28.8,
+      "avg_vol_lots": 47.0,
+      "data_len": 399,
+      "rs_rating": 27.6
+    },
+    {
+      "code": "1805",
+      "name": "寶徠",
+      "rs_ratio": 0.9225,
+      "last_price": 11.8,
+      "avg_vol_lots": 104.0,
+      "data_len": 399,
+      "rs_rating": 27.5
+    },
+    {
+      "code": "6807",
+      "name": "峰源-KY",
+      "rs_ratio": 0.9211,
+      "last_price": 45.5,
+      "avg_vol_lots": 11.0,
+      "data_len": 399,
+      "rs_rating": 27.4
+    },
+    {
+      "code": "2504",
+      "name": "國產",
+      "rs_ratio": 0.9208,
+      "last_price": 36.3,
+      "avg_vol_lots": 1580.0,
+      "data_len": 399,
+      "rs_rating": 27.3
+    },
+    {
+      "code": "2607",
+      "name": "榮運",
+      "rs_ratio": 0.9206,
+      "last_price": 55.8,
+      "avg_vol_lots": 598.0,
+      "data_len": 399,
+      "rs_rating": 27.2
+    },
+    {
+      "code": "2545",
+      "name": "皇翔",
+      "rs_ratio": 0.9204,
+      "last_price": 37.7,
+      "avg_vol_lots": 368.0,
+      "data_len": 399,
+      "rs_rating": 27.1
+    },
+    {
+      "code": "3019",
+      "name": "亞光",
+      "rs_ratio": 0.9199,
+      "last_price": 148.0,
+      "avg_vol_lots": 15831.0,
+      "data_len": 399,
+      "rs_rating": 27.0
+    },
+    {
+      "code": "2611",
+      "name": "志信",
+      "rs_ratio": 0.919,
+      "last_price": 14.4,
+      "avg_vol_lots": 383.0,
+      "data_len": 399,
+      "rs_rating": 26.9
+    },
+    {
+      "code": "3416",
+      "name": "融程電",
+      "rs_ratio": 0.9187,
+      "last_price": 142.5,
+      "avg_vol_lots": 288.0,
+      "data_len": 399,
+      "rs_rating": 26.8
+    },
+    {
+      "code": "3583",
+      "name": "辛耘",
+      "rs_ratio": 0.9178,
+      "last_price": 320.5,
+      "avg_vol_lots": 706.0,
+      "data_len": 399,
+      "rs_rating": 26.6
+    },
+    {
+      "code": "8105",
+      "name": "凌巨",
+      "rs_ratio": 0.9173,
+      "last_price": 12.0,
+      "avg_vol_lots": 4526.0,
+      "data_len": 399,
+      "rs_rating": 26.5
+    },
+    {
+      "code": "6743",
+      "name": "安普新",
+      "rs_ratio": 0.9171,
+      "last_price": 26.8,
+      "avg_vol_lots": 172.0,
+      "data_len": 399,
+      "rs_rating": 26.4
+    },
+    {
+      "code": "2332",
+      "name": "友訊",
+      "rs_ratio": 0.9169,
+      "last_price": 15.3,
+      "avg_vol_lots": 3877.0,
+      "data_len": 399,
+      "rs_rating": 26.3
+    },
+    {
+      "code": "1525",
+      "name": "江申",
+      "rs_ratio": 0.9165,
+      "last_price": 63.3,
+      "avg_vol_lots": 31.0,
+      "data_len": 399,
+      "rs_rating": 26.2
+    },
+    {
+      "code": "1110",
+      "name": "東泥",
+      "rs_ratio": 0.916,
+      "last_price": 16.4,
+      "avg_vol_lots": 232.0,
+      "data_len": 399,
+      "rs_rating": 26.1
+    },
+    {
+      "code": "2439",
+      "name": "美律",
+      "rs_ratio": 0.9159,
+      "last_price": 99.7,
+      "avg_vol_lots": 1233.0,
+      "data_len": 399,
+      "rs_rating": 26.0
+    },
+    {
+      "code": "2348",
+      "name": "海悅",
+      "rs_ratio": 0.9155,
+      "last_price": 74.1,
+      "avg_vol_lots": 384.0,
+      "data_len": 399,
+      "rs_rating": 25.9
+    },
+    {
+      "code": "2466",
+      "name": "冠西電",
+      "rs_ratio": 0.9144,
+      "last_price": 52.6,
+      "avg_vol_lots": 1015.0,
+      "data_len": 399,
+      "rs_rating": 25.8
+    },
+    {
+      "code": "2363",
+      "name": "矽統",
+      "rs_ratio": 0.9141,
+      "last_price": 55.0,
+      "avg_vol_lots": 17158.0,
+      "data_len": 399,
+      "rs_rating": 25.7
+    },
+    {
+      "code": "6625",
+      "name": "必應",
+      "rs_ratio": 0.914,
+      "last_price": 81.4,
+      "avg_vol_lots": 254.0,
+      "data_len": 399,
+      "rs_rating": 25.6
+    },
+    {
+      "code": "2511",
+      "name": "太子",
+      "rs_ratio": 0.913,
+      "last_price": 8.2,
+      "avg_vol_lots": 1136.0,
+      "data_len": 399,
+      "rs_rating": 25.5
+    },
+    {
+      "code": "3003",
+      "name": "健和興",
+      "rs_ratio": 0.9129,
+      "last_price": 49.1,
+      "avg_vol_lots": 325.0,
+      "data_len": 399,
+      "rs_rating": 25.4
+    },
+    {
+      "code": "5706",
+      "name": "鳳凰",
+      "rs_ratio": 0.9128,
+      "last_price": 50.5,
+      "avg_vol_lots": 316.0,
+      "data_len": 399,
+      "rs_rating": 25.2
+    },
+    {
+      "code": "1760",
+      "name": "寶齡富錦",
+      "rs_ratio": 0.9124,
+      "last_price": 61.6,
+      "avg_vol_lots": 199.0,
+      "data_len": 399,
+      "rs_rating": 25.1
+    },
+    {
+      "code": "6456",
+      "name": "GIS-KY",
+      "rs_ratio": 0.9116,
+      "last_price": 43.0,
+      "avg_vol_lots": 1610.0,
+      "data_len": 399,
+      "rs_rating": 25.0
+    },
+    {
+      "code": "2395",
+      "name": "研華",
+      "rs_ratio": 0.9113,
+      "last_price": 305.0,
+      "avg_vol_lots": 2676.0,
+      "data_len": 399,
+      "rs_rating": 24.9
+    },
+    {
+      "code": "2702",
+      "name": "華園",
+      "rs_ratio": 0.9112,
+      "last_price": 11.9,
+      "avg_vol_lots": 56.0,
+      "data_len": 399,
+      "rs_rating": 24.8
+    },
+    {
+      "code": "2106",
+      "name": "建大",
+      "rs_ratio": 0.911,
+      "last_price": 19.8,
+      "avg_vol_lots": 881.0,
+      "data_len": 399,
+      "rs_rating": 24.7
+    },
+    {
+      "code": "3029",
+      "name": "零壹",
+      "rs_ratio": 0.9106,
+      "last_price": 114.0,
+      "avg_vol_lots": 970.0,
+      "data_len": 399,
+      "rs_rating": 24.6
+    },
+    {
+      "code": "2387",
+      "name": "精元",
+      "rs_ratio": 0.91,
+      "last_price": 39.1,
+      "avg_vol_lots": 540.0,
+      "data_len": 399,
+      "rs_rating": 24.5
+    },
+    {
+      "code": "1626",
+      "name": "艾美特-KY",
+      "rs_ratio": 0.9098,
+      "last_price": 10.9,
+      "avg_vol_lots": 176.0,
+      "data_len": 399,
+      "rs_rating": 24.4
+    },
+    {
+      "code": "2636",
+      "name": "台驊控股",
+      "rs_ratio": 0.9095,
+      "last_price": 64.1,
+      "avg_vol_lots": 350.0,
+      "data_len": 399,
+      "rs_rating": 24.3
+    },
+    {
+      "code": "2506",
+      "name": "太設",
+      "rs_ratio": 0.9087,
+      "last_price": 9.0,
+      "avg_vol_lots": 255.0,
+      "data_len": 399,
+      "rs_rating": 24.2
+    },
+    {
+      "code": "2405",
+      "name": "輔信",
+      "rs_ratio": 0.9086,
+      "last_price": 15.6,
+      "avg_vol_lots": 2035.0,
+      "data_len": 399,
+      "rs_rating": 24.1
+    },
+    {
+      "code": "2109",
+      "name": "華豐",
+      "rs_ratio": 0.908,
+      "last_price": 14.9,
+      "avg_vol_lots": 124.0,
+      "data_len": 399,
+      "rs_rating": 23.9
+    },
+    {
+      "code": "8215",
+      "name": "明基材",
+      "rs_ratio": 0.9069,
+      "last_price": 20.7,
+      "avg_vol_lots": 1159.0,
+      "data_len": 399,
+      "rs_rating": 23.8
+    },
+    {
+      "code": "3164",
+      "name": "景岳",
+      "rs_ratio": 0.9068,
+      "last_price": 17.8,
+      "avg_vol_lots": 90.0,
+      "data_len": 399,
+      "rs_rating": 23.7
+    },
+    {
+      "code": "2353",
+      "name": "宏碁",
+      "rs_ratio": 0.9059,
+      "last_price": 27.1,
+      "avg_vol_lots": 44617.0,
+      "data_len": 399,
+      "rs_rating": 23.6
+    },
+    {
+      "code": "6278",
+      "name": "台表科",
+      "rs_ratio": 0.9057,
+      "last_price": 97.4,
+      "avg_vol_lots": 1537.0,
+      "data_len": 399,
+      "rs_rating": 23.5
+    },
+    {
+      "code": "6952",
+      "name": "大武山",
+      "rs_ratio": 0.9051,
+      "last_price": 43.3,
+      "avg_vol_lots": 38.0,
+      "data_len": 396,
+      "rs_rating": 23.4
+    },
+    {
+      "code": "2427",
+      "name": "三商電",
+      "rs_ratio": 0.9043,
+      "last_price": 26.9,
+      "avg_vol_lots": 839.0,
+      "data_len": 399,
+      "rs_rating": 23.3
+    },
+    {
+      "code": "2739",
+      "name": "寒舍",
+      "rs_ratio": 0.9041,
+      "last_price": 33.8,
+      "avg_vol_lots": 134.0,
+      "data_len": 399,
+      "rs_rating": 23.2
+    },
+    {
+      "code": "2613",
+      "name": "中櫃",
+      "rs_ratio": 0.9024,
+      "last_price": 24.2,
+      "avg_vol_lots": 480.0,
+      "data_len": 399,
+      "rs_rating": 23.1
+    },
+    {
+      "code": "2530",
+      "name": "華建",
+      "rs_ratio": 0.9016,
+      "last_price": 25.2,
+      "avg_vol_lots": 819.0,
+      "data_len": 399,
+      "rs_rating": 23.0
+    },
+    {
+      "code": "2017",
+      "name": "官田鋼",
+      "rs_ratio": 0.9015,
+      "last_price": 8.9,
+      "avg_vol_lots": 1292.0,
+      "data_len": 399,
+      "rs_rating": 22.9
+    },
+    {
+      "code": "6176",
+      "name": "瑞儀",
+      "rs_ratio": 0.9007,
+      "last_price": 126.5,
+      "avg_vol_lots": 1896.0,
+      "data_len": 399,
+      "rs_rating": 22.8
+    },
+    {
+      "code": "2388",
+      "name": "威盛",
+      "rs_ratio": 0.8997,
+      "last_price": 49.2,
+      "avg_vol_lots": 4017.0,
+      "data_len": 399,
+      "rs_rating": 22.6
+    },
+    {
+      "code": "4766",
+      "name": "南寶",
+      "rs_ratio": 0.8997,
+      "last_price": 318.5,
+      "avg_vol_lots": 327.0,
+      "data_len": 399,
+      "rs_rating": 22.6
+    },
+    {
+      "code": "6491",
+      "name": "晶碩",
+      "rs_ratio": 0.8992,
+      "last_price": 284.5,
+      "avg_vol_lots": 282.0,
+      "data_len": 399,
+      "rs_rating": 22.4
+    },
+    {
+      "code": "6534",
+      "name": "正瀚-創",
+      "rs_ratio": 0.8981,
+      "last_price": 84.2,
+      "avg_vol_lots": 81.0,
+      "data_len": 399,
+      "rs_rating": 22.3
+    },
+    {
+      "code": "3015",
+      "name": "全漢",
+      "rs_ratio": 0.8969,
+      "last_price": 54.2,
+      "avg_vol_lots": 748.0,
+      "data_len": 399,
+      "rs_rating": 22.2
+    },
+    {
+      "code": "1723",
+      "name": "中碳",
+      "rs_ratio": 0.8951,
+      "last_price": 72.2,
+      "avg_vol_lots": 377.0,
+      "data_len": 399,
+      "rs_rating": 22.1
+    },
+    {
+      "code": "2601",
+      "name": "益航",
+      "rs_ratio": 0.8951,
+      "last_price": 5.4,
+      "avg_vol_lots": 1546.0,
+      "data_len": 399,
+      "rs_rating": 22.1
+    },
+    {
+      "code": "2538",
+      "name": "基泰",
+      "rs_ratio": 0.895,
+      "last_price": 10.5,
+      "avg_vol_lots": 252.0,
+      "data_len": 399,
+      "rs_rating": 21.9
+    },
+    {
+      "code": "1515",
+      "name": "力山",
+      "rs_ratio": 0.8933,
+      "last_price": 26.1,
+      "avg_vol_lots": 400.0,
+      "data_len": 399,
+      "rs_rating": 21.8
+    },
+    {
+      "code": "1457",
+      "name": "宜進",
+      "rs_ratio": 0.8932,
+      "last_price": 15.1,
+      "avg_vol_lots": 133.0,
+      "data_len": 399,
+      "rs_rating": 21.7
+    },
+    {
+      "code": "6415",
+      "name": "矽力*-KY",
+      "rs_ratio": 0.8929,
+      "last_price": 280.0,
+      "avg_vol_lots": 13282.0,
+      "data_len": 399,
+      "rs_rating": 21.5
+    },
+    {
+      "code": "2712",
+      "name": "遠雄來",
+      "rs_ratio": 0.8929,
+      "last_price": 17.5,
+      "avg_vol_lots": 27.0,
+      "data_len": 399,
+      "rs_rating": 21.5
+    },
+    {
+      "code": "4572",
+      "name": "駐龍",
+      "rs_ratio": 0.8926,
+      "last_price": 147.0,
+      "avg_vol_lots": 53.0,
+      "data_len": 399,
+      "rs_rating": 21.4
+    },
+    {
+      "code": "2104",
+      "name": "國際中橡",
+      "rs_ratio": 0.8924,
+      "last_price": 11.2,
+      "avg_vol_lots": 4509.0,
+      "data_len": 399,
+      "rs_rating": 21.3
+    },
+    {
+      "code": "4938",
+      "name": "和碩",
+      "rs_ratio": 0.8923,
+      "last_price": 70.5,
+      "avg_vol_lots": 7403.0,
+      "data_len": 399,
+      "rs_rating": 21.1
+    },
+    {
+      "code": "9802",
+      "name": "鈺齊-KY",
+      "rs_ratio": 0.8921,
+      "last_price": 92.4,
+      "avg_vol_lots": 1139.0,
+      "data_len": 399,
+      "rs_rating": 21.0
+    },
+    {
+      "code": "2359",
+      "name": "所羅門",
+      "rs_ratio": 0.892,
+      "last_price": 125.0,
+      "avg_vol_lots": 2558.0,
+      "data_len": 399,
+      "rs_rating": 20.9
+    },
+    {
+      "code": "2362",
+      "name": "藍天",
+      "rs_ratio": 0.891,
+      "last_price": 39.0,
+      "avg_vol_lots": 612.0,
+      "data_len": 399,
+      "rs_rating": 20.8
+    },
+    {
+      "code": "3059",
+      "name": "華晶科",
+      "rs_ratio": 0.8909,
+      "last_price": 38.4,
+      "avg_vol_lots": 5666.0,
+      "data_len": 399,
+      "rs_rating": 20.7
+    },
+    {
+      "code": "5203",
+      "name": "訊連",
+      "rs_ratio": 0.8891,
+      "last_price": 76.2,
+      "avg_vol_lots": 307.0,
+      "data_len": 399,
+      "rs_rating": 20.6
+    },
+    {
+      "code": "3014",
+      "name": "聯陽",
+      "rs_ratio": 0.8889,
+      "last_price": 119.5,
+      "avg_vol_lots": 1069.0,
+      "data_len": 399,
+      "rs_rating": 20.5
+    },
+    {
+      "code": "2404",
+      "name": "漢唐",
+      "rs_ratio": 0.8886,
+      "last_price": 923.0,
+      "avg_vol_lots": 3010.0,
+      "data_len": 399,
+      "rs_rating": 20.4
+    },
+    {
+      "code": "2540",
+      "name": "愛山林",
+      "rs_ratio": 0.888,
+      "last_price": 46.8,
+      "avg_vol_lots": 823.0,
+      "data_len": 399,
+      "rs_rating": 20.3
+    },
+    {
+      "code": "6722",
+      "name": "輝創",
+      "rs_ratio": 0.8872,
+      "last_price": 43.5,
+      "avg_vol_lots": 459.0,
+      "data_len": 388,
+      "rs_rating": 20.2
+    },
+    {
+      "code": "2365",
+      "name": "昆盈",
+      "rs_ratio": 0.8868,
+      "last_price": 35.2,
+      "avg_vol_lots": 6998.0,
+      "data_len": 399,
+      "rs_rating": 20.1
+    },
+    {
+      "code": "5871",
+      "name": "中租-KY",
+      "rs_ratio": 0.8861,
+      "last_price": 107.0,
+      "avg_vol_lots": 5487.0,
+      "data_len": 399,
+      "rs_rating": 19.9
+    },
+    {
+      "code": "1102",
+      "name": "亞泥",
+      "rs_ratio": 0.8861,
+      "last_price": 35.7,
+      "avg_vol_lots": 8678.0,
+      "data_len": 399,
+      "rs_rating": 19.9
+    },
+    {
+      "code": "6230",
+      "name": "尼得科超眾",
+      "rs_ratio": 0.886,
+      "last_price": 119.5,
+      "avg_vol_lots": 125.0,
+      "data_len": 399,
+      "rs_rating": 19.7
+    },
+    {
+      "code": "1614",
+      "name": "三洋電",
+      "rs_ratio": 0.8852,
+      "last_price": 34.2,
+      "avg_vol_lots": 81.0,
+      "data_len": 399,
+      "rs_rating": 19.6
+    },
+    {
+      "code": "5876",
+      "name": "上海商銀",
+      "rs_ratio": 0.8837,
+      "last_price": 40.2,
+      "avg_vol_lots": 6328.0,
+      "data_len": 399,
+      "rs_rating": 19.5
+    },
+    {
+      "code": "3311",
+      "name": "閎暉",
+      "rs_ratio": 0.8831,
+      "last_price": 30.6,
+      "avg_vol_lots": 325.0,
+      "data_len": 399,
+      "rs_rating": 19.4
+    },
+    {
+      "code": "3011",
+      "name": "今皓",
+      "rs_ratio": 0.8831,
+      "last_price": 12.9,
+      "avg_vol_lots": 1288.0,
+      "data_len": 399,
+      "rs_rating": 19.4
+    },
+    {
+      "code": "2923",
+      "name": "鼎固-KY",
+      "rs_ratio": 0.8828,
+      "last_price": 22.7,
+      "avg_vol_lots": 63.0,
+      "data_len": 399,
+      "rs_rating": 19.2
+    },
+    {
+      "code": "6591",
+      "name": "動力-KY",
+      "rs_ratio": 0.8826,
+      "last_price": 65.0,
+      "avg_vol_lots": 312.0,
+      "data_len": 399,
+      "rs_rating": 19.1
+    },
+    {
+      "code": "6550",
+      "name": "北極星藥業-KY",
+      "rs_ratio": 0.8822,
+      "last_price": 29.9,
+      "avg_vol_lots": 1244.0,
+      "data_len": 399,
+      "rs_rating": 19.0
+    },
+    {
+      "code": "1597",
+      "name": "直得",
+      "rs_ratio": 0.8817,
+      "last_price": 77.3,
+      "avg_vol_lots": 763.0,
+      "data_len": 399,
+      "rs_rating": 18.9
+    },
+    {
+      "code": "1810",
+      "name": "和成",
+      "rs_ratio": 0.8811,
+      "last_price": 18.8,
+      "avg_vol_lots": 2286.0,
+      "data_len": 399,
+      "rs_rating": 18.8
+    },
+    {
+      "code": "7705",
+      "name": "三商餐飲",
+      "rs_ratio": 0.8803,
+      "last_price": 39.7,
+      "avg_vol_lots": 49.0,
+      "data_len": 304,
+      "rs_rating": 18.7
+    },
+    {
+      "code": "1441",
+      "name": "大東",
+      "rs_ratio": 0.8802,
+      "last_price": 10.0,
+      "avg_vol_lots": 33.0,
+      "data_len": 399,
+      "rs_rating": 18.6
+    },
+    {
+      "code": "1535",
+      "name": "中宇",
+      "rs_ratio": 0.8795,
+      "last_price": 46.9,
+      "avg_vol_lots": 140.0,
+      "data_len": 399,
+      "rs_rating": 18.4
+    },
+    {
+      "code": "6890",
+      "name": "來億-KY",
+      "rs_ratio": 0.879,
+      "last_price": 199.0,
+      "avg_vol_lots": 713.0,
+      "data_len": 399,
+      "rs_rating": 18.3
+    },
+    {
+      "code": "6695",
+      "name": "芯鼎",
+      "rs_ratio": 0.8789,
+      "last_price": 42.1,
+      "avg_vol_lots": 401.0,
+      "data_len": 399,
+      "rs_rating": 18.2
+    },
+    {
+      "code": "3027",
+      "name": "盛達",
+      "rs_ratio": 0.8788,
+      "last_price": 23.1,
+      "avg_vol_lots": 1543.0,
+      "data_len": 399,
+      "rs_rating": 18.1
+    },
+    {
+      "code": "2432",
+      "name": "倚天酷碁-創",
+      "rs_ratio": 0.8786,
+      "last_price": 24.3,
+      "avg_vol_lots": 32.0,
+      "data_len": 399,
+      "rs_rating": 18.0
+    },
+    {
+      "code": "6754",
+      "name": "匯僑設計",
+      "rs_ratio": 0.878,
+      "last_price": 41.1,
+      "avg_vol_lots": 28.0,
+      "data_len": 399,
+      "rs_rating": 17.9
+    },
+    {
+      "code": "2646",
+      "name": "星宇航空",
+      "rs_ratio": 0.8779,
+      "last_price": 23.0,
+      "avg_vol_lots": 4428.0,
+      "data_len": 326,
+      "rs_rating": 17.8
+    },
+    {
+      "code": "2385",
+      "name": "群光",
+      "rs_ratio": 0.8773,
+      "last_price": 119.5,
+      "avg_vol_lots": 3335.0,
+      "data_len": 399,
+      "rs_rating": 17.7
+    },
+    {
+      "code": "4746",
+      "name": "台耀",
+      "rs_ratio": 0.8767,
+      "last_price": 56.7,
+      "avg_vol_lots": 1033.0,
+      "data_len": 399,
+      "rs_rating": 17.6
+    },
+    {
+      "code": "6838",
+      "name": "台新藥",
+      "rs_ratio": 0.8762,
+      "last_price": 27.1,
+      "avg_vol_lots": 470.0,
+      "data_len": 374,
+      "rs_rating": 17.5
+    },
+    {
+      "code": "5225",
+      "name": "東科-KY",
+      "rs_ratio": 0.8723,
+      "last_price": 98.0,
+      "avg_vol_lots": 538.0,
+      "data_len": 399,
+      "rs_rating": 17.4
+    },
+    {
+      "code": "2913",
+      "name": "農林",
+      "rs_ratio": 0.8721,
+      "last_price": 12.9,
+      "avg_vol_lots": 1541.0,
+      "data_len": 399,
+      "rs_rating": 17.3
+    },
+    {
+      "code": "9921",
+      "name": "巨大",
+      "rs_ratio": 0.872,
+      "last_price": 87.6,
+      "avg_vol_lots": 2092.0,
+      "data_len": 399,
+      "rs_rating": 17.2
+    },
+    {
+      "code": "4148",
+      "name": "全宇生技-KY",
+      "rs_ratio": 0.8712,
+      "last_price": 36.5,
+      "avg_vol_lots": 25.0,
+      "data_len": 399,
+      "rs_rating": 17.0
+    },
+    {
+      "code": "5525",
+      "name": "順天",
+      "rs_ratio": 0.87,
+      "last_price": 26.1,
+      "avg_vol_lots": 84.0,
+      "data_len": 399,
+      "rs_rating": 16.9
+    },
+    {
+      "code": "6592",
+      "name": "和潤企業",
+      "rs_ratio": 0.8691,
+      "last_price": 60.3,
+      "avg_vol_lots": 1845.0,
+      "data_len": 399,
+      "rs_rating": 16.8
+    },
+    {
+      "code": "3013",
+      "name": "晟銘電",
+      "rs_ratio": 0.8687,
+      "last_price": 107.5,
+      "avg_vol_lots": 2343.0,
+      "data_len": 399,
+      "rs_rating": 16.7
+    },
+    {
+      "code": "4557",
+      "name": "永新-KY",
+      "rs_ratio": 0.868,
+      "last_price": 67.8,
+      "avg_vol_lots": 152.0,
+      "data_len": 399,
+      "rs_rating": 16.6
+    },
+    {
+      "code": "6409",
+      "name": "旭隼",
+      "rs_ratio": 0.8664,
+      "last_price": 903.0,
+      "avg_vol_lots": 954.0,
+      "data_len": 399,
+      "rs_rating": 16.5
+    },
+    {
+      "code": "2534",
+      "name": "宏盛",
+      "rs_ratio": 0.8658,
+      "last_price": 19.8,
+      "avg_vol_lots": 581.0,
+      "data_len": 399,
+      "rs_rating": 16.4
+    },
+    {
+      "code": "4119",
+      "name": "旭富",
+      "rs_ratio": 0.8657,
+      "last_price": 52.0,
+      "avg_vol_lots": 148.0,
+      "data_len": 399,
+      "rs_rating": 16.3
+    },
+    {
+      "code": "6781",
+      "name": "AES-KY",
+      "rs_ratio": 0.8654,
+      "last_price": 1135.0,
+      "avg_vol_lots": 1148.0,
+      "data_len": 399,
+      "rs_rating": 16.2
+    },
+    {
+      "code": "2103",
+      "name": "台橡",
+      "rs_ratio": 0.8642,
+      "last_price": 16.2,
+      "avg_vol_lots": 3780.0,
+      "data_len": 399,
+      "rs_rating": 16.1
+    },
+    {
+      "code": "4414",
+      "name": "如興",
+      "rs_ratio": 0.8638,
+      "last_price": 10.2,
+      "avg_vol_lots": 323.0,
+      "data_len": 399,
+      "rs_rating": 16.0
+    },
+    {
+      "code": "3040",
+      "name": "遠見",
+      "rs_ratio": 0.8626,
+      "last_price": 42.2,
+      "avg_vol_lots": 647.0,
+      "data_len": 399,
+      "rs_rating": 15.9
+    },
+    {
+      "code": "7736",
+      "name": "虎山",
+      "rs_ratio": 0.862,
+      "last_price": 91.8,
+      "avg_vol_lots": 81.0,
+      "data_len": 233,
+      "rs_rating": 15.7
+    },
+    {
+      "code": "2493",
+      "name": "揚博",
+      "rs_ratio": 0.8618,
+      "last_price": 106.0,
+      "avg_vol_lots": 933.0,
+      "data_len": 399,
+      "rs_rating": 15.6
+    },
+    {
+      "code": "3605",
+      "name": "宏致",
+      "rs_ratio": 0.8605,
+      "last_price": 64.2,
+      "avg_vol_lots": 3277.0,
+      "data_len": 399,
+      "rs_rating": 15.5
+    },
+    {
+      "code": "2393",
+      "name": "億光",
+      "rs_ratio": 0.8597,
+      "last_price": 57.6,
+      "avg_vol_lots": 3920.0,
+      "data_len": 399,
+      "rs_rating": 15.4
+    },
+    {
+      "code": "1474",
+      "name": "弘裕",
+      "rs_ratio": 0.8592,
+      "last_price": 10.1,
+      "avg_vol_lots": 159.0,
+      "data_len": 399,
+      "rs_rating": 15.3
+    },
+    {
+      "code": "5533",
+      "name": "皇鼎",
+      "rs_ratio": 0.8584,
+      "last_price": 14.3,
+      "avg_vol_lots": 157.0,
+      "data_len": 399,
+      "rs_rating": 15.2
+    },
+    {
+      "code": "6141",
+      "name": "柏承",
+      "rs_ratio": 0.8577,
+      "last_price": 10.7,
+      "avg_vol_lots": 258.0,
+      "data_len": 399,
+      "rs_rating": 15.1
+    },
+    {
+      "code": "2609",
+      "name": "陽明",
+      "rs_ratio": 0.8571,
+      "last_price": 53.3,
+      "avg_vol_lots": 11849.0,
+      "data_len": 399,
+      "rs_rating": 15.0
+    },
+    {
+      "code": "1475",
+      "name": "業旺",
+      "rs_ratio": 0.8564,
+      "last_price": 30.6,
+      "avg_vol_lots": 33.0,
+      "data_len": 399,
+      "rs_rating": 14.9
+    },
+    {
+      "code": "6281",
+      "name": "全國電",
+      "rs_ratio": 0.8557,
+      "last_price": 60.5,
+      "avg_vol_lots": 66.0,
+      "data_len": 399,
+      "rs_rating": 14.8
+    },
+    {
+      "code": "4770",
+      "name": "上品",
+      "rs_ratio": 0.8556,
+      "last_price": 238.0,
+      "avg_vol_lots": 726.0,
+      "data_len": 399,
+      "rs_rating": 14.7
+    },
+    {
+      "code": "6438",
+      "name": "迅得",
+      "rs_ratio": 0.8547,
+      "last_price": 147.0,
+      "avg_vol_lots": 1949.0,
+      "data_len": 399,
+      "rs_rating": 14.6
+    },
+    {
+      "code": "1338",
+      "name": "廣華-KY",
+      "rs_ratio": 0.8528,
+      "last_price": 19.2,
+      "avg_vol_lots": 130.0,
+      "data_len": 399,
+      "rs_rating": 14.5
+    },
+    {
+      "code": "6412",
+      "name": "群電",
+      "rs_ratio": 0.8525,
+      "last_price": 89.8,
+      "avg_vol_lots": 2339.0,
+      "data_len": 399,
+      "rs_rating": 14.3
+    },
+    {
+      "code": "1806",
+      "name": "冠軍",
+      "rs_ratio": 0.8521,
+      "last_price": 8.9,
+      "avg_vol_lots": 539.0,
+      "data_len": 399,
+      "rs_rating": 14.2
+    },
+    {
+      "code": "6918",
+      "name": "愛派司",
+      "rs_ratio": 0.852,
+      "last_price": 82.9,
+      "avg_vol_lots": 71.0,
+      "data_len": 177,
+      "rs_rating": 14.1
+    },
+    {
+      "code": "4536",
+      "name": "拓凱",
+      "rs_ratio": 0.8503,
+      "last_price": 165.0,
+      "avg_vol_lots": 242.0,
+      "data_len": 399,
+      "rs_rating": 14.0
+    },
+    {
+      "code": "2228",
+      "name": "劍麟",
+      "rs_ratio": 0.8467,
+      "last_price": 94.1,
+      "avg_vol_lots": 461.0,
+      "data_len": 399,
+      "rs_rating": 13.9
+    },
+    {
+      "code": "2520",
+      "name": "冠德",
+      "rs_ratio": 0.8463,
+      "last_price": 31.9,
+      "avg_vol_lots": 1830.0,
+      "data_len": 399,
+      "rs_rating": 13.8
+    },
+    {
+      "code": "6197",
+      "name": "佳必琪",
+      "rs_ratio": 0.8457,
+      "last_price": 143.5,
+      "avg_vol_lots": 1232.0,
+      "data_len": 399,
+      "rs_rating": 13.7
+    },
+    {
+      "code": "6533",
+      "name": "晶心科",
+      "rs_ratio": 0.8455,
+      "last_price": 223.0,
+      "avg_vol_lots": 370.0,
+      "data_len": 399,
+      "rs_rating": 13.6
+    },
+    {
+      "code": "4190",
+      "name": "佐登-KY",
+      "rs_ratio": 0.8454,
+      "last_price": 29.0,
+      "avg_vol_lots": 27.0,
+      "data_len": 399,
+      "rs_rating": 13.5
+    },
+    {
+      "code": "6526",
+      "name": "達發",
+      "rs_ratio": 0.8446,
+      "last_price": 455.5,
+      "avg_vol_lots": 552.0,
+      "data_len": 400,
+      "rs_rating": 13.4
+    },
+    {
+      "code": "6901",
+      "name": "鑽石投資",
+      "rs_ratio": 0.8438,
+      "last_price": 16.0,
+      "avg_vol_lots": 757.0,
+      "data_len": 399,
+      "rs_rating": 13.3
+    },
+    {
+      "code": "2397",
+      "name": "友通",
+      "rs_ratio": 0.8427,
+      "last_price": 60.5,
+      "avg_vol_lots": 206.0,
+      "data_len": 399,
+      "rs_rating": 13.2
+    },
+    {
+      "code": "2929",
+      "name": "淘帝-KY",
+      "rs_ratio": 0.8424,
+      "last_price": 7.6,
+      "avg_vol_lots": 251.0,
+      "data_len": 399,
+      "rs_rating": 13.1
+    },
+    {
+      "code": "3617",
+      "name": "碩天",
+      "rs_ratio": 0.842,
+      "last_price": 192.0,
+      "avg_vol_lots": 267.0,
+      "data_len": 399,
+      "rs_rating": 12.9
+    },
+    {
+      "code": "2539",
+      "name": "櫻花建",
+      "rs_ratio": 0.8414,
+      "last_price": 48.5,
+      "avg_vol_lots": 727.0,
+      "data_len": 399,
+      "rs_rating": 12.8
+    },
+    {
+      "code": "6854",
+      "name": "錼創科技-KY創",
+      "rs_ratio": 0.8401,
+      "last_price": 117.5,
+      "avg_vol_lots": 607.0,
+      "data_len": 399,
+      "rs_rating": 12.7
+    },
+    {
+      "code": "3645",
+      "name": "達邁",
+      "rs_ratio": 0.8398,
+      "last_price": 55.6,
+      "avg_vol_lots": 5974.0,
+      "data_len": 399,
+      "rs_rating": 12.6
+    },
+    {
+      "code": "2722",
+      "name": "夏都",
+      "rs_ratio": 0.8373,
+      "last_price": 25.5,
+      "avg_vol_lots": 66.0,
+      "data_len": 399,
+      "rs_rating": 12.5
+    },
+    {
+      "code": "3034",
+      "name": "聯詠",
+      "rs_ratio": 0.8371,
+      "last_price": 375.0,
+      "avg_vol_lots": 3918.0,
+      "data_len": 399,
+      "rs_rating": 12.4
+    },
+    {
+      "code": "3545",
+      "name": "敦泰",
+      "rs_ratio": 0.837,
+      "last_price": 51.1,
+      "avg_vol_lots": 1542.0,
+      "data_len": 399,
+      "rs_rating": 12.3
+    },
+    {
+      "code": "5244",
+      "name": "弘凱",
+      "rs_ratio": 0.8364,
+      "last_price": 36.8,
+      "avg_vol_lots": 210.0,
+      "data_len": 399,
+      "rs_rating": 12.2
+    },
+    {
+      "code": "6885",
+      "name": "全福生技",
+      "rs_ratio": 0.8362,
+      "last_price": 28.0,
+      "avg_vol_lots": 555.0,
+      "data_len": 289,
+      "rs_rating": 12.1
+    },
+    {
+      "code": "2906",
+      "name": "高林",
+      "rs_ratio": 0.8344,
+      "last_price": 12.5,
+      "avg_vol_lots": 150.0,
+      "data_len": 399,
+      "rs_rating": 12.0
+    },
+    {
+      "code": "2630",
+      "name": "亞航",
+      "rs_ratio": 0.8336,
+      "last_price": 50.4,
+      "avg_vol_lots": 2828.0,
+      "data_len": 399,
+      "rs_rating": 11.9
+    },
+    {
+      "code": "2615",
+      "name": "萬海",
+      "rs_ratio": 0.8324,
+      "last_price": 75.0,
+      "avg_vol_lots": 6050.0,
+      "data_len": 399,
+      "rs_rating": 11.8
+    },
+    {
+      "code": "3528",
+      "name": "安馳",
+      "rs_ratio": 0.8307,
+      "last_price": 72.1,
+      "avg_vol_lots": 234.0,
+      "data_len": 399,
+      "rs_rating": 11.7
+    },
+    {
+      "code": "2748",
+      "name": "雲品",
+      "rs_ratio": 0.8299,
+      "last_price": 41.2,
+      "avg_vol_lots": 168.0,
+      "data_len": 399,
+      "rs_rating": 11.5
+    },
+    {
+      "code": "2912",
+      "name": "統一超",
+      "rs_ratio": 0.8295,
+      "last_price": 223.0,
+      "avg_vol_lots": 3264.0,
+      "data_len": 399,
+      "rs_rating": 11.4
+    },
+    {
+      "code": "3661",
+      "name": "世芯-KY",
+      "rs_ratio": 0.8294,
+      "last_price": 3380.0,
+      "avg_vol_lots": 1990.0,
+      "data_len": 399,
+      "rs_rating": 11.3
+    },
+    {
+      "code": "6782",
+      "name": "視陽",
+      "rs_ratio": 0.8293,
+      "last_price": 173.0,
+      "avg_vol_lots": 184.0,
+      "data_len": 399,
+      "rs_rating": 11.2
+    },
+    {
+      "code": "6117",
+      "name": "迎廣",
+      "rs_ratio": 0.8284,
+      "last_price": 74.5,
+      "avg_vol_lots": 419.0,
+      "data_len": 399,
+      "rs_rating": 11.1
+    },
+    {
+      "code": "4999",
+      "name": "鑫禾",
+      "rs_ratio": 0.8275,
+      "last_price": 23.2,
+      "avg_vol_lots": 58.0,
+      "data_len": 399,
+      "rs_rating": 11.0
+    },
+    {
+      "code": "3150",
+      "name": "鈺寶-創",
+      "rs_ratio": 0.8267,
+      "last_price": 17.2,
+      "avg_vol_lots": 65.0,
+      "data_len": 400,
+      "rs_rating": 10.9
+    },
+    {
+      "code": "2536",
+      "name": "宏普",
+      "rs_ratio": 0.8266,
+      "last_price": 22.9,
+      "avg_vol_lots": 342.0,
+      "data_len": 399,
+      "rs_rating": 10.8
+    },
+    {
+      "code": "1438",
+      "name": "三地開發",
+      "rs_ratio": 0.8265,
+      "last_price": 32.2,
+      "avg_vol_lots": 41.0,
+      "data_len": 399,
+      "rs_rating": 10.7
+    },
+    {
+      "code": "6757",
+      "name": "台灣虎航",
+      "rs_ratio": 0.8238,
+      "last_price": 65.1,
+      "avg_vol_lots": 1603.0,
+      "data_len": 400,
+      "rs_rating": 10.6
+    },
+    {
+      "code": "2354",
+      "name": "鴻準",
+      "rs_ratio": 0.8234,
+      "last_price": 58.7,
+      "avg_vol_lots": 5330.0,
+      "data_len": 399,
+      "rs_rating": 10.5
+    },
+    {
+      "code": "2352",
+      "name": "佳世達",
+      "rs_ratio": 0.8226,
+      "last_price": 25.4,
+      "avg_vol_lots": 6633.0,
+      "data_len": 399,
+      "rs_rating": 10.3
+    },
+    {
+      "code": "6771",
+      "name": "平和環保-創",
+      "rs_ratio": 0.8226,
+      "last_price": 43.5,
+      "avg_vol_lots": 36.0,
+      "data_len": 400,
+      "rs_rating": 10.3
+    },
+    {
+      "code": "3312",
+      "name": "弘憶股",
+      "rs_ratio": 0.8214,
+      "last_price": 37.5,
+      "avg_vol_lots": 1430.0,
+      "data_len": 399,
+      "rs_rating": 10.1
+    },
+    {
+      "code": "8374",
+      "name": "羅昇",
+      "rs_ratio": 0.8203,
+      "last_price": 84.6,
+      "avg_vol_lots": 1288.0,
+      "data_len": 399,
+      "rs_rating": 10.0
+    },
+    {
+      "code": "2438",
+      "name": "翔耀",
+      "rs_ratio": 0.819,
+      "last_price": 22.8,
+      "avg_vol_lots": 186.0,
+      "data_len": 399,
+      "rs_rating": 9.9
+    },
+    {
+      "code": "5388",
+      "name": "中磊",
+      "rs_ratio": 0.819,
+      "last_price": 82.2,
+      "avg_vol_lots": 4968.0,
+      "data_len": 399,
+      "rs_rating": 9.9
+    },
+    {
+      "code": "6283",
+      "name": "淳安",
+      "rs_ratio": 0.8172,
+      "last_price": 21.9,
+      "avg_vol_lots": 247.0,
+      "data_len": 399,
+      "rs_rating": 9.7
+    },
+    {
+      "code": "6657",
+      "name": "華安",
+      "rs_ratio": 0.8163,
+      "last_price": 47.0,
+      "avg_vol_lots": 1029.0,
+      "data_len": 400,
+      "rs_rating": 9.6
+    },
+    {
+      "code": "5546",
+      "name": "永固-KY",
+      "rs_ratio": 0.8157,
+      "last_price": 22.4,
+      "avg_vol_lots": 20.0,
+      "data_len": 399,
+      "rs_rating": 9.5
+    },
+    {
+      "code": "6668",
+      "name": "中揚光",
+      "rs_ratio": 0.8155,
+      "last_price": 36.3,
+      "avg_vol_lots": 329.0,
+      "data_len": 399,
+      "rs_rating": 9.4
+    },
+    {
+      "code": "1436",
+      "name": "華友聯",
+      "rs_ratio": 0.815,
+      "last_price": 56.9,
+      "avg_vol_lots": 263.0,
+      "data_len": 399,
+      "rs_rating": 9.3
+    },
+    {
+      "code": "6206",
+      "name": "飛捷",
+      "rs_ratio": 0.8143,
+      "last_price": 93.2,
+      "avg_vol_lots": 606.0,
+      "data_len": 399,
+      "rs_rating": 9.2
+    },
+    {
+      "code": "7730",
+      "name": "暉盛-創",
+      "rs_ratio": 0.8138,
+      "last_price": 102.5,
+      "avg_vol_lots": 43.0,
+      "data_len": 399,
+      "rs_rating": 9.1
+    },
+    {
+      "code": "6962",
+      "name": "奕力-KY",
+      "rs_ratio": 0.8129,
+      "last_price": 36.1,
+      "avg_vol_lots": 2835.0,
+      "data_len": 297,
+      "rs_rating": 9.0
+    },
+    {
+      "code": "6965",
+      "name": "中傑-KY",
+      "rs_ratio": 0.8119,
+      "last_price": 83.9,
+      "avg_vol_lots": 95.0,
+      "data_len": 233,
+      "rs_rating": 8.8
+    },
+    {
+      "code": "7780",
+      "name": "大研生醫*",
+      "rs_ratio": 0.8116,
+      "last_price": 24.2,
+      "avg_vol_lots": 16120.0,
+      "data_len": 312,
+      "rs_rating": 8.7
+    },
+    {
+      "code": "6128",
+      "name": "上福",
+      "rs_ratio": 0.8109,
+      "last_price": 25.1,
+      "avg_vol_lots": 134.0,
+      "data_len": 399,
+      "rs_rating": 8.6
+    },
+    {
+      "code": "1418",
+      "name": "東華",
+      "rs_ratio": 0.8102,
+      "last_price": 19.7,
+      "avg_vol_lots": 20.0,
+      "data_len": 399,
+      "rs_rating": 8.5
+    },
+    {
+      "code": "3024",
+      "name": "憶聲",
+      "rs_ratio": 0.8101,
+      "last_price": 10.3,
+      "avg_vol_lots": 747.0,
+      "data_len": 399,
+      "rs_rating": 8.4
+    },
+    {
+      "code": "3168",
+      "name": "眾福科",
+      "rs_ratio": 0.8101,
+      "last_price": 40.0,
+      "avg_vol_lots": 23.0,
+      "data_len": 399,
+      "rs_rating": 8.4
+    },
+    {
+      "code": "2442",
+      "name": "新美齊",
+      "rs_ratio": 0.8098,
+      "last_price": 20.7,
+      "avg_vol_lots": 1811.0,
+      "data_len": 399,
+      "rs_rating": 8.2
+    },
+    {
+      "code": "6924",
+      "name": "榮惠-KY創",
+      "rs_ratio": 0.8097,
+      "last_price": 62.5,
+      "avg_vol_lots": 19.0,
+      "data_len": 271,
+      "rs_rating": 8.1
+    },
+    {
+      "code": "1235",
+      "name": "興泰",
+      "rs_ratio": 0.8082,
+      "last_price": 41.0,
+      "avg_vol_lots": 18.0,
+      "data_len": 399,
+      "rs_rating": 8.0
+    },
+    {
+      "code": "2465",
+      "name": "麗臺",
+      "rs_ratio": 0.8069,
+      "last_price": 51.7,
+      "avg_vol_lots": 324.0,
+      "data_len": 399,
+      "rs_rating": 7.9
+    },
+    {
+      "code": "6869",
+      "name": "雲豹能源",
+      "rs_ratio": 0.8059,
+      "last_price": 103.0,
+      "avg_vol_lots": 1887.0,
+      "data_len": 399,
+      "rs_rating": 7.8
+    },
+    {
+      "code": "2939",
+      "name": "永邑-KY",
+      "rs_ratio": 0.8055,
+      "last_price": 23.8,
+      "avg_vol_lots": 51.0,
+      "data_len": 399,
+      "rs_rating": 7.7
+    },
+    {
+      "code": "8222",
+      "name": "寶一",
+      "rs_ratio": 0.803,
+      "last_price": 39.5,
+      "avg_vol_lots": 645.0,
+      "data_len": 399,
+      "rs_rating": 7.6
+    },
+    {
+      "code": "4961",
+      "name": "天鈺",
+      "rs_ratio": 0.7984,
+      "last_price": 143.0,
+      "avg_vol_lots": 919.0,
+      "data_len": 399,
+      "rs_rating": 7.4
+    },
+    {
+      "code": "2376",
+      "name": "技嘉",
+      "rs_ratio": 0.7979,
+      "last_price": 229.5,
+      "avg_vol_lots": 4081.0,
+      "data_len": 399,
+      "rs_rating": 7.3
+    },
+    {
+      "code": "2425",
+      "name": "承啟",
+      "rs_ratio": 0.7924,
+      "last_price": 27.2,
+      "avg_vol_lots": 368.0,
+      "data_len": 399,
+      "rs_rating": 7.2
+    },
+    {
+      "code": "2250",
+      "name": "IKKA-KY",
+      "rs_ratio": 0.7916,
+      "last_price": 70.2,
+      "avg_vol_lots": 106.0,
+      "data_len": 399,
+      "rs_rating": 7.1
+    },
+    {
+      "code": "6504",
+      "name": "南六",
+      "rs_ratio": 0.7892,
+      "last_price": 41.8,
+      "avg_vol_lots": 229.0,
+      "data_len": 399,
+      "rs_rating": 7.0
+    },
+    {
+      "code": "3596",
+      "name": "智易",
+      "rs_ratio": 0.7892,
+      "last_price": 184.0,
+      "avg_vol_lots": 1140.0,
+      "data_len": 399,
+      "rs_rating": 7.0
+    },
+    {
+      "code": "4763",
+      "name": "材料*-KY",
+      "rs_ratio": 0.7889,
+      "last_price": 48.7,
+      "avg_vol_lots": 6683.0,
+      "data_len": 399,
+      "rs_rating": 6.8
+    },
+    {
+      "code": "6742",
+      "name": "澤米",
+      "rs_ratio": 0.7853,
+      "last_price": 45.2,
+      "avg_vol_lots": 619.0,
+      "data_len": 399,
+      "rs_rating": 6.7
+    },
+    {
+      "code": "3515",
+      "name": "華擎",
+      "rs_ratio": 0.7845,
+      "last_price": 221.5,
+      "avg_vol_lots": 550.0,
+      "data_len": 399,
+      "rs_rating": 6.6
+    },
+    {
+      "code": "2357",
+      "name": "華碩",
+      "rs_ratio": 0.7844,
+      "last_price": 523.0,
+      "avg_vol_lots": 3926.0,
+      "data_len": 399,
+      "rs_rating": 6.5
+    },
+    {
+      "code": "3557",
+      "name": "嘉威",
+      "rs_ratio": 0.7825,
+      "last_price": 34.3,
+      "avg_vol_lots": 100.0,
+      "data_len": 399,
+      "rs_rating": 6.4
+    },
+    {
+      "code": "2105",
+      "name": "正新",
+      "rs_ratio": 0.7784,
+      "last_price": 30.9,
+      "avg_vol_lots": 8833.0,
+      "data_len": 399,
+      "rs_rating": 6.3
+    },
+    {
+      "code": "6112",
+      "name": "邁達特",
+      "rs_ratio": 0.7767,
+      "last_price": 43.8,
+      "avg_vol_lots": 480.0,
+      "data_len": 399,
+      "rs_rating": 6.1
+    },
+    {
+      "code": "7765",
+      "name": "中華資安",
+      "rs_ratio": 0.7761,
+      "last_price": 263.5,
+      "avg_vol_lots": 52.0,
+      "data_len": 363,
+      "rs_rating": 6.0
+    },
+    {
+      "code": "2480",
+      "name": "敦陽科",
+      "rs_ratio": 0.7735,
+      "last_price": 143.5,
+      "avg_vol_lots": 291.0,
+      "data_len": 399,
+      "rs_rating": 5.9
+    },
+    {
+      "code": "6165",
+      "name": "浪凡",
+      "rs_ratio": 0.7715,
+      "last_price": 43.9,
+      "avg_vol_lots": 375.0,
+      "data_len": 399,
+      "rs_rating": 5.8
+    },
+    {
+      "code": "4968",
+      "name": "立積",
+      "rs_ratio": 0.7713,
+      "last_price": 118.5,
+      "avg_vol_lots": 1366.0,
+      "data_len": 399,
+      "rs_rating": 5.7
+    },
+    {
+      "code": "6887",
+      "name": "寶綠特-KY",
+      "rs_ratio": 0.7712,
+      "last_price": 49.3,
+      "avg_vol_lots": 74.0,
+      "data_len": 229,
+      "rs_rating": 5.6
+    },
+    {
+      "code": "1446",
+      "name": "宏和",
+      "rs_ratio": 0.7706,
+      "last_price": 16.2,
+      "avg_vol_lots": 246.0,
+      "data_len": 399,
+      "rs_rating": 5.5
+    },
+    {
+      "code": "6928",
+      "name": "攸泰科技",
+      "rs_ratio": 0.7698,
+      "last_price": 50.6,
+      "avg_vol_lots": 382.0,
+      "data_len": 400,
+      "rs_rating": 5.4
+    },
+    {
+      "code": "6658",
+      "name": "聯策",
+      "rs_ratio": 0.7692,
+      "last_price": 54.6,
+      "avg_vol_lots": 222.0,
+      "data_len": 399,
+      "rs_rating": 5.3
+    },
+    {
+      "code": "3338",
+      "name": "泰碩",
+      "rs_ratio": 0.7687,
+      "last_price": 52.2,
+      "avg_vol_lots": 1021.0,
+      "data_len": 399,
+      "rs_rating": 5.2
+    },
+    {
+      "code": "4737",
+      "name": "華廣",
+      "rs_ratio": 0.7647,
+      "last_price": 55.9,
+      "avg_vol_lots": 240.0,
+      "data_len": 399,
+      "rs_rating": 5.1
+    },
+    {
+      "code": "6472",
+      "name": "保瑞",
+      "rs_ratio": 0.7634,
+      "last_price": 490.0,
+      "avg_vol_lots": 1988.0,
+      "data_len": 399,
+      "rs_rating": 5.0
+    },
+    {
+      "code": "3056",
+      "name": "富華新",
+      "rs_ratio": 0.7601,
+      "last_price": 17.1,
+      "avg_vol_lots": 1391.0,
+      "data_len": 399,
+      "rs_rating": 4.9
+    },
+    {
+      "code": "5258",
+      "name": "虹堡",
+      "rs_ratio": 0.7597,
+      "last_price": 51.1,
+      "avg_vol_lots": 440.0,
+      "data_len": 399,
+      "rs_rating": 4.7
+    },
+    {
+      "code": "6689",
+      "name": "伊雲谷",
+      "rs_ratio": 0.759,
+      "last_price": 59.0,
+      "avg_vol_lots": 274.0,
+      "data_len": 399,
+      "rs_rating": 4.6
+    },
+    {
+      "code": "3018",
+      "name": "隆銘綠能",
+      "rs_ratio": 0.7492,
+      "last_price": 13.1,
+      "avg_vol_lots": 17.0,
+      "data_len": 399,
+      "rs_rating": 4.5
+    },
+    {
+      "code": "4551",
+      "name": "智伸科",
+      "rs_ratio": 0.7469,
+      "last_price": 122.0,
+      "avg_vol_lots": 633.0,
+      "data_len": 399,
+      "rs_rating": 4.4
+    },
+    {
+      "code": "3694",
+      "name": "海華",
+      "rs_ratio": 0.746,
+      "last_price": 60.5,
+      "avg_vol_lots": 2409.0,
+      "data_len": 399,
+      "rs_rating": 4.3
+    },
+    {
+      "code": "4569",
+      "name": "六方科-KY",
+      "rs_ratio": 0.7434,
+      "last_price": 146.5,
+      "avg_vol_lots": 34.0,
+      "data_len": 399,
+      "rs_rating": 4.2
+    },
+    {
+      "code": "2364",
+      "name": "倫飛",
+      "rs_ratio": 0.7432,
+      "last_price": 61.8,
+      "avg_vol_lots": 157.0,
+      "data_len": 399,
+      "rs_rating": 4.1
+    },
+    {
+      "code": "7721",
+      "name": "微程式",
+      "rs_ratio": 0.7357,
+      "last_price": 47.8,
+      "avg_vol_lots": 63.0,
+      "data_len": 400,
+      "rs_rating": 4.0
+    },
+    {
+      "code": "3592",
+      "name": "瑞鼎",
+      "rs_ratio": 0.734,
+      "last_price": 223.5,
+      "avg_vol_lots": 765.0,
+      "data_len": 399,
+      "rs_rating": 3.9
+    },
+    {
+      "code": "1231",
+      "name": "聯華食",
+      "rs_ratio": 0.7325,
+      "last_price": 93.5,
+      "avg_vol_lots": 316.0,
+      "data_len": 399,
+      "rs_rating": 3.8
+    },
+    {
+      "code": "2429",
+      "name": "銘旺科",
+      "rs_ratio": 0.7303,
+      "last_price": 55.6,
+      "avg_vol_lots": 608.0,
+      "data_len": 399,
+      "rs_rating": 3.7
+    },
+    {
+      "code": "1589",
+      "name": "永冠-KY",
+      "rs_ratio": 0.7285,
+      "last_price": 16.5,
+      "avg_vol_lots": 1728.0,
+      "data_len": 399,
+      "rs_rating": 3.6
+    },
+    {
+      "code": "8072",
+      "name": "陞泰",
+      "rs_ratio": 0.7277,
+      "last_price": 29.9,
+      "avg_vol_lots": 463.0,
+      "data_len": 399,
+      "rs_rating": 3.5
+    },
+    {
+      "code": "6958",
+      "name": "日盛台駿",
+      "rs_ratio": 0.726,
+      "last_price": 15.9,
+      "avg_vol_lots": 45.0,
+      "data_len": 399,
+      "rs_rating": 3.3
+    },
+    {
+      "code": "8454",
+      "name": "富邦媒",
+      "rs_ratio": 0.7251,
+      "last_price": 190.0,
+      "avg_vol_lots": 442.0,
+      "data_len": 399,
+      "rs_rating": 3.2
+    },
+    {
+      "code": "2392",
+      "name": "正崴",
+      "rs_ratio": 0.7251,
+      "last_price": 38.3,
+      "avg_vol_lots": 1708.0,
+      "data_len": 399,
+      "rs_rating": 3.2
+    },
+    {
+      "code": "6215",
+      "name": "和椿",
+      "rs_ratio": 0.722,
+      "last_price": 112.5,
+      "avg_vol_lots": 3555.0,
+      "data_len": 399,
+      "rs_rating": 3.0
+    },
+    {
+      "code": "5269",
+      "name": "祥碩",
+      "rs_ratio": 0.7216,
+      "last_price": 1270.0,
+      "avg_vol_lots": 1263.0,
+      "data_len": 399,
+      "rs_rating": 2.9
+    },
+    {
+      "code": "6863",
+      "name": "永道-KY",
+      "rs_ratio": 0.7205,
+      "last_price": 112.5,
+      "avg_vol_lots": 127.0,
+      "data_len": 399,
+      "rs_rating": 2.8
+    },
+    {
+      "code": "6558",
+      "name": "興能高",
+      "rs_ratio": 0.7109,
+      "last_price": 33.2,
+      "avg_vol_lots": 1606.0,
+      "data_len": 399,
+      "rs_rating": 2.7
+    },
+    {
+      "code": "8045",
+      "name": "達運光電",
+      "rs_ratio": 0.7088,
+      "last_price": 82.4,
+      "avg_vol_lots": 562.0,
+      "data_len": 399,
+      "rs_rating": 2.6
+    },
+    {
+      "code": "2468",
+      "name": "華經",
+      "rs_ratio": 0.7044,
+      "last_price": 35.4,
+      "avg_vol_lots": 354.0,
+      "data_len": 399,
+      "rs_rating": 2.5
+    },
+    {
+      "code": "4562",
+      "name": "穎漢",
+      "rs_ratio": 0.7026,
+      "last_price": 36.5,
+      "avg_vol_lots": 1430.0,
+      "data_len": 399,
+      "rs_rating": 2.4
+    },
+    {
+      "code": "7791",
+      "name": "皇家可口",
+      "rs_ratio": 0.6995,
+      "last_price": 69.0,
+      "avg_vol_lots": 73.0,
+      "data_len": 298,
+      "rs_rating": 2.3
+    },
+    {
+      "code": "6933",
+      "name": "AMAX-KY",
+      "rs_ratio": 0.6974,
+      "last_price": 133.5,
+      "avg_vol_lots": 108.0,
+      "data_len": 399,
+      "rs_rating": 2.2
+    },
+    {
+      "code": "6873",
+      "name": "泓德能源",
+      "rs_ratio": 0.6952,
+      "last_price": 108.0,
+      "avg_vol_lots": 1091.0,
+      "data_len": 399,
+      "rs_rating": 2.0
+    },
+    {
+      "code": "8114",
+      "name": "振樺電",
+      "rs_ratio": 0.6888,
+      "last_price": 173.0,
+      "avg_vol_lots": 924.0,
+      "data_len": 399,
+      "rs_rating": 1.9
+    },
+    {
+      "code": "4164",
+      "name": "承業醫",
+      "rs_ratio": 0.6887,
+      "last_price": 33.5,
+      "avg_vol_lots": 941.0,
+      "data_len": 399,
+      "rs_rating": 1.8
+    },
+    {
+      "code": "7722",
+      "name": "LINEPAY",
+      "rs_ratio": 0.6812,
+      "last_price": 429.0,
+      "avg_vol_lots": 238.0,
+      "data_len": 298,
+      "rs_rating": 1.7
+    },
+    {
+      "code": "3447",
+      "name": "展達",
+      "rs_ratio": 0.6744,
+      "last_price": 40.3,
+      "avg_vol_lots": 387.0,
+      "data_len": 399,
+      "rs_rating": 1.6
+    },
+    {
+      "code": "6674",
+      "name": "鋐寶科技",
+      "rs_ratio": 0.6711,
+      "last_price": 20.0,
+      "avg_vol_lots": 73.0,
+      "data_len": 399,
+      "rs_rating": 1.5
+    },
+    {
+      "code": "3032",
+      "name": "偉訓",
+      "rs_ratio": 0.6696,
+      "last_price": 73.7,
+      "avg_vol_lots": 646.0,
+      "data_len": 399,
+      "rs_rating": 1.4
+    },
+    {
+      "code": "6969",
+      "name": "成信實業*-創",
+      "rs_ratio": 0.6674,
+      "last_price": 31.9,
+      "avg_vol_lots": 64.0,
+      "data_len": 348,
+      "rs_rating": 1.3
+    },
+    {
+      "code": "1435",
+      "name": "中福",
+      "rs_ratio": 0.6615,
+      "last_price": 21.9,
+      "avg_vol_lots": 7.0,
+      "data_len": 399,
+      "rs_rating": 1.2
+    },
+    {
+      "code": "3494",
+      "name": "誠研",
+      "rs_ratio": 0.66,
+      "last_price": 8.9,
+      "avg_vol_lots": 472.0,
+      "data_len": 399,
+      "rs_rating": 1.1
+    },
+    {
+      "code": "2377",
+      "name": "微星",
+      "rs_ratio": 0.6549,
+      "last_price": 90.7,
+      "avg_vol_lots": 8197.0,
+      "data_len": 399,
+      "rs_rating": 1.0
+    },
+    {
+      "code": "7749",
+      "name": "意騰-KY",
+      "rs_ratio": 0.6498,
+      "last_price": 422.5,
+      "avg_vol_lots": 205.0,
+      "data_len": 167,
+      "rs_rating": 0.9
+    },
+    {
+      "code": "7740",
+      "name": "熙特爾-創",
+      "rs_ratio": 0.6362,
+      "last_price": 160.0,
+      "avg_vol_lots": 126.0,
+      "data_len": 171,
+      "rs_rating": 0.8
+    },
+    {
+      "code": "6906",
+      "name": "現觀科",
+      "rs_ratio": 0.6253,
+      "last_price": 72.5,
+      "avg_vol_lots": 81.0,
+      "data_len": 399,
+      "rs_rating": 0.6
+    },
+    {
+      "code": "6806",
+      "name": "森崴能源",
+      "rs_ratio": 0.6142,
+      "last_price": 43.8,
+      "avg_vol_lots": 2823.0,
+      "data_len": 399,
+      "rs_rating": 0.5
+    },
+    {
+      "code": "2424",
+      "name": "隴華",
+      "rs_ratio": 0.5823,
+      "last_price": 32.9,
+      "avg_vol_lots": 92.0,
+      "data_len": 399,
+      "rs_rating": 0.4
+    },
+    {
+      "code": "7711",
+      "name": "永擎",
+      "rs_ratio": 0.5632,
+      "last_price": 236.0,
+      "avg_vol_lots": 245.0,
+      "data_len": 294,
+      "rs_rating": 0.3
+    },
+    {
+      "code": "7799",
+      "name": "禾榮科",
+      "rs_ratio": 0.5631,
+      "last_price": 473.5,
+      "avg_vol_lots": 700.0,
+      "data_len": 297,
+      "rs_rating": 0.2
+    },
+    {
+      "code": "3712",
+      "name": "永崴投控",
+      "rs_ratio": 0.5417,
+      "last_price": 24.8,
+      "avg_vol_lots": 1176.0,
+      "data_len": 399,
+      "rs_rating": 0.1
+    }
+  ]
+}

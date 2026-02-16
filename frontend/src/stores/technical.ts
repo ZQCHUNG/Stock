@@ -29,12 +29,14 @@ export const useTechnicalStore = defineStore('technical', () => {
   const stockData = ref<TimeSeriesData | null>(null)
   const adaptiveSignal = ref<any>(null)
   const boldSignal = ref<any>(null)
+  const boldStatus = ref<any>(null)
   const riskBudget = ref<any>(null)
   const signalSummary = ref<any>(null)
   const sqsData = ref<any>(null)
   const liquidity = ref<any>(null)
   const fundamentals = ref<any>(null)
   const trailClassifier = ref<any>(null)
+  const sectorContext = ref<any>(null)
   const isLoading = ref(false)
   const error = ref('')
 
@@ -79,8 +81,17 @@ export const useTechnicalStore = defineStore('technical', () => {
   async function loadAll(code: string) {
     const seq = ++_loadSeq
 
-    // Clear v4SignalsFull so loadV4SignalsFull won't skip with stale data
+    // Clear non-blocking data so stale values don't display during stock switch
     v4SignalsFull.value = null
+    boldStatus.value = null
+    boldSignal.value = null
+    adaptiveSignal.value = null
+    riskBudget.value = null
+    signalSummary.value = null
+    sqsData.value = null
+    liquidity.value = null
+    trailClassifier.value = null
+    sectorContext.value = null
 
     // Check cache first — instant switch for previously viewed stocks
     const cached = _getCached(code)
@@ -151,6 +162,17 @@ export const useTechnicalStore = defineStore('technical', () => {
     }
   }
 
+  async function loadBoldStatus(code: string) {
+    const seq = _loadSeq
+    try {
+      const data = await analysisApi.boldStatus(code)
+      if (seq !== _loadSeq) return
+      boldStatus.value = data
+    } catch {
+      boldStatus.value = null
+    }
+  }
+
   async function loadRiskBudget(code: string) {
     const seq = _loadSeq
     try {
@@ -217,6 +239,17 @@ export const useTechnicalStore = defineStore('technical', () => {
     }
   }
 
+  async function loadSectorContext(code: string) {
+    const seq = _loadSeq
+    try {
+      const data = await analysisApi.sectorContext(code)
+      if (seq !== _loadSeq) return
+      sectorContext.value = data
+    } catch {
+      sectorContext.value = null
+    }
+  }
+
   async function loadV4SignalsFull(code: string) {
     // v4SignalsFull is cleared in loadAll on stock switch, so this only skips
     // if the data was already restored from cache for the same stock
@@ -232,8 +265,8 @@ export const useTechnicalStore = defineStore('technical', () => {
   }
 
   return {
-    indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, boldSignal, riskBudget, signalSummary, sqsData, liquidity,
-    supportResistance, volumePatterns, institutional, stockData, fundamentals, trailClassifier,
-    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals, loadTrailClassifier,
+    indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, boldSignal, boldStatus, riskBudget, signalSummary, sqsData, liquidity,
+    supportResistance, volumePatterns, institutional, stockData, fundamentals, trailClassifier, sectorContext,
+    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadBoldStatus, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals, loadTrailClassifier, loadSectorContext,
   }
 })

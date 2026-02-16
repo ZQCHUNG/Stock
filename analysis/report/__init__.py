@@ -32,6 +32,7 @@ from analysis.report_models import (  # noqa: F401
     OutlookScenario,
     ReportResult,
     _safe,
+    OverrideCode, OverrideSeverity, RatingOverride,
 )
 
 # 從子模組匯入所有函式（保持向下相容：from analysis.report import _xxx）
@@ -240,7 +241,11 @@ def generate_report(stock_code: str, period_days: int = 730,
     # 5c. Cash Runway（Gemini R20: 生技股財務風險）
     cash_runway = financial_data.get("cash_runway") if financial_data else None
 
-    overall_rating = _calculate_overall_rating(
+    # 計算 20 日均成交額，供 G1 Ghost Town 雙重條件判斷
+    # [PLACEHOLDER: WALL_ST_CONVENTION] 門檻 10M TWD
+    avg_turnover_20d = float((df["close"] * df["volume"]).tail(20).mean())
+
+    rating_decision = _calculate_overall_rating(
         trend["trend_direction"], momentum["momentum_status"],
         v4["signal"], v2.get("composite_score", 0),
         momentum["rsi_value"], risk["risk_reward_ratio"],
@@ -253,7 +258,10 @@ def generate_report(stock_code: str, period_days: int = 730,
         sector=company_info.get("sector", ""),
         cash_runway=cash_runway,
         institutional_visibility=inst_result.get("visibility", "active"),
+        avg_turnover_20d=avg_turnover_20d,
     )
+    # RatingDecision 向下相容：str()==final_rating, ==支援字串比較
+    overall_rating = rating_decision
 
     # 5b. 其他分析模組
     industry_risks = _assess_industry_risks(
@@ -292,11 +300,35 @@ def generate_report(stock_code: str, period_days: int = 730,
         ),
     )
 
-    # 評等與行動建議一致性修正：避免「中性」評等卻建議「避開」的矛盾
-    if recommendation.get("action") == "AVOID" and overall_rating == "中性":
-        overall_rating = "賣出"
-    elif recommendation.get("action") == "BUY" and overall_rating in ("中性", "賣出"):
-        overall_rating = "買進"
+    # G8: 評等與行動建議一致性修正（deprecated, 待 G9 Volatility Guard 上線後移除）
+    # 透過 Override Traceability System 記錄覆寫
+    if recommendation.get("action") == "AVOID" and rating_decision == "中性":
+        rating_decision.overrides.append(RatingOverride(
+            code=OverrideCode.ACTION_CONSISTENCY,
+            severity=OverrideSeverity.OVERRIDE,
+            rating_before=rating_decision.final_rating,
+            rating_after="賣出",
+            cap_limit="賣出",
+            threshold_value=0,
+            actual_value=0,
+            data_source="[VERIFIED] 行動建議一致性：AVOID + 中性 → 賣出",
+        ))
+        rating_decision.final_rating = "賣出"
+        rating_decision.was_overridden = True
+    elif recommendation.get("action") == "BUY" and rating_decision in ("中性", "賣出"):
+        before = rating_decision.final_rating
+        rating_decision.overrides.append(RatingOverride(
+            code=OverrideCode.ACTION_CONSISTENCY,
+            severity=OverrideSeverity.OVERRIDE,
+            rating_before=before,
+            rating_after="買進",
+            cap_limit="買進",
+            threshold_value=0,
+            actual_value=0,
+            data_source=f"[VERIFIED] 行動建議一致性：BUY + {before} → 買進",
+        ))
+        rating_decision.final_rating = "買進"
+        rating_decision.was_overridden = True
 
     # 6. 摘要
     summary_data = {
@@ -355,7 +387,7 @@ def generate_report(stock_code: str, period_days: int = 730,
         trend_strength=trend["trend_strength"],
         momentum_status=momentum["momentum_status"],
         volatility_level=volatility["volatility_level"],
-        overall_rating=overall_rating,
+        overall_rating=str(rating_decision),
         ma_alignment=trend["ma_alignment"],
         support_levels=supports,
         resistance_levels=resistances,
@@ -416,4 +448,5 @@ def generate_report(stock_code: str, period_days: int = 730,
         is_biotech=is_biotech,
         rating_weights=_get_rating_weights(is_biotech),
         cash_runway=cash_runway,
+        rating_decision=rating_decision,
     )

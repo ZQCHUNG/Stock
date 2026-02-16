@@ -119,6 +119,37 @@ def list_strategies():
     return {"strategies": _load_strategies()}
 
 
+@router.get("/adaptive-recommendation")
+def get_adaptive_recommendation_endpoint():
+    """R51-1: 自適應策略推薦
+
+    根據當前 ML 市場情境，自動推薦最合適的策略與參數調整。
+    """
+    from data.fetcher import get_stock_data
+    from backend.ml_regime import classify_market_regime
+    from backend.strategy_adapter import get_adaptive_recommendation
+    from backend.dependencies import make_serializable
+
+    try:
+        df = get_stock_data("0050", period_days=250)
+        if df is None or len(df) < 60:
+            return {"error": "數據不足"}
+
+        regime_data = classify_market_regime(
+            close=df["close"].values,
+            high=df["high"].values,
+            low=df["low"].values,
+            volume=df["volume"].values,
+        )
+
+        strategies = _load_strategies()
+        recommendation = get_adaptive_recommendation(regime_data, strategies)
+
+        return make_serializable(recommendation)
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.get("/{strategy_id}")
 def get_strategy(strategy_id: str):
     """取得單一策略"""
@@ -488,34 +519,3 @@ def run_batch_adaptive_backtest(req: BatchAdaptiveRequest):
         "errors": errors,
         "aggregate": aggregate,
     })
-
-
-@router.get("/adaptive-recommendation")
-def get_adaptive_recommendation_endpoint():
-    """R51-1: 自適應策略推薦
-
-    根據當前 ML 市場情境，自動推薦最合適的策略與參數調整。
-    """
-    from data.fetcher import get_stock_data
-    from backend.ml_regime import classify_market_regime
-    from backend.strategy_adapter import get_adaptive_recommendation
-    from backend.dependencies import make_serializable
-
-    try:
-        df = get_stock_data("0050", period_days=250)
-        if df is None or len(df) < 60:
-            return {"error": "數據不足"}
-
-        regime_data = classify_market_regime(
-            close=df["close"].values,
-            high=df["high"].values,
-            low=df["low"].values,
-            volume=df["volume"].values,
-        )
-
-        strategies = _load_strategies()
-        recommendation = get_adaptive_recommendation(regime_data, strategies)
-
-        return make_serializable(recommendation)
-    except Exception as e:
-        return {"error": str(e)}

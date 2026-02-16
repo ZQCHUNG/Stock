@@ -8,6 +8,7 @@ from analysis.strategy_bold import (
     generate_bold_signals,
     get_bold_analysis,
     compute_bold_exit,
+    compute_rs_ratio,
     _compute_bb_bandwidth,
     _detect_squeeze,
     STRATEGY_BOLD_PARAMS,
@@ -92,14 +93,25 @@ class TestComputeBoldExit:
         assert result["level"] == 1
 
     def test_level1_trailing_triggered(self):
-        """Level 1 trailing stop should trigger."""
+        """Level 1 trailing stop should trigger (when time stop is disabled)."""
         result = compute_bold_exit(
             entry_price=100, current_price=96, peak_price=115,
-            current_atr=3.0, hold_days=30
+            current_atr=3.0, hold_days=30,
+            params={"time_stop_enabled": False},
         )
         # peak=115, trail at 115*0.85=97.75, current=96 < 97.75
         assert result["should_exit"] is True
         assert result["exit_reason"] == "trail_level1"
+
+    def test_level1_trailing_preempted_by_time_stop(self):
+        """Time stop fires before trail when gain is low after 5+ days."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=96, peak_price=115,
+            current_atr=3.0, hold_days=30
+        )
+        # gain=-4% < 3%, hold_days=30 → time stop fires first
+        assert result["should_exit"] is True
+        assert "time_stop" in result["exit_reason"]
 
     def test_level2_protection(self):
         """Level 2: gain 30-50%, locks in cost+10%."""
@@ -224,6 +236,198 @@ class TestGetBoldAnalysis:
         result = get_bold_analysis(df)
         assert "bb_upper" in result["indicators"]
         assert "ma20" in result["indicators"]
+
+
+class TestPhase1DefenseStops:
+    """Test Phase 1 物理止損機制（R62 Gemini + Architect Critic 共識）."""
+
+    # --- 結構止損 ---
+    def test_structural_stop_triggers_below_entry_low(self):
+        """Price below entry_low should trigger structural stop."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=95, peak_price=105,
+            current_atr=3.0, hold_days=3,
+            entry_low=96.0, prev_day_low=97.0,
+        )
+        # min(96, 97) = 96, current 95 < 96 → exit
+        assert result["should_exit"] is True
+        assert result["exit_reason"] == "structural_stop"
+        assert result["level"] == 0
+
+    def test_structural_stop_uses_min_of_both_lows(self):
+        """Should use min(entry_low, prev_day_low) as floor."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=94, peak_price=105,
+            current_atr=3.0, hold_days=3,
+            entry_low=97.0, prev_day_low=95.0,
+        )
+        # min(97, 95) = 95, current 94 < 95 → exit
+        assert result["should_exit"] is True
+        assert result["exit_reason"] == "structural_stop"
+
+    def test_structural_stop_holds_above_floor(self):
+        """Price above structural floor should hold."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=97, peak_price=105,
+            current_atr=3.0, hold_days=3,
+            entry_low=96.0, prev_day_low=95.0,
+        )
+        # min(96, 95) = 95, current 97 > 95 → hold
+        assert result["should_exit"] is False
+
+    def test_structural_stop_overrides_min_hold(self):
+        """Structural stop should fire even during min hold period (hold_days=1)."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=94, peak_price=100,
+            current_atr=3.0, hold_days=1,
+            entry_low=96.0, prev_day_low=95.0,
+        )
+        assert result["should_exit"] is True
+        assert result["exit_reason"] == "structural_stop"
+
+    def test_structural_stop_disabled(self):
+        """When disabled, should not trigger structural stop."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=94, peak_price=105,
+            current_atr=3.0, hold_days=15,
+            params={"structural_stop_enabled": False},
+            entry_low=96.0, prev_day_low=95.0,
+        )
+        # Disabled, so should fall through to normal exit logic
+        assert result["exit_reason"] != "structural_stop"
+
+    def test_structural_stop_with_only_entry_low(self):
+        """When prev_day_low is None, use entry_low only."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=95, peak_price=105,
+            current_atr=3.0, hold_days=3,
+            entry_low=96.0, prev_day_low=None,
+        )
+        # floor = 96, current 95 < 96 → exit
+        assert result["should_exit"] is True
+        assert result["exit_reason"] == "structural_stop"
+
+    # --- 時間止損 ---
+    def test_time_stop_triggers_after_n_days_low_gain(self):
+        """5 days with gain < 3% should trigger time stop."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=101, peak_price=102,
+            current_atr=3.0, hold_days=5,
+        )
+        # gain = 1% < 3%, hold_days=5 → time stop
+        assert result["should_exit"] is True
+        assert "time_stop" in result["exit_reason"]
+
+    def test_time_stop_does_not_trigger_with_good_gain(self):
+        """5 days with gain >= 3% should NOT trigger time stop."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=104, peak_price=104,
+            current_atr=3.0, hold_days=5,
+        )
+        # gain = 4% >= 3% → no time stop
+        assert result["exit_reason"] != "time_stop_5d"
+
+    def test_time_stop_does_not_trigger_before_n_days(self):
+        """Before 5 days, time stop should not trigger even with low gain."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=100.5, peak_price=101,
+            current_atr=3.0, hold_days=3,
+        )
+        # hold_days=3 < 5 → no time stop (min hold protection)
+        assert "time_stop" not in result.get("exit_reason", "")
+
+    def test_time_stop_disabled(self):
+        """When disabled, should not trigger time stop."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=100.5, peak_price=101,
+            current_atr=3.0, hold_days=15,
+            params={"time_stop_enabled": False},
+        )
+        assert "time_stop" not in result.get("exit_reason", "")
+
+    def test_time_stop_negative_gain(self):
+        """Time stop should also trigger when gain is negative (but above disaster)."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=97, peak_price=101,
+            current_atr=3.0, hold_days=6,
+        )
+        # gain = -3% < 3%, hold_days=6 → time stop
+        assert result["should_exit"] is True
+        assert "time_stop" in result["exit_reason"]
+
+    # --- 趨勢破位 ---
+    def test_trend_break_triggers(self):
+        """Price below MA20 with negative slope should trigger trend break."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=108, peak_price=115,
+            current_atr=3.0, hold_days=15,
+            current_ma20=110.0, ma20_slope=-0.005,
+        )
+        # price=108 < ma20=110, slope=-0.005 ≤ 0, hold_days=15 ≥ min_hold → exit
+        assert result["should_exit"] is True
+        assert result["exit_reason"] == "trend_break_ma20"
+
+    def test_trend_break_holds_above_ma20(self):
+        """Price above MA20 should not trigger trend break."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=112, peak_price=115,
+            current_atr=3.0, hold_days=15,
+            current_ma20=110.0, ma20_slope=-0.005,
+        )
+        # price=112 > ma20=110 → no trend break
+        assert result["exit_reason"] != "trend_break_ma20"
+
+    def test_trend_break_holds_with_positive_slope(self):
+        """MA20 with positive slope should not trigger even below MA20."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=108, peak_price=115,
+            current_atr=3.0, hold_days=15,
+            current_ma20=110.0, ma20_slope=0.005,
+        )
+        # slope > 0 → no trend break
+        assert result["exit_reason"] != "trend_break_ma20"
+
+    def test_trend_break_respects_min_hold(self):
+        """Trend break should respect min hold period."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=108, peak_price=115,
+            current_atr=3.0, hold_days=3,
+            current_ma20=110.0, ma20_slope=-0.005,
+        )
+        # hold_days=3 < min_hold=10 → trend break should NOT trigger
+        assert result["exit_reason"] != "trend_break_ma20"
+
+    def test_trend_break_disabled(self):
+        """When disabled, should not trigger trend break."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=108, peak_price=115,
+            current_atr=3.0, hold_days=15,
+            params={"trend_break_stop_enabled": False},
+            current_ma20=110.0, ma20_slope=-0.005,
+        )
+        assert result["exit_reason"] != "trend_break_ma20"
+
+    # --- 優先級 ---
+    def test_structural_stop_priority_over_time_stop(self):
+        """Structural stop should fire before time stop."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=94, peak_price=105,
+            current_atr=3.0, hold_days=6,
+            entry_low=96.0, prev_day_low=95.0,
+        )
+        # Both structural (94 < 95) and time (gain=-6% < 3%) would trigger
+        # Structural comes first → should be structural_stop
+        assert result["exit_reason"] == "structural_stop"
+
+    def test_backward_compat_no_new_params(self):
+        """Calling without new params should work (backward compatible)."""
+        result = compute_bold_exit(
+            entry_price=100, current_price=120, peak_price=130,
+            current_atr=3.0, hold_days=30,
+        )
+        # All new params default to None → no new stops triggered
+        assert result["gain_pct"] == pytest.approx(0.20, abs=0.001)
+        assert "should_exit" in result
 
 
 class TestRegimeBasedTrail:
@@ -409,3 +613,305 @@ class TestBacktestBoldIntegration:
         result = run_backtest_bold(df)
         assert result is not None
         assert hasattr(result, "total_return")
+
+
+# ============================================================
+# R62: Momentum Lag Stop Tests
+# ============================================================
+class TestMomentumLagStop:
+    """Test R62 Momentum Lag Stop — 量縮時延長持有，破 MA5 立即出場。"""
+
+    def _base_params(self):
+        return {
+            **STRATEGY_BOLD_PARAMS,
+            "time_stop_enabled": True,
+            "momentum_lag_stop_enabled": True,
+            "time_stop_days": 5,
+            "time_stop_extended_days": 8,
+            "momentum_lag_gain_threshold": 0.01,
+            "time_stop_min_gain": 0.03,
+            "stop_loss_pct": 0.15,
+            "min_hold_days": 10,
+            "structural_stop_enabled": False,
+            "trend_break_stop_enabled": False,
+        }
+
+    def test_volume_shrink_extends_hold(self):
+        """量縮且報酬在 ±1% → 不出場（延長觀察）。"""
+        p = self._base_params()
+        result = compute_bold_exit(
+            entry_price=100, current_price=100.5, peak_price=101,
+            current_atr=2.0, hold_days=5, params=p,
+            current_vol_ma5=800_000, current_vol_ma20=1_000_000,  # vol_ma5 < vol_ma20
+            current_ma5=99.0,  # price > MA5
+        )
+        assert not result["should_exit"], "量縮時應延長持有，不出場"
+
+    def test_volume_shrink_but_breaks_ma5(self):
+        """量縮但破 MA5 → 立即出場。gain 在 ±1% 內但 close < MA5。"""
+        p = self._base_params()
+        result = compute_bold_exit(
+            entry_price=100, current_price=99.5, peak_price=101,
+            current_atr=2.0, hold_days=6, params=p,
+            current_vol_ma5=800_000, current_vol_ma20=1_000_000,
+            current_ma5=100.0,  # price 99.5 < MA5 100.0
+        )
+        assert result["should_exit"]
+        assert result["exit_reason"] == "momentum_lag_ma5_break"
+
+    def test_no_volume_shrink_time_stop(self):
+        """量沒縮且不動 → 正常 time stop。"""
+        p = self._base_params()
+        result = compute_bold_exit(
+            entry_price=100, current_price=100.5, peak_price=101,
+            current_atr=2.0, hold_days=5, params=p,
+            current_vol_ma5=1_200_000, current_vol_ma20=1_000_000,  # vol_ma5 > vol_ma20
+            current_ma5=99.0,
+        )
+        assert result["should_exit"]
+        assert "time_stop" in result["exit_reason"]
+
+    def test_loss_beyond_threshold_time_stop(self):
+        """虧超過 1% → 5 天直接 time stop，不延長。"""
+        p = self._base_params()
+        result = compute_bold_exit(
+            entry_price=100, current_price=98.0, peak_price=101,
+            current_atr=2.0, hold_days=5, params=p,
+            current_vol_ma5=800_000, current_vol_ma20=1_000_000,
+            current_ma5=97.0,
+        )
+        assert result["should_exit"]
+        assert "time_stop" in result["exit_reason"]
+
+    def test_extended_day_8_hard_stop(self):
+        """到第 8 天 → 無論如何都出場。"""
+        p = self._base_params()
+        result = compute_bold_exit(
+            entry_price=100, current_price=100.5, peak_price=101,
+            current_atr=2.0, hold_days=8, params=p,
+            current_vol_ma5=800_000, current_vol_ma20=1_000_000,
+            current_ma5=99.0,
+        )
+        assert result["should_exit"]
+        assert "time_stop_8d" in result["exit_reason"]
+
+    def test_mls_disabled_falls_back_to_time_stop(self):
+        """MLS 關閉 → 回到原始 time stop。"""
+        p = self._base_params()
+        p["momentum_lag_stop_enabled"] = False
+        result = compute_bold_exit(
+            entry_price=100, current_price=100.5, peak_price=101,
+            current_atr=2.0, hold_days=5, params=p,
+            current_vol_ma5=800_000, current_vol_ma20=1_000_000,
+            current_ma5=99.0,
+        )
+        assert result["should_exit"]
+        assert "time_stop" in result["exit_reason"]
+
+    def test_no_volume_data_falls_back(self):
+        """沒有量能數據 → 回到 time stop。"""
+        p = self._base_params()
+        result = compute_bold_exit(
+            entry_price=100, current_price=100.5, peak_price=101,
+            current_atr=2.0, hold_days=5, params=p,
+            current_vol_ma5=None, current_vol_ma20=None,
+            current_ma5=99.0,
+        )
+        assert result["should_exit"]
+        assert "time_stop" in result["exit_reason"]
+
+    def test_good_gain_no_time_stop(self):
+        """漲超過 3% → 不觸發 time stop。"""
+        p = self._base_params()
+        result = compute_bold_exit(
+            entry_price=100, current_price=104, peak_price=105,
+            current_atr=2.0, hold_days=6, params=p,
+            current_vol_ma5=800_000, current_vol_ma20=1_000_000,
+            current_ma5=102.0,
+        )
+        assert not result["should_exit"]
+
+
+# ============================================================
+# R62: RS_Rating Tests
+# ============================================================
+class TestRSRating:
+    """Test R62 RS_Rating — 個股相對強度計算。"""
+
+    def test_rs_ratio_basic(self):
+        """R63 Weighted RS: base^0.6 * recent^0.4。"""
+        prices = list(range(100, 260))  # 160 天的價格 100 → 259
+        df = pd.DataFrame({
+            "close": prices,
+            "open": prices,
+            "high": [p * 1.02 for p in prices],
+            "low": [p * 0.98 for p in prices],
+            "volume": [500_000] * len(prices),
+        }, index=pd.date_range("2024-01-01", periods=len(prices), freq="B"))
+        rs = compute_rs_ratio(df, lookback=120, exclude_recent=5)
+        assert rs is not None
+        # Weighted: base = close[-26] / close[-125], recent = close[-6] / close[-26]
+        base_return = prices[-26] / prices[-125]
+        recent_return = prices[-6] / prices[-26]
+        expected = (base_return ** 0.6) * (recent_return ** 0.4)
+        assert abs(rs - expected) < 0.001
+
+    def test_rs_weighted_penalizes_spike(self):
+        """R63: 短命噴泉得分低於穩定上漲股。"""
+        # 穩定上漲：120 天從 100 漲到 150（+50%）
+        steady = [100 + 50 * i / 130 for i in range(131)]  # 131 天（120+5+余量）
+        df_steady = pd.DataFrame({
+            "close": steady,
+            "open": steady,
+            "high": [p * 1.01 for p in steady],
+            "low": [p * 0.99 for p in steady],
+            "volume": [500_000] * len(steady),
+        }, index=pd.date_range("2024-01-01", periods=len(steady), freq="B"))
+
+        # 短命噴泉：100 天平穩，最後 20 天暴漲 50%
+        flat = [100.0] * 106  # 前 106 天平穩
+        spike = [100 + 50 * i / 24 for i in range(25)]  # 後 25 天暴漲
+        prices_spike = flat + spike
+        df_spike = pd.DataFrame({
+            "close": prices_spike,
+            "open": prices_spike,
+            "high": [p * 1.01 for p in prices_spike],
+            "low": [p * 0.99 for p in prices_spike],
+            "volume": [500_000] * len(prices_spike),
+        }, index=pd.date_range("2024-01-01", periods=len(prices_spike), freq="B"))
+
+        rs_steady = compute_rs_ratio(df_steady, lookback=120, exclude_recent=5)
+        rs_spike = compute_rs_ratio(df_spike, lookback=120, exclude_recent=5)
+
+        assert rs_steady is not None
+        assert rs_spike is not None
+        assert rs_steady > rs_spike, (
+            f"穩定上漲 ({rs_steady:.4f}) 應高於短命噴泉 ({rs_spike:.4f})"
+        )
+
+    def test_rs_ratio_insufficient_data(self):
+        """數據不足時返回 None。"""
+        df = _make_df(100, n=50)
+        rs = compute_rs_ratio(df, lookback=120, exclude_recent=5)
+        assert rs is None
+
+    def test_rs_rating_filters_entry_d(self):
+        """RS < 80 時 Entry D 不觸發。"""
+        # 使用 rs_rating=50（低於門檻 80）
+        df = _make_df(100, n=200)
+        params = {**STRATEGY_BOLD_PARAMS, "rs_rating_enabled": True, "rs_rating_min": 80}
+        result = generate_bold_signals(df, params=params, rs_rating=50)
+        # 檢查沒有 momentum_breakout
+        mb = result[result["bold_entry_type"] == "momentum_breakout"]
+        assert len(mb) == 0, "RS < 80 時不應有 momentum_breakout 訊號"
+
+    def test_rs_rating_disabled_no_filter(self):
+        """RS 過濾關閉 → 不影響 Entry D。"""
+        df = _make_df(100, n=200)
+        params = {**STRATEGY_BOLD_PARAMS, "rs_rating_enabled": False}
+        # rs_rating=50 但過濾關閉，不應受影響
+        result = generate_bold_signals(df, params=params, rs_rating=50)
+        # 只要原始條件滿足就有訊號（可能沒有，取決於數據 — 但不會因 RS 被擋）
+        assert "bold_signal" in result.columns
+
+
+# ============================================================
+# R62: Equity Curve Filter Tests
+# ============================================================
+class TestEquityCurveFilter:
+    """Test R62 Equity Curve Filter — 連續虧損保護。"""
+
+    def test_ecf_params_in_defaults(self):
+        """ECF 參數存在於預設中。"""
+        assert "consecutive_loss_cap" in STRATEGY_BOLD_PARAMS
+        assert STRATEGY_BOLD_PARAMS["consecutive_loss_cap"] == 3
+        assert "position_reduction_factor" in STRATEGY_BOLD_PARAMS
+        assert STRATEGY_BOLD_PARAMS["position_reduction_factor"] == 0.5
+        assert "equity_curve_filter_enabled" in STRATEGY_BOLD_PARAMS
+
+    def test_ecf_integration_with_backtest(self):
+        """ECF 在回測中不崩潰。"""
+        from backtest.engine import BacktestEngine
+        df = _make_df(50.0, n=200)
+        engine = BacktestEngine(initial_capital=1_000_000)
+        params = {**STRATEGY_BOLD_PARAMS, "equity_curve_filter_enabled": True}
+        result = engine.run_bold(df, params=params)
+        assert result is not None
+        assert hasattr(result, "total_return")
+
+    def test_ecf_disabled_no_effect(self):
+        """ECF 關閉時不影響。"""
+        from backtest.engine import BacktestEngine
+        df = _make_df(50.0, n=200)
+        engine = BacktestEngine(initial_capital=1_000_000)
+        params = {**STRATEGY_BOLD_PARAMS, "equity_curve_filter_enabled": False}
+        result = engine.run_bold(df, params=params)
+        assert result is not None
+
+
+# ============================================================
+# R63: RS Scanner Module Tests
+# ============================================================
+class TestRsScanner:
+    """Test R63 RS scanner utility functions."""
+
+    def test_get_cached_rankings_no_file(self, tmp_path, monkeypatch):
+        """No cached file → returns None."""
+        import analysis.rs_scanner as scanner
+        monkeypatch.setattr(scanner, "RS_RANKING_PATH", tmp_path / "nonexistent.json")
+        assert scanner.get_cached_rankings() is None
+
+    def test_get_cached_rankings_valid(self, tmp_path, monkeypatch):
+        """Valid cached file → returns parsed dict."""
+        import json
+        import analysis.rs_scanner as scanner
+        path = tmp_path / "rs_ranking.json"
+        data = {
+            "scan_date": "2026-02-16 10:00",
+            "total_stocks": 2,
+            "rankings": [
+                {"code": "2330", "rs_ratio": 1.15, "rs_rating": 90.0},
+                {"code": "2317", "rs_ratio": 0.95, "rs_rating": 45.0},
+            ],
+        }
+        path.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(scanner, "RS_RANKING_PATH", path)
+        result = scanner.get_cached_rankings()
+        assert result["total_stocks"] == 2
+        assert len(result["rankings"]) == 2
+
+    def test_get_stock_rs_rating_found(self, tmp_path, monkeypatch):
+        """Stock found in rankings → returns grade."""
+        import json
+        import analysis.rs_scanner as scanner
+        path = tmp_path / "rs_ranking.json"
+        data = {
+            "scan_date": "2026-02-16",
+            "rankings": [
+                {"code": "2330", "rs_ratio": 1.15, "rs_rating": 92.5},
+                {"code": "6235", "rs_ratio": 1.05, "rs_rating": 65.0},
+                {"code": "3661", "rs_ratio": 0.85, "rs_rating": 30.0},
+            ],
+        }
+        path.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(scanner, "RS_RANKING_PATH", path)
+
+        r = scanner.get_stock_rs_rating("2330")
+        assert r["grade"] == "Diamond"
+        assert r["rs_rating"] == 92.5
+
+        r = scanner.get_stock_rs_rating("6235")
+        assert r["grade"] == "Gold"
+
+        r = scanner.get_stock_rs_rating("3661")
+        assert r["grade"] == "Noise"
+
+    def test_get_stock_rs_rating_not_found(self, tmp_path, monkeypatch):
+        """Stock not in rankings → returns None."""
+        import json
+        import analysis.rs_scanner as scanner
+        path = tmp_path / "rs_ranking.json"
+        data = {"rankings": [{"code": "2330", "rs_ratio": 1.0, "rs_rating": 50.0}]}
+        path.write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.setattr(scanner, "RS_RANKING_PATH", path)
+        assert scanner.get_stock_rs_rating("9999") is None

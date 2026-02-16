@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, ref, computed } from 'vue'
+import { h, ref, computed, type Ref } from 'vue'
 import { NCard, NButton, NSpin, NAlert, NTabs, NTabPane, NDescriptions, NDescriptionsItem, NGrid, NGi, NTag, NSpace, NText, NDataTable } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { useAppStore } from '../stores/app'
@@ -17,6 +17,7 @@ async function generate() {
 }
 
 const r = computed(() => rpt.currentReport)
+const showDecisionTrace = ref(false)
 
 // R57: PDF export
 const pdfLoading = ref(false)
@@ -82,6 +83,41 @@ const priceTargetColumns: DataTableColumns = [
               :type="r.cash_runway.runway_label === '極高風險' ? 'error' : 'warning'" size="small">
               現金跑道: {{ Math.min(r.cash_runway.runway_quarters, r.cash_runway.total_runway_quarters) }}季
             </NTag>
+            <!-- Override Traceability: 風險因子數量徽章 -->
+            <NTag v-if="r.rating_decision?.was_overridden" type="warning" size="small" round
+              style="cursor: pointer" @click="showDecisionTrace = !showDecisionTrace">
+              {{ r.rating_decision.override_count }} 項保守型限制 {{ showDecisionTrace ? '▲' : '▼' }}
+            </NTag>
+          </div>
+          <!-- 評等決策溯源面板（Protocol v3 Phase 2: Override Traceability） -->
+          <div v-if="showDecisionTrace && r.rating_decision" style="margin-top: 12px; padding: 12px; background: #fafafa; border-radius: 6px; font-size: 13px; border: 1px solid #e8e8e8">
+            <div style="margin-bottom: 8px; font-weight: 600">評等決策溯源</div>
+            <div v-if="r.rating_decision.dimension_scores" style="margin-bottom: 8px; color: var(--text-dimmed)">
+              維度分數：
+              技術面 {{ r.rating_decision.dimension_scores.tech?.toFixed?.(1) ?? '-' }} |
+              基本面 {{ r.rating_decision.dimension_scores.fund?.toFixed?.(1) ?? '-' }} |
+              籌碼面 {{ r.rating_decision.dimension_scores.inst?.toFixed?.(1) ?? '-' }}
+              → 總分 {{ r.rating_decision.raw_score?.toFixed?.(1) ?? '-' }}
+            </div>
+            <div v-if="r.rating_decision.overrides?.length" style="margin-bottom: 8px">
+              <div v-for="(o, i) in r.rating_decision.overrides" :key="i"
+                style="margin-bottom: 6px; padding: 6px 10px; border-radius: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap"
+                :style="{ background: o.severity === 'hard_cap' ? '#fff1f0' : o.severity === 'soft_cap' ? '#fffbe6' : '#f0f5ff' }">
+                <NTag :type="o.severity === 'hard_cap' ? 'error' : o.severity === 'soft_cap' ? 'warning' : 'info'" size="tiny">
+                  {{ o.severity === 'hard_cap' ? '強制限制' : o.severity === 'soft_cap' ? '保守型限制' : '事後修正' }}
+                </NTag>
+                <span>{{ o.display_name }}</span>
+                <span style="color: var(--text-dimmed)">{{ o.rating_before }} → {{ o.rating_after }}</span>
+                <NTag v-if="o.data_confidence && o.data_confidence !== 'high'"
+                  :type="o.data_confidence === 'low' ? 'error' : 'warning'" size="tiny">
+                  {{ o.data_confidence === 'low' ? '低信心' : '中信心' }}
+                </NTag>
+              </div>
+            </div>
+            <div v-if="r.rating_decision.active_risk_factors?.length" style="display: flex; flex-wrap: wrap; gap: 4px">
+              <NText depth="2" style="margin-right: 4px">生效中風險因子：</NText>
+              <NTag v-for="(f, i) in r.rating_decision.active_risk_factors" :key="i" type="warning" size="small">{{ f }}</NTag>
+            </div>
           </div>
         </NCard>
 

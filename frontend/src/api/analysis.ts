@@ -55,4 +55,14 @@ export const analysisApi = {
     client.get<any, any>(`/analysis/${code}/sizing-advisor`, {
       params: { capital, risk_pct: riskPct, odd_lot: oddLot },
     }),
+  // R63: RS Scanner & Bold Status
+  boldStatus: (code: string) => client.get<any, any>(`/analysis/${code}/bold-status`),
+  rsRankings: () => client.get<any, any>('/analysis/rs-rankings'),
+  triggerRsScan: (maxWorkers = 8) =>
+    client.post<any, any>('/analysis/rs-scan', null, {
+      params: { max_workers: maxWorkers },
+      timeout: 600_000,
+    }),
+  // R64: Sector RS & Peer Alpha
+  sectorContext: (code: string) => client.get<any, any>(`/analysis/${code}/sector-context`),
 }

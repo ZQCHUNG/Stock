@@ -154,8 +154,8 @@ def run_alert_check():
     error_msg = None
 
     try:
-        from data.cache import get_cached_alpha_hunter
-        alpha = get_cached_alpha_hunter()
+        from data.cache import get_cached_sector_heat
+        alpha = get_cached_sector_heat()
         if not alpha or not alpha.get("sectors"):
             with _lock:
                 _last_check = {
@@ -169,7 +169,7 @@ def run_alert_check():
         # Collect all BUY stocks
         all_stocks = []
         for sector in alpha["sectors"]:
-            for stock in sector.get("stocks", []):
+            for stock in sector.get("buy_stocks", []):
                 all_stocks.append(stock)
 
         # Filter by watch list if specified

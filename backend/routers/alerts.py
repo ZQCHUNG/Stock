@@ -114,14 +114,14 @@ def _check_alerts_fallback(config: AlertConfig) -> dict:
 
     triggered = []
     try:
-        from data.cache import get_cached_alpha_hunter
-        alpha = get_cached_alpha_hunter()
+        from data.cache import get_cached_sector_heat
+        alpha = get_cached_sector_heat()
         if not alpha or not alpha.get("sectors"):
             return {"triggered": [], "threshold": config.sqs_threshold}
 
         all_stocks = []
         for sector in alpha["sectors"]:
-            for stock in sector.get("stocks", []):
+            for stock in sector.get("buy_stocks", []):
                 all_stocks.append(stock)
 
         if config.watch_codes:

@@ -132,6 +132,68 @@ def get_bold_signal(code: str, period_days: int = 1095):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/{code}/rs-rating")
+def get_rs_rating(code: str, period_days: int = 400):
+    """取得個股 Weighted RS Rating（R63）
+
+    計算 120 天加權相對強度，需搭配全市場排名才有 percentile。
+    單獨查詢只返回原始 RS ratio + 市場排名（如有快取）。
+    """
+    from data.fetcher import get_stock_data
+    from analysis.strategy_bold import compute_rs_ratio, STRATEGY_BOLD_PARAMS
+    import json
+    import os
+
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        p = STRATEGY_BOLD_PARAMS
+        rs_ratio = compute_rs_ratio(
+            df,
+            lookback=p.get("rs_lookback", 120),
+            exclude_recent=p.get("rs_exclude_recent", 5),
+            base_weight=p.get("rs_base_weight", 0.6),
+            recent_weight=p.get("rs_recent_weight", 0.4),
+            recent_days=p.get("rs_recent_days", 20),
+        )
+
+        # 嘗試從快取的全市場排名中查找 percentile
+        rs_rating = None
+        grade = "unknown"
+        rs_path = os.path.join("data", "rs_ranking.json")
+        if os.path.exists(rs_path):
+            with open(rs_path, encoding="utf-8") as f:
+                rankings = json.load(f)
+            for r in rankings.get("rankings", []):
+                if r["code"] == code:
+                    rs_rating = r["rs_rating"]
+                    break
+
+        if rs_rating is not None:
+            if rs_rating >= 80:
+                grade = "Diamond"
+            elif rs_rating >= 60:
+                grade = "Gold"
+            elif rs_rating >= 40:
+                grade = "Silver"
+            else:
+                grade = "Noise"
+
+        return {
+            "code": code,
+            "rs_ratio": round(rs_ratio, 4) if rs_ratio else None,
+            "rs_rating": rs_rating,
+            "grade": grade,
+            "params": {
+                "lookback": p.get("rs_lookback", 120),
+                "exclude_recent": p.get("rs_exclude_recent", 5),
+                "base_weight": p.get("rs_base_weight", 0.6),
+                "recent_weight": p.get("rs_recent_weight", 0.4),
+            },
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/{code}/liquidity")
 def get_liquidity(code: str, period_days: int = 365,
                   position_ntd: float = 1_000_000):
@@ -377,14 +439,14 @@ def get_sqs_distribution():
     from backend.dependencies import make_serializable
     try:
         # Get current alpha hunter data for all BUY stocks
-        from data.cache import get_cached_alpha_hunter
-        alpha = get_cached_alpha_hunter()
+        from data.cache import get_cached_sector_heat
+        alpha = get_cached_sector_heat()
         if not alpha or not alpha.get("sectors"):
             return {"count": 0, "error": "No alpha hunter data available"}
 
         all_stocks = []
         for sector in alpha["sectors"]:
-            for stock in sector.get("stocks", []):
+            for stock in sector.get("buy_stocks", []):
                 all_stocks.append(stock)
 
         if not all_stocks:
@@ -1210,3 +1272,125 @@ def get_sizing_advisor(
         "capital_barrier": one_lot_cost > capital,
         "reasoning": sizing.reasoning,
     }
+
+
+# === R63: RS Scanner & Bold Status ===
+
+
+@router.get("/rs-rankings")
+def get_rs_rankings():
+    """取得快取的全市場 RS 排名（R63）
+
+    返回最近一次掃描的 RS 排名結果。若無快取返回空。
+    """
+    from analysis.rs_scanner import get_cached_rankings
+    rankings = get_cached_rankings()
+    if not rankings:
+        return {"total_stocks": 0, "rankings": [], "scan_date": None}
+    return rankings
+
+
+@router.post("/rs-scan")
+def trigger_rs_scan(max_workers: int = Query(8, ge=1, le=20)):
+    """觸發全市場 RS 掃描（R63）
+
+    耗時較長（數分鐘），建議前端用 loading spinner。
+    """
+    from analysis.rs_scanner import scan_market_rs
+    try:
+        result = scan_market_rs(max_workers=max_workers)
+        return {
+            "status": "ok",
+            "total_stocks": result.get("total_stocks", 0),
+            "elapsed_sec": result.get("elapsed_sec", 0),
+            "scan_date": result.get("scan_date"),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/bold-status")
+def get_bold_status(code: str, period_days: int = 1095):
+    """取得 Bold 策略完整狀態面板（R63）
+
+    合併 Bold 訊號 + RS Rating + 策略參數（MLS、ECF）。
+    前端 BoldStatusPanel 使用此端點，單次請求取得所有資料。
+    """
+    from data.fetcher import get_stock_data
+    from analysis.strategy_bold import (
+        get_bold_analysis, STRATEGY_BOLD_PARAMS, compute_rs_ratio,
+    )
+    from analysis.rs_scanner import get_stock_rs_rating
+    from backend.dependencies import make_serializable
+
+    try:
+        df = get_stock_data(code, period_days=period_days)
+        bold = get_bold_analysis(df)
+
+        # RS rating from cached rankings
+        rs_info = get_stock_rs_rating(code)
+
+        # If no cached rating, compute raw RS ratio
+        if not rs_info:
+            p = STRATEGY_BOLD_PARAMS
+            rs_ratio = compute_rs_ratio(
+                df,
+                lookback=p.get("rs_lookback", 120),
+                exclude_recent=p.get("rs_exclude_recent", 5),
+                base_weight=p.get("rs_base_weight", 0.6),
+                recent_weight=p.get("rs_recent_weight", 0.4),
+                recent_days=p.get("rs_recent_days", 20),
+            )
+            rs_info = {
+                "rs_ratio": round(rs_ratio, 4) if rs_ratio else None,
+                "rs_rating": None,
+                "grade": "unknown",
+                "scan_date": None,
+            }
+
+        # Strategy params summary
+        p = STRATEGY_BOLD_PARAMS
+        params_summary = {
+            "mls_enabled": p.get("momentum_lag_stop_enabled", True),
+            "mls_extended_days": p.get("time_stop_extended_days", 8),
+            "mls_gain_threshold": p.get("momentum_lag_gain_threshold", 0.01),
+            "ecf_enabled": p.get("equity_curve_filter_enabled", True),
+            "ecf_loss_cap": p.get("consecutive_loss_cap", 3),
+            "ecf_reduction": p.get("position_reduction_factor", 0.5),
+            "rs_filter_enabled": p.get("rs_filter_enabled", True),
+            "rs_min_rating": p.get("rs_min_rating", 80),
+        }
+
+        return make_serializable({
+            "code": code,
+            "bold": bold,
+            "rs": rs_info,
+            "params": params_summary,
+        })
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{code}/sector-context")
+def get_sector_context_endpoint(code: str):
+    """R64: Sector RS + Peer Alpha + Cluster Risk context for a stock.
+
+    Uses cached RS rankings + sector mapping + sector heat to provide
+    a complete sector context view.
+    """
+    from analysis.sector_rs import get_sector_context
+    from data.cache import get_cached_sector_heat
+    from backend.dependencies import make_serializable
+
+    try:
+        # Build sector heat map from cached data
+        sector_heat_map: dict[str, float] = {}
+        cached_heat = get_cached_sector_heat()
+        if cached_heat and "sectors" in cached_heat:
+            for s in cached_heat["sectors"]:
+                sector_heat_map[s.get("sector", "")] = s.get("weighted_heat", 0)
+
+        result = get_sector_context(code, sector_heat_map=sector_heat_map)
+        return make_serializable(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

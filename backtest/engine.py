@@ -846,7 +846,8 @@ class BacktestEngine:
         return result
 
     def run_bold(self, df: pd.DataFrame, params: dict | None = None,
-                 ultra_wide: bool = False) -> BacktestResult:
+                 ultra_wide: bool = False,
+                 rs_rating: float | None = None) -> BacktestResult:
         """執行 Bold 大膽策略回測（能量擠壓突破 + 階梯式停利）
 
         Bold 策略專為爆發性波段設計：
@@ -870,7 +871,9 @@ class BacktestEngine:
         if params:
             p.update(params)
 
-        signals_df = generate_bold_signals(df, params=p)
+        # R63: rs_rating (percentile 0-100) 需 caller 從全市場排名提供
+        # 單股回測無法自算 percentile，故未提供時不做 RS 過濾
+        signals_df = generate_bold_signals(df, params=p, rs_rating=rs_rating)
 
         sl_pct = p.get("stop_loss_pct", 0.15)
         max_hold = p.get("max_hold_days", 120)
@@ -881,6 +884,16 @@ class BacktestEngine:
         ma200 = signals_df["close"].rolling(200, min_periods=60).mean()
         ma200_slope_series = ma200.pct_change(20)
 
+        # Phase 1 防守：MA20 斜率計算（用於趨勢破位止損）
+        ma20_series = signals_df["ma20"] if "ma20" in signals_df.columns else signals_df["close"].rolling(20).mean()
+        ma20_slope_lookback = p.get("ma20_slope_lookback", 5)
+        ma20_slope_series = ma20_series.pct_change(ma20_slope_lookback)
+
+        # R62 Momentum Lag Stop：量能均線 + MA5 計算
+        vol_ma5_series = signals_df["volume"].rolling(5, min_periods=3).mean() if "volume" in signals_df.columns else pd.Series(np.nan, index=signals_df.index)
+        vol_ma20_series = signals_df["volume"].rolling(20, min_periods=10).mean() if "volume" in signals_df.columns else pd.Series(np.nan, index=signals_df.index)
+        ma5_series = signals_df["close"].rolling(5, min_periods=3).mean()
+
         cash = self.initial_capital
         position = 0
         trades: list[Trade] = []
@@ -888,6 +901,14 @@ class BacktestEngine:
         equity_history = []
         hold_days = 0
         peak_price = 0.0
+        entry_low = None       # Phase 1：進場日低點
+        prev_day_low = None    # Phase 1：進場前一日低點
+
+        # R62 Equity Curve Filter：連續虧損計數（策略層級）
+        consecutive_loss_count = 0
+        ecf_enabled = p.get("equity_curve_filter_enabled", True)
+        ecf_cap = p.get("consecutive_loss_cap", 3)
+        ecf_reduction = p.get("position_reduction_factor", 0.5)
 
         _has_high = "high" in signals_df.columns
         _has_low = "low" in signals_df.columns
@@ -915,6 +936,25 @@ class BacktestEngine:
             exit_reason = ""
             exit_price = 0.0
 
+            # Phase 1 防守：取得當日 MA20 和斜率
+            _current_ma20 = ma20_series.get(date, None)
+            if _current_ma20 is not None and (np.isnan(_current_ma20) or np.isinf(_current_ma20)):
+                _current_ma20 = None
+            _ma20_slope = ma20_slope_series.get(date, None)
+            if _ma20_slope is not None and (np.isnan(_ma20_slope) or np.isinf(_ma20_slope)):
+                _ma20_slope = None
+
+            # R62 Momentum Lag Stop：取得當日量能均線和 MA5
+            _vol_ma5 = vol_ma5_series.get(date, None)
+            if _vol_ma5 is not None and (np.isnan(_vol_ma5) or np.isinf(_vol_ma5)):
+                _vol_ma5 = None
+            _vol_ma20 = vol_ma20_series.get(date, None)
+            if _vol_ma20 is not None and (np.isnan(_vol_ma20) or np.isinf(_vol_ma20)):
+                _vol_ma20 = None
+            _ma5 = ma5_series.get(date, None)
+            if _ma5 is not None and (np.isnan(_ma5) or np.isinf(_ma5)):
+                _ma5 = None
+
             if position > 0 and current_trade is not None:
                 exit_result = compute_bold_exit(
                     entry_price=current_trade.price_open,
@@ -924,6 +964,13 @@ class BacktestEngine:
                     hold_days=hold_days,
                     params=p,
                     ma200_slope=ma200_slope,
+                    entry_low=entry_low,
+                    prev_day_low=prev_day_low,
+                    current_ma20=_current_ma20,
+                    ma20_slope=_ma20_slope,
+                    current_vol_ma5=_vol_ma5,
+                    current_vol_ma20=_vol_ma20,
+                    current_ma5=_ma5,
                 )
                 if exit_result["should_exit"]:
                     force_sell = True
@@ -938,7 +985,14 @@ class BacktestEngine:
             if force_sell and position > 0 and current_trade is not None:
                 cash += self._close_position(position, exit_price, current_trade, date, exit_reason)
                 trades.append(current_trade)
+                # R62 Equity Curve Filter：更新連續虧損計數
+                if ecf_enabled:
+                    if current_trade.return_pct > 0:
+                        consecutive_loss_count = 0
+                    else:
+                        consecutive_loss_count += 1
                 position, current_trade, hold_days, peak_price = 0, None, 0, 0.0
+                entry_low, prev_day_low = None, None  # Phase 1：清除進場日資訊
 
             if position == 0 and cash > 0:
                 cash *= (1 + self._rf_daily)
@@ -948,13 +1002,25 @@ class BacktestEngine:
             # ===== 進場 =====
             if signal == "BUY" and position == 0:
                 volume = row.volume if _has_volume else 0
+                # R62 Equity Curve Filter：連續虧損時減半倉位
+                effective_max_pos = max_pos_pct
+                if ecf_enabled and consecutive_loss_count >= ecf_cap:
+                    effective_max_pos = max_pos_pct * ecf_reduction
                 trade, shares, cash = self._open_position(
-                    price, high, volume, cash, max_pos_pct, date)
+                    price, high, volume, cash, effective_max_pos, date)
                 if trade is not None:
                     position = shares
                     current_trade = trade
                     peak_price = high
                     hold_days = 0
+                    # Phase 1 防守：記錄進場日低點與前一日低點
+                    entry_low = low
+                    # 取得前一日低點（用 signals_df 的索引位置）
+                    _idx = signals_df.index.get_loc(date)
+                    if _idx > 0 and _has_low:
+                        prev_day_low = float(signals_df.iloc[_idx - 1]["low"])
+                    else:
+                        prev_day_low = low  # fallback: 用進場日低點
 
         # 期末平倉
         if position > 0 and current_trade is not None:
@@ -1156,6 +1222,7 @@ def run_backtest_bold(
     commission_rate: float | None = None,
     tax_rate: float | None = None,
     slippage: float | None = None,
+    rs_rating: float | None = None,
 ) -> BacktestResult:
     """便捷函式：執行 Bold 大膽策略回測
 
@@ -1167,6 +1234,7 @@ def run_backtest_bold(
         commission_rate: 手續費率
         tax_rate: 交易稅率
         slippage: 滑價率
+        rs_rating: RS 排名百分位 (0-100)，需從全市場排名計算後傳入
 
     Returns:
         BacktestResult
@@ -1177,7 +1245,7 @@ def run_backtest_bold(
         tax_rate=tax_rate,
         slippage=slippage,
     )
-    return engine.run_bold(df, params=params, ultra_wide=ultra_wide)
+    return engine.run_bold(df, params=params, ultra_wide=ultra_wide, rs_rating=rs_rating)
 
 
 @dataclass

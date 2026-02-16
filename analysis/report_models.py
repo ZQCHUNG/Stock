@@ -7,11 +7,124 @@ import math
 import pandas as pd
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 
 
 # ============================================================
 # Data Structures
 # ============================================================
+
+# ============================================================
+# Override Traceability System (Protocol v3 — Phase 2)
+# 評等覆寫溯源系統：將 Gatekeeper 的靜默降級轉為結構化可審計路徑
+# ============================================================
+
+class OverrideCode(str, Enum):
+    """評等覆寫代碼 — 每個 Gatekeeper 對應一個"""
+    GHOST_TOWN = "GHOST_TOWN"            # G1: 零法人 + 流動性差
+    INST_EXTREME_NEG = "INST_NEG"        # G2: 籌碼面 < -2
+    CASH_RUNWAY_CRITICAL = "CASH_CRIT"   # G3: 現金跑道 < 4 季
+    CASH_RUNWAY_WARNING = "CASH_WARN"    # G3b: 現金跑道 < 8 季
+    BEAR_MARKET_CAP = "BEAR_CAP"         # G5: 空頭市場上限
+    CONFLICT_CAP = "CONFLICT_CAP"        # G6: 技術矛盾上限
+    RSI_OVERBOUGHT_CAP = "RSI_OB_CAP"   # G7: RSI 超買上限 [PLACEHOLDER_NEEDS_DATA]
+    ACTION_CONSISTENCY = "ACT_CONSIST"   # G8: 行動建議一致性（deprecated, 待 G9 上線後移除）
+
+
+class OverrideSeverity(str, Enum):
+    """覆寫嚴重程度"""
+    HARD_CAP = "hard_cap"    # 強制上限（不可被其他分數覆蓋）
+    SOFT_CAP = "soft_cap"    # 軟性限制（降一級）
+    OVERRIDE = "override"    # 事後改寫
+
+
+@dataclass
+class RatingOverride:
+    """單次覆寫記錄"""
+    code: OverrideCode
+    severity: OverrideSeverity
+    rating_before: str          # 覆寫前評等
+    rating_after: str           # 覆寫後評等
+    cap_limit: str              # 此 Gatekeeper 的上限等級
+    threshold_value: float      # 觸發門檻值（如 -2, 4, 70）
+    actual_value: float         # 實際觀測值
+    data_source: str            # [VERIFIED: xxx] 或 [PLACEHOLDER: xxx]
+    data_confidence: str = "high"  # high / medium / low
+
+
+# Gatekeeper 中文描述（面向使用者的 UI）
+# UI 不使用 [PLACEHOLDER] 等內部標籤，改用「保守型限制」(Conservative Guardrail)
+OVERRIDE_DISPLAY_NAMES = {
+    OverrideCode.GHOST_TOWN: "流動性風險（法人未交易且成交量偏低）",
+    OverrideCode.INST_EXTREME_NEG: "法人籌碼面極度偏空",
+    OverrideCode.CASH_RUNWAY_CRITICAL: "現金跑道不足（高財務風險）",
+    OverrideCode.CASH_RUNWAY_WARNING: "現金跑道偏低（注意財務狀況）",
+    OverrideCode.BEAR_MARKET_CAP: "空頭市場保守型限制",
+    OverrideCode.CONFLICT_CAP: "技術面訊號矛盾保守型限制",
+    OverrideCode.RSI_OVERBOUGHT_CAP: "RSI 超買保守型限制",
+    OverrideCode.ACTION_CONSISTENCY: "行動建議一致性修正",
+}
+
+
+@dataclass
+class RatingDecision:
+    """完整評等決策記錄 — Override Traceability System 核心"""
+    raw_score: float              # 加權前原始分數
+    raw_rating: str               # Gatekeeper 介入前的評等
+    final_rating: str             # 最終評等
+    dimension_scores: dict        # {"tech": 5.2, "fund": 1.3, "inst": -3.0}
+    dimension_weights: dict       # {"tech": 0.35, "fund": 0.25, ...}
+    overrides: list = field(default_factory=list)   # list[RatingOverride]
+    was_overridden: bool = False
+
+    def __str__(self) -> str:
+        """向下相容：str(rating_decision) == final_rating"""
+        return self.final_rating
+
+    def __eq__(self, other):
+        """向下相容：rating_decision == "買進" """
+        if isinstance(other, str):
+            return self.final_rating == other
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(self.final_rating)
+
+    @property
+    def override_count(self) -> int:
+        return len(self.overrides)
+
+    @property
+    def active_risk_factors(self) -> list[str]:
+        """面向 UI 的風險因子描述列表（使用「保守型限制」用語）"""
+        return [OVERRIDE_DISPLAY_NAMES.get(o.code, str(o.code))
+                for o in self.overrides]
+
+    def to_dict(self) -> dict:
+        """序列化為 JSON-safe dict（供 API 回傳）"""
+        return {
+            "raw_score": round(self.raw_score, 2),
+            "raw_rating": self.raw_rating,
+            "final_rating": self.final_rating,
+            "was_overridden": self.was_overridden,
+            "override_count": self.override_count,
+            "dimension_scores": {k: round(v, 2) for k, v in self.dimension_scores.items()},
+            "dimension_weights": self.dimension_weights,
+            "overrides": [
+                {
+                    "code": o.code.value,
+                    "severity": o.severity.value,
+                    "display_name": OVERRIDE_DISPLAY_NAMES.get(o.code, str(o.code)),
+                    "rating_before": o.rating_before,
+                    "rating_after": o.rating_after,
+                    "cap_limit": o.cap_limit,
+                    "data_confidence": o.data_confidence,
+                }
+                for o in self.overrides
+            ],
+            "active_risk_factors": self.active_risk_factors,
+        }
+
 
 @dataclass
 class SupportResistanceLevel:
@@ -169,6 +282,8 @@ class ReportResult:
     rating_weights: dict = field(default_factory=dict)
     # Cash Runway（Gemini R20: 生技股財務風險）
     cash_runway: dict | None = None
+    # 評等決策溯源（Protocol v3 Phase 2: Override Traceability）
+    rating_decision: RatingDecision | None = None
 
 
 # ============================================================

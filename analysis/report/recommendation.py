@@ -1,6 +1,9 @@
 """推薦與展望模組 — 評等、矛盾偵測、行動建議、展望、摘要"""
 
-from analysis.report_models import OutlookScenario, _safe
+from analysis.report_models import (
+    OutlookScenario, _safe,
+    OverrideCode, OverrideSeverity, RatingOverride, RatingDecision,
+)
 
 import pandas as pd
 
@@ -163,16 +166,26 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
                                technical_conflicts=None,
                                institutional_score=0.0, industry="",
                                sector="", cash_runway=None,
-                               institutional_visibility="active"):
-    """計算綜合評等（含 RR 矛盾修正 + 技術面矛盾降級 + 市場環境上限 + 籌碼面）
+                               institutional_visibility="active",
+                               avg_turnover_20d=None):
+    """計算綜合評等 — Override Traceability System (Protocol v3 Phase 2)
 
     評分邏輯（加權維度）：
     - 技術面：趨勢 + V4訊號 + 動能 + RSI + V2 + RR比 + 矛盾扣分
     - 基本面：fundamental_score + 目標價上檔空間
-    - 籌碼面：institutional_score (Gemini R19 新增)
-    - Gatekeeper: 籌碼面 < -2 強制降階（Gemini R19 共識）
-    - Gatekeeper: Cash Runway < 4 季 → 強制降階（Gemini R20: 生技股財務風險）
-    - 生技股自動切換權重（Gemini R19 共識）
+    - 籌碼面：institutional_score (Gemini R19)
+
+    Gatekeeper (G1-G8)：每個觸發時記錄 RatingOverride，供 UI 顯示與回測分析。
+    G1: Ghost Town 雙重條件 — 法人空 AND 流動性差 [PLACEHOLDER: WALL_ST_CONVENTION]
+    G2: 籌碼面極度負面 [PLACEHOLDER: R19 共識]
+    G3/G4: Cash Runway [PLACEHOLDER: R20 共識]
+    G5: Bear Market Cap [VERIFIED: 常識]
+    G6: Conflict Cap [VERIFIED: 邏輯合理]
+    G7: RSI Overbought Cap [PLACEHOLDER_NEEDS_DATA: 待 Regime 判定]
+    G8: Action Consistency (deprecated, 由 __init__.py 事後套用)
+
+    Returns:
+        RatingDecision — 含 raw_rating, final_rating, overrides 溯源鏈
     """
     is_biotech = _is_biotech_industry(industry, sector)
     weights = _get_rating_weights(is_biotech)
@@ -229,9 +242,6 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     inst_score = institutional_score  # 直接使用
 
     # === 加權總分 ===
-    # 正規化各維度到相近範圍後加權
-    # tech_score 範圍 ~[-12, +10], fund_score ~[-4, +4], inst_score [-5, +5]
-    # 使用原始加總維持向後相容，加上籌碼面調整
     score = tech_score + fund_score + inst_score * weights["inst"] * 4
 
     if score >= 6:
@@ -245,58 +255,156 @@ def _calculate_overall_rating(trend_direction, momentum_status, v4_signal,
     else:
         rating = "強力賣出"
 
-    # === Gatekeeper Logic (Gemini R19 共識) ===
+    # 保留 Gatekeeper 前的原始狀態
+    raw_score = score
+    raw_rating = rating
+    overrides = []
+
     _RATING_ORDER = ["強力賣出", "賣出", "中性", "買進", "強力買進"]
 
-    # Ghost Town: 零法人交易 → 流動性荒漠，最高「賣出」(Gemini R20 Phase 2C)
+    def _cap_rating(cap_level):
+        """將 rating 降至 cap_level（若當前較高）"""
+        nonlocal rating
+        cap_idx = _RATING_ORDER.index(cap_level)
+        cur_idx = _RATING_ORDER.index(rating)
+        if cur_idx > cap_idx:
+            rating = cap_level
+            return True
+        return False
+
+    # === G1: Ghost Town — 雙重條件 [PLACEHOLDER: WALL_ST_CONVENTION] ===
+    # Protocol v3 共識：法人空 AND 流動性差才觸發 SOFT_CAP
+    # 單純法人為空但成交量正常（可能是 API 問題）→ 只記錄 WARNING
     if institutional_visibility == "ghost_town":
-        cur_idx = _RATING_ORDER.index(rating)
-        sell_idx = _RATING_ORDER.index("賣出")
-        if cur_idx > sell_idx:
-            rating = "賣出"
+        # 20日均成交額門檻 10M TWD [PLACEHOLDER: WALL_ST_CONVENTION]
+        turnover_threshold = 10_000_000
+        low_liquidity = (avg_turnover_20d is not None
+                         and avg_turnover_20d < turnover_threshold)
 
-    # 籌碼面極度負面時，強制降階至中性以下
-    elif institutional_score < -2:
-        max_idx = _RATING_ORDER.index("中性")
-        cur_idx = _RATING_ORDER.index(rating)
-        if cur_idx > max_idx:
-            rating = "中性"
+        if low_liquidity:
+            # 雙重條件成立：法人空 + 流動性差 → SOFT_CAP（降一級）
+            before = rating
+            cur_idx = _RATING_ORDER.index(rating)
+            if cur_idx > 0:
+                rating = _RATING_ORDER[cur_idx - 1]
+            overrides.append(RatingOverride(
+                code=OverrideCode.GHOST_TOWN,
+                severity=OverrideSeverity.SOFT_CAP,
+                rating_before=before,
+                rating_after=rating,
+                cap_limit=_RATING_ORDER[max(0, cur_idx - 1)],
+                threshold_value=turnover_threshold,
+                actual_value=avg_turnover_20d or 0,
+                data_source="[PLACEHOLDER: WALL_ST_CONVENTION] 華爾街交易員共識，20日均成交額<10M",
+                data_confidence="medium" if avg_turnover_20d is not None else "low",
+            ))
+        # 法人空但成交量正常 → 不降級（可能是 API 延遲）
 
-    # === Cash Runway Gatekeeper (Gemini R20: 產業分級處理) ===
-    # 生技股：effective = min(operational, total) — 最嚴格
-    # 非生技：effective = operational — 投資支出不算核心損耗
+    # === G2: 籌碼面極度負面 [PLACEHOLDER: R19 辯論共識, 閾值 -2] ===
+    if institutional_visibility != "ghost_town" and institutional_score < -2:
+        before = rating
+        if _cap_rating("中性"):
+            overrides.append(RatingOverride(
+                code=OverrideCode.INST_EXTREME_NEG,
+                severity=OverrideSeverity.HARD_CAP,
+                rating_before=before,
+                rating_after=rating,
+                cap_limit="中性",
+                threshold_value=-2.0,
+                actual_value=institutional_score,
+                data_source="[PLACEHOLDER: R19 辯論共識] 法人連續賣超閾值",
+            ))
+
+    # === G3/G4: Cash Runway [PLACEHOLDER: R20 辯論共識] ===
     if cash_runway is not None:
         op_runway = cash_runway.get("runway_quarters", 99)
         total_runway = cash_runway.get("total_runway_quarters", 99)
-        if is_biotech:
-            effective_runway = min(op_runway, total_runway)
-        else:
-            effective_runway = op_runway  # 非生技只看營業現金流
+        effective_runway = (min(op_runway, total_runway)
+                           if is_biotech else op_runway)
 
         if effective_runway < 4:
-            cur_idx = _RATING_ORDER.index(rating)
-            sell_idx = _RATING_ORDER.index("賣出")
-            if cur_idx > sell_idx:
-                rating = "賣出"
+            before = rating
+            if _cap_rating("賣出"):
+                overrides.append(RatingOverride(
+                    code=OverrideCode.CASH_RUNWAY_CRITICAL,
+                    severity=OverrideSeverity.HARD_CAP,
+                    rating_before=before,
+                    rating_after=rating,
+                    cap_limit="賣出",
+                    threshold_value=4.0,
+                    actual_value=effective_runway,
+                    data_source="[PLACEHOLDER: R20 共識] 現金跑道<4季",
+                ))
         elif effective_runway < 8:
-            cur_idx = _RATING_ORDER.index(rating)
-            neutral_idx = _RATING_ORDER.index("中性")
-            if cur_idx > neutral_idx:
-                rating = "中性"
+            before = rating
+            if _cap_rating("中性"):
+                overrides.append(RatingOverride(
+                    code=OverrideCode.CASH_RUNWAY_WARNING,
+                    severity=OverrideSeverity.HARD_CAP,
+                    rating_before=before,
+                    rating_after=rating,
+                    cap_limit="中性",
+                    threshold_value=8.0,
+                    actual_value=effective_runway,
+                    data_source="[PLACEHOLDER: R20 共識] 現金跑道<8季",
+                ))
 
-    # 市場環境上限：空頭時最高「買進」
+    # === G5: Bear Market Cap [VERIFIED: 常識] ===
     if market_regime == "bear" and rating == "強力買進":
+        before = rating
         rating = "買進"
+        overrides.append(RatingOverride(
+            code=OverrideCode.BEAR_MARKET_CAP,
+            severity=OverrideSeverity.SOFT_CAP,
+            rating_before=before,
+            rating_after=rating,
+            cap_limit="買進",
+            threshold_value=0,
+            actual_value=0,
+            data_source="[VERIFIED] 空頭市場不給最高評等",
+        ))
 
-    # 技術面矛盾 + 強力買進 = 不允許
+    # === G6: Conflict Cap [VERIFIED: 邏輯合理] ===
     if conflicts and rating == "強力買進":
+        before = rating
         rating = "買進"
+        overrides.append(RatingOverride(
+            code=OverrideCode.CONFLICT_CAP,
+            severity=OverrideSeverity.SOFT_CAP,
+            rating_before=before,
+            rating_after=rating,
+            cap_limit="買進",
+            threshold_value=0,
+            actual_value=len(conflicts),
+            data_source="[VERIFIED] 技術面矛盾時不給最高評等",
+        ))
 
-    # RSI 超買（>70）+ 強力買進 = 不允許
+    # === G7: RSI Overbought Cap [PLACEHOLDER_NEEDS_DATA: 待 Regime 判定] ===
     if rsi > 70 and rating == "強力買進":
+        before = rating
         rating = "買進"
+        overrides.append(RatingOverride(
+            code=OverrideCode.RSI_OVERBOUGHT_CAP,
+            severity=OverrideSeverity.SOFT_CAP,
+            rating_before=before,
+            rating_after=rating,
+            cap_limit="買進",
+            threshold_value=70.0,
+            actual_value=rsi,
+            data_source="[PLACEHOLDER_NEEDS_DATA] RSI>70 超買限制，待 Trend Regime 判定後改為條件式",
+        ))
 
-    return rating
+    # G8 (ACTION_CONSISTENCY) 由 __init__.py 事後套用（deprecated, 待 G9 上線後移除）
+
+    return RatingDecision(
+        raw_score=raw_score,
+        raw_rating=raw_rating,
+        final_rating=rating,
+        dimension_scores={"tech": tech_score, "fund": fund_score, "inst": inst_score},
+        dimension_weights=weights,
+        overrides=overrides,
+        was_overridden=len(overrides) > 0,
+    )
 
 
 def _resolve_technical_conflicts(momentum_data: dict, trend_data: dict,

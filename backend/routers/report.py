@@ -135,6 +135,8 @@ def generate_report_api(code: str, req: ReportRequest):
             "rating_weights": report.rating_weights,
             # Cash Runway（Gemini R20）
             "cash_runway": report.cash_runway,
+            # 評等決策溯源（Protocol v3 Phase 2: Override Traceability）
+            "rating_decision": report.rating_decision.to_dict() if report.rating_decision else None,
         }
 
         return make_serializable(result)

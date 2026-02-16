@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { NLayout, NLayoutSider, NLayoutContent, NConfigProvider } from 'naive-ui'
+import { NLayout, NLayoutSider, NLayoutContent, NConfigProvider, NMessageProvider, NDialogProvider, NNotificationProvider } from 'naive-ui'
 import { useAppStore } from './stores/app'
 import { useThemeStore } from './stores/theme'
 import { useResponsive } from './composables/useResponsive'
@@ -29,6 +29,9 @@ onMounted(async () => {
 
 <template>
   <NConfigProvider :theme="theme.naiveTheme">
+    <NMessageProvider>
+    <NDialogProvider>
+    <NNotificationProvider>
     <NLayout has-sider style="height: 100vh">
       <NLayoutSider
         bordered
@@ -49,6 +52,9 @@ onMounted(async () => {
         </router-view>
       </NLayoutContent>
     </NLayout>
+    </NNotificationProvider>
+    </NDialogProvider>
+    </NMessageProvider>
   </NConfigProvider>
 </template>
 

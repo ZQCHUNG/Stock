@@ -51,9 +51,60 @@ STRATEGY_BOLD_PARAMS = {
     "volume_ramp_lookback_short": 20, # 近期量能窗口 20 日
     "volume_ramp_lookback_long": 120, # 遠期量能窗口 120 日
     "price_breakout_high_days": 60,   # 價格突破 N 日新高
+    # 進場 D：動能趨勢突破（Marathon Runner — R62 Gemini + Architect Critic 共識）
+    "momentum_breakout_enabled": True,  # 啟用動能趨勢突破
+    # [PLACEHOLDER: BOLD_E_D_001] — 以下為經驗參數，需回測驗證
+    "momentum_rsi_min": 55,            # RSI 下限（允許「剛脫離盤整」）
+    "momentum_rsi_max": 80,            # RSI 上限（趨勢股常態性偏高）
+    "momentum_vol_ratio": 1.2,         # 5日均量 > 1.2x 20日均量（穩定放量）
+    "momentum_min_volume_lots": 500,   # 絕對量門檻：日均量 > 500 張
+    "momentum_high_pct": 0.97,         # 價格 > 97% × 20日最高價（接近新高）
+    # [PLACEHOLDER: SLOPE_D10] — MA20 斜率持續性確認
+    "momentum_ma20_slope_days": 10,    # MA20 斜率 > 0 持續至少 N 天
+    # [VERIFIED: TW_INDEX_TRADITION] — 台股環境過濾
+    "momentum_taiex_filter": True,     # 啟用大盤環境過濾
     # 共用
     "min_volume_lots": 200,           # 最低日均量（張）— 標準模式門檻
     "atr_period": 20,                 # ATR 週期
+
+    # --- Phase 1 防守：物理止損機制（R62 Gemini 共識）---
+    # [PLACEHOLDER: BOLD_TIME_STOP] 時間止損：進場後 N 天內未脫離成本 3%，強制撤退
+    "time_stop_days": 5,              # 時間止損天數
+    "time_stop_min_gain": 0.03,       # 時間止損最低收益門檻 3%
+    "time_stop_enabled": True,        # 啟用時間止損
+    # [PLACEHOLDER: BOLD_STRUCT_STOP] 結構止損：跌破 min(進場日低點, 前一日低點)
+    "structural_stop_enabled": True,  # 啟用結構止損
+    # [PLACEHOLDER: BOLD_TREND_STOP] 趨勢破位：價格 < MA20 且 MA20 斜率 ≤ 0
+    "trend_break_stop_enabled": True, # 啟用趨勢破位止損
+    "ma20_slope_lookback": 5,         # MA20 斜率計算窗口（天）
+
+    # --- R62 Momentum Lag Stop（取代固定 Time Stop — Gemini + Architect Critic 共識）---
+    # [PLACEHOLDER: BOLD_MLS_001] 延長期上限天數
+    "time_stop_extended_days": 8,     # 量縮時可延長至 8 天
+    # [PLACEHOLDER: BOLD_MLS_002] 量縮判定增益門檻
+    "momentum_lag_gain_threshold": 0.01,  # ±1% 內算「不動」
+    "momentum_lag_stop_enabled": True,    # 啟用 Momentum Lag Stop
+
+    # --- R62/R63 RS_Rating 相對強度過濾（O'Neil RS — Gemini + Architect Critic 共識）---
+    # [VERIFIED: INDUSTRY_STANDARD] RS 排名門檻（O'Neil: top 20% = Diamond）
+    "rs_rating_min": 80,              # Entry D 需 RS ≥ 80（前 20%）
+    # [VERIFIED: ONEILL_RS_TRADITION] RS 回看天數
+    "rs_lookback": 120,               # 120 天價格強度
+    # [PLACEHOLDER: BOLD_RS_002] 排除近期天數（避免抓到力竭標的）
+    "rs_exclude_recent": 5,           # 排除最近 5 天
+    "rs_rating_enabled": True,        # 啟用 RS 過濾
+    # R63: 權重 RS（防止「短命噴泉」— Gemini Red Team Challenge）
+    # [PLACEHOLDER: RS_WEIGHT_PROPOSAL_20260216] 0.6/0.4 分割需長週期回測驗證
+    "rs_base_weight": 0.6,            # 前 100 天基礎強度權重
+    "rs_recent_weight": 0.4,          # 近 20 天加速權重
+    "rs_recent_days": 20,             # 近期分割點
+
+    # --- R62 Equity Curve Filter（連續虧損保護 — Gemini + Architect Critic 共識）---
+    # [PLACEHOLDER: BOLD_ECF_001] 連續虧損上限
+    "consecutive_loss_cap": 3,        # 連續 3 筆虧損觸發保護
+    # [PLACEHOLDER: BOLD_ECF_002] 倉位縮減倍率
+    "position_reduction_factor": 0.5, # 觸發後倉位減半
+    "equity_curve_filter_enabled": True,  # 啟用 Equity Curve Filter
 
     # --- 出場條件（階梯式 Step-up Buffer）---
     "stop_loss_pct": 0.15,            # 絕對災難停損 -15%
@@ -91,6 +142,70 @@ STRATEGY_BOLD_ULTRA_WIDE = {
     "min_hold_days": 15,              # 最短持有 15 天
     "stop_loss_pct": 0.18,            # VALIDATED(n=3): 災難停損 -18%
 }
+
+
+def compute_rs_ratio(
+    df: pd.DataFrame,
+    lookback: int = 120,
+    exclude_recent: int = 5,
+    base_weight: float = 0.6,
+    recent_weight: float = 0.4,
+    recent_days: int = 20,
+) -> float | None:
+    """計算個股 Weighted Relative Strength (RS) ratio
+
+    R63 權重 RS（Gemini Red Team Challenge — 防止「短命噴泉」）：
+    Weighted RS = (base_return)^base_weight × (recent_return)^recent_weight
+
+    其中：
+    - base_return = close[-exclude-recent_days] / close[-exclude-lookback]
+      → 前 100 天的基礎強度（佔 60%）
+    - recent_return = close[-exclude] / close[-exclude-recent_days]
+      → 近 20 天的加速度（佔 40%）
+
+    穩定上漲股得分高於「一週瘋漲」的短命噴泉。
+
+    Args:
+        df: 股價 DataFrame（需有 'close' column）
+        lookback: RS 回看天數（預設 120 天）
+        exclude_recent: 排除最近 N 天（預設 5 天，避免力竭）
+        base_weight: 基礎期權重（預設 0.6）
+        recent_weight: 近期權重（預設 0.4）
+        recent_days: 近期分割點（預設 20 天）
+
+    Returns:
+        Weighted RS ratio (float) 或 None（數據不足時）
+    """
+    if len(df) < lookback + exclude_recent:
+        return None
+    close = df["close"] if "close" in df.columns else None
+    if close is None:
+        return None
+
+    # 三個時間點的收盤價（都排除最近 exclude_recent 天）
+    # t0: lookback 天前, t1: recent_days 天前, t2: 現在（排除 exclude_recent）
+    idx_t2 = -(1 + exclude_recent)                    # 近期終點
+    idx_t1 = -(1 + exclude_recent + recent_days)       # 近期起點 = 基礎終點
+    idx_t0 = -(1 + exclude_recent + lookback)          # 基礎起點（不含 exclude_recent）
+
+    # 修正：idx_t0 應該是 lookback 天前（含 exclude_recent 偏移）
+    idx_t0 = -(lookback + exclude_recent)
+
+    try:
+        price_t2 = float(close.iloc[idx_t2])
+        price_t1 = float(close.iloc[idx_t1])
+        price_t0 = float(close.iloc[idx_t0])
+    except (IndexError, KeyError):
+        return None
+
+    if any(p <= 0 or np.isnan(p) for p in [price_t0, price_t1, price_t2]):
+        return None
+
+    base_return = price_t1 / price_t0    # 前 100 天表現
+    recent_return = price_t2 / price_t1  # 近 20 天表現
+
+    # 幾何加權：穩定上漲 > 短命噴泉
+    return (base_return ** base_weight) * (recent_return ** recent_weight)
 
 
 def _compute_bb_bandwidth(df: pd.DataFrame) -> pd.Series:
@@ -131,23 +246,26 @@ def _detect_squeeze_release(squeeze: pd.Series) -> pd.Series:
     return squeeze.shift(1).fillna(False) & ~squeeze
 
 
-def generate_bold_signals(df: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
+def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_rating: float | None = None) -> pd.DataFrame:
     """產生 Bold 大膽策略訊號
 
     進場邏輯：
     A) 能量擠壓突破：BB squeeze release + 價格突破 BB 上軌 + 量能 > 2.5x
     B) 超跌反彈：RSI < 30 + 近 52 週低點 + 恐慌量
+    C) 量能爬坡突破：近期量/遠期量 > 2x + 接近新高（小型股發現）
+    D) 動能趨勢突破：均線多頭排列 + RSI [55,80] + 穩定放量 + MA20 斜率持續向上
 
-    出場邏輯（階梯式 Step-up Buffer）：
-    - 絕對停損 -15%
+    出場邏輯：
+    Phase 1 防守：結構止損 + 時間止損 + 趨勢破位
+    Phase 2 階梯式 Step-up Buffer：
     - Level 1 (<30% gain): trailing -15%
     - Level 2 (30-50% gain): 鎖住 +10%，trailing -15%
-    - Level 3 (>50% gain): trailing -25% 或 3×ATR
+    - Level 3 (>50% gain): trailing -15%/ATR + Regime-Based Trail
 
     Returns:
         DataFrame with columns:
         - bold_signal: "BUY" / "HOLD" / "SELL"
-        - bold_entry_type: "squeeze_breakout" / "oversold_bounce" / ""
+        - bold_entry_type: "squeeze_breakout" / "oversold_bounce" / "volume_ramp" / "momentum_breakout"
         - bold_squeeze: bool (是否處於擠壓狀態)
         - bold_vol_ratio: float (成交量/20日均量)
     """
@@ -180,6 +298,19 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Da
     # N日新高
     breakout_days = p.get("price_breakout_high_days", 60)
     rolling_high = result["close"].rolling(breakout_days, min_periods=20).max()
+
+    # --- Entry D 動能趨勢突破指標 ---
+    # 均線（ma20, ma60 已在 indicators 中；ma120 需計算）
+    ma120 = result["close"].rolling(120, min_periods=60).mean()
+    # 20 日最高價
+    rolling_high_20 = result["close"].rolling(20, min_periods=10).max()
+    # 5 日均量
+    vol_ma_5 = result["volume"].rolling(5, min_periods=3).mean()
+    vol_ma_20 = result["volume"].rolling(20, min_periods=10).mean()
+    # MA20 斜率持續性（連續 N 天斜率 > 0）
+    ma20_diff = result["ma20"].diff()
+    slope_days_req = p.get("momentum_ma20_slope_days", 10)
+    ma20_slope_positive_streak = ma20_diff.rolling(slope_days_req, min_periods=slope_days_req).min()
 
     # --- 訊號邏輯 ---
     signals = pd.Series("HOLD", index=result.index)
@@ -221,6 +352,51 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None) -> pd.Da
                 signals.iloc[i] = "BUY"
                 entry_types.iloc[i] = "volume_ramp"
                 continue
+
+        # --- 進場 D：動能趨勢突破（Marathon Runner）---
+        # [PLACEHOLDER: BOLD_E_D_001] — 抓光聖型強勢趨勢股
+        # 不需要擠壓，不需要超跌，只需要「均線多頭排列 + 穩定放量 + RSI 強勢」
+        if p.get("momentum_breakout_enabled", True):
+            _close = result["close"].iloc[i]
+            _ma20 = result["ma20"].iloc[i]
+            _ma60 = result["ma60"].iloc[i]
+            _ma120_val = ma120.iloc[i]
+            _rsi = result["rsi"].iloc[i]
+            _vol5 = vol_ma_5.iloc[i]
+            _vol20 = vol_ma_20.iloc[i]
+            _high20 = rolling_high_20.iloc[i]
+            _slope_streak = ma20_slope_positive_streak.iloc[i]
+            _avg_vol_lots = _vol20 / 1000 if not np.isnan(_vol20) else 0
+
+            if (not np.isnan(_ma120_val) and not np.isnan(_rsi) and
+                not np.isnan(_vol5) and not np.isnan(_vol20) and _vol20 > 0 and
+                not np.isnan(_high20) and not np.isnan(_slope_streak)):
+
+                # 1. 均線多頭排列：Price > MA20 > MA60 > MA120
+                ma_aligned = _close > _ma20 > _ma60 > _ma120_val
+
+                # 2. 相對強度：Price > 0.97 × 20 日最高價
+                near_high = _close > p.get("momentum_high_pct", 0.97) * _high20
+
+                # 3. 動能區間：RSI ∈ [55, 80]
+                rsi_ok = p.get("momentum_rsi_min", 55) <= _rsi <= p.get("momentum_rsi_max", 80)
+
+                # 4. 穩定放量：5日均量 > 1.2x 20日均量 AND 日均量 > 500 張
+                vol_ok = (_vol5 / _vol20 >= p.get("momentum_vol_ratio", 1.2) and
+                          _avg_vol_lots >= p.get("momentum_min_volume_lots", 500))
+
+                # 5. MA20 斜率 > 0 持續至少 N 天
+                slope_ok = _slope_streak > 0
+
+                # 6. RS_Rating 過濾（R62）：只做全市場前 20% 強勢股
+                rs_ok = True
+                if p.get("rs_rating_enabled", True) and rs_rating is not None:
+                    rs_ok = rs_rating >= p.get("rs_rating_min", 80)
+
+                if ma_aligned and near_high and rsi_ok and vol_ok and slope_ok and rs_ok:
+                    signals.iloc[i] = "BUY"
+                    entry_types.iloc[i] = "momentum_breakout"
+                    continue
 
         # --- 量能先行偵測（pre-breakout alert）---
         # 價格未破前高但量能異常，作為潛在突破預警
@@ -283,8 +459,15 @@ def compute_bold_exit(
     hold_days: int,
     params: dict | None = None,
     ma200_slope: float | None = None,
+    entry_low: float | None = None,
+    prev_day_low: float | None = None,
+    current_ma20: float | None = None,
+    ma20_slope: float | None = None,
+    current_vol_ma5: float | None = None,
+    current_vol_ma20: float | None = None,
+    current_ma5: float | None = None,
 ) -> dict:
-    """計算 Bold 策略的出場決策（階梯式 Step-up Buffer）
+    """計算 Bold 策略的出場決策（階梯式 Step-up Buffer + Phase 1 物理止損）
 
     Args:
         entry_price: 進場價格
@@ -294,6 +477,13 @@ def compute_bold_exit(
         hold_days: 已持有天數
         params: 策略參數覆蓋
         ma200_slope: MA200 斜率（20 日變化率），正值表示年線上升
+        entry_low: 進場當天最低價（Phase 1 結構止損用）
+        prev_day_low: 進場前一天最低價（Phase 1 結構止損用）
+        current_ma20: 當前 MA20 值（Phase 1 趨勢破位用）
+        ma20_slope: MA20 斜率（Phase 1 趨勢破位用）
+        current_vol_ma5: 當前 5 日均量（R62 Momentum Lag Stop 用）
+        current_vol_ma20: 當前 20 日均量（R62 Momentum Lag Stop 用）
+        current_ma5: 當前 MA5 值（R62 Momentum Lag Stop 延長期安全網）
 
     Returns:
         {
@@ -316,6 +506,84 @@ def compute_bold_exit(
         and ma200_slope is not None
         and ma200_slope > p.get("ma_slope_threshold", 0.0)
     )
+
+    # === Phase 1 防守：物理止損機制（R62 Gemini + Architect Critic 共識）===
+
+    # --- 結構止損：跌破 min(Entry_Low, Entry-1_Low) 立即清倉 ---
+    # [PLACEHOLDER: BOLD_STRUCT_STOP] — 爆量當天與前一天低點是主力防守的「關鍵 K 線」基點
+    # 此止損無視最短持有期，因為結構破壞意味著進場論點已失效
+    if p.get("structural_stop_enabled", True) and entry_low is not None:
+        structural_floor = entry_low
+        if prev_day_low is not None:
+            structural_floor = min(entry_low, prev_day_low)
+        if current_price < structural_floor:
+            return {
+                "should_exit": True,
+                "exit_reason": "structural_stop",
+                "level": 0,
+                "trailing_stop_price": structural_floor,
+                "gain_pct": gain_pct,
+            }
+
+    # --- 時間止損 / Momentum Lag Stop（R62 優化）---
+    # 原始邏輯：固定 N 天不動就砍
+    # R62 優化：如果 ±1% 內且量縮（vol_ma_5 < vol_ma_20），延長至 8 天，但破 MA5 立砍
+    # 注意：僅在虧損尚未達到災難停損時觸發
+    if (p.get("time_stop_enabled", True)
+            and hold_days >= p.get("time_stop_days", 5)
+            and gain_pct < p.get("time_stop_min_gain", 0.03)
+            and gain_pct > -p["stop_loss_pct"]):
+
+        time_stop_days = p.get("time_stop_days", 5)
+        extended_days = p.get("time_stop_extended_days", 8)
+        lag_threshold = p.get("momentum_lag_gain_threshold", 0.01)
+        mls_enabled = p.get("momentum_lag_stop_enabled", True)
+
+        # Momentum Lag Stop: 量縮且報酬在 ±1% → 延長觀察
+        if (mls_enabled
+                and hold_days < extended_days
+                and abs(gain_pct) <= lag_threshold
+                and current_vol_ma5 is not None
+                and current_vol_ma20 is not None
+                and current_vol_ma20 > 0
+                and current_vol_ma5 < current_vol_ma20):
+            # 量縮中，給更多時間 — 但破 MA5 立刻出場
+            if (current_ma5 is not None
+                    and current_price < current_ma5):
+                return {
+                    "should_exit": True,
+                    "exit_reason": "momentum_lag_ma5_break",
+                    "level": 0,
+                    "trailing_stop_price": current_ma5,
+                    "gain_pct": gain_pct,
+                }
+            # 還在延長期內，不出場
+        else:
+            # 不符合延長條件（量沒縮 or 虧超過 1% or 已達 8 天）→ 執行 time stop
+            return {
+                "should_exit": True,
+                "exit_reason": f"time_stop_{time_stop_days}d" if hold_days < extended_days else f"time_stop_{extended_days}d",
+                "level": 0,
+                "trailing_stop_price": entry_price,
+                "gain_pct": gain_pct,
+            }
+
+    # --- 趨勢破位：價格 < MA20 且 MA20 斜率 ≤ 0 ---
+    # [PLACEHOLDER: BOLD_TREND_STOP] — 比單純 trailing stop 更有結構意義
+    if (p.get("trend_break_stop_enabled", True)
+            and current_ma20 is not None
+            and ma20_slope is not None
+            and hold_days >= p["min_hold_days"]):  # 趨勢破位遵守最短持有期
+        if current_price < current_ma20 and ma20_slope <= 0:
+            return {
+                "should_exit": True,
+                "exit_reason": "trend_break_ma20",
+                "level": 0,
+                "trailing_stop_price": current_ma20,
+                "gain_pct": gain_pct,
+            }
+
+    # === 原有出場邏輯 ===
 
     # 最短持有期保護（除非觸發災難停損）
     if hold_days < p["min_hold_days"] and gain_pct > -p["stop_loss_pct"]:
