@@ -1,0 +1,848 @@
+"""Local Feature Engineering Script
+
+Processes 8 raw JSON data sources → 50 features per (stock, date) → Parquet output.
+Runs entirely on local machine — no Colab needed.
+
+Design changes from Gemini Wall Street Trader debate (R88):
+- 50 features (removed fake news_sentiment) across 5 dimensions
+- T+n date filtering: monthly revenue T+11, quarterly financials T+46
+- regime_tag column for regime-aware similarity filtering
+- News dimension renamed to "Attention" (Attention Index)
+
+Usage:
+    python data/build_features.py
+
+Output:
+    data/pattern_data/features/features_all.parquet
+    data/pattern_data/features/forward_returns.parquet
+    data/pattern_data/features/feature_metadata.json
+"""
+
+import json
+import os
+import re
+import sys
+import warnings
+from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+# Ensure project root in path
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+warnings.filterwarnings("ignore")
+
+# --- Config ---
+DATA_ROOT = PROJECT_ROOT / "data" / "pattern_data" / "raw"
+OUTPUT_DIR = PROJECT_ROOT / "data" / "pattern_data" / "features"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+PRICE_CACHE = OUTPUT_DIR / "price_cache.parquet"
+START_DATE = "2020-01-01"
+
+
+def parse_number(s: str) -> float:
+    """Parse number string with commas and signs."""
+    if not s or s == "--" or s == "-":
+        return 0.0
+    return float(str(s).replace(",", "").strip())
+
+
+# ============================================================
+# 1. Discover Stock Universe
+# ============================================================
+def discover_stock_codes() -> list[str]:
+    """Extract all 4-digit stock codes from institutional daily files."""
+    codes = set()
+    inst_dir = DATA_ROOT / "institutional"
+    # Sample first 5 files from each market
+    for pattern in ["twse_*.json", "tpex_*.json"]:
+        for f in sorted(inst_dir.glob(pattern))[:5]:
+            with open(f, "r", encoding="utf-8") as fp:
+                d = json.load(fp)
+            for row in d.get("data", []):
+                code = row[0].strip()
+                if re.match(r"^\d{4}$", code):
+                    codes.add(code)
+    return sorted(codes)
+
+
+# ============================================================
+# 2. Fetch Price Data (OHLCV)
+# ============================================================
+def fetch_price_single(code: str):
+    """Fetch OHLCV for a single stock."""
+    import yfinance as yf
+
+    try:
+        ticker = f"{code}.TW"
+        df = yf.download(ticker, start=START_DATE, auto_adjust=True, progress=False)
+        if df.empty:
+            ticker = f"{code}.TWO"
+            df = yf.download(ticker, start=START_DATE, auto_adjust=True, progress=False)
+        if df.empty:
+            return None
+        df.columns = [c.lower() if isinstance(c, str) else c[0].lower() for c in df.columns]
+        df = df[["open", "high", "low", "close", "volume"]].copy()
+        df["stock_code"] = code
+        df.index.name = "date"
+        return df.reset_index()
+    except Exception:
+        return None
+
+
+def fetch_all_prices(codes: list[str], max_workers: int = 8) -> pd.DataFrame:
+    """Fetch prices for all stocks with threading."""
+    if PRICE_CACHE.exists():
+        print(f"  Loading cached prices from {PRICE_CACHE}")
+        return pd.read_parquet(PRICE_CACHE)
+
+    results = []
+    failed = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(fetch_price_single, c): c for c in codes}
+        for i, future in enumerate(as_completed(futures)):
+            code = futures[future]
+            df = future.result()
+            if df is not None and len(df) > 100:
+                results.append(df)
+            else:
+                failed.append(code)
+            if (i + 1) % 100 == 0:
+                print(f"    Fetched {i+1}/{len(codes)} ({len(results)} success, {len(failed)} failed)")
+
+    prices = pd.concat(results, ignore_index=True)
+    prices["date"] = pd.to_datetime(prices["date"])
+    prices.to_parquet(PRICE_CACHE, index=False)
+    print(f"  Saved price cache: {len(results)} stocks, {len(prices)} rows")
+    return prices
+
+
+# ============================================================
+# 3. Technical Features (20)
+# ============================================================
+def compute_technical_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute 20 technical features for a single stock's OHLCV data."""
+    df = df.sort_values("date").copy()
+    c = df["close"]
+    h = df["high"]
+    l = df["low"]
+    o = df["open"]
+    v = df["volume"].astype(float)
+
+    df["ret_1d"] = c.pct_change(1)
+    df["ret_5d"] = c.pct_change(5)
+    df["ret_20d"] = c.pct_change(20)
+
+    df["ma5_ratio"] = c / c.rolling(5).mean()
+    df["ma20_ratio"] = c / c.rolling(20).mean()
+    df["ma60_ratio"] = c / c.rolling(60).mean()
+
+    bb_mid = c.rolling(20).mean()
+    bb_std = c.rolling(20).std()
+    bb_upper = bb_mid + 2 * bb_std
+    bb_lower = bb_mid - 2 * bb_std
+    df["bb_position"] = (c - bb_lower) / (bb_upper - bb_lower)
+
+    delta = c.diff()
+    gain = delta.clip(lower=0)
+    loss = (-delta).clip(lower=0)
+    avg_gain = gain.ewm(span=14, adjust=False).mean()
+    avg_loss = loss.ewm(span=14, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    df["rsi_14"] = (100 - 100 / (1 + rs)) / 100
+
+    ema12 = c.ewm(span=12, adjust=False).mean()
+    ema26 = c.ewm(span=26, adjust=False).mean()
+    macd_line = ema12 - ema26
+    signal_line = macd_line.ewm(span=9, adjust=False).mean()
+    df["macd_hist"] = (macd_line - signal_line) / c
+
+    low_14 = l.rolling(14).min()
+    high_14 = h.rolling(14).max()
+    df["kd_k"] = (c - low_14) / (high_14 - low_14).replace(0, np.nan)
+    df["kd_d"] = df["kd_k"].rolling(3).mean()
+
+    tr = pd.concat(
+        [h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1
+    ).max(axis=1)
+    df["atr_pct"] = tr.rolling(14).mean() / c
+
+    df["vol_ratio_5"] = v / v.rolling(5).mean().replace(0, np.nan)
+    df["vol_ratio_20"] = v / v.rolling(20).mean().replace(0, np.nan)
+
+    hl_range = h - l
+    df["high_low_range"] = hl_range / c
+    df["close_vs_high"] = (c - l) / hl_range.replace(0, np.nan)
+
+    df["gap_pct"] = (o - c.shift(1)) / c.shift(1)
+
+    def rolling_slope(s, w=20):
+        x = np.arange(w, dtype=float)
+        x -= x.mean()
+        return s.rolling(w).apply(
+            lambda y: np.polyfit(x, y, 1)[0] if len(y) == w else np.nan, raw=True
+        )
+
+    df["trend_slope_20"] = rolling_slope(c, 20) / c
+    df["volatility_20"] = df["ret_1d"].rolling(20).std()
+    df["rs_rating"] = np.nan  # Filled later
+
+    return df
+
+
+# ============================================================
+# 4. Institutional Features (15)
+# ============================================================
+def load_institutional_data() -> pd.DataFrame:
+    """Parse TWSE + TPEX institutional daily files."""
+    inst_dir = DATA_ROOT / "institutional"
+    rows = []
+
+    for f in sorted(inst_dir.glob("*.json")):
+        parts = f.stem.split("_")
+        if len(parts) != 2:
+            continue
+        market, date_str = parts
+        date = pd.Timestamp(f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}")
+
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+
+        for row in d.get("data", []):
+            code = row[0].strip()
+            if not re.match(r"^\d{4}$", code):
+                continue
+            if market == "twse":
+                foreign_net = parse_number(row[4]) + parse_number(row[7]) if len(row) > 7 else 0
+                trust_net = parse_number(row[10]) if len(row) > 10 else 0
+                dealer_net = parse_number(row[11]) if len(row) > 11 else 0
+                total_net = parse_number(row[18]) if len(row) > 18 else 0
+            else:
+                foreign_net = parse_number(row[4]) + parse_number(row[7]) if len(row) > 7 else 0
+                trust_net = parse_number(row[10]) if len(row) > 10 else 0
+                dealer_net = parse_number(row[11]) if len(row) > 11 else 0
+                total_net = parse_number(row[-1]) if len(row) > 18 else 0
+
+            rows.append({
+                "date": date, "stock_code": code,
+                "foreign_net": foreign_net, "trust_net": trust_net,
+                "dealer_net": dealer_net, "total_net": total_net,
+            })
+
+    return pd.DataFrame(rows)
+
+
+def load_margin_data() -> pd.DataFrame:
+    """Parse margin daily files."""
+    margin_dir = DATA_ROOT / "margin"
+    rows = []
+
+    for f in sorted(margin_dir.glob("*.json")):
+        parts = f.stem.split("_")
+        if len(parts) != 2:
+            continue
+        _, date_str = parts
+        date = pd.Timestamp(f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}")
+
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+
+        for row in d.get("data", []):
+            code = row[0].strip()
+            if not re.match(r"^\d{4}$", code):
+                continue
+            margin_balance = parse_number(row[6]) if len(row) > 6 else 0
+            short_balance = parse_number(row[14]) if len(row) > 14 else 0
+            margin_util = parse_number(row[8]) if len(row) > 8 else 0
+
+            rows.append({
+                "date": date, "stock_code": code,
+                "margin_balance": margin_balance,
+                "short_balance": short_balance,
+                "margin_utilization": margin_util / 100.0,
+            })
+
+    return pd.DataFrame(rows)
+
+
+def load_tdcc_data() -> pd.DataFrame:
+    """Parse TDCC (集保) FinMind data files."""
+    tdcc_dir = DATA_ROOT / "tdcc"
+    rows = []
+
+    for f in sorted(tdcc_dir.glob("finmind_*.json")):
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+        stock_id = d.get("stock_id", "")
+        if not re.match(r"^\d{4}$", stock_id):
+            continue
+        for item in d.get("data", []):
+            rows.append({
+                "date": pd.Timestamp(item["date"]),
+                "stock_code": stock_id,
+                "foreign_holding_ratio": item.get("ForeignInvestmentSharesRatio", 0) / 100.0,
+            })
+
+    return pd.DataFrame(rows)
+
+
+def load_broker_data() -> pd.DataFrame:
+    """Parse broker monthly files."""
+    broker_dir = DATA_ROOT / "broker"
+    rows = []
+
+    for f in sorted(broker_dir.glob("*.json")):
+        parts = f.stem.split("_")
+        if len(parts) != 2:
+            continue
+        code, ym = parts
+        if not re.match(r"^\d{4}$", code):
+            continue
+
+        year = int(ym[:4])
+        month = int(ym[4:6])
+        if month == 12:
+            date = pd.Timestamp(f"{year}-{month}-31")
+        else:
+            date = pd.Timestamp(f"{year}-{month+1}-01") - pd.Timedelta(days=1)
+
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+
+        buy_top = [b for b in d.get("buy_top", []) if "合計" not in b.get("broker", "")]
+        sell_top = [s for s in d.get("sell_top", []) if "合計" not in s.get("broker", "")]
+
+        buy_pcts = [parse_number(b.get("pct", "0").replace("%", "")) / 100 for b in buy_top[:15]]
+        sell_pcts = [parse_number(s.get("pct", "0").replace("%", "")) / 100 for s in sell_top[:15]]
+        hhi = sum(p ** 2 for p in buy_pcts + sell_pcts)
+
+        top5_net = sum(parse_number(b.get("net", "0")) for b in buy_top[:5])
+        top5_sell = sum(parse_number(s.get("net", "0")) for s in sell_top[:5])
+        total_action = abs(top5_net) + abs(top5_sell)
+        net_buy_ratio = top5_net / total_action if total_action > 0 else 0
+
+        broker_spread = len(buy_top) / max(len(sell_top), 1)
+
+        rows.append({
+            "date": date, "stock_code": code,
+            "broker_hhi": hhi,
+            "broker_net_buy_ratio": net_buy_ratio,
+            "broker_consistency": 0,
+            "broker_spread": broker_spread,
+        })
+
+    df = pd.DataFrame(rows)
+    df = df.sort_values(["stock_code", "date"])
+
+    # Compute broker_consistency: consecutive months of net buying
+    for code, group in df.groupby("stock_code"):
+        streak = 0
+        for idx in group.index:
+            nbr = df.loc[idx, "broker_net_buy_ratio"]
+            if nbr > 0:
+                streak = max(streak, 0) + 1
+            elif nbr < 0:
+                streak = min(streak, 0) - 1
+            else:
+                streak = 0
+            df.loc[idx, "broker_consistency"] = streak
+
+    return df
+
+
+def compute_institutional_features(prices, inst, margin, tdcc, broker):
+    """Merge institutional sources and compute 15 features."""
+    df = prices[["date", "stock_code", "volume"]].copy()
+    df = df.sort_values(["stock_code", "date"])
+
+    df = df.merge(inst, on=["date", "stock_code"], how="left")
+
+    vol = df["volume"].replace(0, np.nan)
+    df["inst_foreign_net"] = df["foreign_net"] / vol
+    df["inst_trust_net"] = df["trust_net"] / vol
+    df["inst_dealer_net"] = df["dealer_net"] / vol
+    df["inst_total_net"] = df["total_net"] / vol
+    df["inst_5d_sum"] = df.groupby("stock_code")["inst_total_net"].transform(
+        lambda x: x.rolling(5, min_periods=1).sum()
+    )
+
+    df = df.merge(
+        margin[["date", "stock_code", "margin_balance", "short_balance", "margin_utilization"]],
+        on=["date", "stock_code"], how="left",
+    )
+    df["margin_balance_chg"] = df.groupby("stock_code")["margin_balance"].transform(lambda x: x.pct_change())
+    df["short_balance_chg"] = df.groupby("stock_code")["short_balance"].transform(lambda x: x.pct_change())
+
+    df = df.merge(tdcc[["date", "stock_code", "foreign_holding_ratio"]], on=["date", "stock_code"], how="left")
+    df["foreign_holding_ratio"] = df.groupby("stock_code")["foreign_holding_ratio"].transform(lambda x: x.ffill())
+
+    df["tdcc_retail_chg"] = -df.groupby("stock_code")["foreign_holding_ratio"].transform(lambda x: x.diff())
+    df["tdcc_big_chg"] = df.groupby("stock_code")["foreign_holding_ratio"].transform(lambda x: x.diff())
+    df["tdcc_concentration"] = df["foreign_holding_ratio"]
+
+    df = df.merge(
+        broker[["date", "stock_code", "broker_hhi", "broker_net_buy_ratio", "broker_consistency", "broker_spread"]],
+        on=["date", "stock_code"], how="left",
+    )
+    for col in ["broker_hhi", "broker_net_buy_ratio", "broker_consistency", "broker_spread"]:
+        df[col] = df.groupby("stock_code")[col].transform(lambda x: x.ffill())
+
+    df = df.drop(
+        columns=["volume", "foreign_net", "trust_net", "dealer_net", "total_net",
+                 "margin_balance", "short_balance", "foreign_holding_ratio"],
+        errors="ignore",
+    )
+    return df
+
+
+# ============================================================
+# 5. Industry Features (5)
+# ============================================================
+def load_industry_mapping():
+    """Load industry chain mapping."""
+    industry_dir = DATA_ROOT / "industry"
+    mapping = {}
+    chains = {}
+
+    for f in sorted(industry_dir.glob("ic_chain_*.json")):
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+        chain_code = d.get("chain_code", "")
+        chain_name = d.get("chain_name", "")
+        stock_codes = d.get("stock_codes", [])
+        chains[chain_code] = stock_codes
+
+        for i, code in enumerate(stock_codes):
+            pos = i / max(len(stock_codes) - 1, 1)
+            mapping[code] = {
+                "chain_code": chain_code,
+                "chain_name": chain_name,
+                "industry_chain_pos": pos,
+            }
+
+    return mapping, chains
+
+
+def compute_industry_features(prices, industry_mapping):
+    """Compute 5 industry features."""
+    df = prices[["date", "stock_code", "close"]].copy()
+    df = df.sort_values(["stock_code", "date"])
+
+    df["ret_20d_raw"] = df.groupby("stock_code")["close"].transform(lambda x: x.pct_change(20))
+    df["chain_code"] = df["stock_code"].map(lambda c: industry_mapping.get(c, {}).get("chain_code", "UNKNOWN"))
+    df["industry_chain_pos"] = df["stock_code"].map(
+        lambda c: industry_mapping.get(c, {}).get("industry_chain_pos", 0.5)
+    )
+
+    sector_rs = df.groupby(["date", "chain_code"])["ret_20d_raw"].median().reset_index()
+    sector_rs.columns = ["date", "chain_code", "sector_momentum"]
+    df = df.merge(sector_rs, on=["date", "chain_code"], how="left")
+
+    df["sector_rs"] = df.groupby("date")["sector_momentum"].rank(pct=True)
+    df["peer_alpha"] = df["ret_20d_raw"] / df["sector_momentum"].replace(0, np.nan)
+    df["peer_alpha"] = df["peer_alpha"].clip(-5, 5)
+
+    chain_counts = df.groupby(["date", "chain_code"])["stock_code"].transform("count")
+    total_counts = df.groupby("date")["stock_code"].transform("count")
+    df["sector_concentration"] = chain_counts / total_counts
+
+    return df[["date", "stock_code", "sector_rs", "peer_alpha", "sector_momentum",
+               "industry_chain_pos", "sector_concentration"]].copy()
+
+
+# ============================================================
+# 6. Fundamental Features (8)
+# ============================================================
+def load_financials_data():
+    fin_dir = DATA_ROOT / "financials"
+    rows = []
+    for f in sorted(fin_dir.glob("balance_sheet_*.json")):
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+        stock_id = d.get("stock_id", "")
+        if not re.match(r"^\d{4}$", stock_id):
+            continue
+        for item in d.get("data", []):
+            rows.append({
+                "date": pd.Timestamp(item["date"]),
+                "stock_code": stock_id,
+                "type": item.get("type", ""),
+                "value": item.get("value", 0),
+            })
+    return pd.DataFrame(rows)
+
+
+def load_revenue_data():
+    rev_dir = DATA_ROOT / "revenue"
+    rows = []
+    for f in sorted(rev_dir.glob("otc_*.json")):
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+        year = d.get("year_minguo", 0) + 1911
+        month = d.get("month", 0)
+        if month == 12:
+            date = pd.Timestamp(f"{year}-{month}-31")
+        else:
+            date = pd.Timestamp(f"{year}-{month+1}-01") - pd.Timedelta(days=1)
+        for item in d.get("data", []):
+            code = item.get("code", "").strip()
+            if not re.match(r"^\d{4}$", code):
+                continue
+            rows.append({
+                "date": date, "stock_code": code,
+                "revenue_yoy": parse_number(item.get("yoy_pct", "0")) / 100.0,
+                "revenue_mom": parse_number(item.get("mom_pct", "0")) / 100.0,
+            })
+    return pd.DataFrame(rows)
+
+
+def compute_fundamental_features(prices, financials_raw, revenue):
+    """Compute 8 fundamental features with strict T+n point-in-time filtering.
+
+    T+n rules [CONVERGED with Gemini Wall Street Trader]:
+    - Quarterly financials: T+46 (45-day delay + 1-day buffer)
+    - Monthly revenue: T+11 (10th of next month + 1-day buffer)
+    - PE/PB Feature Leakage fix: EPS denominator aligned with T+n
+    """
+    useful_types = {
+        "ReturnOnEquity": "roe",
+        "EarningsPerShare": "eps",
+        "PriceEarningRatio": "pe_ratio",
+        "PriceBookRatio": "pb_ratio",
+        "OperatingProfitMargin": "operating_margin",
+        "OperatingProfitMargin_per": "operating_margin",
+        "DebtRatio": "debt_ratio",
+        "DebtRatio_per": "debt_ratio",
+    }
+
+    fin = financials_raw[financials_raw["type"].isin(useful_types.keys())].copy()
+    fin["feature"] = fin["type"].map(useful_types)
+
+    fin_pivot = fin.pivot_table(
+        index=["stock_code", "date"], columns="feature", values="value", aggfunc="first"
+    ).reset_index()
+    fin_pivot = fin_pivot.sort_values(["stock_code", "date"])
+
+    # T+46: Quarterly financials available 46 days after quarter end
+    fin_pivot["available_date"] = fin_pivot["date"] + pd.Timedelta(days=46)
+
+    if "eps" in fin_pivot.columns:
+        fin_pivot["eps_yoy"] = fin_pivot.groupby("stock_code")["eps"].transform(lambda x: x.pct_change(4))
+    else:
+        fin_pivot["eps_yoy"] = np.nan
+
+    for col in ["roe", "pe_ratio", "pb_ratio", "operating_margin", "debt_ratio"]:
+        if col not in fin_pivot.columns:
+            fin_pivot[col] = np.nan
+
+    for col in ["roe", "operating_margin", "debt_ratio"]:
+        if col in fin_pivot.columns:
+            fin_pivot[col] = fin_pivot[col] / 100.0
+
+    fin_pivot["pe_percentile"] = fin_pivot.groupby("available_date")["pe_ratio"].rank(pct=True)
+
+    base = prices[["date", "stock_code"]].copy().sort_values(["stock_code", "date"])
+
+    # Merge financials using available_date (T+46) instead of report date
+    fin_cols_sel = ["available_date", "stock_code", "eps_yoy", "roe", "pe_percentile", "pb_ratio", "operating_margin", "debt_ratio"]
+    fin_select = fin_pivot[[c for c in fin_cols_sel if c in fin_pivot.columns]].copy()
+    fin_select = fin_select.rename(columns={"available_date": "date"})
+    base = base.merge(fin_select, on=["date", "stock_code"], how="left")
+
+    # T+11: Monthly revenue available 11 days after month end
+    revenue_t = revenue.copy()
+    revenue_t["date"] = revenue_t["date"] + pd.Timedelta(days=11)
+    base = base.merge(revenue_t[["date", "stock_code", "revenue_yoy", "revenue_mom"]], on=["date", "stock_code"], how="left")
+
+    fund_feature_cols = ["eps_yoy", "roe", "revenue_yoy", "revenue_mom", "pe_percentile", "pb_ratio", "operating_margin", "debt_ratio"]
+    for col in fund_feature_cols:
+        if col not in base.columns:
+            base[col] = np.nan
+        base[col] = base.groupby("stock_code")[col].transform(lambda x: x.ffill())
+
+    return base[["date", "stock_code"] + fund_feature_cols]
+
+
+# ============================================================
+# 7. Attention Features (2) — renamed from "News"
+# [CONVERGED] Gemini: News Count = "Attention Index", remove fake sentiment
+# ============================================================
+def load_news_data():
+    news_dir = DATA_ROOT / "news"
+    mentions = defaultdict(lambda: defaultdict(int))
+
+    for f in sorted(news_dir.glob("cnyes_*.json")):
+        parts = f.stem.split("_")
+        if len(parts) < 3:
+            continue
+        date_str = parts[1]
+        date = pd.Timestamp(f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}")
+
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+
+        for article in d.get("data", []):
+            content = str(article.get("content", ""))
+            for code in set(re.findall(r"(?:TWS:|TWG:)(\d{4})", content)):
+                mentions[code][date] += 1
+
+    rows = []
+    for code, date_counts in mentions.items():
+        for date, count in date_counts.items():
+            rows.append({"date": date, "stock_code": code, "news_count": count})
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["date", "stock_code", "news_count"])
+
+
+def compute_attention_features(prices, news):
+    """Compute 2 attention features (renamed from news).
+
+    [CONVERGED] Gemini Wall Street Trader:
+    - Removed fake news_sentiment (we have no real sentiment model)
+    - Renamed to "Attention Index" — measures if stock is in public eye
+    - A cold stock going from 0→5 news articles is a significant signal
+    """
+    base = prices[["date", "stock_code"]].copy().sort_values(["stock_code", "date"])
+
+    if len(news) > 0:
+        base = base.merge(news[["date", "stock_code", "news_count"]], on=["date", "stock_code"], how="left")
+    else:
+        base["news_count"] = 0
+
+    base["news_count"] = base["news_count"].fillna(0)
+    base["attention_index_7d"] = base.groupby("stock_code")["news_count"].transform(
+        lambda x: x.rolling(7, min_periods=1).sum()
+    )
+    avg_30d = base.groupby("stock_code")["news_count"].transform(
+        lambda x: x.rolling(30, min_periods=1).mean()
+    )
+    base["attention_spike"] = base["news_count"] / avg_30d.replace(0, np.nan)
+    base["attention_spike"] = base["attention_spike"].fillna(0)
+
+    return base[["date", "stock_code", "attention_index_7d", "attention_spike"]]
+
+
+# ============================================================
+# 8. RS Rating vs TAIEX
+# ============================================================
+def compute_rs_rating(prices):
+    import yfinance as yf
+
+    taiex = yf.download("^TWII", start=START_DATE, auto_adjust=True, progress=False)
+    taiex.columns = [c.lower() if isinstance(c, str) else c[0].lower() for c in taiex.columns]
+    taiex = taiex[["close"]].rename(columns={"close": "taiex_close"})
+    taiex.index.name = "date"
+    taiex = taiex.reset_index()
+    taiex["date"] = pd.to_datetime(taiex["date"])
+    taiex["taiex_ret_63"] = taiex["taiex_close"].pct_change(63)
+
+    df = prices[["date", "stock_code", "close"]].copy().sort_values(["stock_code", "date"])
+    df["stock_ret_63"] = df.groupby("stock_code")["close"].transform(lambda x: x.pct_change(63))
+    df = df.merge(taiex[["date", "taiex_ret_63"]], on="date", how="left")
+    df["rs_raw"] = df["stock_ret_63"] - df["taiex_ret_63"]
+    df["rs_rating"] = df.groupby("date")["rs_raw"].rank(pct=True)
+
+    return df[["date", "stock_code", "rs_rating"]]
+
+
+# ============================================================
+# Main Pipeline
+# ============================================================
+def main():
+    print("=" * 60)
+    print("Pattern Feature Engineering — Local Build")
+    print("=" * 60)
+
+    # Check data sources
+    print("\n[1/10] Checking data sources...")
+    for src in ["broker", "institutional", "financials", "margin", "tdcc", "revenue", "news", "industry"]:
+        p = DATA_ROOT / src
+        n = len(list(p.glob("*.json"))) if p.exists() else 0
+        print(f"  {src}: {n} files")
+
+    # Discover stocks
+    print("\n[2/10] Discovering stock universe...")
+    codes = discover_stock_codes()
+    print(f"  Found {len(codes)} stock codes")
+
+    # Fetch prices
+    print("\n[3/10] Fetching price data...")
+    prices = fetch_all_prices(codes)
+    print(f"  Prices: {len(prices)} rows, {prices['stock_code'].nunique()} stocks")
+
+    # Technical features
+    print("\n[4/10] Computing technical features...")
+    tech_cols = [
+        "ret_1d", "ret_5d", "ret_20d", "ma5_ratio", "ma20_ratio", "ma60_ratio",
+        "bb_position", "rsi_14", "macd_hist", "kd_k", "kd_d", "atr_pct",
+        "vol_ratio_5", "vol_ratio_20", "high_low_range", "close_vs_high",
+        "gap_pct", "trend_slope_20", "volatility_20", "rs_rating",
+    ]
+    tech_results = []
+    stock_groups = list(prices.groupby("stock_code"))
+    for i, (code, group) in enumerate(stock_groups):
+        tech_results.append(compute_technical_features(group))
+        if (i + 1) % 200 == 0:
+            print(f"    {i+1}/{len(stock_groups)} stocks processed")
+    tech_all = pd.concat(tech_results, ignore_index=True)
+
+    # RS Rating
+    print("\n[5/10] Computing RS Rating...")
+    rs_df = compute_rs_rating(prices)
+    tech_all = tech_all.drop(columns=["rs_rating"], errors="ignore")
+    tech_all = tech_all.merge(rs_df, on=["date", "stock_code"], how="left")
+
+    # Institutional
+    print("\n[6/10] Loading institutional data...")
+    inst_df = load_institutional_data()
+    margin_df = load_margin_data()
+    tdcc_df = load_tdcc_data()
+    broker_df = load_broker_data()
+    print(f"  Institutional: {len(inst_df)} rows")
+    print(f"  Margin: {len(margin_df)} rows")
+    print(f"  TDCC: {len(tdcc_df)} rows")
+    print(f"  Broker: {len(broker_df)} rows")
+
+    inst_cols = [
+        "inst_foreign_net", "inst_trust_net", "inst_dealer_net", "inst_total_net",
+        "inst_5d_sum", "margin_balance_chg", "short_balance_chg", "margin_utilization",
+        "tdcc_retail_chg", "tdcc_big_chg", "tdcc_concentration",
+        "broker_hhi", "broker_net_buy_ratio", "broker_consistency", "broker_spread",
+    ]
+    inst_features = compute_institutional_features(prices, inst_df, margin_df, tdcc_df, broker_df)
+
+    # Industry
+    print("\n[7/10] Computing industry features...")
+    industry_mapping, chains = load_industry_mapping()
+    industry_cols = ["sector_rs", "peer_alpha", "sector_momentum", "industry_chain_pos", "sector_concentration"]
+    industry_features = compute_industry_features(prices, industry_mapping)
+    print(f"  {len(industry_mapping)} stocks in {len(chains)} chains")
+
+    # Fundamental
+    print("\n[8/10] Computing fundamental features...")
+    financials_raw = load_financials_data()
+    revenue_df = load_revenue_data()
+    fund_cols = ["eps_yoy", "roe", "revenue_yoy", "revenue_mom", "pe_percentile", "pb_ratio", "operating_margin", "debt_ratio"]
+    fund_features = compute_fundamental_features(prices, financials_raw, revenue_df)
+
+    # Attention (renamed from News)
+    print("\n[9/10] Computing attention features...")
+    news_df = load_news_data()
+    attention_cols = ["attention_index_7d", "attention_spike"]
+    attention_features = compute_attention_features(prices, news_df)
+
+    # ===== MERGE ALL =====
+    print("\n[10/10] Merging all features...")
+    ALL_FEATURE_COLS = tech_cols + inst_cols + industry_cols + fund_cols + attention_cols
+    assert len(ALL_FEATURE_COLS) == 50, f"Expected 50 features, got {len(ALL_FEATURE_COLS)}"
+
+    merged = tech_all[["date", "stock_code"] + tech_cols].copy()
+    merged = merged.merge(inst_features[["date", "stock_code"] + inst_cols], on=["date", "stock_code"], how="left")
+    merged = merged.merge(industry_features[["date", "stock_code"] + industry_cols], on=["date", "stock_code"], how="left")
+    merged = merged.merge(fund_features[["date", "stock_code"] + fund_cols], on=["date", "stock_code"], how="left")
+    merged = merged.merge(attention_features[["date", "stock_code"] + attention_cols], on=["date", "stock_code"], how="left")
+
+    # Add regime_tag column for filtering (not part of similarity features)
+    # [CONVERGED] Gemini: regime_tag for same-regime filtering
+    print("  Computing regime_tag...")
+    import yfinance as yf
+    taiex = yf.download("^TWII", start=START_DATE, auto_adjust=True, progress=False)
+    taiex.columns = [c.lower() if isinstance(c, str) else c[0].lower() for c in taiex.columns]
+    taiex = taiex[["close"]].rename(columns={"close": "taiex_close"})
+    taiex.index.name = "date"
+    taiex = taiex.reset_index()
+    taiex["date"] = pd.to_datetime(taiex["date"])
+    taiex["ma200"] = taiex["taiex_close"].rolling(200).mean()
+    # bull=1 (above MA200), bear=-1 (below MA200)
+    taiex["regime_tag"] = np.where(taiex["taiex_close"] > taiex["ma200"], 1, -1)
+    merged = merged.merge(taiex[["date", "regime_tag"]], on="date", how="left")
+    merged["regime_tag"] = merged["regime_tag"].fillna(0).astype(int)
+
+    print(f"  Merged shape: {merged.shape}")
+    print(f"  Stocks: {merged['stock_code'].nunique()}")
+
+    # Z-Score Normalize (rolling 252d)
+    print("\n  Z-score normalizing (rolling 252d)...")
+    merged = merged.sort_values(["stock_code", "date"])
+    for col in ALL_FEATURE_COLS:
+        merged[col] = merged[col].replace([np.inf, -np.inf], np.nan)
+        grouped = merged.groupby("stock_code")[col]
+        rolling_mean = grouped.transform(lambda x: x.rolling(252, min_periods=60).mean())
+        rolling_std = grouped.transform(lambda x: x.rolling(252, min_periods=60).std())
+        merged[col] = (merged[col] - rolling_mean) / rolling_std.replace(0, np.nan)
+        merged[col] = merged[col].clip(-5, 5)
+    merged[ALL_FEATURE_COLS] = merged[ALL_FEATURE_COLS].fillna(0)
+
+    # Forward returns
+    print("\n  Computing forward returns...")
+    price_lookup = prices[["date", "stock_code", "close"]].sort_values(["stock_code", "date"])
+    horizons = {"d3": 3, "d7": 7, "d21": 21, "d90": 90, "d180": 180}
+    for name, days in horizons.items():
+        price_lookup[name] = price_lookup.groupby("stock_code")["close"].transform(
+            lambda x: x.shift(-days) / x - 1
+        )
+    fwd_returns = price_lookup[["date", "stock_code"] + list(horizons.keys())].copy()
+
+    # ===== SAVE =====
+    print("\n  Saving outputs...")
+    # Save features with regime_tag (regime_tag is NOT in ALL_FEATURE_COLS — it's for filtering only)
+    features_out = merged[["date", "stock_code", "regime_tag"] + ALL_FEATURE_COLS]
+    features_out.to_parquet(OUTPUT_DIR / "features_all.parquet", index=False)
+    print(f"    features_all.parquet: {features_out.shape}")
+
+    fwd_returns.to_parquet(OUTPUT_DIR / "forward_returns.parquet", index=False)
+    print(f"    forward_returns.parquet: {fwd_returns.shape}")
+
+    metadata = {
+        "dimensions": {
+            "technical": {"features": tech_cols, "count": len(tech_cols), "description": "技術面 — 價量衍生指標"},
+            "institutional": {"features": inst_cols, "count": len(inst_cols), "description": "籌碼面 — 法人/融資融券/集保/主力"},
+            "industry": {"features": industry_cols, "count": len(industry_cols), "description": "產業面 — 族群強弱/供應鏈"},
+            "fundamental": {"features": fund_cols, "count": len(fund_cols), "description": "基本面 — 財報/營收/估值 (T+46/T+11)"},
+            "attention": {"features": attention_cols, "count": len(attention_cols), "description": "關注度 — 媒體關注指數"},
+        },
+        "all_features": ALL_FEATURE_COLS,
+        "total_features": len(ALL_FEATURE_COLS),
+        "extra_columns": ["regime_tag"],
+        "forward_return_horizons": list(horizons.keys()),
+        "normalization": "rolling_zscore_252d",
+        "feature_weights": {
+            "atr_pct": 1.5,
+            "vol_ratio_20": 1.5,
+        },
+        "t_plus_n": {
+            "quarterly_financials": 46,
+            "monthly_revenue": 11,
+        },
+        "created_at": datetime.now().isoformat(),
+        "stock_count": int(features_out["stock_code"].nunique()),
+        "date_range": [str(features_out["date"].min()), str(features_out["date"].max())],
+    }
+    with open(OUTPUT_DIR / "feature_metadata.json", "w", encoding="utf-8") as fp:
+        json.dump(metadata, fp, indent=2, ensure_ascii=False)
+
+    # Summary
+    print("\n" + "=" * 60)
+    print("DONE!")
+    print("=" * 60)
+    for dim, info in metadata["dimensions"].items():
+        print(f"  {dim}: {info['count']} features — {info['description']}")
+    print(f"  Total: {metadata['total_features']} features")
+    print(f"  Stocks: {metadata['stock_count']}")
+    print(f"  Date range: {metadata['date_range']}")
+    print(f"\nOutput files:")
+    for f in OUTPUT_DIR.glob("*"):
+        if f.suffix in [".parquet", ".json"]:
+            size_mb = f.stat().st_size / 1024 / 1024
+            print(f"  {f.name}: {size_mb:.1f} MB")
+
+
+if __name__ == "__main__":
+    main()

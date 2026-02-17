@@ -42,6 +42,7 @@ const menuItems = [
   { label: '8  策略中心', key: 'strategies' },
   { label: '9  Forward Test', key: 'forward-test' },
   { label: 'A  相似線型', key: 'patterns' },
+  { label: 'B  多維度分群', key: 'cluster' },
 ]
 
 const activeKey = computed(() => route.name as string)

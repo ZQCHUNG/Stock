@@ -75,6 +75,12 @@ const router = createRouter({
       component: () => import('../views/PatternView.vue'),
       meta: { title: '相似線型' },
     },
+    {
+      path: '/cluster',
+      name: 'cluster',
+      component: () => import('../views/ClusterView.vue'),
+      meta: { title: '多維度分群' },
+    },
   ],
 })
 
