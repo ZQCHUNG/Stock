@@ -31,6 +31,7 @@ Stock/
 │   ├── sector_rs.py          # Sector RS + Peer Alpha + Cluster Risk (R84)
 │   ├── pattern_matcher.py    # DTW 相似線型比對 (R64)
 │   ├── cluster_search.py     # Multi-Dim Similarity Search (R88)
+│   ├── broker_features.py    # Daily Brokerage 13 Features (R88.7)
 │   ├── signal_tracker.py     # Forward testing (SQLite)
 │   ├── vcp_detector.py       # VCP Detection (Minervini-style) (R85)
 │   ├── stop_loss.py          # ATR-Based Stop Calculator (R86)
@@ -227,6 +228,7 @@ python -m pytest tests/ -q
 | R88.3 | Dimension Lens + Gene Map Attribution (Architect Critic Approved) | Done |
 | R88.5 | Sniper Confidence Tiering — 6-year stress test validated (Wall Street Trader Approved) | Done |
 | R88.6 | Brokerage Dimension Split — 分點面獨立第6維度 (Wall Street Trader Approved) | Done |
+| R88.7 | Method C: Daily Brokerage Scraper + 13 Features (Wall Street Trader Approved) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -304,7 +306,7 @@ python -m pytest tests/ -q
 |------|--------|------|
 | 技術面 | 20 | MA/RSI/MACD/KD/BB/ATR/Vol/Trend/RS |
 | 籌碼面 | 11 | 三大法人/融資融券/集保 |
-| 分點面 | 4 | HHI 集中度/淨買超比/連買天數/買賣擴散 (R88.6) |
+| 分點面 | 4→13 | HHI/Top3集中/淨買超/Purity/外資/Overlap/波動/背離 (R88.7 日頻升級中) |
 | 產業面 | 5 | Sector RS/Peer Alpha/產業鏈位置 |
 | 基本面 | 8 | EPS/ROE/營收/PE/PB/營益率/負債比 |
 | 關注度 | 2 | 新聞量指數/新聞爆發度 |
@@ -320,9 +322,37 @@ python -m pytest tests/ -q
 8. **Per-Dimension Breakdown** [ARCHITECT R88.3]: 5 維度各自 cosine similarity 分解
 9. **Dimension Filter** [ARCHITECT R88.3]: Block 1 用戶控制維度，Block 2 系統控制
 
+**R88.7 Daily Brokerage (Method C — Wall Street Trader APPROVED)**:
+
+日頻分點爬蟲 + 13 特徵引擎。從月頻 4 特徵升級為日頻 13 特徵。
+
+| 類別 | 特徵 | 說明 |
+|------|------|------|
+| 集中度 | broker_hhi_daily | 前15大分點 HHI 指數 |
+| 集中度 | broker_top3_pct | 前3名買超佔比 |
+| 集中度 | broker_hhi_delta | 日間 HHI 變化 |
+| 流量 | broker_net_buy_ratio | 前5名淨買超/總量 |
+| 流量 | broker_spread | 淨買超/淨賣超分點數比 |
+| 流量 | broker_net_momentum_5d | 5日淨買超滑動平均 |
+| Smart Money | broker_purity_score | 集中度 × Winner Branch Overlap |
+| Smart Money | broker_foreign_pct | 外資券商買超佔比 |
+| Smart Money | branch_overlap_count | 同分點跨股買超數 |
+| 波動性 | daily_net_buy_volatility | 20日淨買超波動率 |
+| 波動性 | broker_turnover_chg | 日分點成交量變化率 |
+| 持續性 | broker_consistency_streak | 連續淨買超天數 (signed) |
+| 量價背離 | broker_price_divergence | (Close-VWAP)/ATR_14 |
+
+- 吞吐量: 10 workers → 1096 stocks in 52 秒 [VALIDATED]
+- Timestamp 校驗: response.end_date == query_date [CONVERGED]
+- 缺失降級: >50% NaN → 維度不計入, 25-50% → 50% discount [CONVERGED]
+- Winner Registry: Score = WR × (AvgProfit/AvgLoss) > 1.1, n>=15 [PLACEHOLDER]
+- 44 tests 全通過
+
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 50 features Parquet (234.8 MB, 1096 stocks)
+- `data/fetch_broker_daily.py` — R88.7 日頻分點爬蟲 (Fubon DJhtm, 10 workers)
 - `analysis/cluster_search.py` — Dual-Pipeline + Per-Dimension Similarity 引擎
+- `analysis/broker_features.py` — R88.7 13 日頻分點特徵計算引擎
 - `backend/routers/cluster.py` — 4 API endpoints (similar-dual, similar, dimensions, feature-status)
 - `frontend/src/views/ClusterView.vue` — Dual Block + Gene Map + Dimension Lens UI
 
