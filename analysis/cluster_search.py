@@ -65,9 +65,11 @@ _features_matrix: Optional[np.ndarray] = None
 _feature_index: Optional[pd.DataFrame] = None
 _regime_tags: Optional[np.ndarray] = None
 _forward_returns: Optional[pd.DataFrame] = None
+_fwd_returns_index: Optional[dict] = None  # (stock_code, date) → row index
 _metadata: Optional[dict] = None
 _feature_cols: Optional[list] = None
 _price_cache: Optional[pd.DataFrame] = None
+_price_grouped: Optional[dict] = None  # stock_code → DataFrame subset
 _norms: Optional[np.ndarray] = None  # Pre-computed row norms
 _dim_col_indices: Optional[dict] = None  # dimension name → column indices
 
@@ -101,7 +103,8 @@ def _load_metadata() -> dict:
 def _load_data():
     """Load Parquet files into memory (called once, then cached)."""
     global _features_matrix, _feature_index, _regime_tags
-    global _forward_returns, _feature_cols, _price_cache, _norms
+    global _forward_returns, _fwd_returns_index, _feature_cols
+    global _price_cache, _price_grouped, _norms
 
     if _features_matrix is not None:
         return
@@ -136,20 +139,34 @@ def _load_data():
     _norms = np.linalg.norm(_features_matrix, axis=1).astype(np.float32)
     _norms[_norms < 1e-10] = 1.0  # Avoid division by zero
 
-    # Load forward returns
+    # Load forward returns + build O(1) lookup index
     if RETURNS_FILE.exists():
         _forward_returns = pd.read_parquet(RETURNS_FILE)
         _forward_returns["date"] = pd.to_datetime(_forward_returns["date"])
+        # Build dict index: (stock_code, date) → row integer position
+        _fwd_returns_index = {}
+        for i, row in enumerate(_forward_returns.itertuples()):
+            _fwd_returns_index[(row.stock_code, row.date)] = i
+        logger.info("Forward returns index: %d entries", len(_fwd_returns_index))
     else:
         _forward_returns = pd.DataFrame(
             columns=["date", "stock_code", "d3", "d7", "d21", "d90", "d180"]
         )
+        _fwd_returns_index = {}
 
-    # Load price cache for Spaghetti Chart
+    # Load price cache for Spaghetti Chart + pre-group by stock
     if PRICE_CACHE_FILE.exists():
         _price_cache = pd.read_parquet(PRICE_CACHE_FILE, columns=["stock_code", "date", "close"])
         _price_cache["date"] = pd.to_datetime(_price_cache["date"])
         _price_cache = _price_cache.sort_values(["stock_code", "date"]).reset_index(drop=True)
+        # Pre-group: {stock_code → numpy arrays (dates, closes)}
+        _price_grouped = {}
+        for code, group in _price_cache.groupby("stock_code"):
+            _price_grouped[code] = {
+                "dates": group["date"].values,
+                "closes": group["close"].values.astype(np.float64),
+            }
+        logger.info("Price cache grouped: %d stocks", len(_price_grouped))
 
     logger.info(
         "Loaded %d rows, %d features, %d stocks",
@@ -316,37 +333,49 @@ def _get_forward_prices(cases: list[dict], max_days: int = SPAGHETTI_DAYS) -> li
 
     Each path starts at 1.0 (the match date's close price).
     Returns list of {stock_code, date, path: [{day: 0, value: 1.0}, {day: 1, value: 1.02}, ...]}
+
+    Optimized: uses pre-grouped price data + numpy vectorized division.
     """
-    if _price_cache is None:
+    if _price_grouped is None:
         return []
 
     paths = []
     for case in cases:
         code = case["stock_code"]
-        match_date = pd.Timestamp(case["date"])
+        match_date = np.datetime64(pd.Timestamp(case["date"]))
 
-        stock_prices = _price_cache[_price_cache["stock_code"] == code].copy()
-        if stock_prices.empty:
+        stock_data = _price_grouped.get(code)
+        if stock_data is None:
             continue
 
-        # Get prices from match_date onward
-        future = stock_prices[stock_prices["date"] >= match_date].head(max_days + 1)
-        if len(future) < 2:
+        dates = stock_data["dates"]
+        closes = stock_data["closes"]
+
+        # Binary search for start index (dates are sorted)
+        start_idx = np.searchsorted(dates, match_date, side="left")
+        if start_idx >= len(dates):
             continue
 
-        base_price = future.iloc[0]["close"]
-        if base_price <= 0:
+        end_idx = min(start_idx + max_days + 1, len(dates))
+        if end_idx - start_idx < 2:
             continue
 
-        path = []
-        for i, (_, row) in enumerate(future.iterrows()):
-            val = row["close"] / base_price
-            if np.isnan(val) or np.isinf(val):
-                continue
-            path.append({
-                "day": i,
-                "value": round(float(val), 4),
-            })
+        base_price = closes[start_idx]
+        if base_price <= 0 or np.isnan(base_price):
+            continue
+
+        # Vectorized normalization
+        segment = closes[start_idx:end_idx] / base_price
+        valid = np.isfinite(segment)
+
+        path = [
+            {"day": int(i), "value": round(float(segment[i]), 4)}
+            for i in range(len(segment))
+            if valid[i]
+        ]
+
+        if len(path) < 2:
+            continue
 
         paths.append({
             "stock_code": code,
@@ -495,13 +524,17 @@ def _find_cases(
     top_indices = np.argsort(weighted_sim)[::-1][:top_k * 3]
     top_indices = top_indices[similarities[top_indices] > -1.5]
 
+    # Use numpy arrays for fast dedup (avoid .loc per iteration)
+    all_codes = _feature_index["stock_code"].values
+    all_dates = _feature_index["date"].values
+
     seen = set()
     selected = []
     for idx in top_indices:
         if len(selected) >= top_k:
             break
-        code = _feature_index.loc[idx, "stock_code"]
-        date = _feature_index.loc[idx, "date"]
+        code = all_codes[idx]
+        date = pd.Timestamp(all_dates[idx])
         key = (code, date.year, date.month)
         if key in seen:
             continue
@@ -512,19 +545,43 @@ def _find_cases(
     return_horizons = ["d3", "d7", "d21", "d90", "d180"]
     cases = []
 
+    # Pre-extract stock_code/date arrays for fast lookup
+    idx_codes = _feature_index["stock_code"].values
+    idx_dates = _feature_index["date"].values
+
+    # Batch per-dimension breakdown if needed [R88.3 optimized]
+    batch_dim_sims = {}
+    if compute_dim_breakdown and selected:
+        dim_indices = _get_dimension_col_indices()
+        q_full = _features_matrix[query_idx]
+        for s_idx in selected:
+            c_full = _features_matrix[s_idx]
+            dim_result = {}
+            for dim_name, col_idx in dim_indices.items():
+                if len(col_idx) == 0:
+                    dim_result[dim_name] = 0.0
+                    continue
+                q_sub = q_full[col_idx]
+                c_sub = c_full[col_idx]
+                q_norm = np.linalg.norm(q_sub)
+                c_norm = np.linalg.norm(c_sub)
+                if q_norm < 1e-10 or c_norm < 1e-10:
+                    dim_result[dim_name] = 0.0
+                else:
+                    dim_result[dim_name] = round(float(np.dot(q_sub, c_sub) / (q_norm * c_norm)), 4)
+            batch_dim_sims[s_idx] = dim_result
+
     for idx in selected:
-        code = _feature_index.loc[idx, "stock_code"]
-        date = _feature_index.loc[idx, "date"]
+        code = str(idx_codes[idx])
+        date = pd.Timestamp(idx_dates[idx])
         sim = float(similarities[idx])
 
+        # O(1) forward returns lookup via dict index
         fwd = {}
-        if _forward_returns is not None:
-            match = _forward_returns[
-                (_forward_returns["stock_code"] == code)
-                & (_forward_returns["date"] == date)
-            ]
-            if len(match) > 0:
-                row = match.iloc[0]
+        if _fwd_returns_index is not None:
+            fwd_row_idx = _fwd_returns_index.get((code, date))
+            if fwd_row_idx is not None:
+                row = _forward_returns.iloc[fwd_row_idx]
                 for h in return_horizons:
                     val = row.get(h, None)
                     fwd[h] = float(val) if pd.notna(val) else None
@@ -541,8 +598,8 @@ def _find_cases(
         }
 
         # Per-dimension breakdown [R88.3]
-        if compute_dim_breakdown:
-            dim_sims = _cosine_similarity_by_dimension(query_idx, idx)
+        if compute_dim_breakdown and idx in batch_dim_sims:
+            dim_sims = batch_dim_sims[idx]
             case["dimension_similarities"] = dim_sims
             case["similarity_summary"] = _generate_similarity_summary(
                 dim_sims, selected_dims_for_summary
