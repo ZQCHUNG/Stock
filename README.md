@@ -234,6 +234,7 @@ python -m pytest tests/ -q
 | R88.7P4 | Tiered Registry + broker_winner_momentum (14th feature) (Trader CONVERGED) | Done |
 | R88.7P5 | Parquet Integration — 50→60 features, brokerage 4→14 (Gene Map Ready) | Done |
 | R88.7P6 | Trader Rulings: Warmup Mask + Cron 18:30 + Weekly Registry (Trader APPROVED) | Done |
+| R88.7P7 | Trader Bulletproof: Canary Check + Atomic Swap + Rate Jitter (Trader APPROVED) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -375,6 +376,11 @@ python -m pytest tests/ -q
 - **Warmup Mask**: 4 sparse features (branch_overlap, volatility, price_divergence, winner_momentum) → zero weight in cosine similarity. Frontend shows &#9203; "Data Accumulating" markers
 - **Cron Schedule**: Daily broker fetch at 18:30, Parquet rebuild at 19:00 (Mon-Fri)
 - **Weekly Registry**: Winner Registry auto-recalculates Saturday 02:00. CI >= 1.0 threshold maintained — "寧可整天不開火，也不要打歪"
+
+**Trader Bulletproof (R88.7 Phase 7)** [APPROVED — Wall Street Trader 2026-02-18]:
+- **Canary Check**: Before full market fetch, test 2330 (TSMC) + 2317 (Hon Hai). If timestamps are stale → abort entire run, save API quota
+- **Atomic Swap**: Write `features_all_temp.parquet` first, validate row count & file size within ±5% of previous, then `mv` to replace. Prevents mid-rebuild corruption
+- **Rate Limit Jitter**: `random.uniform(0.1, 0.5)` between each request to avoid WAF detection on government APIs
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)
