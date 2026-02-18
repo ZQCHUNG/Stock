@@ -31,8 +31,8 @@ Stock/
 │   ├── sector_rs.py          # Sector RS + Peer Alpha + Cluster Risk (R84)
 │   ├── pattern_matcher.py    # DTW 相似線型比對 (R64)
 │   ├── cluster_search.py     # Multi-Dim Similarity Search (R88)
-│   ├── broker_features.py    # Daily Brokerage 13 Features (R88.7)
-│   ├── winner_registry.py    # Winner Branch Registry (R88.7 P3)
+│   ├── broker_features.py    # Daily Brokerage 14 Features (R88.7 P4)
+│   ├── winner_registry.py    # Tiered Winner Registry (R88.7 P3-P4)
 │   ├── signal_tracker.py     # Forward testing (SQLite)
 │   ├── vcp_detector.py       # VCP Detection (Minervini-style) (R85)
 │   ├── stop_loss.py          # ATR-Based Stop Calculator (R86)
@@ -229,8 +229,10 @@ python -m pytest tests/ -q
 | R88.3 | Dimension Lens + Gene Map Attribution (Architect Critic Approved) | Done |
 | R88.5 | Sniper Confidence Tiering — 6-year stress test validated (Wall Street Trader Approved) | Done |
 | R88.6 | Brokerage Dimension Split — 分點面獨立第6維度 (Wall Street Trader Approved) | Done |
-| R88.7 | Method C: Daily Brokerage Scraper + 13 Features (Wall Street Trader Approved) | Done |
+| R88.7 | Method C: Daily Brokerage Scraper + 14 Features (Wall Street Trader Approved) | Done |
 | R88.7P3 | Winner Branch Registry — Bootstrap CI + Ghost Bias (Wall Street Trader Approved) | Done |
+| R88.7P4 | Tiered Registry + broker_winner_momentum (14th feature) (Trader CONVERGED) | Done |
+| R88.7P5 | Parquet Integration — 50→60 features, brokerage 4→14 (Gene Map Ready) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -259,7 +261,7 @@ python -m pytest tests/ -q
 
 ### Multi-Dimensional Similarity Clustering (R88-R88.3)
 
-多維度相似股分群系統：50 特徵 × 1096 檔股票 × 6 年歷史，Cosine Similarity 找出最相似案例。
+多維度相似股分群系統：60 特徵 × 1096 檔股票 × 6 年歷史，Cosine Similarity 找出最相似案例。
 
 **Gemini CTO + Architect Critic 雙重審核通過。** Protocol v3 全流程交付。
 
@@ -302,13 +304,13 @@ python -m pytest tests/ -q
 
 2022 熊市零訊號 = 系統保護機制（特徵，非缺陷）。
 
-**6 維度 × 50 特徵**:
+**6 維度 × 60 特徵** (R88.7P5 升級):
 
 | 維度 | 特徵數 | 涵蓋 |
 |------|--------|------|
 | 技術面 | 20 | MA/RSI/MACD/KD/BB/ATR/Vol/Trend/RS |
 | 籌碼面 | 11 | 三大法人/融資融券/集保 |
-| 分點面 | 4→13 | HHI/Top3集中/淨買超/Purity/外資/Overlap/波動/背離 (R88.7 日頻升級中) |
+| 分點面 | **14** | HHI/Top3集中/淨買超/Purity/外資/Overlap/波動/背離/Winner動能 (R88.7 升級完成) |
 | 產業面 | 5 | Sector RS/Peer Alpha/產業鏈位置 |
 | 基本面 | 8 | EPS/ROE/營收/PE/PB/營益率/負債比 |
 | 關注度 | 2 | 新聞量指數/新聞爆發度 |
@@ -326,7 +328,7 @@ python -m pytest tests/ -q
 
 **R88.7 Daily Brokerage (Method C — Wall Street Trader APPROVED)**:
 
-日頻分點爬蟲 + 13 特徵引擎。從月頻 4 特徵升級為日頻 13 特徵。
+日頻分點爬蟲 + 14 特徵引擎。從月頻 4 特徵升級為日頻 14 特徵，完整整合進 Parquet。
 
 | 類別 | 特徵 | 說明 |
 |------|------|------|
@@ -343,27 +345,37 @@ python -m pytest tests/ -q
 | 波動性 | broker_turnover_chg | 日分點成交量變化率 |
 | 持續性 | broker_consistency_streak | 連續淨買超天數 (signed) |
 | 量價背離 | broker_price_divergence | (Close-VWAP)/ATR_14 |
+| Winner動能 | broker_winner_momentum | Tier 1 鋼鐵核心分點出現次數 → 0/50/100 |
 
 - 吞吐量: 10 workers → 1096 stocks in 52 秒 [VALIDATED]
 - Timestamp 校驗: response.end_date == query_date [CONVERGED]
 - 缺失降級: >50% NaN → 維度不計入, 25-50% → 50% discount [CONVERGED]
-- Winner Registry: Score = WR × (AvgProfit/AvgLoss) > 1.1, n>=15 [PLACEHOLDER]
-- 44 tests (features) + 35 tests (winner) 全通過
+- 49 tests (features) + 35 tests (winner) 全通過
 
-**Winner Branch Registry (R88.7 Phase 3)**:
+**Winner Branch Registry (R88.7 Phase 3-4)**:
 - 109K 月頻分點檔案掃描 → 545K 買超實例 → 806 分點代碼
 - Winner Score = Win Rate × (Avg D21 Profit / |Avg D21 Loss|)
-- Bootstrap CI (1000 iterations, per-broker deterministic seed) → 95% CI lower >= 0.8
+- Bootstrap CI (1000 iterations, per-broker deterministic seed)
+- **Tiered CI System** [CONVERGED — Trader 裁定]:
+  - **Tier 1** (CI >= 1.0, Sniper Ready): 1 winner — 統一-南京 (Score 2.237)
+  - **Tier 2** (CI >= 0.7, Observer): 15 winners — 含美商高盛×2, 臺銀-高雄
 - Ghost Bias 偵測: 單一產業 > 50% 則標記打折 (跨 38 產業鏈 + 14 L1 行業)
-- 4 Winners 通過: 統一-南京(2.237), 美商高盛×2(1.560/1.324), 臺銀-高雄(1.132)
+- broker_winner_momentum: 只計 Tier 1 鋼鐵核心 → 0/50/100 [CONVERGED]
 - 存檔: `data/pattern_data/winner_branches.json`
 
+**Parquet Integration (R88.7 Phase 5)**:
+- `build_features.py` 升級: 50→60 features, brokerage 4→14
+- 109K 月頻分點 + 66 日頻分點 → 14 特徵 → 前填(forward-fill)到日線
+- 109,195 broker records → merged into 1,628,668 daily rows
+- 292.5 MB features_all.parquet (1096 stocks, 2020-2026)
+- Cluster search auto-adapts: 60 features, 6 dimensions, Gene Map ready
+
 **檔案**:
-- `data/build_features.py` — 8 原始 JSON → 50 features Parquet (234.8 MB, 1096 stocks)
+- `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)
 - `data/fetch_broker_daily.py` — R88.7 日頻分點爬蟲 (Fubon DJhtm, 10 workers)
 - `analysis/cluster_search.py` — Dual-Pipeline + Per-Dimension Similarity 引擎
-- `analysis/broker_features.py` — R88.7 13 日頻分點特徵計算引擎
-- `analysis/winner_registry.py` — R88.7 Phase 3 Winner Branch Registry
+- `analysis/broker_features.py` — R88.7 14 日頻分點特徵計算引擎
+- `analysis/winner_registry.py` — R88.7 Tiered Winner Branch Registry
 - `backend/routers/cluster.py` — 5 API endpoints (similar-dual, similar, dimensions, feature-status, winner-registry)
 - `frontend/src/views/ClusterView.vue` — Dual Block + Gene Map + Dimension Lens UI
 

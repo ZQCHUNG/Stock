@@ -1,10 +1,11 @@
 """Local Feature Engineering Script
 
-Processes 8 raw JSON data sources → 50 features per (stock, date) → Parquet output.
+Processes 8 raw JSON data sources → 60 features per (stock, date) → Parquet output.
 Runs entirely on local machine — no Colab needed.
 
 Design changes from Gemini Wall Street Trader debate (R88):
-- 50 features (removed fake news_sentiment) across 5 dimensions
+- 60 features across 6 dimensions (upgraded from 50/5 in R88.7)
+- Brokerage dimension: 14 features from broker_features.py engine (R88.7 Method C)
 - T+n date filtering: monthly revenue T+11, quarterly financials T+46
 - regime_tag column for regime-aware similarity filtering
 - News dimension renamed to "Attention" (Attention Index)
@@ -308,11 +309,40 @@ def load_tdcc_data() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def load_broker_data() -> pd.DataFrame:
-    """Parse broker monthly files."""
+def load_broker_features_v2() -> pd.DataFrame:
+    """Compute 14 brokerage features from monthly + daily broker data.
+
+    Uses broker_features.py engine for full 14-feature computation.
+    Monthly data provides the historical backbone; daily data overlays when available.
+
+    Features computed:
+    - broker_hhi_daily, broker_top3_pct, broker_hhi_delta (concentration)
+    - broker_net_buy_ratio, broker_spread, broker_net_momentum_5d (flow)
+    - broker_purity_score, broker_foreign_pct, branch_overlap_count (smart money)
+    - daily_net_buy_volatility, broker_turnover_chg (volatility)
+    - broker_consistency_streak (persistence)
+    - broker_price_divergence (divergence)
+    - broker_winner_momentum (winner Tier 1)
+    """
+    from analysis.broker_features import (
+        parse_daily_brokers, compute_broker_features, BROKER_FEATURE_NAMES,
+    )
+    from analysis.winner_registry import load_registry, WINNER_OUTPUT_PATH
+
+    # Load winner registry for purity_score and winner_momentum
+    registry = load_registry(WINNER_OUTPUT_PATH)
+    tier1_codes = set()
+    for code, info in registry.items():
+        if isinstance(info, dict) and info.get("tier") == 1:
+            tier1_codes.add(code)
+
     broker_dir = DATA_ROOT / "broker"
+    daily_dir = DATA_ROOT / "broker_daily"
     rows = []
 
+    # --- Process monthly broker files ---
+    # Group files by stock_code for sequential processing (prev_hhi, streak chaining)
+    monthly_files = defaultdict(list)
     for f in sorted(broker_dir.glob("*.json")):
         parts = f.stem.split("_")
         if len(parts) != 2:
@@ -320,60 +350,96 @@ def load_broker_data() -> pd.DataFrame:
         code, ym = parts
         if not re.match(r"^\d{4}$", code):
             continue
-
         year = int(ym[:4])
         month = int(ym[4:6])
         if month == 12:
             date = pd.Timestamp(f"{year}-{month}-31")
         else:
             date = pd.Timestamp(f"{year}-{month+1}-01") - pd.Timedelta(days=1)
+        monthly_files[code].append((date, f))
 
-        with open(f, "r", encoding="utf-8") as fp:
-            d = json.load(fp)
+    total_processed = 0
+    for code in sorted(monthly_files.keys()):
+        files = sorted(monthly_files[code], key=lambda x: x[0])
+        prev_hhi = None
+        prev_turnover = None
+        streak = 0
 
-        buy_top = [b for b in d.get("buy_top", []) if "合計" not in b.get("broker", "")]
-        sell_top = [s for s in d.get("sell_top", []) if "合計" not in s.get("broker", "")]
+        for date, filepath in files:
+            with open(filepath, "r", encoding="utf-8") as fp:
+                raw = json.load(fp)
 
-        buy_pcts = [parse_number(b.get("pct", "0").replace("%", "")) / 100 for b in buy_top[:15]]
-        sell_pcts = [parse_number(s.get("pct", "0").replace("%", "")) / 100 for s in sell_top[:15]]
-        hhi = sum(p ** 2 for p in buy_pcts + sell_pcts)
+            parsed = parse_daily_brokers(raw)
+            features = compute_broker_features(
+                parsed,
+                prev_hhi=prev_hhi,
+                prev_turnover=prev_turnover,
+                lookback_streak=streak,
+                winner_registry=registry,
+                tier1_codes=tier1_codes,
+            )
 
-        top5_net = sum(parse_number(b.get("net", "0")) for b in buy_top[:5])
-        top5_sell = sum(parse_number(s.get("net", "0")) for s in sell_top[:5])
-        total_action = abs(top5_net) + abs(top5_sell)
-        net_buy_ratio = top5_net / total_action if total_action > 0 else 0
+            row = {"date": date, "stock_code": code}
+            row.update(features)
+            rows.append(row)
 
-        broker_spread = len(buy_top) / max(len(sell_top), 1)
+            # Chain for next month
+            prev_hhi = features.get("broker_hhi_daily")
+            all_brokers = parsed["buy_brokers"] + parsed["sell_brokers"]
+            prev_turnover = sum(b["buy"] + b["sell"] for b in all_brokers)
+            streak = int(features.get("broker_consistency_streak", 0))
 
-        rows.append({
-            "date": date, "stock_code": code,
-            "broker_hhi": hhi,
-            "broker_net_buy_ratio": net_buy_ratio,
-            "broker_consistency": 0,
-            "broker_spread": broker_spread,
-        })
+        total_processed += 1
+        if total_processed % 500 == 0:
+            print(f"    {total_processed} stocks processed (monthly broker)")
+
+    print(f"  Monthly broker: {len(rows)} rows from {total_processed} stocks")
+
+    # --- Process daily broker files (overlay) ---
+    daily_count = 0
+    if daily_dir.exists():
+        daily_files = defaultdict(list)
+        for f in sorted(daily_dir.glob("*.json")):
+            parts = f.stem.split("_")
+            if len(parts) != 2:
+                continue
+            code, ds = parts
+            if not re.match(r"^\d{4}$", code):
+                continue
+            date = pd.Timestamp(f"{ds[:4]}-{ds[4:6]}-{ds[6:8]}")
+            daily_files[code].append((date, f))
+
+        for code in sorted(daily_files.keys()):
+            files = sorted(daily_files[code], key=lambda x: x[0])
+            for date, filepath in files:
+                with open(filepath, "r", encoding="utf-8") as fp:
+                    raw = json.load(fp)
+                parsed = parse_daily_brokers(raw)
+                features = compute_broker_features(
+                    parsed,
+                    winner_registry=registry,
+                    tier1_codes=tier1_codes,
+                )
+                row = {"date": date, "stock_code": code}
+                row.update(features)
+                rows.append(row)
+                daily_count += 1
+
+        print(f"  Daily broker: {daily_count} rows")
+
+    if not rows:
+        return pd.DataFrame(columns=["date", "stock_code"] + BROKER_FEATURE_NAMES)
 
     df = pd.DataFrame(rows)
-    df = df.sort_values(["stock_code", "date"])
-
-    # Compute broker_consistency: consecutive months of net buying
-    for code, group in df.groupby("stock_code"):
-        streak = 0
-        for idx in group.index:
-            nbr = df.loc[idx, "broker_net_buy_ratio"]
-            if nbr > 0:
-                streak = max(streak, 0) + 1
-            elif nbr < 0:
-                streak = min(streak, 0) - 1
-            else:
-                streak = 0
-            df.loc[idx, "broker_consistency"] = streak
-
+    # Daily data takes precedence over monthly (drop monthly duplicates for same date)
+    df = df.sort_values(["stock_code", "date"]).drop_duplicates(
+        subset=["stock_code", "date"], keep="last"
+    )
     return df
 
 
-def compute_institutional_features(prices, inst, margin, tdcc, broker):
-    """Merge institutional sources and compute 15 features."""
+def compute_institutional_features(prices, inst, margin, tdcc):
+    """Merge institutional sources and compute 11 features (broker separated to brokerage dim)."""
     df = prices[["date", "stock_code", "volume"]].copy()
     df = df.sort_values(["stock_code", "date"])
 
@@ -401,13 +467,6 @@ def compute_institutional_features(prices, inst, margin, tdcc, broker):
     df["tdcc_retail_chg"] = -df.groupby("stock_code")["foreign_holding_ratio"].transform(lambda x: x.diff())
     df["tdcc_big_chg"] = df.groupby("stock_code")["foreign_holding_ratio"].transform(lambda x: x.diff())
     df["tdcc_concentration"] = df["foreign_holding_ratio"]
-
-    df = df.merge(
-        broker[["date", "stock_code", "broker_hhi", "broker_net_buy_ratio", "broker_consistency", "broker_spread"]],
-        on=["date", "stock_code"], how="left",
-    )
-    for col in ["broker_hhi", "broker_net_buy_ratio", "broker_consistency", "broker_spread"]:
-        df[col] = df.groupby("stock_code")[col].transform(lambda x: x.ffill())
 
     df = df.drop(
         columns=["volume", "foreign_net", "trust_net", "dealer_net", "total_net",
@@ -685,24 +744,24 @@ def main():
     print("=" * 60)
 
     # Check data sources
-    print("\n[1/10] Checking data sources...")
-    for src in ["broker", "institutional", "financials", "margin", "tdcc", "revenue", "news", "industry"]:
+    print("\n[1/11] Checking data sources...")
+    for src in ["broker", "broker_daily", "institutional", "financials", "margin", "tdcc", "revenue", "news", "industry"]:
         p = DATA_ROOT / src
         n = len(list(p.glob("*.json"))) if p.exists() else 0
         print(f"  {src}: {n} files")
 
     # Discover stocks
-    print("\n[2/10] Discovering stock universe...")
+    print("\n[2/11] Discovering stock universe...")
     codes = discover_stock_codes()
     print(f"  Found {len(codes)} stock codes")
 
     # Fetch prices
-    print("\n[3/10] Fetching price data...")
+    print("\n[3/11] Fetching price data...")
     prices = fetch_all_prices(codes)
     print(f"  Prices: {len(prices)} rows, {prices['stock_code'].nunique()} stocks")
 
     # Technical features
-    print("\n[4/10] Computing technical features...")
+    print("\n[4/11] Computing technical features...")
     tech_cols = [
         "ret_1d", "ret_5d", "ret_20d", "ma5_ratio", "ma20_ratio", "ma60_ratio",
         "bb_position", "rsi_14", "macd_hist", "kd_k", "kd_d", "atr_pct",
@@ -718,57 +777,67 @@ def main():
     tech_all = pd.concat(tech_results, ignore_index=True)
 
     # RS Rating
-    print("\n[5/10] Computing RS Rating...")
+    print("\n[5/11] Computing RS Rating...")
     rs_df = compute_rs_rating(prices)
     tech_all = tech_all.drop(columns=["rs_rating"], errors="ignore")
     tech_all = tech_all.merge(rs_df, on=["date", "stock_code"], how="left")
 
-    # Institutional
-    print("\n[6/10] Loading institutional data...")
+    # Institutional (11 features — broker separated to brokerage dim)
+    print("\n[6/11] Loading institutional data...")
     inst_df = load_institutional_data()
     margin_df = load_margin_data()
     tdcc_df = load_tdcc_data()
-    broker_df = load_broker_data()
     print(f"  Institutional: {len(inst_df)} rows")
     print(f"  Margin: {len(margin_df)} rows")
     print(f"  TDCC: {len(tdcc_df)} rows")
-    print(f"  Broker: {len(broker_df)} rows")
 
     inst_cols = [
         "inst_foreign_net", "inst_trust_net", "inst_dealer_net", "inst_total_net",
         "inst_5d_sum", "margin_balance_chg", "short_balance_chg", "margin_utilization",
         "tdcc_retail_chg", "tdcc_big_chg", "tdcc_concentration",
-        "broker_hhi", "broker_net_buy_ratio", "broker_consistency", "broker_spread",
     ]
-    inst_features = compute_institutional_features(prices, inst_df, margin_df, tdcc_df, broker_df)
+    inst_features = compute_institutional_features(prices, inst_df, margin_df, tdcc_df)
+
+    # Brokerage (14 features — R88.7 upgrade from 4)
+    print("\n[6.5/11] Loading brokerage features (14-feature engine)...")
+    from analysis.broker_features import BROKER_FEATURE_NAMES
+    broker_cols = list(BROKER_FEATURE_NAMES)
+    broker_features = load_broker_features_v2()
+    print(f"  Broker features: {len(broker_features)} rows, {broker_features['stock_code'].nunique()} stocks")
 
     # Industry
-    print("\n[7/10] Computing industry features...")
+    print("\n[7/11] Computing industry features...")
     industry_mapping, chains = load_industry_mapping()
     industry_cols = ["sector_rs", "peer_alpha", "sector_momentum", "industry_chain_pos", "sector_concentration"]
     industry_features = compute_industry_features(prices, industry_mapping)
     print(f"  {len(industry_mapping)} stocks in {len(chains)} chains")
 
     # Fundamental
-    print("\n[8/10] Computing fundamental features...")
+    print("\n[8/11] Computing fundamental features...")
     financials_raw = load_financials_data()
     revenue_df = load_revenue_data()
     fund_cols = ["eps_yoy", "roe", "revenue_yoy", "revenue_mom", "pe_percentile", "pb_ratio", "operating_margin", "debt_ratio"]
     fund_features = compute_fundamental_features(prices, financials_raw, revenue_df)
 
     # Attention (renamed from News)
-    print("\n[9/10] Computing attention features...")
+    print("\n[9/11] Computing attention features...")
     news_df = load_news_data()
     attention_cols = ["attention_index_7d", "attention_spike"]
     attention_features = compute_attention_features(prices, news_df)
 
     # ===== MERGE ALL =====
-    print("\n[10/10] Merging all features...")
-    ALL_FEATURE_COLS = tech_cols + inst_cols + industry_cols + fund_cols + attention_cols
-    assert len(ALL_FEATURE_COLS) == 50, f"Expected 50 features, got {len(ALL_FEATURE_COLS)}"
+    print("\n[10/11] Merging all features...")
+    ALL_FEATURE_COLS = tech_cols + inst_cols + broker_cols + industry_cols + fund_cols + attention_cols
+    assert len(ALL_FEATURE_COLS) == 60, f"Expected 60 features, got {len(ALL_FEATURE_COLS)}"
 
     merged = tech_all[["date", "stock_code"] + tech_cols].copy()
     merged = merged.merge(inst_features[["date", "stock_code"] + inst_cols], on=["date", "stock_code"], how="left")
+
+    # Brokerage: merge + forward-fill (monthly data → daily)
+    merged = merged.merge(broker_features[["date", "stock_code"] + broker_cols], on=["date", "stock_code"], how="left")
+    for col in broker_cols:
+        merged[col] = merged.groupby("stock_code")[col].transform(lambda x: x.ffill())
+
     merged = merged.merge(industry_features[["date", "stock_code"] + industry_cols], on=["date", "stock_code"], how="left")
     merged = merged.merge(fund_features[["date", "stock_code"] + fund_cols], on=["date", "stock_code"], how="left")
     merged = merged.merge(attention_features[["date", "stock_code"] + attention_cols], on=["date", "stock_code"], how="left")
@@ -805,7 +874,7 @@ def main():
     merged[ALL_FEATURE_COLS] = merged[ALL_FEATURE_COLS].fillna(0)
 
     # Forward returns
-    print("\n  Computing forward returns...")
+    print("\n[11/11] Computing forward returns...")
     price_lookup = prices[["date", "stock_code", "close"]].sort_values(["stock_code", "date"])
     horizons = {"d3": 3, "d7": 7, "d21": 21, "d90": 90, "d180": 180}
     for name, days in horizons.items():
@@ -827,7 +896,8 @@ def main():
     metadata = {
         "dimensions": {
             "technical": {"features": tech_cols, "count": len(tech_cols), "description": "技術面 — 價量衍生指標"},
-            "institutional": {"features": inst_cols, "count": len(inst_cols), "description": "籌碼面 — 法人/融資融券/集保/主力"},
+            "institutional": {"features": inst_cols, "count": len(inst_cols), "description": "籌碼面 — 法人/融資融券/集保"},
+            "brokerage": {"features": broker_cols, "count": len(broker_cols), "description": "分點面 — 14特徵分點基因譜 (R88.7)"},
             "industry": {"features": industry_cols, "count": len(industry_cols), "description": "產業面 — 族群強弱/供應鏈"},
             "fundamental": {"features": fund_cols, "count": len(fund_cols), "description": "基本面 — 財報/營收/估值 (T+46/T+11)"},
             "attention": {"features": attention_cols, "count": len(attention_cols), "description": "關注度 — 媒體關注指數"},
