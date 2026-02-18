@@ -222,7 +222,10 @@ def _fetch_one_stock(stock: str, date_fubon: str, date_key: str,
     if is_fetched(SOURCE, date_key, stock):
         return "skip", stock, None
 
-    time.sleep(random.uniform(0.2, 0.4))
+    # Rate Limit Jitter [CONVERGED — Wall Street Trader 2026-02-18]
+    # "在每個 Request 之間加入 random.uniform(0.1, 0.5) 的微小延遲。
+    # 這幾百毫秒的代價，換來的是更強的存活性。"
+    time.sleep(random.uniform(0.1, 0.5))
 
     for attempt in range(max_retries):
         result = fetch_broker_daily(stock, date_fubon)
@@ -258,6 +261,38 @@ def _fetch_one_stock(stock: str, date_fubon: str, date_key: str,
     return "fail", stock, None
 
 
+def _canary_check(date_fubon: str) -> tuple[bool, str]:
+    """Canary Check: test 2330 (TSMC) + 2317 (Hon Hai) before full market fetch.
+
+    [CONVERGED — Wall Street Trader 2026-02-18]
+    "先抓取 2330 和 2317 這兩檔指標股。如果 timestamp 還是舊的，
+    代表交易所根本還沒更新。避免 10 個 Worker 衝進去抓了一堆舊資料。"
+
+    Returns:
+        (passed, message) — True if canary stocks have fresh data.
+    """
+    canary_stocks = ["2330", "2317"]
+    results = []
+
+    for stock in canary_stocks:
+        result = fetch_broker_daily(stock, date_fubon)
+        if result is None:
+            results.append((stock, "NO_DATA", ""))
+        elif _validate_timestamp(result, date_fubon):
+            results.append((stock, "OK", result.get("end_date", "")))
+        else:
+            results.append((stock, "STALE", result.get("end_date", "")))
+        time.sleep(0.5)
+
+    all_ok = all(status == "OK" for _, status, _ in results)
+    detail = ", ".join(f"{s}={st}({d})" for s, st, d in results)
+
+    if all_ok:
+        return True, f"Canary PASS: {detail}"
+    else:
+        return False, f"Canary FAIL: {detail} — exchange data not yet updated"
+
+
 def run_daily_fetch(date_str: str = None, workers: int = 10,
                     batch_size: int = 0) -> dict:
     """Fetch daily broker data for all active stocks.
@@ -288,6 +323,22 @@ def run_daily_fetch(date_str: str = None, workers: int = 10,
     print(f"=== Daily Broker Fetch: {date_str} ===")
     print(f"Stocks: {len(stocks)}, Workers: {workers}")
     print(f"Fubon format: {date_fubon}")
+    print()
+
+    # Canary Check [CONVERGED — Wall Street Trader 2026-02-18]
+    canary_ok, canary_msg = _canary_check(date_fubon)
+    print(f"  {canary_msg}")
+    if not canary_ok:
+        print("  ABORT: Exchange data not ready. Skipping full market fetch.")
+        return {
+            "date": date_str,
+            "stocks_total": len(stocks),
+            "ok": 0, "skip": 0, "stale": 0, "fail": 0,
+            "fail_rate": 1.0,
+            "quality": "canary_failed",
+            "elapsed_seconds": 0,
+            "canary_message": canary_msg,
+        }
     print()
 
     start_time = time.time()

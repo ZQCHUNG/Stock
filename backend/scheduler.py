@@ -837,8 +837,16 @@ def _run_daily_broker_fetch():
             f"Daily broker fetch: {ok} stocks OK, quality={quality}, {elapsed:.1f}s"
         )
 
+        # Canary failed — exchange data not ready
+        if quality == "canary_failed":
+            _send_notification(
+                f"\n🐤 分點日頻 Canary Check 失敗\n"
+                f"日期: {date_str}\n"
+                f"{summary.get('canary_message', '')}\n"
+                f"交易所尚未更新，本次抓取已跳過"
+            )
         # Notify if quality is poor
-        if quality == "data_insufficient":
+        elif quality == "data_insufficient":
             _send_notification(
                 f"\n⚠️ 分點日頻資料品質不足\n"
                 f"日期: {date_str}\n"

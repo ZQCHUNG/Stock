@@ -883,15 +883,53 @@ def main():
         )
     fwd_returns = price_lookup[["date", "stock_code"] + list(horizons.keys())].copy()
 
-    # ===== SAVE =====
-    print("\n  Saving outputs...")
-    # Save features with regime_tag (regime_tag is NOT in ALL_FEATURE_COLS — it's for filtering only)
+    # ===== SAVE (Atomic Swap) =====
+    # [CONVERGED — Wall Street Trader 2026-02-18]
+    # "先生成 temp parquet，確認大小與行數誤差在 ±5% 以內，再 mv 替換正式檔案。
+    # 防止 rebuild 到一半失敗，導致舊數據也毀損。"
+    print("\n  Saving outputs (atomic swap)...")
     features_out = merged[["date", "stock_code", "regime_tag"] + ALL_FEATURE_COLS]
-    features_out.to_parquet(OUTPUT_DIR / "features_all.parquet", index=False)
-    print(f"    features_all.parquet: {features_out.shape}")
 
-    fwd_returns.to_parquet(OUTPUT_DIR / "forward_returns.parquet", index=False)
-    print(f"    forward_returns.parquet: {fwd_returns.shape}")
+    features_temp = OUTPUT_DIR / "features_all_temp.parquet"
+    features_final = OUTPUT_DIR / "features_all.parquet"
+    returns_temp = OUTPUT_DIR / "forward_returns_temp.parquet"
+    returns_final = OUTPUT_DIR / "forward_returns.parquet"
+
+    features_out.to_parquet(features_temp, index=False)
+    fwd_returns.to_parquet(returns_temp, index=False)
+    print(f"    features_all_temp.parquet: {features_out.shape}")
+    print(f"    forward_returns_temp.parquet: {fwd_returns.shape}")
+
+    # Validate temp files before swap
+    swap_ok = True
+    if features_final.exists():
+        prev_size = features_final.stat().st_size
+        new_size = features_temp.stat().st_size
+        prev_rows = len(pd.read_parquet(features_final, columns=["stock_code"]))
+        new_rows = len(features_out)
+        size_ratio = new_size / prev_size if prev_size > 0 else 1.0
+        row_ratio = new_rows / prev_rows if prev_rows > 0 else 1.0
+        print(f"    Validation: size {prev_size/1e6:.1f}MB→{new_size/1e6:.1f}MB "
+              f"({size_ratio:.2f}x), rows {prev_rows}→{new_rows} ({row_ratio:.2f}x)")
+
+        if abs(size_ratio - 1.0) > 0.05 or abs(row_ratio - 1.0) > 0.05:
+            print(f"    ⚠️ VALIDATION FAILED: deviation > ±5%. Keeping old file.")
+            print(f"    Temp files preserved for inspection.")
+            swap_ok = False
+
+    if swap_ok:
+        # Atomic swap: remove old, rename temp → final
+        import shutil
+        if features_final.exists():
+            features_final.unlink()
+        features_temp.rename(features_final)
+        if returns_final.exists():
+            returns_final.unlink()
+        returns_temp.rename(returns_final)
+        print(f"    ✅ Atomic swap complete")
+    else:
+        # Keep temp files for debugging, don't overwrite production
+        print(f"    ❌ Swap aborted. Temp files: {features_temp.name}, {returns_temp.name}")
 
     metadata = {
         "dimensions": {
