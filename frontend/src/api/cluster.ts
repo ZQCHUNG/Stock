@@ -1,13 +1,12 @@
 import client from './client'
 
-export interface SimilarRequest {
+// --- Dual Pipeline Types ---
+
+export interface DualSimilarRequest {
   stock_code: string
-  dimensions: string[]
-  window?: number
+  query_date?: string | null
   top_k?: number
   exclude_self?: boolean
-  min_date?: string | null
-  regime_match?: boolean
 }
 
 export interface ForwardReturns {
@@ -38,6 +37,66 @@ export interface ReturnStats {
   expectancy: number | null
   avg_win: number | null
   avg_loss: number | null
+}
+
+export interface PathPoint {
+  day: number
+  value: number
+}
+
+export interface ForwardPath {
+  stock_code: string
+  date: string
+  similarity: number
+  path: PathPoint[]
+}
+
+export interface Opinion {
+  regime_label: string
+  advice_text: string
+  confidence: 'high' | 'medium' | 'low'
+  filters_applied: string[]
+}
+
+export interface BlockResult {
+  label: string
+  description: string
+  similar_cases: SimilarCase[]
+  statistics: {
+    sample_count: number
+    small_sample_warning: boolean
+    d3: ReturnStats
+    d7: ReturnStats
+    d21: ReturnStats
+    d90: ReturnStats
+    d180: ReturnStats
+  }
+  forward_paths: ForwardPath[]
+  opinion?: Opinion
+}
+
+export interface DualSimilarResult {
+  query: {
+    stock_code: string
+    date: string
+    regime: number
+  }
+  raw: BlockResult
+  augmented: BlockResult
+  divergence_warning: boolean
+  transaction_cost_deducted: number
+}
+
+// --- Legacy Types (backward compat) ---
+
+export interface SimilarRequest {
+  stock_code: string
+  dimensions: string[]
+  window?: number
+  top_k?: number
+  exclude_self?: boolean
+  min_date?: string | null
+  regime_match?: boolean
 }
 
 export interface SimilarResult {
@@ -85,7 +144,13 @@ export interface FeatureStatus {
 }
 
 export const clusterApi = {
-  /** 主查詢：找相似案例 */
+  /** 雙區塊查詢 (主 API) */
+  similarDual: (req: DualSimilarRequest) =>
+    client.post<any, DualSimilarResult>('/cluster/similar-dual', req, {
+      timeout: 300_000,
+    }),
+
+  /** Legacy 查詢 */
   similar: (req: SimilarRequest) =>
     client.post<any, SimilarResult>('/cluster/similar', req, {
       timeout: 300_000,

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { h, computed, onMounted } from 'vue'
 import {
-  NGrid, NGi, NCard, NAlert, NButton, NCheckboxGroup, NCheckbox,
-  NInputNumber, NStatistic, NDataTable, NSpace, NTag, NSwitch, NText,
+  NGrid, NGi, NCard, NAlert, NButton, NDatePicker,
+  NStatistic, NDataTable, NSpace, NTag, NText, NDivider,
+  NInputNumber, NCollapse, NCollapseItem,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
@@ -11,22 +12,12 @@ import { useClusterStore } from '../stores/cluster'
 import { useResponsive } from '../composables/useResponsive'
 import { useChartTheme } from '../composables/useChartTheme'
 import { fmtPct, priceColor } from '../utils/format'
+import type { BlockResult, ForwardPath } from '../api/cluster'
 
 const app = useAppStore()
 const store = useClusterStore()
 const { isMobile, cols } = useResponsive()
 const { colors, tooltipStyle, baseOption } = useChartTheme()
-
-const responsiveCols = cols(1, 2, 3)
-
-// --- Dimension labels [CONVERGED: news → attention] ---
-const dimensionLabels: Record<string, string> = {
-  technical: '技術面',
-  institutional: '籌碼面',
-  industry: '產業面',
-  fundamental: '基本面',
-  attention: '關注度',
-}
 
 // --- Regime labels ---
 const regimeLabels: Record<number, string> = {
@@ -34,128 +25,193 @@ const regimeLabels: Record<number, string> = {
   0: '盤整',
   [-1]: '空頭',
 }
+const regimeColors: Record<number, string> = {
+  1: '#e53e3e',
+  0: '#d69e2e',
+  [-1]: '#38a169',
+}
 
 // --- Init ---
 onMounted(async () => {
-  await store.loadDimensions()
   await store.loadFeatureStatus()
 })
 
 // --- Query ---
 async function doSearch() {
-  await store.loadSimilar(app.currentStockCode)
+  await store.loadSimilarDual(app.currentStockCode)
 }
 
 // --- Win rate horizons ---
 const horizons = ['d3', 'd7', 'd21', 'd90', 'd180'] as const
 const horizonLabels: Record<string, string> = {
-  d3: 'D3 (3日)',
-  d7: 'D7 (7日)',
-  d21: 'D21 (21日)',
-  d90: 'D90 (90日)',
-  d180: 'D180 (180日)',
+  d3: '3日',
+  d7: '7日',
+  d21: '21日',
+  d90: '90日',
+  d180: '180日',
 }
 
-// --- Table columns ---
-const tableColumns = computed<DataTableColumns<any>>(() => [
-  { title: '股票', key: 'stock_code', width: 70, fixed: 'left' as const },
-  { title: '日期', key: 'date', width: 110 },
-  {
-    title: '相似度',
-    key: 'similarity',
-    width: 90,
-    sorter: (a: any, b: any) => a.similarity - b.similarity,
-    render: (row: any) => `${(row.similarity * 100).toFixed(1)}%`,
-  },
-  ...horizons.map((hz) => ({
-    title: hz.toUpperCase(),
-    key: hz,
-    width: 80,
-    sorter: (a: any, b: any) => (a.forward_returns?.[hz] ?? 0) - (b.forward_returns?.[hz] ?? 0),
-    render: (row: any) => {
-      const v = row.forward_returns?.[hz]
-      if (v == null) return '-'
-      const pct = (v * 100).toFixed(2) + '%'
-      const color = priceColor(v)
-      return color ? h('span', { style: { color } }, pct) : pct
+// --- Table columns (shared) ---
+function makeTableColumns(): DataTableColumns<any> {
+  return [
+    { title: '股票', key: 'stock_code', width: 70, fixed: 'left' as const },
+    { title: '日期', key: 'date', width: 100 },
+    {
+      title: '相似度',
+      key: 'similarity',
+      width: 80,
+      sorter: (a: any, b: any) => a.similarity - b.similarity,
+      render: (row: any) => `${(row.similarity * 100).toFixed(1)}%`,
     },
-  })),
-])
+    ...horizons.map((hz) => ({
+      title: horizonLabels[hz],
+      key: hz,
+      width: 75,
+      sorter: (a: any, b: any) => (a.forward_returns?.[hz] ?? 0) - (b.forward_returns?.[hz] ?? 0),
+      render: (row: any) => {
+        const v = row.forward_returns?.[hz]
+        if (v == null) return '-'
+        const pct = (v * 100).toFixed(2) + '%'
+        const color = priceColor(v)
+        return color ? h('span', { style: { color } }, pct) : pct
+      },
+    })),
+  ]
+}
 
-// --- Table data ---
-const tableData = computed(() => store.result?.similar_cases ?? [])
+const tableColumns = computed(() => makeTableColumns())
 
-// --- Box plot chart ---
-const boxPlotOption = computed(() => {
-  if (!store.result) return null
-  const stats = store.result.statistics
+// --- Spaghetti Chart ---
+function buildSpaghettiOption(paths: ForwardPath[], label: string) {
+  if (!paths || paths.length === 0) return null
 
-  const categories = horizons.map((hz) => horizonLabels[hz])
-  const boxData: number[][] = []
-  const scatterData: [number, number][] = []
+  // Individual paths (grey lines)
+  const series: any[] = paths.map((p, i) => ({
+    type: 'line',
+    data: p.path.map(pt => [pt.day, pt.value]),
+    lineStyle: { width: 1, color: 'rgba(150, 150, 150, 0.35)' },
+    symbol: 'none',
+    silent: true,
+    z: 1,
+  }))
 
-  horizons.forEach((hz, i) => {
-    const s = stats[hz]
-    if (s.mean != null && s.std != null && s.min != null && s.max != null && s.median != null) {
-      const p5 = s.p5 ?? s.min
-      const p95 = s.p95 ?? s.max
-      boxData.push([p5, Math.max(p5, s.mean - s.std), s.median, Math.min(p95, s.mean + s.std), p95])
-    } else {
-      boxData.push([0, 0, 0, 0, 0])
-    }
+  // Compute median path + P25/P75 band
+  const maxDay = Math.max(...paths.flatMap(p => p.path.map(pt => pt.day)))
+  const medianPath: [number, number][] = []
+  const p25Path: [number, number][] = []
+  const p75Path: [number, number][] = []
 
-    for (const c of store.result!.similar_cases) {
-      const v = c.forward_returns[hz]
-      if (v != null) {
-        scatterData.push([i, v])
-      }
-    }
+  for (let d = 0; d <= maxDay; d++) {
+    const vals = paths
+      .map(p => p.path.find(pt => pt.day === d)?.value)
+      .filter((v): v is number => v != null)
+    if (vals.length === 0) continue
+    vals.sort((a, b) => a - b)
+    const median = vals[Math.floor(vals.length / 2)]
+    const p25 = vals[Math.floor(vals.length * 0.25)]
+    const p75 = vals[Math.floor(vals.length * 0.75)]
+    medianPath.push([d, median])
+    p25Path.push([d, p25])
+    p75Path.push([d, p75])
+  }
+
+  // P25-P75 confidence band (area between)
+  if (p25Path.length > 0) {
+    series.push({
+      type: 'line',
+      data: p75Path,
+      lineStyle: { width: 0 },
+      symbol: 'none',
+      areaStyle: { color: 'rgba(84, 112, 198, 0.12)' },
+      stack: 'band',
+      silent: true,
+      z: 2,
+    })
+    series.push({
+      type: 'line',
+      data: p25Path,
+      lineStyle: { width: 0 },
+      symbol: 'none',
+      areaStyle: { color: 'rgba(84, 112, 198, 0.12)' },
+      stack: 'band',
+      silent: true,
+      z: 2,
+    })
+  }
+
+  // Median path (bold colored line)
+  const lastMedian = medianPath.length > 0 ? medianPath[medianPath.length - 1][1] : 1
+  const medianColor = lastMedian >= 1 ? '#e53e3e' : '#38a169'
+  series.push({
+    type: 'line',
+    data: medianPath,
+    name: '中位數路徑',
+    lineStyle: { width: 3, color: medianColor },
+    symbol: 'none',
+    z: 10,
+  })
+
+  // Base line at 1.0
+  series.push({
+    type: 'line',
+    data: [[0, 1], [maxDay, 1]],
+    lineStyle: { width: 1, color: '#888', type: 'dashed' },
+    symbol: 'none',
+    silent: true,
+    z: 5,
   })
 
   return {
     ...baseOption.value,
     tooltip: {
       ...tooltipStyle.value,
-      trigger: 'item',
-      formatter: (p: any) => {
-        if (p.seriesType === 'scatter') {
-          return `${categories[p.data[0]]}: ${(p.data[1] * 100).toFixed(2)}%`
-        }
-        return ''
+      trigger: 'axis',
+      formatter: (params: any) => {
+        const p = Array.isArray(params) ? params.find((x: any) => x.seriesName === '中位數路徑') : null
+        if (!p) return ''
+        const [day, val] = p.data
+        return `T+${day}: ${((val - 1) * 100).toFixed(2)}%`
       },
     },
-    grid: { left: 60, right: 20, top: 20, bottom: 40 },
+    grid: { left: 50, right: 20, top: 10, bottom: 35 },
     xAxis: {
-      type: 'category',
-      data: categories,
-      axisLabel: { color: colors.value.axisLabel },
+      type: 'value',
+      name: '交易日',
+      nameLocation: 'end',
+      axisLabel: { color: colors.value.axisLabel, formatter: (v: number) => `T+${v}` },
+      splitLine: { show: false },
     },
     yAxis: {
       type: 'value',
       axisLabel: {
         color: colors.value.axisLabel,
-        formatter: (v: number) => (v * 100).toFixed(0) + '%',
+        formatter: (v: number) => `${((v - 1) * 100).toFixed(0)}%`,
       },
       splitLine: { lineStyle: { color: colors.value.splitLine } },
     },
-    series: [
-      {
-        type: 'boxplot',
-        data: boxData,
-        itemStyle: { color: '#5470c6', borderColor: '#5470c6' },
-      },
-      {
-        type: 'scatter',
-        data: scatterData,
-        symbolSize: 5,
-        itemStyle: { color: '#91cc75', opacity: 0.6 },
-      },
-    ],
+    series,
   }
+}
+
+const rawSpaghettiOption = computed(() => {
+  if (!store.result?.raw.forward_paths) return null
+  return buildSpaghettiOption(store.result.raw.forward_paths, '原始數據')
+})
+
+const augSpaghettiOption = computed(() => {
+  if (!store.result?.augmented.forward_paths) return null
+  return buildSpaghettiOption(store.result.augmented.forward_paths, '系統分析')
 })
 
 // --- Feature status ---
 const dataReady = computed(() => store.featureStatus?.features_exists === true)
+
+// --- Confidence color ---
+function confidenceColor(c: string) {
+  if (c === 'high') return '#38a169'
+  if (c === 'medium') return '#d69e2e'
+  return '#e53e3e'
+}
 </script>
 
 <template>
@@ -164,74 +220,46 @@ const dataReady = computed(() => store.featureStatus?.features_exists === true)
     <NGi v-if="!dataReady && store.featureStatus">
       <NAlert type="warning" title="特徵資料尚未建立">
         請先執行 <code>python data/build_features.py</code>
-        產生 Parquet 檔案，放到 <code>data/pattern_data/features/</code> 目錄。
+        產生 Parquet 檔案。
       </NAlert>
     </NGi>
 
-    <!-- Controls -->
+    <!-- Controls: Stock + Date + Query (one line) -->
     <NGi>
-      <NCard title="多維度相似股分群" size="small">
-        <template #header-extra>
-          <NText depth="3" style="font-size: 11px">僅供參考，非投資建議</NText>
-        </template>
-        <NGrid :cols="responsiveCols.value" x-gap="12" y-gap="8">
-          <!-- Dimension selector -->
-          <NGi>
-            <div style="margin-bottom: 8px; font-weight: 600">維度選擇</div>
-            <NCheckboxGroup v-model:value="store.selectedDimensions">
-              <NSpace vertical size="small">
-                <NCheckbox
-                  v-for="dim in store.dimensions"
-                  :key="dim.name"
-                  :value="dim.name"
-                  :label="`${dimensionLabels[dim.name] || dim.name} (${dim.feature_count})`"
-                />
-              </NSpace>
-            </NCheckboxGroup>
-          </NGi>
-
-          <!-- Parameters -->
-          <NGi>
-            <NSpace vertical size="small">
-              <div>
-                <span style="font-size: 13px; color: var(--n-text-color-3)">Window (天數)</span>
-                <NInputNumber v-model:value="store.window" :min="5" :max="120" size="small" style="width: 120px" />
-              </div>
-              <div>
-                <span style="font-size: 13px; color: var(--n-text-color-3)">Top-K (筆數)</span>
-                <NInputNumber v-model:value="store.topK" :min="5" :max="100" size="small" style="width: 120px" />
-              </div>
-              <NSpace align="center" :size="8">
-                <span style="font-size: 13px; color: var(--n-text-color-3)">排除自身</span>
-                <NSwitch v-model:value="store.excludeSelf" size="small" />
-              </NSpace>
-              <NSpace align="center" :size="8">
-                <span style="font-size: 13px; color: var(--n-text-color-3)">同環境限定</span>
-                <NSwitch v-model:value="store.regimeMatch" size="small" />
-              </NSpace>
-            </NSpace>
-          </NGi>
-
-          <!-- Search button -->
-          <NGi>
-            <NSpace vertical justify="center" style="height: 100%">
-              <NButton
-                type="primary"
-                :loading="store.isLoading"
-                :disabled="!dataReady || store.selectedDimensions.length === 0"
-                @click="doSearch"
-                block
-              >
-                查詢相似案例
-              </NButton>
-              <NTag v-if="store.result" size="small" :bordered="false">
-                {{ app.currentStockCode }} @ {{ store.result.query.date }}
-                · {{ store.result.descriptor_count }} descriptors
-                · {{ regimeLabels[store.result.query.regime] || '?' }}
-              </NTag>
-            </NSpace>
-          </NGi>
-        </NGrid>
+      <NCard size="small">
+        <NSpace align="center" :wrap="false" :size="12">
+          <NText strong style="white-space: nowrap">{{ app.currentStockCode }}</NText>
+          <NDatePicker
+            v-model:formatted-value="store.queryDate"
+            type="date"
+            placeholder="日期（預設最新）"
+            clearable
+            size="small"
+            style="width: 150px"
+            value-format="yyyy-MM-dd"
+          />
+          <NInputNumber
+            v-model:value="store.topK"
+            :min="5" :max="100"
+            size="small"
+            style="width: 110px"
+          >
+            <template #prefix>Top</template>
+          </NInputNumber>
+          <NButton
+            type="primary"
+            :loading="store.isLoading"
+            :disabled="!dataReady"
+            @click="doSearch"
+            size="small"
+          >
+            查詢
+          </NButton>
+          <NText v-if="store.result" depth="3" style="font-size: 11px; white-space: nowrap">
+            {{ store.result.query.stock_code }} @ {{ store.result.query.date }}
+            · {{ regimeLabels[store.result.query.regime] || '?' }}
+          </NText>
+        </NSpace>
       </NCard>
     </NGi>
 
@@ -240,99 +268,232 @@ const dataReady = computed(() => store.featureStatus?.features_exists === true)
       <NAlert type="error" :title="store.error" closable />
     </NGi>
 
-    <!-- Small sample warning [ARCHITECT INSTRUCTION] -->
-    <NGi v-if="store.result?.statistics?.small_sample_warning">
-      <NAlert type="warning" title="樣本數不足">
-        相似案例數量 {{ store.result.statistics.sample_count }} 筆，低於 30 筆門檻。
-        統計結果可能不穩定，請謹慎解讀。
+    <!-- Divergence warning -->
+    <NGi v-if="store.result?.divergence_warning">
+      <NAlert type="warning" title="原始數據與系統分析顯著偏離">
+        兩區塊的 D21 勝率差異超過 15%。請仔細比對兩者，判斷加工邏輯是否合理。
       </NAlert>
     </NGi>
 
-    <!-- Win rate cards + Expectancy -->
+    <!-- ==================== BLOCK 1: RAW DATA (The Facts) ==================== -->
     <NGi v-if="store.result">
-      <NGrid :cols="cols(2, 3, 5).value" x-gap="8" y-gap="8">
-        <NGi v-for="hz in horizons" :key="hz">
-          <NCard size="small">
-            <NStatistic :label="horizonLabels[hz]">
-              <template #default>
-                <span
-                  :style="{
-                    color:
-                      store.result.statistics[hz].win_rate != null
-                        ? store.result.statistics[hz].win_rate! > 0.5
-                          ? '#e53e3e'
-                          : '#38a169'
+      <NCard size="small">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <NTag type="default" :bordered="false" size="small">區塊 1</NTag>
+            <NText strong>{{ store.result.raw.label }}</NText>
+            <NText depth="3" style="font-size: 11px">{{ store.result.raw.description }}</NText>
+          </NSpace>
+        </template>
+        <template #header-extra>
+          <NTag size="small" :bordered="false">
+            樣本 {{ store.result.raw.statistics.sample_count }}
+          </NTag>
+        </template>
+
+        <!-- Small sample warning -->
+        <NAlert
+          v-if="store.result.raw.statistics.small_sample_warning"
+          type="warning"
+          style="margin-bottom: 8px"
+          :show-icon="false"
+        >
+          樣本數不足 {{ store.result.raw.statistics.sample_count }} 筆，統計結果可能不穩定。
+        </NAlert>
+
+        <!-- Win rate cards -->
+        <NGrid :cols="cols(2, 3, 5).value" x-gap="8" y-gap="8">
+          <NGi v-for="hz in horizons" :key="hz">
+            <NCard size="small" :bordered="false" style="background: var(--n-color-embedded)">
+              <NStatistic :label="horizonLabels[hz]">
+                <template #default>
+                  <span
+                    :style="{
+                      color: store.result!.raw.statistics[hz].win_rate != null
+                        ? store.result!.raw.statistics[hz].win_rate! > 0.5 ? '#e53e3e' : '#38a169'
                         : '',
-                    fontSize: '22px',
-                    fontWeight: 700,
-                  }"
-                >
-                  {{
-                    store.result.statistics[hz].win_rate != null
-                      ? (store.result.statistics[hz].win_rate! * 100).toFixed(1) + '%'
-                      : '-'
-                  }}
-                </span>
-              </template>
-              <template #suffix>
-                <span style="font-size: 11px; color: var(--n-text-color-3); margin-left: 4px">
-                  EV {{ store.result.statistics[hz].expectancy != null ? fmtPct(store.result.statistics[hz].expectancy!) : '-' }}
-                </span>
-              </template>
-            </NStatistic>
-            <!-- P5/P95 tail risk [CONVERGED] -->
-            <div v-if="store.result.statistics[hz].p5 != null" style="font-size: 11px; margin-top: 4px; color: var(--n-text-color-3)">
-              <span :style="{ color: '#38a169', fontWeight: 600 }">
-                P5: {{ fmtPct(store.result.statistics[hz].p5!) }}
-              </span>
-              <span style="margin: 0 4px">|</span>
-              <span :style="{ color: '#e53e3e', fontWeight: 600 }">
-                P95: {{ fmtPct(store.result.statistics[hz].p95!) }}
-              </span>
-            </div>
-          </NCard>
-        </NGi>
-      </NGrid>
-    </NGi>
+                      fontSize: '20px',
+                      fontWeight: 700,
+                    }"
+                  >
+                    {{
+                      store.result!.raw.statistics[hz].win_rate != null
+                        ? (store.result!.raw.statistics[hz].win_rate! * 100).toFixed(1) + '%'
+                        : '-'
+                    }}
+                  </span>
+                </template>
+                <template #suffix>
+                  <span style="font-size: 11px; color: var(--n-text-color-3); margin-left: 4px">
+                    EV {{ store.result!.raw.statistics[hz].expectancy != null
+                      ? fmtPct(store.result!.raw.statistics[hz].expectancy!)
+                      : '-' }}
+                  </span>
+                </template>
+              </NStatistic>
+              <div
+                v-if="store.result!.raw.statistics[hz].p5 != null"
+                style="font-size: 10px; margin-top: 2px; color: var(--n-text-color-3)"
+              >
+                P5 {{ fmtPct(store.result!.raw.statistics[hz].p5!) }}
+                |
+                P95 {{ fmtPct(store.result!.raw.statistics[hz].p95!) }}
+              </div>
+            </NCard>
+          </NGi>
+        </NGrid>
 
-    <!-- Sample count + transaction cost info -->
-    <NGi v-if="store.result">
-      <NSpace size="small">
-        <NTag size="small" :bordered="false">
-          樣本數: {{ store.result.statistics.sample_count }}
-          · 維度: {{ store.result.dimensions_used.map(d => dimensionLabels[d] || d).join(', ') }}
-        </NTag>
-        <NTag size="small" :bordered="false" type="info">
-          已扣交易成本 {{ (store.result.transaction_cost_deducted * 100).toFixed(3) }}%
-        </NTag>
-      </NSpace>
-    </NGi>
+        <!-- Spaghetti Chart -->
+        <div v-if="rawSpaghettiOption" style="margin-top: 8px">
+          <NText depth="3" style="font-size: 11px">
+            路徑圖 — 灰線: 歷史案例 · 粗線: 中位數 · 陰影: P25-P75
+          </NText>
+          <VChart :option="rawSpaghettiOption" style="height: 260px; width: 100%" autoresize />
+        </div>
 
-    <!-- Box plot chart -->
-    <NGi v-if="boxPlotOption">
-      <NCard title="報酬分布圖 (P5-P95)" size="small">
-        <VChart :option="boxPlotOption" style="height: 300px; width: 100%" autoresize />
+        <!-- Cases table (collapsed by default) -->
+        <NCollapse style="margin-top: 8px">
+          <NCollapseItem title="相似案例明細" name="raw-cases">
+            <NDataTable
+              :columns="tableColumns"
+              :data="store.result!.raw.similar_cases"
+              :pagination="{ pageSize: 15 }"
+              :scroll-x="600"
+              size="small"
+              striped
+            />
+          </NCollapseItem>
+        </NCollapse>
       </NCard>
     </NGi>
 
-    <!-- Similar cases table -->
+    <!-- ==================== DIVIDER ==================== -->
     <NGi v-if="store.result">
-      <NCard title="相似案例" size="small">
-        <NDataTable
-          :columns="tableColumns"
-          :data="tableData"
-          :pagination="{ pageSize: 20 }"
-          :scroll-x="700"
-          size="small"
-          striped
-        />
+      <NDivider style="margin: 4px 0">
+        <NText depth="3" style="font-size: 12px">Facts ↑ — Opinion ↓</NText>
+      </NDivider>
+    </NGi>
+
+    <!-- ==================== BLOCK 2: SYSTEM ANALYSIS (Our Opinion) ==================== -->
+    <NGi v-if="store.result">
+      <NCard size="small">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <NTag type="info" :bordered="false" size="small">區塊 2</NTag>
+            <NText strong>{{ store.result.augmented.label }}</NText>
+            <NText depth="3" style="font-size: 11px">{{ store.result.augmented.description }}</NText>
+          </NSpace>
+        </template>
+        <template #header-extra>
+          <NSpace :size="4">
+            <NTag
+              v-if="store.result.augmented.opinion"
+              size="small"
+              :bordered="false"
+              :type="store.result.augmented.opinion.confidence === 'high' ? 'success'
+                   : store.result.augmented.opinion.confidence === 'medium' ? 'warning'
+                   : 'error'"
+            >
+              信心: {{ store.result.augmented.opinion.confidence }}
+            </NTag>
+            <NTag size="small" :bordered="false">
+              樣本 {{ store.result.augmented.statistics.sample_count }}
+            </NTag>
+          </NSpace>
+        </template>
+
+        <!-- Opinion text -->
+        <div
+          v-if="store.result.augmented.opinion"
+          style="
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            background: var(--n-color-embedded);
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-line;
+          "
+        >
+          {{ store.result.augmented.opinion.advice_text }}
+        </div>
+
+        <!-- Filters applied tags -->
+        <NSpace v-if="store.result.augmented.opinion" :size="4" style="margin-bottom: 8px">
+          <NTag
+            v-for="f in store.result.augmented.opinion.filters_applied"
+            :key="f"
+            size="tiny"
+            :bordered="false"
+            type="info"
+          >
+            {{ f }}
+          </NTag>
+        </NSpace>
+
+        <!-- Win rate cards -->
+        <NGrid :cols="cols(2, 3, 5).value" x-gap="8" y-gap="8">
+          <NGi v-for="hz in horizons" :key="hz">
+            <NCard size="small" :bordered="false" style="background: var(--n-color-embedded)">
+              <NStatistic :label="horizonLabels[hz]">
+                <template #default>
+                  <span
+                    :style="{
+                      color: store.result!.augmented.statistics[hz].win_rate != null
+                        ? store.result!.augmented.statistics[hz].win_rate! > 0.5 ? '#e53e3e' : '#38a169'
+                        : '',
+                      fontSize: '20px',
+                      fontWeight: 700,
+                    }"
+                  >
+                    {{
+                      store.result!.augmented.statistics[hz].win_rate != null
+                        ? (store.result!.augmented.statistics[hz].win_rate! * 100).toFixed(1) + '%'
+                        : '-'
+                    }}
+                  </span>
+                </template>
+                <template #suffix>
+                  <span style="font-size: 11px; color: var(--n-text-color-3); margin-left: 4px">
+                    EV {{ store.result!.augmented.statistics[hz].expectancy != null
+                      ? fmtPct(store.result!.augmented.statistics[hz].expectancy!)
+                      : '-' }}
+                  </span>
+                </template>
+              </NStatistic>
+            </NCard>
+          </NGi>
+        </NGrid>
+
+        <!-- Spaghetti Chart -->
+        <div v-if="augSpaghettiOption" style="margin-top: 8px">
+          <NText depth="3" style="font-size: 11px">
+            路徑圖（環境過濾 + 特徵加權後）
+          </NText>
+          <VChart :option="augSpaghettiOption" style="height: 260px; width: 100%" autoresize />
+        </div>
+
+        <!-- Cases table (collapsed) -->
+        <NCollapse style="margin-top: 8px">
+          <NCollapseItem title="相似案例明細" name="aug-cases">
+            <NDataTable
+              :columns="tableColumns"
+              :data="store.result!.augmented.similar_cases"
+              :pagination="{ pageSize: 15 }"
+              :scroll-x="600"
+              size="small"
+              striped
+            />
+          </NCollapseItem>
+        </NCollapse>
       </NCard>
     </NGi>
 
-    <!-- Disclaimer [ARCHITECT INSTRUCTION] -->
+    <!-- Transaction cost info -->
     <NGi v-if="store.result">
       <NText depth="3" style="font-size: 11px; text-align: center; display: block">
-        歷史相似性不代表未來必然性。本系統為情境分析工具，非投資建議。
+        已扣交易成本 {{ (store.result.transaction_cost_deducted * 100).toFixed(3) }}%
+        · 歷史相似性不代表未來必然性 · 本系統為情境分析工具，非投資建議
       </NText>
     </NGi>
   </NGrid>

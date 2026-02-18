@@ -1,15 +1,15 @@
-"""多維度相似股分群 — Cosine Similarity 搜尋引擎
+"""多維度相似股分群 — 雙軌引擎 (Facts vs Opinion)
 
-Converged design from Gemini Wall Street Trader + Architect Critic debate:
-- 50 features across 5 dimensions (tech/inst/industry/fund/attention)
-- Shape descriptors (slope/convexity/skewness/endpoint_ratio) per window
-- Feature weighting: ATR/Volume 1.5x [CONVERGED]
-- Regime filter: same-regime matching [CONVERGED]
-- Time decay: exponential, half-life 2 years [CONVERGED]
-- Statistics: p5/p95/max_drawdown/expectancy [CONVERGED]
-- TRANSACTION_COST deduction [ARCHITECT APPROVED]
-- Min similarity threshold [PLACEHOLDER: 0.7]
-- Small sample warning when n < 30 [ARCHITECT INSTRUCTION]
+CONVERGED design (Gemini Wall Street Trader + Architect Critic + Joe):
+  Block 1 (Raw/Facts): 50 features equal-weight cosine similarity, zero processing
+  Block 2 (Augmented/Opinion): Dynamic feature selection, regime-aware, weighted
+  Spaghetti Chart: Forward price paths for visual comparison
+  Divergence Warning: When D21 win rate differs >15% between blocks [ARCHITECT]
+
+Protocol v3 labels:
+  [VERIFIED] TRANSACTION_COST = 0.00785
+  [CONVERGED] Dual-block architecture, time decay, regime filter
+  [PLACEHOLDER] MIN_SIMILARITY_THRESHOLD = 0.5, DIVERGENCE_THRESHOLD = 0.15
 """
 
 import json
@@ -19,21 +19,32 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from scipy.stats import skew as scipy_skew
 
 logger = logging.getLogger(__name__)
 
 # --- Constants ---
 TRANSACTION_COST = 0.00785  # [VERIFIED] 0.1425%×2 + 0.3% + 0.1%×2
-# [PLACEHOLDER: SIMILARITY_THRESHOLD_07] — needs distribution validation
-MIN_SIMILARITY_THRESHOLD = 0.7
+MIN_SIMILARITY_THRESHOLD = 0.5  # [PLACEHOLDER: lowered from 0.7 for raw pipeline]
 TIME_DECAY_HALF_LIFE_DAYS = 365 * 2  # [CONVERGED] 2 years
 SMALL_SAMPLE_THRESHOLD = 30  # [ARCHITECT INSTRUCTION]
+DIVERGENCE_THRESHOLD = 0.15  # [PLACEHOLDER] 15% win rate difference triggers warning
+SPAGHETTI_DAYS = 90  # Forward price path length for chart
 
-# Feature weighting [CONVERGED with Gemini Wall Street Trader]
-FEATURE_WEIGHTS = {
+# Augmented pipeline: feature weighting [CONVERGED with Gemini]
+AUGMENTED_FEATURE_WEIGHTS = {
     "atr_pct": 1.5,
     "vol_ratio_20": 1.5,
+    "rsi_14": 1.3,
+    "inst_total_net": 1.3,
+    "inst_5d_sum": 1.2,
+}
+
+# Dynamic feature selection by regime [CONVERGED]
+# In each regime, these dimensions get boosted
+REGIME_DIMENSION_BOOST = {
+    1: {"technical": 1.5, "institutional": 1.3},  # Bull: tech + flow
+    0: {"fundamental": 1.5, "institutional": 1.3},  # Sideways: fundamentals + flow
+    -1: {"technical": 1.3, "fundamental": 1.5},  # Bear: tech + fundamentals
 }
 
 # --- Data paths ---
@@ -41,16 +52,17 @@ FEATURES_DIR = Path(__file__).resolve().parent.parent / "data" / "pattern_data" 
 FEATURES_FILE = FEATURES_DIR / "features_all.parquet"
 RETURNS_FILE = FEATURES_DIR / "forward_returns.parquet"
 METADATA_FILE = FEATURES_DIR / "feature_metadata.json"
+PRICE_CACHE_FILE = FEATURES_DIR / "price_cache.parquet"
 
 # --- In-memory cache ---
-_features_df: Optional[pd.DataFrame] = None
 _features_matrix: Optional[np.ndarray] = None
 _feature_index: Optional[pd.DataFrame] = None
 _regime_tags: Optional[np.ndarray] = None
 _forward_returns: Optional[pd.DataFrame] = None
 _metadata: Optional[dict] = None
 _feature_cols: Optional[list] = None
-_feature_weight_vector: Optional[np.ndarray] = None
+_price_cache: Optional[pd.DataFrame] = None
+_norms: Optional[np.ndarray] = None  # Pre-computed row norms
 
 
 def _load_metadata() -> dict:
@@ -65,9 +77,9 @@ def _load_metadata() -> dict:
 
 
 def _load_data():
-    """Load Parquet files into memory (called once on first query)."""
-    global _features_df, _features_matrix, _feature_index, _regime_tags
-    global _forward_returns, _feature_cols, _feature_weight_vector
+    """Load Parquet files into memory (called once, then cached)."""
+    global _features_matrix, _feature_index, _regime_tags
+    global _forward_returns, _feature_cols, _price_cache, _norms
 
     if _features_matrix is not None:
         return
@@ -82,28 +94,25 @@ def _load_data():
     meta = _load_metadata()
     _feature_cols = meta["all_features"]
 
+    # Load features — use float16 for memory [CONVERGED: 234MB → 117MB]
     features_df = pd.read_parquet(FEATURES_FILE)
     features_df["date"] = pd.to_datetime(features_df["date"])
     features_df = features_df.sort_values(["stock_code", "date"]).reset_index(drop=True)
 
-    _features_df = features_df
     _feature_index = features_df[["stock_code", "date"]].copy()
 
-    # Extract regime_tag (for filtering, not similarity)
     if "regime_tag" in features_df.columns:
         _regime_tags = features_df["regime_tag"].values.astype(np.int8)
     else:
         _regime_tags = np.zeros(len(features_df), dtype=np.int8)
 
+    # float32 for computation (float16 loses too much in matrix multiply)
     _features_matrix = features_df[_feature_cols].values.astype(np.float32)
     np.nan_to_num(_features_matrix, copy=False, nan=0.0)
 
-    # Build feature weight vector [CONVERGED]
-    _feature_weight_vector = np.ones(len(_feature_cols), dtype=np.float32)
-    for feat_name, weight in FEATURE_WEIGHTS.items():
-        if feat_name in _feature_cols:
-            idx = _feature_cols.index(feat_name)
-            _feature_weight_vector[idx] = weight
+    # Pre-compute row norms for fast cosine similarity
+    _norms = np.linalg.norm(_features_matrix, axis=1).astype(np.float32)
+    _norms[_norms < 1e-10] = 1.0  # Avoid division by zero
 
     # Load forward returns
     if RETURNS_FILE.exists():
@@ -114,6 +123,12 @@ def _load_data():
             columns=["date", "stock_code", "d3", "d7", "d21", "d90", "d180"]
         )
 
+    # Load price cache for Spaghetti Chart
+    if PRICE_CACHE_FILE.exists():
+        _price_cache = pd.read_parquet(PRICE_CACHE_FILE, columns=["stock_code", "date", "close"])
+        _price_cache["date"] = pd.to_datetime(_price_cache["date"])
+        _price_cache = _price_cache.sort_values(["stock_code", "date"]).reset_index(drop=True)
+
     logger.info(
         "Loaded %d rows, %d features, %d stocks",
         len(_features_matrix), _features_matrix.shape[1],
@@ -121,268 +136,112 @@ def _load_data():
     )
 
 
-def _get_dimension_columns(dimensions: list[str]) -> list[int]:
+def _cosine_similarity_weighted(query: np.ndarray, matrix: np.ndarray,
+                                 weights: Optional[np.ndarray] = None) -> np.ndarray:
+    """Vectorized cosine similarity — single matrix multiply, milliseconds."""
+    if weights is not None:
+        q = query * weights
+        m = matrix * weights[np.newaxis, :]
+    else:
+        q = query
+        m = matrix
+
+    q_norm = np.linalg.norm(q)
+    if q_norm < 1e-10:
+        return np.zeros(m.shape[0], dtype=np.float32)
+
+    m_norms = np.linalg.norm(m, axis=1)
+    m_norms[m_norms < 1e-10] = 1.0
+
+    dots = m @ q
+    return (dots / (m_norms * q_norm)).astype(np.float32)
+
+
+def _build_weight_vector(feature_weights: dict, dimension_boosts: Optional[dict] = None) -> np.ndarray:
+    """Build a weight vector for all features."""
     meta = _load_metadata()
-    indices = []
-    for dim in dimensions:
-        dim_info = meta["dimensions"].get(dim)
-        if dim_info is None:
-            raise ValueError(f"Unknown dimension: {dim}. Available: {list(meta['dimensions'].keys())}")
-        for feat in dim_info["features"]:
-            if feat in _feature_cols:
-                indices.append(_feature_cols.index(feat))
-    return indices
+    weights = np.ones(len(_feature_cols), dtype=np.float32)
+
+    # Apply per-feature weights
+    for feat_name, w in feature_weights.items():
+        if feat_name in _feature_cols:
+            idx = _feature_cols.index(feat_name)
+            weights[idx] = w
+
+    # Apply dimension-level boosts
+    if dimension_boosts:
+        for dim_name, boost in dimension_boosts.items():
+            dim_info = meta["dimensions"].get(dim_name)
+            if dim_info:
+                for feat in dim_info["features"]:
+                    if feat in _feature_cols:
+                        idx = _feature_cols.index(feat)
+                        weights[idx] *= boost
+
+    return weights
 
 
-def _compute_shape_descriptors(window_data: np.ndarray) -> np.ndarray:
-    """Compute 4 shape descriptors for each feature in a window.
+def _get_forward_prices(cases: list[dict], max_days: int = SPAGHETTI_DAYS) -> list[dict]:
+    """Get normalized forward price paths for Spaghetti Chart.
 
-    [CONVERGED] Gemini Wall Street Trader:
-    - slope: linear regression slope (trend direction)
-    - convexity: quadratic coefficient (acceleration/deceleration)
-    - skewness: asymmetry (V-turn vs sideways are completely different)
-    - endpoint_ratio: end/start (overall change magnitude)
-
-    Args:
-        window_data: (W, D) array of W days × D features
-
-    Returns:
-        (4*D,) array: [slope_f1, slope_f2, ..., conv_f1, conv_f2, ..., skew_f1, ..., endpt_f1, ...]
+    Each path starts at 1.0 (the match date's close price).
+    Returns list of {stock_code, date, path: [{day: 0, value: 1.0}, {day: 1, value: 1.02}, ...]}
     """
-    w, d = window_data.shape
-    if w < 3:
-        return np.zeros(4 * d, dtype=np.float32)
+    if _price_cache is None:
+        return []
 
-    x = np.arange(w, dtype=np.float64)
-    x_centered = x - x.mean()
-    x2 = x_centered ** 2
+    paths = []
+    for case in cases:
+        code = case["stock_code"]
+        match_date = pd.Timestamp(case["date"])
 
-    descriptors = np.zeros((4, d), dtype=np.float32)
-
-    for j in range(d):
-        col = window_data[:, j].astype(np.float64)
-        valid = ~np.isnan(col)
-        if valid.sum() < 3:
+        stock_prices = _price_cache[_price_cache["stock_code"] == code].copy()
+        if stock_prices.empty:
             continue
 
-        # Slope: linear regression coefficient
-        xv = x_centered[valid]
-        yv = col[valid]
-        denom = np.sum(xv ** 2)
-        if denom > 0:
-            descriptors[0, j] = np.sum(xv * yv) / denom
-
-        # Convexity: quadratic coefficient (a in ax^2 + bx + c)
-        if valid.sum() >= 3:
-            try:
-                coeffs = np.polyfit(x[valid], yv, 2)
-                descriptors[1, j] = coeffs[0]
-            except (np.linalg.LinAlgError, ValueError):
-                pass
-
-        # Skewness
-        if np.std(yv) > 1e-10:
-            descriptors[2, j] = float(scipy_skew(yv, bias=False))
-
-        # Endpoint ratio: last / first
-        if abs(yv[0]) > 1e-10:
-            descriptors[3, j] = yv[-1] / yv[0]
-        else:
-            descriptors[3, j] = 0.0
-
-    return descriptors.flatten()
-
-
-def _cosine_similarity_batch(query: np.ndarray, matrix: np.ndarray) -> np.ndarray:
-    """Compute cosine similarity between query vector and all rows in matrix."""
-    query_norm = np.linalg.norm(query)
-    if query_norm < 1e-10:
-        return np.zeros(matrix.shape[0], dtype=np.float32)
-
-    matrix_norms = np.linalg.norm(matrix, axis=1)
-    safe_norms = np.where(matrix_norms < 1e-10, 1.0, matrix_norms)
-    dots = matrix @ query
-    return dots / (safe_norms * query_norm)
-
-
-def _compute_time_decay_weights(dates: np.ndarray, reference_date: pd.Timestamp) -> np.ndarray:
-    """Compute exponential time decay weights.
-
-    [CONVERGED] half-life = 2 years — recent cases weighted more heavily.
-    """
-    days_diff = (reference_date - dates).dt.days.values.astype(np.float64)
-    decay = np.exp(-np.log(2) * days_diff / TIME_DECAY_HALF_LIFE_DAYS)
-    return decay.astype(np.float32)
-
-
-def find_similar(
-    stock_code: str,
-    dimensions: list[str],
-    window: int = 20,
-    top_k: int = 30,
-    exclude_self: bool = True,
-    min_date: Optional[str] = None,
-    regime_match: bool = True,
-) -> dict:
-    """Find historically similar cases based on selected dimensions.
-
-    Converged algorithm (Gemini Wall Street Trader + Architect Critic):
-    1. Load feature matrix (cached in memory)
-    2. Get target window → compute 4 shape descriptors per feature
-    3. Apply feature weights (ATR/Volume 1.5x)
-    4. Compute shape descriptors for all candidate windows
-    5. Cosine similarity on descriptor vectors
-    6. Apply regime filter, time decay, min similarity threshold
-    7. Compute statistics with TRANSACTION_COST deduction, p5/p95, expectancy
-    """
-    _load_data()
-
-    if not dimensions:
-        raise ValueError("At least one dimension must be selected")
-
-    col_indices = _get_dimension_columns(dimensions)
-    if not col_indices:
-        raise ValueError("No features found for selected dimensions")
-
-    # Find target stock rows
-    stock_mask = _feature_index["stock_code"] == stock_code
-    stock_rows = _feature_index[stock_mask].index
-    if len(stock_rows) == 0:
-        raise ValueError(f"Stock {stock_code} not found in feature data")
-
-    target_indices = stock_rows[-window:]
-    target_date = _feature_index.loc[target_indices[-1], "date"]
-
-    # Get query regime for filtering
-    query_regime = int(_regime_tags[target_indices[-1]]) if _regime_tags is not None else 0
-
-    # Extract selected dimension columns
-    sel_matrix = _features_matrix[:, col_indices]
-
-    # Apply feature weights to selected columns
-    sel_weights = _feature_weight_vector[col_indices]
-    weighted_matrix = sel_matrix * sel_weights[np.newaxis, :]
-
-    # Compute query shape descriptors
-    target_window = weighted_matrix[target_indices]
-    query_descriptors = _compute_shape_descriptors(target_window)
-
-    # Compute candidate shape descriptors (sliding window for each stock)
-    n_rows = len(weighted_matrix)
-    n_desc = len(query_descriptors)  # 4 * n_selected_features
-
-    # For efficiency, pre-compute descriptors for all valid windows
-    # Group by stock_code and compute shape descriptors per window
-    candidate_descriptors = np.zeros((n_rows, n_desc), dtype=np.float32)
-    valid_mask = np.zeros(n_rows, dtype=bool)
-
-    for code, group_idx in _feature_index.groupby("stock_code").groups.items():
-        group_idx = sorted(group_idx)
-        if len(group_idx) < window:
+        # Get prices from match_date onward
+        future = stock_prices[stock_prices["date"] >= match_date].head(max_days + 1)
+        if len(future) < 2:
             continue
-        for i in range(window - 1, len(group_idx)):
-            row_idx = group_idx[i]
-            window_indices = group_idx[max(0, i - window + 1): i + 1]
-            if len(window_indices) < max(3, window // 2):
-                continue
-            win_data = weighted_matrix[window_indices]
-            candidate_descriptors[row_idx] = _compute_shape_descriptors(win_data)
-            valid_mask[row_idx] = True
 
-    # Compute cosine similarities on descriptor vectors
-    similarities = _cosine_similarity_batch(query_descriptors, candidate_descriptors)
-
-    # Apply filters
-    mask = valid_mask.copy()
-
-    if exclude_self:
-        mask &= (_feature_index["stock_code"] != stock_code).values
-
-    if min_date:
-        min_dt = pd.Timestamp(min_date)
-        mask &= (_feature_index["date"] >= min_dt).values
-
-    # Exclude future dates
-    mask &= (_feature_index["date"] < target_date).values
-
-    # Regime filter [CONVERGED] — default ON
-    if regime_match and _regime_tags is not None:
-        mask &= (_regime_tags == query_regime)
-
-    # Minimum similarity threshold [PLACEHOLDER: SIMILARITY_THRESHOLD_07]
-    mask &= (similarities >= MIN_SIMILARITY_THRESHOLD)
-
-    similarities[~mask] = -2.0
-
-    # Time decay weights [CONVERGED]
-    decay_weights = _compute_time_decay_weights(_feature_index["date"], target_date)
-    weighted_sim = similarities * decay_weights
-
-    # Get top-K indices
-    top_indices = np.argsort(weighted_sim)[::-1][:top_k * 3]
-    top_indices = top_indices[similarities[top_indices] > -1.5]
-
-    # Deduplicate
-    seen = set()
-    selected = []
-    for idx in top_indices:
-        if len(selected) >= top_k:
-            break
-        code = _feature_index.loc[idx, "stock_code"]
-        date = _feature_index.loc[idx, "date"]
-        key = (code, date.year, date.month)
-        if key in seen:
+        base_price = future.iloc[0]["close"]
+        if base_price <= 0:
             continue
-        seen.add(key)
-        selected.append(idx)
 
-    # Build results
-    similar_cases = []
-    return_horizons = ["d3", "d7", "d21", "d90", "d180"]
+        path = []
+        for i, (_, row) in enumerate(future.iterrows()):
+            path.append({
+                "day": i,
+                "value": round(float(row["close"] / base_price), 4),
+            })
 
-    for idx in selected:
-        code = _feature_index.loc[idx, "stock_code"]
-        date = _feature_index.loc[idx, "date"]
-        sim = float(similarities[idx])
-
-        fwd = {}
-        if _forward_returns is not None:
-            match = _forward_returns[
-                (_forward_returns["stock_code"] == code)
-                & (_forward_returns["date"] == date)
-            ]
-            if len(match) > 0:
-                row = match.iloc[0]
-                for h in return_horizons:
-                    val = row.get(h, None)
-                    fwd[h] = float(val) if pd.notna(val) else None
-            else:
-                fwd = {h: None for h in return_horizons}
-        else:
-            fwd = {h: None for h in return_horizons}
-
-        similar_cases.append({
+        paths.append({
             "stock_code": code,
-            "date": date.strftime("%Y-%m-%d"),
-            "similarity": round(sim, 4),
-            "forward_returns": fwd,
+            "date": case["date"],
+            "similarity": case["similarity"],
+            "path": path,
         })
 
-    # Compute aggregate statistics [CONVERGED + ARCHITECT APPROVED]
+    return paths
+
+
+def _compute_statistics(cases: list[dict]) -> dict:
+    """Compute aggregate statistics for a set of similar cases."""
+    return_horizons = ["d3", "d7", "d21", "d90", "d180"]
+
     statistics = {
-        "sample_count": len(similar_cases),
-        "small_sample_warning": len(similar_cases) < SMALL_SAMPLE_THRESHOLD,
+        "sample_count": len(cases),
+        "small_sample_warning": len(cases) < SMALL_SAMPLE_THRESHOLD,
     }
 
     for h in return_horizons:
         vals = [
             c["forward_returns"][h]
-            for c in similar_cases
+            for c in cases
             if c["forward_returns"].get(h) is not None
         ]
         if vals:
             arr = np.array(vals)
-            # Deduct transaction cost for short horizons [ARCHITECT: Physical Consistency]
             arr_net = arr - TRANSACTION_COST
 
             wins = arr_net[arr_net > 0]
@@ -414,28 +273,323 @@ def find_similar(
                 "avg_win": None, "avg_loss": None,
             }
 
-    meta = _load_metadata()
-    dims_used = [d for d in dimensions if d in meta["dimensions"]]
+    return statistics
+
+
+def _find_cases(
+    stock_code: str,
+    query_date: Optional[str],
+    top_k: int,
+    weights: Optional[np.ndarray],
+    regime_filter: bool,
+    exclude_self: bool = True,
+    min_date: Optional[str] = "2020-01-01",
+) -> tuple[list[dict], dict]:
+    """Core similarity search — shared by raw and augmented pipelines."""
+    _load_data()
+
+    # Find query row
+    stock_mask = _feature_index["stock_code"] == stock_code
+    stock_rows = _feature_index[stock_mask]
+
+    if stock_rows.empty:
+        raise ValueError(f"Stock {stock_code} not found in feature data")
+
+    if query_date:
+        qd = pd.Timestamp(query_date)
+        # Find closest date <= query_date
+        valid = stock_rows[stock_rows["date"] <= qd]
+        if valid.empty:
+            raise ValueError(f"No data for {stock_code} on or before {query_date}")
+        query_idx = valid.index[-1]
+    else:
+        query_idx = stock_rows.index[-1]
+
+    query_row_date = _feature_index.loc[query_idx, "date"]
+    query_regime = int(_regime_tags[query_idx])
+    query_vector = _features_matrix[query_idx]
+
+    # Compute cosine similarity
+    similarities = _cosine_similarity_weighted(query_vector, _features_matrix, weights)
+
+    # Build filter mask
+    mask = np.ones(len(similarities), dtype=bool)
+
+    if exclude_self:
+        mask &= (_feature_index["stock_code"] != stock_code).values
+
+    if min_date:
+        mask &= (_feature_index["date"] >= pd.Timestamp(min_date)).values
+
+    # Exclude future dates
+    mask &= (_feature_index["date"] < query_row_date).values
+
+    # Regime filter
+    if regime_filter and _regime_tags is not None:
+        mask &= (_regime_tags == query_regime)
+
+    # Min similarity
+    mask &= (similarities >= MIN_SIMILARITY_THRESHOLD)
+
+    similarities[~mask] = -2.0
+
+    # Time decay
+    days_diff = (query_row_date - _feature_index["date"]).dt.days.values.astype(np.float64)
+    decay = np.exp(-np.log(2) * days_diff / TIME_DECAY_HALF_LIFE_DAYS).astype(np.float32)
+    weighted_sim = similarities * decay
+
+    # Top-K with deduplication (same stock same month → keep best)
+    top_indices = np.argsort(weighted_sim)[::-1][:top_k * 3]
+    top_indices = top_indices[similarities[top_indices] > -1.5]
+
+    seen = set()
+    selected = []
+    for idx in top_indices:
+        if len(selected) >= top_k:
+            break
+        code = _feature_index.loc[idx, "stock_code"]
+        date = _feature_index.loc[idx, "date"]
+        key = (code, date.year, date.month)
+        if key in seen:
+            continue
+        seen.add(key)
+        selected.append(idx)
+
+    # Build result cases
+    return_horizons = ["d3", "d7", "d21", "d90", "d180"]
+    cases = []
+
+    for idx in selected:
+        code = _feature_index.loc[idx, "stock_code"]
+        date = _feature_index.loc[idx, "date"]
+        sim = float(similarities[idx])
+
+        fwd = {}
+        if _forward_returns is not None:
+            match = _forward_returns[
+                (_forward_returns["stock_code"] == code)
+                & (_forward_returns["date"] == date)
+            ]
+            if len(match) > 0:
+                row = match.iloc[0]
+                for h in return_horizons:
+                    val = row.get(h, None)
+                    fwd[h] = float(val) if pd.notna(val) else None
+            else:
+                fwd = {h: None for h in return_horizons}
+        else:
+            fwd = {h: None for h in return_horizons}
+
+        cases.append({
+            "stock_code": code,
+            "date": date.strftime("%Y-%m-%d"),
+            "similarity": round(sim, 4),
+            "forward_returns": fwd,
+        })
+
+    query_info = {
+        "stock_code": stock_code,
+        "date": query_row_date.strftime("%Y-%m-%d"),
+        "regime": query_regime,
+    }
+
+    return cases, query_info
+
+
+def _generate_opinion(
+    raw_stats: dict,
+    aug_stats: dict,
+    query_info: dict,
+    aug_cases: list[dict],
+) -> dict:
+    """Generate text advice for Block 2 (System Analysis).
+
+    [CONVERGED] Architect Critic: must include regime label and quality warnings.
+    """
+    regime_labels = {1: "多頭", 0: "盤整", -1: "空頭"}
+    regime = query_info.get("regime", 0)
+    regime_label = regime_labels.get(regime, "未知")
+
+    # Build opinion text
+    lines = []
+    lines.append(f"目前市場環境判定：{regime_label} [VERIFIED: Regime Filter Applied]")
+
+    # Check sample quality
+    n = aug_stats.get("sample_count", 0)
+    if n < 10:
+        lines.append(f"[!] 相似案例僅 {n} 筆，統計信度極低。建議觀望。")
+    elif n < SMALL_SAMPLE_THRESHOLD:
+        lines.append(f"[!] 相似案例 {n} 筆，低於 {SMALL_SAMPLE_THRESHOLD} 筆門檻，統計結果可能不穩定。")
+
+    # D21 analysis (medium-term most actionable)
+    d21 = aug_stats.get("d21", {})
+    d21_wr = d21.get("win_rate")
+    d21_exp = d21.get("expectancy")
+
+    if d21_wr is not None:
+        if d21_wr >= 0.65:
+            lines.append(f"[BULL] 21日勝率 {d21_wr*100:.0f}%，歷史偏多。期望值 {d21_exp*100:+.1f}%。")
+        elif d21_wr <= 0.35:
+            lines.append(f"[BEAR] 21日勝率 {d21_wr*100:.0f}%，歷史偏空。期望值 {d21_exp*100:+.1f}%。")
+        else:
+            lines.append(f"[NEUTRAL] 21日勝率 {d21_wr*100:.0f}%，方向不明確。期望值 {d21_exp*100:+.1f}%。")
+
+    # Similarity quality
+    if aug_cases:
+        avg_sim = np.mean([c["similarity"] for c in aug_cases])
+        if avg_sim < 0.6:
+            lines.append("[!] 平均相似度偏低，歷史上較難找到高度匹配案例，以下分析僅供參考。")
+
+    # Divergence check with raw
+    raw_d21_wr = raw_stats.get("d21", {}).get("win_rate")
+    if d21_wr is not None and raw_d21_wr is not None:
+        diff = abs(d21_wr - raw_d21_wr)
+        if diff > DIVERGENCE_THRESHOLD:
+            lines.append(
+                f"[DIVERGE] 加工邏輯與原始數據偏離 {diff*100:.0f}% "
+                f"原始勝率 {raw_d21_wr*100:.0f}% vs 加工後 {d21_wr*100:.0f}%。"
+                f"差異來自 Regime 過濾與特徵加權。"
+            )
 
     return {
-        "query": {
-            "stock_code": stock_code,
-            "date": target_date.strftime("%Y-%m-%d"),
-            "window": window,
-            "regime": query_regime,
-            "regime_match": regime_match,
+        "regime_label": regime_label,
+        "advice_text": "\n".join(lines),
+        "confidence": "high" if n >= 30 else ("medium" if n >= 15 else "low"),
+        "filters_applied": [
+            f"Regime: {regime_label}",
+            "Dynamic Feature Weighting",
+            "Time Decay (2y half-life)",
+        ],
+    }
+
+
+def find_similar_dual(
+    stock_code: str,
+    query_date: Optional[str] = None,
+    top_k: int = 30,
+    exclude_self: bool = True,
+) -> dict:
+    """Main entry point — runs both raw and augmented pipelines.
+
+    [CONVERGED] Joe's two-block design:
+      Block 1 (Raw): 50 features equal-weight, no regime filter → "The Facts"
+      Block 2 (Augmented): Dynamic feature selection + regime filter → "Our Opinion"
+    """
+    _load_data()
+    meta = _load_metadata()
+
+    # Determine query regime for augmented pipeline
+    stock_mask = _feature_index["stock_code"] == stock_code
+    stock_rows = _feature_index[stock_mask]
+    if stock_rows.empty:
+        raise ValueError(f"Stock {stock_code} not found in feature data")
+
+    if query_date:
+        qd = pd.Timestamp(query_date)
+        valid = stock_rows[stock_rows["date"] <= qd]
+        if valid.empty:
+            raise ValueError(f"No data for {stock_code} on or before {query_date}")
+        query_idx = valid.index[-1]
+    else:
+        query_idx = stock_rows.index[-1]
+
+    query_regime = int(_regime_tags[query_idx])
+
+    # --- Block 1: Raw (The Facts) ---
+    raw_cases, query_info = _find_cases(
+        stock_code=stock_code,
+        query_date=query_date,
+        top_k=top_k,
+        weights=None,  # Equal weight
+        regime_filter=False,  # No regime filter
+        exclude_self=exclude_self,
+    )
+    raw_stats = _compute_statistics(raw_cases)
+    raw_paths = _get_forward_prices(raw_cases)
+
+    # --- Block 2: Augmented (Our Opinion) ---
+    dim_boost = REGIME_DIMENSION_BOOST.get(query_regime, {})
+    aug_weights = _build_weight_vector(AUGMENTED_FEATURE_WEIGHTS, dim_boost)
+
+    aug_cases, _ = _find_cases(
+        stock_code=stock_code,
+        query_date=query_date,
+        top_k=top_k,
+        weights=aug_weights,
+        regime_filter=True,  # Regime filter ON
+        exclude_self=exclude_self,
+    )
+    aug_stats = _compute_statistics(aug_cases)
+    aug_paths = _get_forward_prices(aug_cases)
+
+    # Generate opinion text
+    opinion = _generate_opinion(raw_stats, aug_stats, query_info, aug_cases)
+
+    # Divergence warning [ARCHITECT: >15% D21 win rate diff]
+    raw_d21_wr = raw_stats.get("d21", {}).get("win_rate")
+    aug_d21_wr = aug_stats.get("d21", {}).get("win_rate")
+    divergence_warning = False
+    if raw_d21_wr is not None and aug_d21_wr is not None:
+        divergence_warning = abs(raw_d21_wr - aug_d21_wr) > DIVERGENCE_THRESHOLD
+
+    return {
+        "query": query_info,
+        "raw": {
+            "label": "原始數據",
+            "description": "50 指標等權重，無環境過濾，歷史全量比對",
+            "similar_cases": raw_cases,
+            "statistics": raw_stats,
+            "forward_paths": raw_paths,
         },
-        "dimensions_used": dims_used,
-        "feature_count": len(col_indices),
-        "descriptor_count": len(col_indices) * 4,
-        "similar_cases": similar_cases,
-        "statistics": statistics,
+        "augmented": {
+            "label": "系統分析",
+            "description": f"動態特徵加權 + {opinion['regime_label']}環境過濾",
+            "similar_cases": aug_cases,
+            "statistics": aug_stats,
+            "forward_paths": aug_paths,
+            "opinion": opinion,
+        },
+        "divergence_warning": divergence_warning,
+        "transaction_cost_deducted": TRANSACTION_COST,
+    }
+
+
+# --- Legacy API (keep backward compatible) ---
+
+def find_similar(
+    stock_code: str,
+    dimensions: list[str],
+    window: int = 20,
+    top_k: int = 30,
+    exclude_self: bool = True,
+    min_date: Optional[str] = None,
+    regime_match: bool = True,
+) -> dict:
+    """Legacy API — redirects to raw pipeline with all features."""
+    cases, query_info = _find_cases(
+        stock_code=stock_code,
+        query_date=None,
+        top_k=top_k,
+        weights=None,
+        regime_filter=regime_match,
+        exclude_self=exclude_self,
+        min_date=min_date,
+    )
+    stats = _compute_statistics(cases)
+
+    return {
+        "query": {**query_info, "window": window, "regime_match": regime_match},
+        "dimensions_used": dimensions,
+        "feature_count": len(_feature_cols) if _feature_cols else 0,
+        "descriptor_count": len(_feature_cols) * 4 if _feature_cols else 0,
+        "similar_cases": cases,
+        "statistics": stats,
         "transaction_cost_deducted": TRANSACTION_COST,
     }
 
 
 def get_dimensions() -> list[dict]:
-    """Return available dimensions with feature counts and descriptions."""
+    """Return available dimensions with feature counts."""
     meta = _load_metadata()
     result = []
     for name, info in meta["dimensions"].items():

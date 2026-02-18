@@ -50,7 +50,13 @@ def parse_number(s: str) -> float:
     """Parse number string with commas and signs."""
     if not s or s == "--" or s == "-":
         return 0.0
-    return float(str(s).replace(",", "").strip())
+    cleaned = str(s).replace(",", "").replace("&nbsp;", "").replace("\xa0", "").strip()
+    if not cleaned or cleaned == "-":
+        return 0.0
+    try:
+        return float(cleaned)
+    except ValueError:
+        return 0.0
 
 
 # ============================================================
@@ -87,8 +93,17 @@ def fetch_price_single(code: str):
             df = yf.download(ticker, start=START_DATE, auto_adjust=True, progress=False)
         if df.empty:
             return None
-        df.columns = [c.lower() if isinstance(c, str) else c[0].lower() for c in df.columns]
-        df = df[["open", "high", "low", "close", "volume"]].copy()
+        # Flatten MultiIndex columns from yfinance
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0].lower() for c in df.columns]
+        else:
+            df.columns = [c.lower() for c in df.columns]
+        # De-duplicate columns (yfinance sometimes returns duplicates)
+        df = df.loc[:, ~df.columns.duplicated()]
+        needed = ["open", "high", "low", "close", "volume"]
+        if not all(c in df.columns for c in needed):
+            return None
+        df = df[needed].copy()
         df["stock_code"] = code
         df.index.name = "date"
         return df.reset_index()
@@ -482,7 +497,11 @@ def load_financials_data():
 def load_revenue_data():
     rev_dir = DATA_ROOT / "revenue"
     rows = []
-    for f in sorted(rev_dir.glob("otc_*.json")):
+    # BUG FIX: Read BOTH sii (上市) and otc (上櫃) — was missing sii entirely
+    for f in sorted(rev_dir.glob("*.json")):
+        stem = f.stem
+        if not (stem.startswith("sii_") or stem.startswith("otc_")):
+            continue
         with open(f, "r", encoding="utf-8") as fp:
             d = json.load(fp)
         year = d.get("year_minguo", 0) + 1911
@@ -495,9 +514,14 @@ def load_revenue_data():
             code = item.get("code", "").strip()
             if not re.match(r"^\d{4}$", code):
                 continue
+            # BUG FIX: yoy_pct field is mislabeled (contains revenue number).
+            # Compute YoY manually from revenue and prev_year for safety.
+            rev = parse_number(item.get("revenue", "0"))
+            prev_yr = parse_number(item.get("prev_year", "0"))
+            yoy = (rev - prev_yr) / prev_yr if prev_yr != 0 else 0.0
             rows.append({
                 "date": date, "stock_code": code,
-                "revenue_yoy": parse_number(item.get("yoy_pct", "0")) / 100.0,
+                "revenue_yoy": yoy,
                 "revenue_mom": parse_number(item.get("mom_pct", "0")) / 100.0,
             })
     return pd.DataFrame(rows)

@@ -73,7 +73,7 @@ Stock/
 | **風險監控** | `/risk` | VaR + 集中度 + 回撤 + 熔斷 + 壓力測試 |
 | **策略適配** | `/fitness` | SQS 分布 + Forward Test 追蹤 |
 | **相似線型** | `/pattern` | DTW 比對 + 概率雲圖 + 勝率統計 |
-| **多維度分群** | `/cluster` | 50 特徵相似度搜尋 + 勝率統計 + 報酬分布 |
+| **多維度分群** | `/cluster` | Dual Block: 原始數據 vs 系統分析 + Spaghetti Chart + Opinion |
 
 ---
 
@@ -223,6 +223,7 @@ python -m pytest tests/ -q
 | R86 | Risk Management — ATR Stop-Loss + R-Multiple + Portfolio Heat | Done |
 | R87 | Sector Correlation Monitor — Cap-Weighted Matrix + Systemic Flush | Done |
 | R88 | Multi-Dimensional Similarity Clustering (Gemini CTO Approved) | Done |
+| R88.2 | Dual Block Redesign — Facts vs Opinion (Architect Critic Approved) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -249,11 +250,20 @@ python -m pytest tests/ -q
 | Cluster Caution | 30-50% + 0.6-0.75 | 行業過熱中 |
 | Cluster Danger | >50% + >0.75 | 拋物線風險 |
 
-### Multi-Dimensional Similarity Clustering (R88)
+### Multi-Dimensional Similarity Clustering (R88-R88.2)
 
-多維度相似股分群系統：給定一支股票，選擇任意維度組合，找出歷史上最相似案例，顯示未來 D3/D7/D21/D90/D180 勝率統計。
+多維度相似股分群系統：50 特徵 × 1096 檔股票 × 6 年歷史，Cosine Similarity 找出最相似案例。
 
 **Gemini CTO + Architect Critic 雙重審核通過。** Protocol v3 全流程交付。
+
+**R88.2 Dual Block 設計 — Facts vs Opinion (Joe 核心要求)**:
+
+| 區塊 | 用途 | 方法 |
+|------|------|------|
+| **區塊 1 原始數據** | 純事實，讓 Joe 自己判斷 | 50 特徵等權重，無環境過濾，歷史全量比對 |
+| **區塊 2 系統分析** | AI 加工後的建議 | 動態特徵加權 + Regime 過濾 + Time Decay + Opinion |
+
+兩區塊並列，Joe 可比較「原始事實」vs「系統觀點」來校準信任度。D21 勝率差異 >15% 時顯示 [DIVERGE] 警告。
 
 **5 維度 × 50 特徵**:
 
@@ -265,21 +275,21 @@ python -m pytest tests/ -q
 | 基本面 | 8 | EPS/ROE/營收/PE/PB/營益率/負債比 |
 | 關注度 | 2 | 新聞量指數/新聞爆發度 |
 
-**收斂設計 (8 items from debate)**:
-1. **Shape Descriptors** [CONVERGED]: 每特徵 → slope/convexity/skewness/endpoint_ratio (4D)
-2. **Feature Weighting** [CONVERGED]: ATR/Volume 1.5x 加權
-3. **Regime Filter** [CONVERGED]: Bull/Range/Bear (MA200), 預設同 regime 限定
-4. **T+n Date Filtering** [CONVERGED]: 月營收 T+11, 季報 T+46 (防 look-ahead)
-5. **Time Decay** [CONVERGED]: 指數衰減, half-life 2 年
-6. **P5/P95 + Expectancy** [CONVERGED]: 尾部風險 + 期望值統計
+**收斂設計 (R88 debate + R88.2 redesign)**:
+1. **Single-Point Cosine Similarity** [CONVERGED]: Z-scored 特徵向量直接比較（5min→6sec）
+2. **Dynamic Feature Weighting** [CONVERGED]: ATR/Vol 1.5x, RSI/法人 1.3x (Block 2 only)
+3. **Regime Filter** [CONVERGED]: Bull/Range/Bear (MA200), Block 2 同 regime 限定
+4. **Time Decay** [CONVERGED]: 指數衰減, half-life 2 年 (Block 2 only)
+5. **Spaghetti Chart** [CONVERGED]: 前瞻價格路徑圖 (中位數 + P25-P75 信心帶)
+6. **Opinion Generator** [ARCHITECT]: regime-aware 文字建議 + [VERIFIED] 標籤
 7. **交易成本扣除** [ARCHITECT]: 所有報酬扣 TRANSACTION_COST 0.785%
-8. **小樣本警告** [ARCHITECT]: n < 30 顯示警告
+8. **小樣本警告** [ARCHITECT]: n < 30 顯示警告, n < 10 信度極低
 
 **檔案**:
-- `data/build_features.py` — 8 原始 JSON → 50 features Parquet
-- `analysis/cluster_search.py` — Cosine Similarity + Shape Descriptors 引擎
-- `backend/routers/cluster.py` — 3 API endpoints
-- `frontend/src/views/ClusterView.vue` — UI (維度選擇 + 勝率卡 + 分布圖 + 表格)
+- `data/build_features.py` — 8 原始 JSON → 50 features Parquet (234.8 MB, 1096 stocks)
+- `analysis/cluster_search.py` — Dual-Pipeline Cosine Similarity 引擎
+- `backend/routers/cluster.py` — 4 API endpoints (similar-dual, similar, dimensions, feature-status)
+- `frontend/src/views/ClusterView.vue` — Dual Block UI (勝率卡 + Spaghetti Chart + Opinion)
 
 ### Auto Trail Classifier (R73-R79)
 
@@ -484,7 +494,7 @@ Google Drive / Colab Pro+
 ### 訓練階段（Gemini CTO 建議，先做再驗證）
 
 ```
-Phase 1: 資料蒐集 + 儲存 (8/8 已驗證，R88 相似度引擎已完成)
+Phase 1: 資料蒐集 + 儲存 (8/8 已驗證，R88.2 Dual Block 引擎已完成)
 Phase 2: 標記歷史案例（漲50%+/30%+的股票，標記起漲點 + 失敗對照組）
 Phase 3: Pattern 分群（技術面/基本面/籌碼面 聯合特徵）
 Phase 4: 建立 Pattern 績效資料庫
