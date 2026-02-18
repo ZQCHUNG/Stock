@@ -21,6 +21,7 @@ export interface ForwardReturns {
 export interface DimensionSimilarities {
   technical: number
   institutional: number
+  brokerage: number
   industry: number
   fundamental: number
   attention: number

@@ -226,6 +226,7 @@ python -m pytest tests/ -q
 | R88.2 | Dual Block Redesign — Facts vs Opinion (Architect Critic Approved) | Done |
 | R88.3 | Dimension Lens + Gene Map Attribution (Architect Critic Approved) | Done |
 | R88.5 | Sniper Confidence Tiering — 6-year stress test validated (Wall Street Trader Approved) | Done |
+| R88.6 | Brokerage Dimension Split — 分點面獨立第6維度 (Wall Street Trader Approved) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -297,12 +298,13 @@ python -m pytest tests/ -q
 
 2022 熊市零訊號 = 系統保護機制（特徵，非缺陷）。
 
-**5 維度 × 50 特徵**:
+**6 維度 × 50 特徵**:
 
 | 維度 | 特徵數 | 涵蓋 |
 |------|--------|------|
 | 技術面 | 20 | MA/RSI/MACD/KD/BB/ATR/Vol/Trend/RS |
-| 籌碼面 | 15 | 三大法人/融資融券/集保/分點 |
+| 籌碼面 | 11 | 三大法人/融資融券/集保 |
+| 分點面 | 4 | HHI 集中度/淨買超比/連買天數/買賣擴散 (R88.6) |
 | 產業面 | 5 | Sector RS/Peer Alpha/產業鏈位置 |
 | 基本面 | 8 | EPS/ROE/營收/PE/PB/營益率/負債比 |
 | 關注度 | 2 | 新聞量指數/新聞爆發度 |

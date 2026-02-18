@@ -93,6 +93,7 @@ _dim_col_indices: Optional[dict] = None  # dimension name → column indices
 DIMENSION_LABELS = {
     "technical": "技術面",
     "institutional": "籌碼面",
+    "brokerage": "分點面",  # R88.6 [CONVERGED] Split from institutional
     "industry": "產業面",
     "fundamental": "基本面",
     "attention": "關注度",

@@ -30,6 +30,7 @@ const regimeLabels: Record<number, string> = {
 const dimLabels: Record<string, string> = {
   technical: '技術面',
   institutional: '籌碼面',
+  brokerage: '分點面',
   industry: '產業面',
   fundamental: '基本面',
   attention: '關注度',
@@ -128,7 +129,7 @@ function makeTableColumns(showGeneMap: boolean): DataTableColumns<any> {
       render: (row: any) => {
         const ds = row.dimension_similarities
         if (!ds) return '-'
-        const allDims = ['technical', 'institutional', 'industry', 'fundamental', 'attention']
+        const allDims = ['technical', 'institutional', 'brokerage', 'industry', 'fundamental', 'attention']
         const selectedSet = new Set(store.selectedDimensions)
 
         return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px' } },

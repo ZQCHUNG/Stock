@@ -1,0 +1,170 @@
+{
+  "dimensions": {
+    "technical": {
+      "features": [
+        "ret_1d",
+        "ret_5d",
+        "ret_20d",
+        "ma5_ratio",
+        "ma20_ratio",
+        "ma60_ratio",
+        "bb_position",
+        "rsi_14",
+        "macd_hist",
+        "kd_k",
+        "kd_d",
+        "atr_pct",
+        "vol_ratio_5",
+        "vol_ratio_20",
+        "high_low_range",
+        "close_vs_high",
+        "gap_pct",
+        "trend_slope_20",
+        "volatility_20",
+        "rs_rating"
+      ],
+      "count": 20,
+      "description": "技術面 — 價量衍生指標"
+    },
+    "institutional": {
+      "features": [
+        "inst_foreign_net",
+        "inst_trust_net",
+        "inst_dealer_net",
+        "inst_total_net",
+        "inst_5d_sum",
+        "margin_balance_chg",
+        "short_balance_chg",
+        "margin_utilization",
+        "tdcc_retail_chg",
+        "tdcc_big_chg",
+        "tdcc_concentration"
+      ],
+      "count": 11,
+      "description": "籌碼面 — 法人/融資融券/集保"
+    },
+    "brokerage": {
+      "features": [
+        "broker_hhi",
+        "broker_net_buy_ratio",
+        "broker_consistency",
+        "broker_spread"
+      ],
+      "count": 4,
+      "frequency": "monthly",
+      "frequency_target": "daily",
+      "description": "分點面 — 主力分點進出/集中度"
+    },
+    "industry": {
+      "features": [
+        "sector_rs",
+        "peer_alpha",
+        "sector_momentum",
+        "industry_chain_pos",
+        "sector_concentration"
+      ],
+      "count": 5,
+      "description": "產業面 — 族群強弱/供應鏈"
+    },
+    "fundamental": {
+      "features": [
+        "eps_yoy",
+        "roe",
+        "revenue_yoy",
+        "revenue_mom",
+        "pe_percentile",
+        "pb_ratio",
+        "operating_margin",
+        "debt_ratio"
+      ],
+      "count": 8,
+      "description": "基本面 — 財報/營收/估值 (T+46/T+11)"
+    },
+    "attention": {
+      "features": [
+        "attention_index_7d",
+        "attention_spike"
+      ],
+      "count": 2,
+      "description": "關注度 — 媒體關注指數"
+    }
+  },
+  "all_features": [
+    "ret_1d",
+    "ret_5d",
+    "ret_20d",
+    "ma5_ratio",
+    "ma20_ratio",
+    "ma60_ratio",
+    "bb_position",
+    "rsi_14",
+    "macd_hist",
+    "kd_k",
+    "kd_d",
+    "atr_pct",
+    "vol_ratio_5",
+    "vol_ratio_20",
+    "high_low_range",
+    "close_vs_high",
+    "gap_pct",
+    "trend_slope_20",
+    "volatility_20",
+    "rs_rating",
+    "inst_foreign_net",
+    "inst_trust_net",
+    "inst_dealer_net",
+    "inst_total_net",
+    "inst_5d_sum",
+    "margin_balance_chg",
+    "short_balance_chg",
+    "margin_utilization",
+    "tdcc_retail_chg",
+    "tdcc_big_chg",
+    "tdcc_concentration",
+    "broker_hhi",
+    "broker_net_buy_ratio",
+    "broker_consistency",
+    "broker_spread",
+    "sector_rs",
+    "peer_alpha",
+    "sector_momentum",
+    "industry_chain_pos",
+    "sector_concentration",
+    "eps_yoy",
+    "roe",
+    "revenue_yoy",
+    "revenue_mom",
+    "pe_percentile",
+    "pb_ratio",
+    "operating_margin",
+    "debt_ratio",
+    "attention_index_7d",
+    "attention_spike"
+  ],
+  "total_features": 50,
+  "extra_columns": [
+    "regime_tag"
+  ],
+  "forward_return_horizons": [
+    "d3",
+    "d7",
+    "d21",
+    "d90",
+    "d180"
+  ],
+  "normalization": "rolling_zscore_252d",
+  "feature_weights": {
+    "atr_pct": 1.5,
+    "vol_ratio_20": 1.5
+  },
+  "t_plus_n": {
+    "quarterly_financials": 46,
+    "monthly_revenue": 11
+  },
+  "created_at": "2026-02-18T10:02:08.073322",
+  "stock_count": 1096,
+  "date_range": [
+    "2020-01-02 00:00:00",
+    "2026-02-11 00:00:00"
+  ]
+}
