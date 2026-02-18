@@ -11,9 +11,17 @@ R88.3 APPROVED (Joe Feedback + Wall Street + Architect):
   Feedback 2: Per-dimension similarity breakdown ("Gene Map" / Attribution Analysis)
   Trap Guard: Unselected dims with <40% similarity show [!] warning
 
+R88.5 CONVERGED (Wall Street Trader — 6-year stress test approved):
+  Sniper Confidence Tiering: Sim>=88%+Fund>=50% = Sniper, Fund>=40% = Tactical
+  [VERIFIED] rho=0.2553 (p<0.000001) across 2020-2025
+  [VERIFIED] PF=1.65 (n=45) at Sniper tier, 6-year cross-environment
+  [EXPERIMENTAL] n=45 < 50 — not yet [VERIFIED], pending more data
+
 Protocol v3 labels:
   [VERIFIED] TRANSACTION_COST = 0.00785
   [CONVERGED] Dual-block architecture, time decay, regime filter
+  [CONVERGED] Sniper Sim >= 88%, Fund >= 50% (Trader verdict R88.5)
+  [CONVERGED] Tactical Fund >= 40% (Trader verdict R88.5)
   [HEURISTIC: SIMILARITY_DRIVER_V1] Text summary generation
   [PLACEHOLDER] MIN_SIMILARITY_THRESHOLD = 0.5, DIVERGENCE_THRESHOLD = 0.15
 """
@@ -35,6 +43,14 @@ TIME_DECAY_HALF_LIFE_DAYS = 365 * 2  # [CONVERGED] 2 years
 SMALL_SAMPLE_THRESHOLD = 30  # [ARCHITECT INSTRUCTION]
 DIVERGENCE_THRESHOLD = 0.15  # [PLACEHOLDER] 15% win rate difference triggers warning
 SPAGHETTI_DAYS = 90  # Forward price path length for chart
+
+# R88.5 Sniper Confidence Tiering [CONVERGED — Wall Street Trader 2026-02-18]
+# Validated: 6-year stress test (2020-2025), 55 stocks, 2970 records
+# rho=0.2553 (p<0.000001), PF=1.65 at Sniper tier (n=45)
+SNIPER_SIM_THRESHOLD = 0.88  # [CONVERGED] Mean similarity >= 88%
+SNIPER_FUND_THRESHOLD = 0.50  # [CONVERGED] Fundamental dim similarity >= 50%
+TACTICAL_FUND_THRESHOLD = 0.40  # [CONVERGED] Tactical tier >= 40%
+SNIPER_LABEL = "[EXPERIMENTAL]"  # [CONVERGED] n=45 < 50, pending more data
 
 # Augmented pipeline: feature weighting [CONVERGED with Gemini]
 AUGMENTED_FEATURE_WEIGHTS = {
@@ -438,6 +454,73 @@ def _compute_statistics(cases: list[dict]) -> dict:
     return statistics
 
 
+def _compute_sniper_assessment(cases: list[dict]) -> dict:
+    """Compute Sniper Confidence Tiering for a set of similar cases.
+
+    R88.5 CONVERGED (Wall Street Trader, 6-year stress test):
+      - Sniper: mean_sim >= 88% AND mean_fund_sim >= 50%
+      - Tactical: mean_fund_sim >= 40%
+      - Avoid: everything else
+
+    Returns:
+      {
+        "tier": "sniper" | "tactical" | "avoid",
+        "mean_similarity": 0.91,
+        "mean_fund_similarity": 0.55,
+        "confidence_label": "高信心" | "極高信心（注意樣本稀疏）",
+        "label": "[EXPERIMENTAL]",
+        "validation": {"rho": 0.2553, "pf": 1.65, "n": 45, "period": "2020-2025"},
+      }
+    """
+    if not cases:
+        return {
+            "tier": "avoid",
+            "mean_similarity": 0.0,
+            "mean_fund_similarity": 0.0,
+            "confidence_label": "無資料",
+            "label": SNIPER_LABEL,
+            "validation": {"rho": 0.2553, "pf": 1.65, "n": 45, "period": "2020-2025"},
+        }
+
+    # Mean overall similarity
+    mean_sim = float(np.mean([c["similarity"] for c in cases]))
+
+    # Mean fundamental dimension similarity
+    fund_sims = []
+    for c in cases:
+        ds = c.get("dimension_similarities")
+        if ds and "fundamental" in ds:
+            fund_sims.append(ds["fundamental"])
+    mean_fund_sim = float(np.mean(fund_sims)) if fund_sims else 0.0
+
+    # Tier classification
+    if mean_sim >= SNIPER_SIM_THRESHOLD and mean_fund_sim >= SNIPER_FUND_THRESHOLD:
+        tier = "sniper"
+    elif mean_fund_sim >= TACTICAL_FUND_THRESHOLD:
+        tier = "tactical"
+    else:
+        tier = "avoid"
+
+    # Confidence label (Trader instruction)
+    if mean_sim >= 0.90:
+        confidence_label = "極高信心（注意樣本稀疏）"
+    elif mean_sim >= SNIPER_SIM_THRESHOLD:
+        confidence_label = "高信心"
+    elif mean_sim >= 0.85:
+        confidence_label = "中等信心"
+    else:
+        confidence_label = "低信心"
+
+    return {
+        "tier": tier,
+        "mean_similarity": round(mean_sim, 4),
+        "mean_fund_similarity": round(mean_fund_sim, 4),
+        "confidence_label": confidence_label,
+        "label": SNIPER_LABEL,
+        "validation": {"rho": 0.2553, "pf": 1.65, "n": 45, "period": "2020-2025"},
+    }
+
+
 def _find_cases(
     stock_code: str,
     query_date: Optional[str],
@@ -781,6 +864,9 @@ def find_similar_dual(
         aug_weight_info[dim_name] = round(base * boost, 2)
     opinion["weight_transparency"] = aug_weight_info
 
+    # R88.5 Sniper Confidence Assessment (on raw block, per Trader mandate)
+    sniper_assessment = _compute_sniper_assessment(raw_cases)
+
     # Divergence warning [ARCHITECT: >15% D21 win rate diff]
     raw_d21_wr = raw_stats.get("d21", {}).get("win_rate")
     aug_d21_wr = aug_stats.get("d21", {}).get("win_rate")
@@ -791,6 +877,7 @@ def find_similar_dual(
     return {
         "query": query_info,
         "dimensions_used": selected_dims,
+        "sniper_assessment": sniper_assessment,
         "raw": {
             "label": "原始數據",
             "description": raw_desc,

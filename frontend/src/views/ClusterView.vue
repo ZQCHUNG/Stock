@@ -12,7 +12,7 @@ import { useClusterStore } from '../stores/cluster'
 import { useResponsive } from '../composables/useResponsive'
 import { useChartTheme } from '../composables/useChartTheme'
 import { fmtPct, priceColor } from '../utils/format'
-import type { BlockResult, ForwardPath, SimilarCase } from '../api/cluster'
+import type { BlockResult, ForwardPath, SimilarCase, SniperAssessment } from '../api/cluster'
 
 const app = useAppStore()
 const store = useClusterStore()
@@ -288,6 +288,28 @@ const augSpaghettiOption = computed(() => {
   return buildSpaghettiOption(store.result.augmented.forward_paths, '系統分析')
 })
 
+// --- Sniper Confidence Tiering [R88.5 CONVERGED] ---
+const sniperTierConfig: Record<string, { color: string; type: 'warning' | 'info' | 'default'; label: string }> = {
+  sniper: { color: '#d4a017', type: 'warning', label: 'Sniper' },
+  tactical: { color: '#3b82f6', type: 'info', label: 'Tactical' },
+  avoid: { color: '#9ca3af', type: 'default', label: 'Avoid' },
+}
+
+const sniperAssessment = computed(() => store.result?.sniper_assessment ?? null)
+
+const sniperTierInfo = computed(() => {
+  const tier = sniperAssessment.value?.tier ?? 'avoid'
+  return sniperTierConfig[tier] ?? sniperTierConfig.avoid
+})
+
+const sniperTacticalNote = computed(() => {
+  if (!sniperAssessment.value) return ''
+  if (sniperAssessment.value.tier === 'tactical') {
+    return '未達 50% 基本面門檻，但符合 40% 戰術門檻，建議輕倉參與。'
+  }
+  return ''
+})
+
 // --- Feature status ---
 const dataReady = computed(() => store.featureStatus?.features_exists === true)
 
@@ -378,6 +400,47 @@ const weightTransparencyText = computed(() => {
     <!-- Error -->
     <NGi v-if="store.error">
       <NAlert type="error" :title="store.error" closable />
+    </NGi>
+
+    <!-- R88.5 Sniper Confidence Assessment -->
+    <NGi v-if="sniperAssessment">
+      <NCard size="small">
+        <NSpace align="center" :size="8" wrap>
+          <NTag
+            :type="sniperTierInfo.type"
+            :bordered="true"
+            size="medium"
+            round
+          >
+            <span style="font-weight: 700">{{ sniperTierInfo.label }}</span>
+          </NTag>
+          <NTag size="small" :bordered="false" type="default">
+            {{ sniperAssessment.label }}
+          </NTag>
+          <NText depth="2" style="font-size: 13px">
+            {{ sniperAssessment.confidence_label }}
+          </NText>
+          <NDivider vertical />
+          <NText depth="3" style="font-size: 12px">
+            平均相似度 {{ (sniperAssessment.mean_similarity * 100).toFixed(1) }}%
+          </NText>
+          <NText depth="3" style="font-size: 12px">
+            基本面相似度 {{ (sniperAssessment.mean_fund_similarity * 100).toFixed(1) }}%
+          </NText>
+          <NDivider vertical />
+          <NText depth="3" style="font-size: 11px">
+            驗證: ρ={{ sniperAssessment.validation.rho }} PF={{ sniperAssessment.validation.pf }} n={{ sniperAssessment.validation.n }} ({{ sniperAssessment.validation.period }})
+          </NText>
+        </NSpace>
+        <NAlert
+          v-if="sniperTacticalNote"
+          type="info"
+          :show-icon="false"
+          style="margin-top: 6px; font-size: 12px"
+        >
+          {{ sniperTacticalNote }}
+        </NAlert>
+      </NCard>
     </NGi>
 
     <!-- Divergence warning -->

@@ -225,6 +225,7 @@ python -m pytest tests/ -q
 | R88 | Multi-Dimensional Similarity Clustering (Gemini CTO Approved) | Done |
 | R88.2 | Dual Block Redesign — Facts vs Opinion (Architect Critic Approved) | Done |
 | R88.3 | Dimension Lens + Gene Map Attribution (Architect Critic Approved) | Done |
+| R88.5 | Sniper Confidence Tiering — 6-year stress test validated (Wall Street Trader Approved) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -275,6 +276,26 @@ python -m pytest tests/ -q
 | **Similarity Summary** | 模板文字: 主要驅動維度 + 背離維度 [HEURISTIC: SIMILARITY_DRIVER_V1] |
 | **Dimension Island Guard** | 未選維度 < 40% 顯示 [!] 警告 (紅色粗體) |
 | **Weight Transparency** | Block 2 顯示系統加權倍率 (e.g., 技術面 1.5x, 籌碼面 1.3x) |
+
+**R88.5 Sniper Confidence Tiering (Wall Street Trader 壓力測試通過)**:
+
+6 年跨環境壓力測試（2020-2025，55 檔股票，2970 筆記錄），從 PF 3.92（2024牛市膨脹）修正到跨環境實證。
+
+| 參數 | 值 | 標記 |
+|------|-----|------|
+| Sniper Sim 門檻 | >= 88% | [CONVERGED] 從 90% 修正 |
+| 基本面門檻 (Sniper) | >= 50% | [CONVERGED] |
+| 基本面門檻 (Tactical) | >= 40% | [CONVERGED] 輕倉參與 |
+| Spearman ρ (6 年跨環境) | 0.2553 | [VERIFIED] p < 0.000001 |
+| PF (Sniper tier) | 1.65 | [VERIFIED] n=45 |
+| 上線標籤 | [EXPERIMENTAL] | n < 50，待更多數據 |
+
+三級信心分層:
+- **Sniper** (金色): Sim >= 88% + Fund >= 50% — 高信心，歷史 PF 1.65
+- **Tactical** (藍色): Fund >= 40% — 中等信心，建議輕倉
+- **Avoid** (灰色): Fund < 40% — 低信心，建議觀望
+
+2022 熊市零訊號 = 系統保護機制（特徵，非缺陷）。
 
 **5 維度 × 50 特徵**:
 

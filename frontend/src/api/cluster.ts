@@ -88,6 +88,20 @@ export interface BlockResult {
   opinion?: Opinion
 }
 
+export interface SniperAssessment {
+  tier: 'sniper' | 'tactical' | 'avoid'
+  mean_similarity: number
+  mean_fund_similarity: number
+  confidence_label: string
+  label: string  // e.g. "[EXPERIMENTAL]"
+  validation: {
+    rho: number
+    pf: number
+    n: number
+    period: string
+  }
+}
+
 export interface DualSimilarResult {
   query: {
     stock_code: string
@@ -95,6 +109,7 @@ export interface DualSimilarResult {
     regime: number
   }
   dimensions_used: string[]
+  sniper_assessment: SniperAssessment
   raw: BlockResult
   augmented: BlockResult
   divergence_warning: boolean
