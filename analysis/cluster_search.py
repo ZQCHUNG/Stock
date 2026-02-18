@@ -1,14 +1,20 @@
 """多維度相似股分群 — 雙軌引擎 (Facts vs Opinion)
 
-CONVERGED design (Gemini Wall Street Trader + Architect Critic + Joe):
-  Block 1 (Raw/Facts): 50 features equal-weight cosine similarity, zero processing
+R88.2 CONVERGED (Gemini Wall Street Trader + Architect Critic + Joe):
+  Block 1 (Raw/Facts): User-selected dimensions, equal-weight cosine similarity
   Block 2 (Augmented/Opinion): Dynamic feature selection, regime-aware, weighted
   Spaghetti Chart: Forward price paths for visual comparison
   Divergence Warning: When D21 win rate differs >15% between blocks [ARCHITECT]
 
+R88.3 APPROVED (Joe Feedback + Wall Street + Architect):
+  Feedback 1: Block 1 gets dimension Checkable Tags (user controls which dims)
+  Feedback 2: Per-dimension similarity breakdown ("Gene Map" / Attribution Analysis)
+  Trap Guard: Unselected dims with <40% similarity show [!] warning
+
 Protocol v3 labels:
   [VERIFIED] TRANSACTION_COST = 0.00785
   [CONVERGED] Dual-block architecture, time decay, regime filter
+  [HEURISTIC: SIMILARITY_DRIVER_V1] Text summary generation
   [PLACEHOLDER] MIN_SIMILARITY_THRESHOLD = 0.5, DIVERGENCE_THRESHOLD = 0.15
 """
 
@@ -63,6 +69,22 @@ _metadata: Optional[dict] = None
 _feature_cols: Optional[list] = None
 _price_cache: Optional[pd.DataFrame] = None
 _norms: Optional[np.ndarray] = None  # Pre-computed row norms
+_dim_col_indices: Optional[dict] = None  # dimension name → column indices
+
+# Dimension display labels (Chinese)
+DIMENSION_LABELS = {
+    "technical": "技術面",
+    "institutional": "籌碼面",
+    "industry": "產業面",
+    "fundamental": "基本面",
+    "attention": "關注度",
+}
+
+# Similarity gene map thresholds [ARCHITECT: color coding]
+SIM_HIGH = 0.90   # Deep green
+SIM_MID = 0.70    # Light green
+SIM_LOW = 0.50    # Yellow
+SIM_DANGER = 0.40  # Red — [ARCHITECT] unselected dim below this triggers [!] warning
 
 
 def _load_metadata() -> dict:
@@ -134,6 +156,114 @@ def _load_data():
         len(_features_matrix), _features_matrix.shape[1],
         _feature_index["stock_code"].nunique(),
     )
+
+
+def _get_dimension_col_indices() -> dict:
+    """Cache dimension → column index mapping for fast sub-vector slicing."""
+    global _dim_col_indices
+    if _dim_col_indices is not None:
+        return _dim_col_indices
+
+    meta = _load_metadata()
+    _dim_col_indices = {}
+    for dim_name, dim_info in meta["dimensions"].items():
+        indices = []
+        for feat in dim_info["features"]:
+            if feat in _feature_cols:
+                indices.append(_feature_cols.index(feat))
+        _dim_col_indices[dim_name] = np.array(indices, dtype=np.int32)
+
+    return _dim_col_indices
+
+
+def _get_dimension_mask(dimensions: list[str]) -> np.ndarray:
+    """Build a boolean mask for selected dimensions' feature columns."""
+    dim_indices = _get_dimension_col_indices()
+    mask = np.zeros(len(_feature_cols), dtype=bool)
+    for dim in dimensions:
+        if dim in dim_indices:
+            mask[dim_indices[dim]] = True
+    return mask
+
+
+def _cosine_similarity_by_dimension(
+    query_idx: int, case_idx: int
+) -> dict[str, float]:
+    """Compute per-dimension cosine similarity between query and a single case.
+
+    Returns {technical: 0.95, institutional: 0.42, ...}
+    Vectorized per dimension — no loops over features.
+    """
+    dim_indices = _get_dimension_col_indices()
+    result = {}
+
+    q_full = _features_matrix[query_idx]
+    c_full = _features_matrix[case_idx]
+
+    for dim_name, col_idx in dim_indices.items():
+        if len(col_idx) == 0:
+            result[dim_name] = 0.0
+            continue
+
+        q_sub = q_full[col_idx]
+        c_sub = c_full[col_idx]
+
+        q_norm = np.linalg.norm(q_sub)
+        c_norm = np.linalg.norm(c_sub)
+
+        if q_norm < 1e-10 or c_norm < 1e-10:
+            result[dim_name] = 0.0
+        else:
+            result[dim_name] = round(float(np.dot(q_sub, c_sub) / (q_norm * c_norm)), 4)
+
+    return result
+
+
+def _generate_similarity_summary(
+    dim_sims: dict[str, float],
+    selected_dims: Optional[list[str]] = None,
+) -> str:
+    """Generate text explaining WHY this case is similar.
+
+    [HEURISTIC: SIMILARITY_DRIVER_V1]
+    Logic: max dim = driver, min dim = risk/divergence, low std = "all-round sync"
+    [ARCHITECT] No predictive language. Facts only.
+    """
+    if not dim_sims:
+        return ""
+
+    items = sorted(dim_sims.items(), key=lambda x: x[1], reverse=True)
+    best_dim, best_val = items[0]
+    worst_dim, worst_val = items[-1]
+
+    best_label = DIMENSION_LABELS.get(best_dim, best_dim)
+    worst_label = DIMENSION_LABELS.get(worst_dim, worst_dim)
+
+    vals = np.array(list(dim_sims.values()))
+    std = float(np.std(vals))
+
+    parts = []
+
+    # All-round sync check
+    if std < 0.08 and np.mean(vals) > 0.7:
+        parts.append(f"全方位同步（5 維度均在 {np.min(vals)*100:.0f}%-{np.max(vals)*100:.0f}% 間）")
+    else:
+        # Driver
+        parts.append(f"主要驅動：{best_label}（{best_val*100:.0f}%）")
+        # Divergence
+        if worst_val < SIM_LOW:
+            parts.append(f"背離點：{worst_label}（{worst_val*100:.0f}%）")
+
+    # Unselected dimension warning [ARCHITECT: <40% → [!]]
+    if selected_dims:
+        all_dims = set(dim_sims.keys())
+        unselected = all_dims - set(selected_dims)
+        for ud in unselected:
+            if dim_sims.get(ud, 1.0) < SIM_DANGER:
+                ud_label = DIMENSION_LABELS.get(ud, ud)
+                parts.append(f"[!] 未選維度 {ud_label} 僅 {dim_sims[ud]*100:.0f}%")
+
+    return " · ".join(parts)
 
 
 def _cosine_similarity_weighted(query: np.ndarray, matrix: np.ndarray,
@@ -210,9 +340,12 @@ def _get_forward_prices(cases: list[dict], max_days: int = SPAGHETTI_DAYS) -> li
 
         path = []
         for i, (_, row) in enumerate(future.iterrows()):
+            val = row["close"] / base_price
+            if np.isnan(val) or np.isinf(val):
+                continue
             path.append({
                 "day": i,
-                "value": round(float(row["close"] / base_price), 4),
+                "value": round(float(val), 4),
             })
 
         paths.append({
@@ -284,8 +417,17 @@ def _find_cases(
     regime_filter: bool,
     exclude_self: bool = True,
     min_date: Optional[str] = "2020-01-01",
+    dimensions: Optional[list[str]] = None,
+    compute_dim_breakdown: bool = False,
+    selected_dims_for_summary: Optional[list[str]] = None,
 ) -> tuple[list[dict], dict]:
-    """Core similarity search — shared by raw and augmented pipelines."""
+    """Core similarity search — shared by raw and augmented pipelines.
+
+    Args:
+        dimensions: If provided, only use features from these dimensions (Block 1).
+        compute_dim_breakdown: If True, compute per-dimension similarity for each case.
+        selected_dims_for_summary: Dimensions the user selected (for [!] warnings).
+    """
     _load_data()
 
     # Find query row
@@ -309,8 +451,19 @@ def _find_cases(
     query_regime = int(_regime_tags[query_idx])
     query_vector = _features_matrix[query_idx]
 
+    # Dimension filtering: zero out non-selected dimensions [R88.3]
+    effective_weights = weights
+    if dimensions:
+        dim_mask = _get_dimension_mask(dimensions)
+        if effective_weights is not None:
+            effective_weights = effective_weights * dim_mask.astype(np.float32)
+        else:
+            effective_weights = dim_mask.astype(np.float32)
+
     # Compute cosine similarity
-    similarities = _cosine_similarity_weighted(query_vector, _features_matrix, weights)
+    similarities = _cosine_similarity_weighted(
+        query_vector, _features_matrix, effective_weights
+    )
 
     # Build filter mask
     mask = np.ones(len(similarities), dtype=bool)
@@ -380,12 +533,22 @@ def _find_cases(
         else:
             fwd = {h: None for h in return_horizons}
 
-        cases.append({
+        case = {
             "stock_code": code,
             "date": date.strftime("%Y-%m-%d"),
             "similarity": round(sim, 4),
             "forward_returns": fwd,
-        })
+        }
+
+        # Per-dimension breakdown [R88.3]
+        if compute_dim_breakdown:
+            dim_sims = _cosine_similarity_by_dimension(query_idx, idx)
+            case["dimension_similarities"] = dim_sims
+            case["similarity_summary"] = _generate_similarity_summary(
+                dim_sims, selected_dims_for_summary
+            )
+
+        cases.append(case)
 
     query_info = {
         "stock_code": stock_code,
@@ -468,15 +631,28 @@ def find_similar_dual(
     query_date: Optional[str] = None,
     top_k: int = 30,
     exclude_self: bool = True,
+    dimensions: Optional[list[str]] = None,
 ) -> dict:
     """Main entry point — runs both raw and augmented pipelines.
 
     [CONVERGED] Joe's two-block design:
-      Block 1 (Raw): 50 features equal-weight, no regime filter → "The Facts"
+      Block 1 (Raw): User-selected dimensions, equal-weight → "The Facts"
       Block 2 (Augmented): Dynamic feature selection + regime filter → "Our Opinion"
+
+    R88.3: dimensions param controls Block 1 feature subset.
+    Both blocks always compute per-dimension similarity breakdown.
     """
     _load_data()
     meta = _load_metadata()
+    all_dim_names = list(meta["dimensions"].keys())
+
+    # Validate dimensions
+    if dimensions:
+        dimensions = [d for d in dimensions if d in meta["dimensions"]]
+        if not dimensions:
+            dimensions = None  # Fallback to all
+
+    selected_dims = dimensions or all_dim_names
 
     # Determine query regime for augmented pipeline
     stock_mask = _feature_index["stock_code"] == stock_code
@@ -495,6 +671,17 @@ def find_similar_dual(
 
     query_regime = int(_regime_tags[query_idx])
 
+    # Build description for Block 1
+    if dimensions:
+        dim_labels = [DIMENSION_LABELS.get(d, d) for d in dimensions]
+        feat_count = sum(
+            meta["dimensions"][d]["count"]
+            for d in dimensions if d in meta["dimensions"]
+        )
+        raw_desc = f"{'+'.join(dim_labels)} ({feat_count} 指標)，等權重，無環境過濾"
+    else:
+        raw_desc = "50 指標等權重，無環境過濾，歷史全量比對"
+
     # --- Block 1: Raw (The Facts) ---
     raw_cases, query_info = _find_cases(
         stock_code=stock_code,
@@ -503,6 +690,9 @@ def find_similar_dual(
         weights=None,  # Equal weight
         regime_filter=False,  # No regime filter
         exclude_self=exclude_self,
+        dimensions=dimensions,  # R88.3: user-selected dims
+        compute_dim_breakdown=True,  # R88.3: gene map
+        selected_dims_for_summary=selected_dims,
     )
     raw_stats = _compute_statistics(raw_cases)
     raw_paths = _get_forward_prices(raw_cases)
@@ -518,12 +708,21 @@ def find_similar_dual(
         weights=aug_weights,
         regime_filter=True,  # Regime filter ON
         exclude_self=exclude_self,
+        compute_dim_breakdown=True,  # R88.3: gene map
     )
     aug_stats = _compute_statistics(aug_cases)
     aug_paths = _get_forward_prices(aug_cases)
 
     # Generate opinion text
     opinion = _generate_opinion(raw_stats, aug_stats, query_info, aug_cases)
+
+    # Build weight transparency for Block 2 [R88.3 ARCHITECT]
+    aug_weight_info = {}
+    for dim_name in all_dim_names:
+        base = 1.0
+        boost = dim_boost.get(dim_name, 1.0)
+        aug_weight_info[dim_name] = round(base * boost, 2)
+    opinion["weight_transparency"] = aug_weight_info
 
     # Divergence warning [ARCHITECT: >15% D21 win rate diff]
     raw_d21_wr = raw_stats.get("d21", {}).get("win_rate")
@@ -534,9 +733,10 @@ def find_similar_dual(
 
     return {
         "query": query_info,
+        "dimensions_used": selected_dims,
         "raw": {
             "label": "原始數據",
-            "description": "50 指標等權重，無環境過濾，歷史全量比對",
+            "description": raw_desc,
             "similar_cases": raw_cases,
             "statistics": raw_stats,
             "forward_paths": raw_paths,

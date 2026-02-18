@@ -7,6 +7,7 @@ export interface DualSimilarRequest {
   query_date?: string | null
   top_k?: number
   exclude_self?: boolean
+  dimensions?: string[] | null
 }
 
 export interface ForwardReturns {
@@ -17,11 +18,22 @@ export interface ForwardReturns {
   d180: number | null
 }
 
+export interface DimensionSimilarities {
+  technical: number
+  institutional: number
+  industry: number
+  fundamental: number
+  attention: number
+  [key: string]: number
+}
+
 export interface SimilarCase {
   stock_code: string
   date: string
   similarity: number
   forward_returns: ForwardReturns
+  dimension_similarities?: DimensionSimilarities
+  similarity_summary?: string
 }
 
 export interface ReturnStats {
@@ -56,6 +68,7 @@ export interface Opinion {
   advice_text: string
   confidence: 'high' | 'medium' | 'low'
   filters_applied: string[]
+  weight_transparency?: Record<string, number>
 }
 
 export interface BlockResult {
@@ -81,6 +94,7 @@ export interface DualSimilarResult {
     date: string
     regime: number
   }
+  dimensions_used: string[]
   raw: BlockResult
   augmented: BlockResult
   divergence_warning: boolean

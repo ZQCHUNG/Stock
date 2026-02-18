@@ -73,7 +73,7 @@ Stock/
 | **風險監控** | `/risk` | VaR + 集中度 + 回撤 + 熔斷 + 壓力測試 |
 | **策略適配** | `/fitness` | SQS 分布 + Forward Test 追蹤 |
 | **相似線型** | `/pattern` | DTW 比對 + 概率雲圖 + 勝率統計 |
-| **多維度分群** | `/cluster` | Dual Block: 原始數據 vs 系統分析 + Spaghetti Chart + Opinion |
+| **多維度分群** | `/cluster` | Dual Block + Dimension Lens + Gene Map + Spaghetti Chart |
 
 ---
 
@@ -224,6 +224,7 @@ python -m pytest tests/ -q
 | R87 | Sector Correlation Monitor — Cap-Weighted Matrix + Systemic Flush | Done |
 | R88 | Multi-Dimensional Similarity Clustering (Gemini CTO Approved) | Done |
 | R88.2 | Dual Block Redesign — Facts vs Opinion (Architect Critic Approved) | Done |
+| R88.3 | Dimension Lens + Gene Map Attribution (Architect Critic Approved) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -250,7 +251,7 @@ python -m pytest tests/ -q
 | Cluster Caution | 30-50% + 0.6-0.75 | 行業過熱中 |
 | Cluster Danger | >50% + >0.75 | 拋物線風險 |
 
-### Multi-Dimensional Similarity Clustering (R88-R88.2)
+### Multi-Dimensional Similarity Clustering (R88-R88.3)
 
 多維度相似股分群系統：50 特徵 × 1096 檔股票 × 6 年歷史，Cosine Similarity 找出最相似案例。
 
@@ -260,10 +261,20 @@ python -m pytest tests/ -q
 
 | 區塊 | 用途 | 方法 |
 |------|------|------|
-| **區塊 1 原始數據** | 純事實，讓 Joe 自己判斷 | 50 特徵等權重，無環境過濾，歷史全量比對 |
+| **區塊 1 原始數據** | 純事實，讓 Joe 自己判斷 | 用戶選擇維度，等權重，無環境過濾 |
 | **區塊 2 系統分析** | AI 加工後的建議 | 動態特徵加權 + Regime 過濾 + Time Decay + Opinion |
 
 兩區塊並列，Joe 可比較「原始事實」vs「系統觀點」來校準信任度。D21 勝率差異 >15% 時顯示 [DIVERGE] 警告。
+
+**R88.3 Dimension Lens + Gene Map (Joe Feedback)**:
+
+| 功能 | 說明 |
+|------|------|
+| **Dimension Lens** | Checkable Tags 選擇維度 (Block 1)，可任意組合 5 維度 |
+| **Gene Map** | 每案例顯示 5 維度 cosine similarity 分解 + 色彩長條圖 |
+| **Similarity Summary** | 模板文字: 主要驅動維度 + 背離維度 [HEURISTIC: SIMILARITY_DRIVER_V1] |
+| **Dimension Island Guard** | 未選維度 < 40% 顯示 [!] 警告 (紅色粗體) |
+| **Weight Transparency** | Block 2 顯示系統加權倍率 (e.g., 技術面 1.5x, 籌碼面 1.3x) |
 
 **5 維度 × 50 特徵**:
 
@@ -275,7 +286,7 @@ python -m pytest tests/ -q
 | 基本面 | 8 | EPS/ROE/營收/PE/PB/營益率/負債比 |
 | 關注度 | 2 | 新聞量指數/新聞爆發度 |
 
-**收斂設計 (R88 debate + R88.2 redesign)**:
+**收斂設計 (R88 → R88.2 → R88.3)**:
 1. **Single-Point Cosine Similarity** [CONVERGED]: Z-scored 特徵向量直接比較（5min→6sec）
 2. **Dynamic Feature Weighting** [CONVERGED]: ATR/Vol 1.5x, RSI/法人 1.3x (Block 2 only)
 3. **Regime Filter** [CONVERGED]: Bull/Range/Bear (MA200), Block 2 同 regime 限定
@@ -283,13 +294,14 @@ python -m pytest tests/ -q
 5. **Spaghetti Chart** [CONVERGED]: 前瞻價格路徑圖 (中位數 + P25-P75 信心帶)
 6. **Opinion Generator** [ARCHITECT]: regime-aware 文字建議 + [VERIFIED] 標籤
 7. **交易成本扣除** [ARCHITECT]: 所有報酬扣 TRANSACTION_COST 0.785%
-8. **小樣本警告** [ARCHITECT]: n < 30 顯示警告, n < 10 信度極低
+8. **Per-Dimension Breakdown** [ARCHITECT R88.3]: 5 維度各自 cosine similarity 分解
+9. **Dimension Filter** [ARCHITECT R88.3]: Block 1 用戶控制維度，Block 2 系統控制
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 50 features Parquet (234.8 MB, 1096 stocks)
-- `analysis/cluster_search.py` — Dual-Pipeline Cosine Similarity 引擎
+- `analysis/cluster_search.py` — Dual-Pipeline + Per-Dimension Similarity 引擎
 - `backend/routers/cluster.py` — 4 API endpoints (similar-dual, similar, dimensions, feature-status)
-- `frontend/src/views/ClusterView.vue` — Dual Block UI (勝率卡 + Spaghetti Chart + Opinion)
+- `frontend/src/views/ClusterView.vue` — Dual Block + Gene Map + Dimension Lens UI
 
 ### Auto Trail Classifier (R73-R79)
 

@@ -3,7 +3,7 @@ import { h, computed, onMounted } from 'vue'
 import {
   NGrid, NGi, NCard, NAlert, NButton, NDatePicker,
   NStatistic, NDataTable, NSpace, NTag, NText, NDivider,
-  NInputNumber, NCollapse, NCollapseItem,
+  NInputNumber, NCollapse, NCollapseItem, NProgress,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
@@ -12,7 +12,7 @@ import { useClusterStore } from '../stores/cluster'
 import { useResponsive } from '../composables/useResponsive'
 import { useChartTheme } from '../composables/useChartTheme'
 import { fmtPct, priceColor } from '../utils/format'
-import type { BlockResult, ForwardPath } from '../api/cluster'
+import type { BlockResult, ForwardPath, SimilarCase } from '../api/cluster'
 
 const app = useAppStore()
 const store = useClusterStore()
@@ -25,16 +25,51 @@ const regimeLabels: Record<number, string> = {
   0: '盤整',
   [-1]: '空頭',
 }
-const regimeColors: Record<number, string> = {
-  1: '#e53e3e',
-  0: '#d69e2e',
-  [-1]: '#38a169',
+
+// --- Dimension display labels ---
+const dimLabels: Record<string, string> = {
+  technical: '技術面',
+  institutional: '籌碼面',
+  industry: '產業面',
+  fundamental: '基本面',
+  attention: '關注度',
+}
+
+// --- Gene map color thresholds [ARCHITECT: >90 deep green, 70-90 light green, <50 red] ---
+function simColor(v: number): string {
+  if (v >= 0.9) return '#16a34a'   // deep green
+  if (v >= 0.7) return '#65a30d'   // light green
+  if (v >= 0.5) return '#d97706'   // amber
+  return '#dc2626'                  // red
+}
+
+function simStatus(v: number): string {
+  if (v >= 0.9) return '高度重合'
+  if (v >= 0.7) return '結構相似'
+  if (v >= 0.5) return '部分相似'
+  if (v >= 0) return '低相似'
+  return '嚴重背離'
 }
 
 // --- Init ---
 onMounted(async () => {
-  await store.loadFeatureStatus()
+  await Promise.all([
+    store.loadFeatureStatus(),
+    store.loadDimensions(),
+  ])
 })
+
+// --- Dimension toggle ---
+function toggleDimension(name: string) {
+  const idx = store.selectedDimensions.indexOf(name)
+  if (idx >= 0) {
+    // Don't allow deselecting all
+    if (store.selectedDimensions.length <= 1) return
+    store.selectedDimensions.splice(idx, 1)
+  } else {
+    store.selectedDimensions.push(name)
+  }
+}
 
 // --- Query ---
 async function doSearch() {
@@ -51,9 +86,9 @@ const horizonLabels: Record<string, string> = {
   d180: '180日',
 }
 
-// --- Table columns (shared) ---
-function makeTableColumns(): DataTableColumns<any> {
-  return [
+// --- Table columns with gene map expandable row ---
+function makeTableColumns(showGeneMap: boolean): DataTableColumns<any> {
+  const baseCols: DataTableColumns<any> = [
     { title: '股票', key: 'stock_code', width: 70, fixed: 'left' as const },
     { title: '日期', key: 'date', width: 100 },
     {
@@ -61,7 +96,14 @@ function makeTableColumns(): DataTableColumns<any> {
       key: 'similarity',
       width: 80,
       sorter: (a: any, b: any) => a.similarity - b.similarity,
-      render: (row: any) => `${(row.similarity * 100).toFixed(1)}%`,
+      render: (row: any) => {
+        const pct = `${(row.similarity * 100).toFixed(0)}%`
+        // Show overall rank in grey when dimensions are filtered
+        const overallNote = row.dimension_similarities
+          ? ` (全維度)`
+          : ''
+        return h('span', { style: { fontWeight: 600 } }, pct + overallNote)
+      },
     },
     ...horizons.map((hz) => ({
       title: horizonLabels[hz],
@@ -77,15 +119,80 @@ function makeTableColumns(): DataTableColumns<any> {
       },
     })),
   ]
+
+  if (showGeneMap) {
+    baseCols.push({
+      title: '基因譜',
+      key: 'gene_map',
+      width: 220,
+      render: (row: any) => {
+        const ds = row.dimension_similarities
+        if (!ds) return '-'
+        const allDims = ['technical', 'institutional', 'industry', 'fundamental', 'attention']
+        const selectedSet = new Set(store.selectedDimensions)
+
+        return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '2px', fontSize: '11px' } },
+          allDims.map(dim => {
+            const val = ds[dim] ?? 0
+            const pct = Math.max(0, Math.min(100, Math.round(val * 100)))
+            const isSelected = selectedSet.has(dim)
+            const isWarning = !isSelected && val < 0.4
+            const label = dimLabels[dim] || dim
+
+            return h('div', {
+              style: {
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: isSelected ? 1 : 0.5,
+              },
+            }, [
+              h('span', { style: { width: '38px', textAlign: 'right', flexShrink: 0 } },
+                isWarning ? `[!]${label}` : label),
+              h('div', {
+                style: {
+                  flex: 1,
+                  height: '10px',
+                  background: 'var(--n-color-embedded)',
+                  borderRadius: '2px',
+                  overflow: 'hidden',
+                },
+              }, [
+                h('div', {
+                  style: {
+                    width: `${Math.max(0, pct)}%`,
+                    height: '100%',
+                    background: simColor(val),
+                    borderRadius: '2px',
+                  },
+                }),
+              ]),
+              h('span', {
+                style: {
+                  width: '32px',
+                  textAlign: 'right',
+                  flexShrink: 0,
+                  color: simColor(val),
+                  fontWeight: isWarning ? 700 : 400,
+                },
+              }, `${Math.round(val * 100)}%`),
+            ])
+          })
+        )
+      },
+    })
+  }
+
+  return baseCols
 }
 
-const tableColumns = computed(() => makeTableColumns())
+const rawTableColumns = computed(() => makeTableColumns(true))
+const augTableColumns = computed(() => makeTableColumns(true))
 
 // --- Spaghetti Chart ---
 function buildSpaghettiOption(paths: ForwardPath[], label: string) {
   if (!paths || paths.length === 0) return null
 
-  // Individual paths (grey lines)
   const series: any[] = paths.map((p, i) => ({
     type: 'line',
     data: p.path.map(pt => [pt.day, pt.value]),
@@ -95,7 +202,6 @@ function buildSpaghettiOption(paths: ForwardPath[], label: string) {
     z: 1,
   }))
 
-  // Compute median path + P25/P75 band
   const maxDay = Math.max(...paths.flatMap(p => p.path.map(pt => pt.day)))
   const medianPath: [number, number][] = []
   const p25Path: [number, number][] = []
@@ -115,50 +221,31 @@ function buildSpaghettiOption(paths: ForwardPath[], label: string) {
     p75Path.push([d, p75])
   }
 
-  // P25-P75 confidence band (area between)
   if (p25Path.length > 0) {
     series.push({
-      type: 'line',
-      data: p75Path,
-      lineStyle: { width: 0 },
-      symbol: 'none',
+      type: 'line', data: p75Path,
+      lineStyle: { width: 0 }, symbol: 'none',
       areaStyle: { color: 'rgba(84, 112, 198, 0.12)' },
-      stack: 'band',
-      silent: true,
-      z: 2,
+      stack: 'band', silent: true, z: 2,
     })
     series.push({
-      type: 'line',
-      data: p25Path,
-      lineStyle: { width: 0 },
-      symbol: 'none',
+      type: 'line', data: p25Path,
+      lineStyle: { width: 0 }, symbol: 'none',
       areaStyle: { color: 'rgba(84, 112, 198, 0.12)' },
-      stack: 'band',
-      silent: true,
-      z: 2,
+      stack: 'band', silent: true, z: 2,
     })
   }
 
-  // Median path (bold colored line)
   const lastMedian = medianPath.length > 0 ? medianPath[medianPath.length - 1][1] : 1
   const medianColor = lastMedian >= 1 ? '#e53e3e' : '#38a169'
   series.push({
-    type: 'line',
-    data: medianPath,
-    name: '中位數路徑',
-    lineStyle: { width: 3, color: medianColor },
-    symbol: 'none',
-    z: 10,
+    type: 'line', data: medianPath, name: '中位數路徑',
+    lineStyle: { width: 3, color: medianColor }, symbol: 'none', z: 10,
   })
-
-  // Base line at 1.0
   series.push({
-    type: 'line',
-    data: [[0, 1], [maxDay, 1]],
+    type: 'line', data: [[0, 1], [maxDay, 1]],
     lineStyle: { width: 1, color: '#888', type: 'dashed' },
-    symbol: 'none',
-    silent: true,
-    z: 5,
+    symbol: 'none', silent: true, z: 5,
   })
 
   return {
@@ -175,9 +262,7 @@ function buildSpaghettiOption(paths: ForwardPath[], label: string) {
     },
     grid: { left: 50, right: 20, top: 10, bottom: 35 },
     xAxis: {
-      type: 'value',
-      name: '交易日',
-      nameLocation: 'end',
+      type: 'value', name: '交易日', nameLocation: 'end',
       axisLabel: { color: colors.value.axisLabel, formatter: (v: number) => `T+${v}` },
       splitLine: { show: false },
     },
@@ -206,12 +291,24 @@ const augSpaghettiOption = computed(() => {
 // --- Feature status ---
 const dataReady = computed(() => store.featureStatus?.features_exists === true)
 
-// --- Confidence color ---
-function confidenceColor(c: string) {
-  if (c === 'high') return '#38a169'
-  if (c === 'medium') return '#d69e2e'
-  return '#e53e3e'
-}
+// --- Block 1 dynamic title ---
+const rawBlockTitle = computed(() => {
+  if (!store.result) return '原始數據'
+  const dims = store.result.dimensions_used
+  if (!dims || dims.length === 5) return '原始數據'
+  return dims.map(d => dimLabels[d] || d).join('+') + ' 相似案例'
+})
+
+// --- Block 2 weight transparency text ---
+const weightTransparencyText = computed(() => {
+  const wt = store.result?.augmented?.opinion?.weight_transparency
+  if (!wt) return ''
+  const parts = Object.entries(wt)
+    .filter(([, v]) => v !== 1.0)
+    .map(([k, v]) => `${dimLabels[k] || k} ${v}x`)
+  if (parts.length === 0) return '系統加權：均等'
+  return `系統加權：${parts.join(', ')}`
+})
 </script>
 
 <template>
@@ -224,7 +321,7 @@ function confidenceColor(c: string) {
       </NAlert>
     </NGi>
 
-    <!-- Controls: Stock + Date + Query (one line) -->
+    <!-- Controls: Stock + Date + TopK + Query -->
     <NGi>
       <NCard size="small">
         <NSpace align="center" :wrap="false" :size="12">
@@ -260,6 +357,21 @@ function confidenceColor(c: string) {
             · {{ regimeLabels[store.result.query.regime] || '?' }}
           </NText>
         </NSpace>
+
+        <!-- R88.3: Dimension tags (Lenses) -->
+        <NSpace v-if="store.dimensions.length > 0" :size="6" style="margin-top: 8px">
+          <NText depth="3" style="font-size: 11px; line-height: 24px">維度：</NText>
+          <NTag
+            v-for="dim in store.dimensions"
+            :key="dim.name"
+            :checked="store.selectedDimensions.includes(dim.name)"
+            checkable
+            size="small"
+            @update:checked="toggleDimension(dim.name)"
+          >
+            {{ dimLabels[dim.name] || dim.name }} ({{ dim.feature_count }})
+          </NTag>
+        </NSpace>
       </NCard>
     </NGi>
 
@@ -281,7 +393,7 @@ function confidenceColor(c: string) {
         <template #header>
           <NSpace align="center" :size="8">
             <NTag type="default" :bordered="false" size="small">區塊 1</NTag>
-            <NText strong>{{ store.result.raw.label }}</NText>
+            <NText strong>{{ rawBlockTitle }}</NText>
             <NText depth="3" style="font-size: 11px">{{ store.result.raw.description }}</NText>
           </NSpace>
         </template>
@@ -291,7 +403,6 @@ function confidenceColor(c: string) {
           </NTag>
         </template>
 
-        <!-- Small sample warning -->
         <NAlert
           v-if="store.result.raw.statistics.small_sample_warning"
           type="warning"
@@ -351,14 +462,14 @@ function confidenceColor(c: string) {
           <VChart :option="rawSpaghettiOption" style="height: 260px; width: 100%" autoresize />
         </div>
 
-        <!-- Cases table (collapsed by default) -->
+        <!-- Cases table with gene map -->
         <NCollapse style="margin-top: 8px">
-          <NCollapseItem title="相似案例明細" name="raw-cases">
+          <NCollapseItem title="相似案例明細 + 基因譜" name="raw-cases">
             <NDataTable
-              :columns="tableColumns"
+              :columns="rawTableColumns"
               :data="store.result!.raw.similar_cases"
               :pagination="{ pageSize: 15 }"
-              :scroll-x="600"
+              :scroll-x="850"
               size="small"
               striped
             />
@@ -418,8 +529,8 @@ function confidenceColor(c: string) {
           {{ store.result.augmented.opinion.advice_text }}
         </div>
 
-        <!-- Filters applied tags -->
-        <NSpace v-if="store.result.augmented.opinion" :size="4" style="margin-bottom: 8px">
+        <!-- Filters + weight transparency [R88.3 ARCHITECT] -->
+        <NSpace v-if="store.result.augmented.opinion" :size="4" style="margin-bottom: 8px" wrap>
           <NTag
             v-for="f in store.result.augmented.opinion.filters_applied"
             :key="f"
@@ -428,6 +539,9 @@ function confidenceColor(c: string) {
             type="info"
           >
             {{ f }}
+          </NTag>
+          <NTag v-if="weightTransparencyText" size="tiny" :bordered="false" type="default">
+            {{ weightTransparencyText }}
           </NTag>
         </NSpace>
 
@@ -473,14 +587,14 @@ function confidenceColor(c: string) {
           <VChart :option="augSpaghettiOption" style="height: 260px; width: 100%" autoresize />
         </div>
 
-        <!-- Cases table (collapsed) -->
+        <!-- Cases table with gene map -->
         <NCollapse style="margin-top: 8px">
-          <NCollapseItem title="相似案例明細" name="aug-cases">
+          <NCollapseItem title="相似案例明細 + 基因譜" name="aug-cases">
             <NDataTable
-              :columns="tableColumns"
+              :columns="augTableColumns"
               :data="store.result!.augmented.similar_cases"
               :pagination="{ pageSize: 15 }"
-              :scroll-x="600"
+              :scroll-x="850"
               size="small"
               striped
             />

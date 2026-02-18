@@ -20,6 +20,10 @@ class DualSimilarRequest(BaseModel):
     query_date: str | None = Field(default=None, description="查詢日期 (YYYY-MM-DD)，預設最新")
     top_k: int = Field(default=30, ge=5, le=100, description="回傳前 K 個相似案例")
     exclude_self: bool = Field(default=True, description="排除自身股票")
+    dimensions: list[str] | None = Field(
+        default=None,
+        description="Block 1 使用的維度（None=全部）。可選: technical, institutional, industry, fundamental, attention",
+    )
 
 
 class SimilarRequest(BaseModel):
@@ -48,6 +52,7 @@ def query_similar_dual(req: DualSimilarRequest):
             query_date=req.query_date,
             top_k=req.top_k,
             exclude_self=req.exclude_self,
+            dimensions=req.dimensions,
         )
         return result
     except FileNotFoundError as e:
