@@ -875,18 +875,35 @@ def _run_parquet_rebuild():
         )
 
         if result.returncode == 0:
-            logger.info("Parquet rebuild: completed successfully")
+            # Extract timing info from stdout if available
+            elapsed_info = ""
+            for line in result.stdout.splitlines()[-5:]:
+                if "Done" in line or "elapsed" in line.lower() or "Step" in line:
+                    elapsed_info += line + "\n"
+            logger.info(f"Parquet rebuild: completed successfully\n{elapsed_info}")
         else:
+            # [CONVERGED — Trader 2026-02-18]: Include full traceback in notification
             logger.error(f"Parquet rebuild failed: {result.stderr[-500:]}")
             _send_notification(
                 f"\n⚠️ Parquet 重建失敗\n"
                 f"Exit code: {result.returncode}\n"
-                f"Error: {result.stderr[-200:]}"
+                f"Traceback:\n{result.stderr[-500:]}"
             )
     except subprocess.TimeoutExpired:
         logger.error("Parquet rebuild: timed out (30 minutes)")
+        _send_notification(
+            "\n⚠️ Parquet 重建超時\n"
+            "build_features.py 執行超過 30 分鐘，已被終止"
+        )
     except Exception as e:
+        import traceback
+        tb = traceback.format_exc()
         logger.error(f"Parquet rebuild failed: {e}", exc_info=True)
+        _send_notification(
+            f"\n⚠️ Parquet 重建異常\n"
+            f"Error: {str(e)}\n"
+            f"Traceback:\n{tb[-500:]}"
+        )
 
 
 def stop_scheduler():
