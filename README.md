@@ -233,6 +233,7 @@ python -m pytest tests/ -q
 | R88.7P3 | Winner Branch Registry — Bootstrap CI + Ghost Bias (Wall Street Trader Approved) | Done |
 | R88.7P4 | Tiered Registry + broker_winner_momentum (14th feature) (Trader CONVERGED) | Done |
 | R88.7P5 | Parquet Integration — 50→60 features, brokerage 4→14 (Gene Map Ready) | Done |
+| R88.7P6 | Trader Rulings: Warmup Mask + Cron 18:30 + Weekly Registry (Trader APPROVED) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -369,6 +370,11 @@ python -m pytest tests/ -q
 - 109,195 broker records → merged into 1,628,668 daily rows
 - 292.5 MB features_all.parquet (1096 stocks, 2020-2026)
 - Cluster search auto-adapts: 60 features, 6 dimensions, Gene Map ready
+
+**Trader Rulings (R88.7 Phase 6)** [APPROVED — Wall Street Trader 2026-02-18]:
+- **Warmup Mask**: 4 sparse features (branch_overlap, volatility, price_divergence, winner_momentum) → zero weight in cosine similarity. Frontend shows &#9203; "Data Accumulating" markers
+- **Cron Schedule**: Daily broker fetch at 18:30, Parquet rebuild at 19:00 (Mon-Fri)
+- **Weekly Registry**: Winner Registry auto-recalculates Saturday 02:00. CI >= 1.0 threshold maintained — "寧可整天不開火，也不要打歪"
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)

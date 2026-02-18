@@ -367,6 +367,7 @@ def start_scheduler(interval_minutes: int = 5):
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.interval import IntervalTrigger
+        from apscheduler.triggers.cron import CronTrigger
     except ImportError:
         logger.warning("APScheduler not installed. Run: pip install apscheduler")
         return
@@ -442,6 +443,36 @@ def start_scheduler(interval_minutes: int = 5):
         trigger=IntervalTrigger(hours=4),
         id="twse_daily_sync",
         name="TWSE/TPEX Daily Sync",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # R88.7: Daily broker fetch at 18:30 (Mon-Fri)
+    # [CONVERGED — Wall Street Trader 2026-02-18: "18:30 比 17:30 安全"]
+    _scheduler.add_job(
+        _run_daily_broker_fetch,
+        trigger=CronTrigger(hour=18, minute=30, day_of_week="mon-fri"),
+        id="daily_broker_fetch",
+        name="Daily Broker Fetch (R88.7)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # R88.7: Parquet rebuild at 19:00 (Mon-Fri, after broker fetch)
+    _scheduler.add_job(
+        _run_parquet_rebuild,
+        trigger=CronTrigger(hour=19, minute=0, day_of_week="mon-fri"),
+        id="parquet_rebuild",
+        name="Parquet Feature Rebuild (R88.7)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # R88.7: Weekly Winner Registry recalculation (Saturday 02:00)
+    # [CONVERGED — Wall Street Trader 2026-02-18]
+    # "每週末自動重算一次 Winner Registry，讓 Tier 2 有機會向上流動"
+    _scheduler.add_job(
+        _run_winner_registry_rebuild,
+        trigger=CronTrigger(hour=2, minute=0, day_of_week="sat"),
+        id="winner_registry_rebuild",
+        name="Winner Registry Rebuild (R88.7)",
         replace_existing=True,
         max_instances=1,
     )
@@ -746,6 +777,116 @@ def _run_twse_daily_sync():
         logger.info(f"TWSE daily sync: {synced}/{len(codes)} stocks updated")
     except Exception as e:
         logger.warning(f"TWSE daily sync failed: {e}")
+
+
+def _run_winner_registry_rebuild():
+    """R88.7: Scheduled job — rebuild Winner Registry weekly (Saturday 02:00).
+
+    [CONVERGED — Wall Street Trader 2026-02-18]
+    "每週末自動重算一次 Winner Registry，讓 Tier 2 有機會向上流動。
+    保持 CI >= 1.0 的門檻，嚴禁為了好看而降低門檻。"
+    """
+    try:
+        from analysis.winner_registry import build_registry
+
+        logger.info("Winner Registry rebuild: starting ...")
+        result = build_registry()
+
+        tier1 = sum(1 for v in result.values() if isinstance(v, dict) and v.get("tier") == 1)
+        tier2 = sum(1 for v in result.values() if isinstance(v, dict) and v.get("tier") == 2)
+        total = tier1 + tier2
+
+        logger.info(
+            f"Winner Registry rebuild: {total} winners "
+            f"(Tier 1: {tier1}, Tier 2: {tier2})"
+        )
+
+        # Notify on Tier 1 changes
+        _send_notification(
+            f"\n🏆 Winner Registry 週更完成\n"
+            f"Tier 1 (Sniper Ready): {tier1}\n"
+            f"Tier 2 (Observer): {tier2}\n"
+            f"總計: {total}"
+        )
+    except Exception as e:
+        logger.error(f"Winner Registry rebuild failed: {e}", exc_info=True)
+
+
+def _run_daily_broker_fetch():
+    """R88.7: Scheduled job — fetch daily broker data at 18:30.
+
+    [CONVERGED — Wall Street Trader 2026-02-18]
+    Run after market data settles (18:30 > 17:30 to avoid stale data).
+    """
+    try:
+        from data.fetch_broker_daily import run_daily_fetch
+        from datetime import datetime
+
+        today = datetime.now()
+        if today.weekday() >= 5:
+            logger.debug("Daily broker fetch: weekend, skipping")
+            return
+
+        date_str = today.strftime("%Y%m%d")
+        summary = run_daily_fetch(date_str=date_str, workers=10)
+
+        ok = summary.get("ok", 0)
+        quality = summary.get("quality", "unknown")
+        elapsed = summary.get("elapsed_seconds", 0)
+        logger.info(
+            f"Daily broker fetch: {ok} stocks OK, quality={quality}, {elapsed:.1f}s"
+        )
+
+        # Notify if quality is poor
+        if quality == "data_insufficient":
+            _send_notification(
+                f"\n⚠️ 分點日頻資料品質不足\n"
+                f"日期: {date_str}\n"
+                f"成功: {ok} / {summary.get('stocks_total', 0)}\n"
+                f"失敗率: {summary.get('fail_rate', 0):.1%}"
+            )
+    except Exception as e:
+        logger.error(f"Daily broker fetch failed: {e}", exc_info=True)
+
+
+def _run_parquet_rebuild():
+    """R88.7: Scheduled job — rebuild Parquet features at 19:00.
+
+    [CONVERGED — Wall Street Trader 2026-02-18]
+    Runs after daily broker fetch completes (18:30 → 19:00).
+    """
+    try:
+        import subprocess
+        import sys
+        from datetime import datetime
+
+        today = datetime.now()
+        if today.weekday() >= 5:
+            logger.debug("Parquet rebuild: weekend, skipping")
+            return
+
+        logger.info("Parquet rebuild: starting build_features.py ...")
+        result = subprocess.run(
+            [sys.executable, "-m", "data.build_features"],
+            capture_output=True,
+            text=True,
+            timeout=1800,  # 30 minutes max
+            cwd=str(DATA_DIR.parent),
+        )
+
+        if result.returncode == 0:
+            logger.info("Parquet rebuild: completed successfully")
+        else:
+            logger.error(f"Parquet rebuild failed: {result.stderr[-500:]}")
+            _send_notification(
+                f"\n⚠️ Parquet 重建失敗\n"
+                f"Exit code: {result.returncode}\n"
+                f"Error: {result.stderr[-200:]}"
+            )
+    except subprocess.TimeoutExpired:
+        logger.error("Parquet rebuild: timed out (30 minutes)")
+    except Exception as e:
+        logger.error(f"Parquet rebuild failed: {e}", exc_info=True)
 
 
 def stop_scheduler():

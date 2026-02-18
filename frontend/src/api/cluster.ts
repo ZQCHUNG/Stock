@@ -157,7 +157,10 @@ export interface DimensionInfo {
   name: string
   label: string
   feature_count: number
+  active_feature_count: number
   features: string[]
+  warmup_features: string[]
+  has_warmup: boolean
 }
 
 export interface FeatureStatus {

@@ -52,6 +52,17 @@ SNIPER_FUND_THRESHOLD = 0.50  # [CONVERGED] Fundamental dim similarity >= 50%
 TACTICAL_FUND_THRESHOLD = 0.40  # [CONVERGED] Tactical tier >= 40%
 SNIPER_LABEL = "[EXPERIMENTAL]"  # [CONVERGED] n=45 < 50, pending more data
 
+# R88.7 Phase 5: Sparse features that need daily data accumulation
+# [CONVERGED — Wall Street Trader 2026-02-18]
+# These features are all-zero under monthly-only data. Zero-weight them
+# in cosine similarity to avoid diluting the effective features.
+WARMUP_FEATURES = frozenset([
+    "branch_overlap_count",      # Needs cross-stock daily data
+    "daily_net_buy_volatility",  # Needs multiple daily data points
+    "broker_price_divergence",   # Needs intra-period OHLC+ATR
+    "broker_winner_momentum",    # Only 16 winners, extremely sparse
+])
+
 # Augmented pipeline: feature weighting [CONVERGED with Gemini]
 AUGMENTED_FEATURE_WEIGHTS = {
     "atr_pct": 1.5,
@@ -88,6 +99,7 @@ _price_cache: Optional[pd.DataFrame] = None
 _price_grouped: Optional[dict] = None  # stock_code → DataFrame subset
 _norms: Optional[np.ndarray] = None  # Pre-computed row norms
 _dim_col_indices: Optional[dict] = None  # dimension name → column indices
+_warmup_mask: Optional[np.ndarray] = None  # True = active feature, False = warming up
 
 # Dimension display labels (Chinese)
 DIMENSION_LABELS = {
@@ -185,9 +197,25 @@ def _load_data():
             }
         logger.info("Price cache grouped: %d stocks", len(_price_grouped))
 
+    # R88.7: Build warmup mask — detect features with near-zero coverage
+    global _warmup_mask
+    _warmup_mask = np.ones(len(_feature_cols), dtype=bool)
+    warmup_count = 0
+    for feat_name in WARMUP_FEATURES:
+        if feat_name in _feature_cols:
+            idx = _feature_cols.index(feat_name)
+            col_data = _features_matrix[:, idx]
+            nonzero_pct = float(np.count_nonzero(col_data) / len(col_data))
+            if nonzero_pct < 0.01:  # Less than 1% non-zero → warming up
+                _warmup_mask[idx] = False
+                warmup_count += 1
+                logger.info("Warmup feature: %s (%.1f%% non-zero)", feat_name, nonzero_pct * 100)
+    logger.info("Warmup features masked: %d of %d", warmup_count, len(WARMUP_FEATURES))
+
     logger.info(
-        "Loaded %d rows, %d features, %d stocks",
+        "Loaded %d rows, %d features (%d active), %d stocks",
         len(_features_matrix), _features_matrix.shape[1],
+        int(np.sum(_warmup_mask)),
         _feature_index["stock_code"].nunique(),
     )
 
@@ -565,13 +593,23 @@ def _find_cases(
     query_vector = _features_matrix[query_idx]
 
     # Dimension filtering: zero out non-selected dimensions [R88.3]
+    # R88.7: Also zero-weight warmup features (sparse, data accumulating)
     effective_weights = weights
     if dimensions:
         dim_mask = _get_dimension_mask(dimensions)
+        # Apply warmup mask: exclude warming-up features
+        dim_mask &= _warmup_mask
         if effective_weights is not None:
             effective_weights = effective_weights * dim_mask.astype(np.float32)
         else:
             effective_weights = dim_mask.astype(np.float32)
+    elif _warmup_mask is not None and not np.all(_warmup_mask):
+        # No dimension filter, but still apply warmup mask
+        warmup_w = _warmup_mask.astype(np.float32)
+        if effective_weights is not None:
+            effective_weights = effective_weights * warmup_w
+        else:
+            effective_weights = warmup_w
 
     # Compute cosine similarity
     similarities = _cosine_similarity_weighted(
@@ -819,9 +857,20 @@ def find_similar_dual(
             meta["dimensions"][d]["count"]
             for d in dimensions if d in meta["dimensions"]
         )
-        raw_desc = f"{'+'.join(dim_labels)} ({feat_count} 指標)，等權重，無環境過濾"
+        # R88.7: Subtract warmup features from reported count
+        warmup_in_dims = sum(
+            1 for d in dimensions if d in meta["dimensions"]
+            for f in meta["dimensions"][d]["features"] if f in WARMUP_FEATURES
+        )
+        active_count = feat_count - warmup_in_dims
+        if warmup_in_dims > 0:
+            raw_desc = f"{'+'.join(dim_labels)} ({active_count}/{feat_count} 指標)，等權重，無環境過濾"
+        else:
+            raw_desc = f"{'+'.join(dim_labels)} ({feat_count} 指標)，等權重，無環境過濾"
     else:
-        raw_desc = "50 指標等權重，無環境過濾，歷史全量比對"
+        total = len(_feature_cols) if _feature_cols else 60
+        active = int(np.sum(_warmup_mask)) if _warmup_mask is not None else total
+        raw_desc = f"{active}/{total} 指標等權重，無環境過濾，歷史全量比對"
 
     # --- Block 1: Raw (The Facts) ---
     raw_cases, query_info = _find_cases(
@@ -934,15 +983,22 @@ def find_similar(
 
 
 def get_dimensions() -> list[dict]:
-    """Return available dimensions with feature counts."""
+    """Return available dimensions with feature counts and warmup status."""
     meta = _load_metadata()
     result = []
     for name, info in meta["dimensions"].items():
+        # R88.7: Mark features that are warming up (data accumulating)
+        warmup_features = [f for f in info["features"] if f in WARMUP_FEATURES]
+        active_count = info["count"] - len(warmup_features)
+
         result.append({
             "name": name,
             "label": info["description"],
             "feature_count": info["count"],
+            "active_feature_count": active_count,
             "features": info["features"],
+            "warmup_features": warmup_features,
+            "has_warmup": len(warmup_features) > 0,
         })
     return result
 

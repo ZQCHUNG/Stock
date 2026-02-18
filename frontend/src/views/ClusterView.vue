@@ -36,6 +36,15 @@ const dimLabels: Record<string, string> = {
   attention: '關注度',
 }
 
+// R88.7: Track warmup features for UI markers
+const warmupDimensions = computed(() => {
+  const set = new Set<string>()
+  for (const dim of store.dimensions) {
+    if (dim.has_warmup) set.add(dim.name)
+  }
+  return set
+})
+
 // --- Gene map color thresholds [ARCHITECT: >90 deep green, 70-90 light green, <50 red] ---
 function simColor(v: number): string {
   if (v >= 0.9) return '#16a34a'   // deep green
@@ -138,6 +147,7 @@ function makeTableColumns(showGeneMap: boolean): DataTableColumns<any> {
             const pct = Math.max(0, Math.min(100, Math.round(val * 100)))
             const isSelected = selectedSet.has(dim)
             const isWarning = !isSelected && val < 0.4
+            const isWarmup = warmupDimensions.value.has(dim)
             const label = dimLabels[dim] || dim
 
             return h('div', {
@@ -147,9 +157,10 @@ function makeTableColumns(showGeneMap: boolean): DataTableColumns<any> {
                 gap: '4px',
                 opacity: isSelected ? 1 : 0.5,
               },
+              title: isWarmup ? '部分特徵數據累積中' : undefined,
             }, [
               h('span', { style: { width: '38px', textAlign: 'right', flexShrink: 0 } },
-                isWarning ? `[!]${label}` : label),
+                isWarning ? `[!]${label}` : (isWarmup ? `\u23F3${label}` : label)),
               h('div', {
                 style: {
                   flex: 1,
@@ -163,7 +174,7 @@ function makeTableColumns(showGeneMap: boolean): DataTableColumns<any> {
                   style: {
                     width: `${Math.max(0, pct)}%`,
                     height: '100%',
-                    background: simColor(val),
+                    background: isWarmup ? '#9ca3af' : simColor(val),
                     borderRadius: '2px',
                   },
                 }),
@@ -173,7 +184,7 @@ function makeTableColumns(showGeneMap: boolean): DataTableColumns<any> {
                   width: '32px',
                   textAlign: 'right',
                   flexShrink: 0,
-                  color: simColor(val),
+                  color: isWarmup ? '#9ca3af' : simColor(val),
                   fontWeight: isWarning ? 700 : 400,
                 },
               }, `${Math.round(val * 100)}%`),
@@ -392,7 +403,9 @@ const weightTransparencyText = computed(() => {
             size="small"
             @update:checked="toggleDimension(dim.name)"
           >
-            {{ dimLabels[dim.name] || dim.name }} ({{ dim.feature_count }})
+            {{ dimLabels[dim.name] || dim.name }}
+            ({{ dim.has_warmup ? `${dim.active_feature_count}/${dim.feature_count}` : dim.feature_count }})
+            <span v-if="dim.has_warmup" title="部分特徵數據累積中" style="margin-left: 2px">&#9203;</span>
           </NTag>
         </NSpace>
       </NCard>
