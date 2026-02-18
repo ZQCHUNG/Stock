@@ -32,6 +32,7 @@ Stock/
 │   ├── pattern_matcher.py    # DTW 相似線型比對 (R64)
 │   ├── cluster_search.py     # Multi-Dim Similarity Search (R88)
 │   ├── broker_features.py    # Daily Brokerage 13 Features (R88.7)
+│   ├── winner_registry.py    # Winner Branch Registry (R88.7 P3)
 │   ├── signal_tracker.py     # Forward testing (SQLite)
 │   ├── vcp_detector.py       # VCP Detection (Minervini-style) (R85)
 │   ├── stop_loss.py          # ATR-Based Stop Calculator (R86)
@@ -229,6 +230,7 @@ python -m pytest tests/ -q
 | R88.5 | Sniper Confidence Tiering — 6-year stress test validated (Wall Street Trader Approved) | Done |
 | R88.6 | Brokerage Dimension Split — 分點面獨立第6維度 (Wall Street Trader Approved) | Done |
 | R88.7 | Method C: Daily Brokerage Scraper + 13 Features (Wall Street Trader Approved) | Done |
+| R88.7P3 | Winner Branch Registry — Bootstrap CI + Ghost Bias (Wall Street Trader Approved) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -346,14 +348,23 @@ python -m pytest tests/ -q
 - Timestamp 校驗: response.end_date == query_date [CONVERGED]
 - 缺失降級: >50% NaN → 維度不計入, 25-50% → 50% discount [CONVERGED]
 - Winner Registry: Score = WR × (AvgProfit/AvgLoss) > 1.1, n>=15 [PLACEHOLDER]
-- 44 tests 全通過
+- 44 tests (features) + 35 tests (winner) 全通過
+
+**Winner Branch Registry (R88.7 Phase 3)**:
+- 109K 月頻分點檔案掃描 → 545K 買超實例 → 806 分點代碼
+- Winner Score = Win Rate × (Avg D21 Profit / |Avg D21 Loss|)
+- Bootstrap CI (1000 iterations, per-broker deterministic seed) → 95% CI lower >= 0.8
+- Ghost Bias 偵測: 單一產業 > 50% 則標記打折 (跨 38 產業鏈 + 14 L1 行業)
+- 4 Winners 通過: 統一-南京(2.237), 美商高盛×2(1.560/1.324), 臺銀-高雄(1.132)
+- 存檔: `data/pattern_data/winner_branches.json`
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 50 features Parquet (234.8 MB, 1096 stocks)
 - `data/fetch_broker_daily.py` — R88.7 日頻分點爬蟲 (Fubon DJhtm, 10 workers)
 - `analysis/cluster_search.py` — Dual-Pipeline + Per-Dimension Similarity 引擎
 - `analysis/broker_features.py` — R88.7 13 日頻分點特徵計算引擎
-- `backend/routers/cluster.py` — 4 API endpoints (similar-dual, similar, dimensions, feature-status)
+- `analysis/winner_registry.py` — R88.7 Phase 3 Winner Branch Registry
+- `backend/routers/cluster.py` — 5 API endpoints (similar-dual, similar, dimensions, feature-status, winner-registry)
 - `frontend/src/views/ClusterView.vue` — Dual Block + Gene Map + Dimension Lens UI
 
 ### Auto Trail Classifier (R73-R79)

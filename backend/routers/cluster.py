@@ -104,3 +104,19 @@ def feature_status():
     from analysis.cluster_search import get_feature_status
 
     return get_feature_status()
+
+
+@router.get("/winner-registry")
+def get_winner_registry():
+    """取得 Winner Branch Registry 資訊。"""
+    from analysis.winner_registry import load_registry, WINNER_OUTPUT_PATH
+
+    registry_data = load_registry(WINNER_OUTPUT_PATH)
+    if not registry_data:
+        return {"winners": {}, "count": 0, "status": "not_built"}
+
+    return {
+        "winners": registry_data,
+        "count": len(registry_data),
+        "status": "ready",
+    }

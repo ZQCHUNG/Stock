@@ -36,6 +36,22 @@ FOREIGN_BROKER_PATTERNS = [
 ]
 
 DAILY_DIR = Path(__file__).parent.parent / "data" / "pattern_data" / "raw" / "broker_daily"
+WINNER_REGISTRY_PATH = Path(__file__).parent.parent / "data" / "pattern_data" / "winner_branches.json"
+
+# Cached winner registry (loaded once)
+_winner_registry_cache = None
+
+
+def get_winner_registry() -> dict:
+    """Load winner registry, cached after first load."""
+    global _winner_registry_cache
+    if _winner_registry_cache is None:
+        try:
+            from analysis.winner_registry import load_registry
+            _winner_registry_cache = load_registry(WINNER_REGISTRY_PATH)
+        except Exception:
+            _winner_registry_cache = {}
+    return _winner_registry_cache
 
 
 def _parse_lots(val: str) -> int:
