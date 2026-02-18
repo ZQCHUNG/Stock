@@ -234,7 +234,7 @@ python -m pytest tests/ -q
 | R88.7P4 | Tiered Registry + broker_winner_momentum (14th feature) (Trader CONVERGED) | Done |
 | R88.7P5 | Parquet Integration — 50→60 features, brokerage 4→14 (Gene Map Ready) | Done |
 | R88.7P6 | Trader Rulings: Warmup Mask + Cron 18:30 + Weekly Registry (Trader APPROVED) | Done |
-| R88.7P7 | Trader Bulletproof: Canary Check + Atomic Swap + Rate Jitter (Trader APPROVED) | Done |
+| R88.7P7 | Trader Bulletproof: Canary Check + Atomic Swap + Rate Jitter + Gene Mutation Scanner (Trader APPROVED) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -381,6 +381,7 @@ python -m pytest tests/ -q
 - **Canary Check**: Before full market fetch, test 2330 (TSMC) + 2317 (Hon Hai). If timestamps are stale → abort entire run, save API quota
 - **Atomic Swap**: Write `features_all_temp.parquet` first, validate row count & file size within ±5% of previous, then `mv` to replace. Prevents mid-rebuild corruption
 - **Rate Limit Jitter**: `random.uniform(0.1, 0.5)` between each request to avoid WAF detection on government APIs
+- **Gene Mutation Scanner**: `scan_gene_mutations()` — Δ_div = Score_brokerage - Score_technical. >1.5σ = "匿蹤吸貨", <-1.5σ = "誘多派發". Weighted Z-score with warmup exclusion. API: GET `/api/cluster/mutations`
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)
