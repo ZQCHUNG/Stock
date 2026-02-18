@@ -1030,3 +1030,214 @@ def get_feature_status() -> dict:
         status["date_range"] = _metadata.get("date_range")
 
     return status
+
+
+# ============================================================
+# Gene Mutation Scanner (R88.7 Phase 7)
+# [CONVERGED — Wall Street Trader 2026-02-18]
+# "Δ_div = Score_brokerage - Score_technical"
+# ">1.5σ = 匿蹤吸貨, <-1.5σ = 誘多派發"
+# ============================================================
+
+# [PLACEHOLDER] Feature weights — equal for now, tune after 2/23 first flight
+MUTATION_WEIGHTS_CONFIG = {
+    "brokerage": {
+        "broker_winner_momentum": 2.5,
+        "broker_purity_score": 2.0,
+        "broker_net_buy_ratio": 1.5,
+        "_default": 1.0,
+    },
+    "technical": {
+        "atr_pct": 1.5,
+        "vol_ratio_20": 1.5,
+        "_default": 1.0,
+    },
+}
+
+# [PLACEHOLDER] Liquidity filter — vol_ratio_20 Z-score > -2 as proxy
+# (raw volume not in Z-score space, use vol_ratio_20 instead)
+MUTATION_VOLUME_FLOOR_ZSCORE = -2.0
+
+
+def scan_gene_mutations(
+    threshold_sigma: float = 1.5,
+    top_n: int = 10,
+    weights_config: dict | None = None,
+    use_weights: bool = False,
+) -> dict:
+    """Scan for Brokerage vs Technical divergence across all stocks.
+
+    [CONVERGED — Wall Street Trader 2026-02-18]
+    Detects stocks where brokerage dimension Z-score significantly diverges
+    from technical dimension Z-score, indicating hidden accumulation or
+    deceptive distribution.
+
+    Args:
+        threshold_sigma: Minimum |Δ_div| to qualify as mutation (default 1.5)
+        top_n: Return top N mutations by |Δ_div|
+        weights_config: Feature weights per dimension (None = equal weights for baseline)
+        use_weights: If True, use weighted average; if False, arithmetic mean (baseline)
+
+    Returns:
+        Dict with mutations list, histogram data, and metadata.
+    """
+    _load_data()
+
+    if _features_matrix is None or _feature_index is None:
+        return {"error": "Features not loaded", "mutations": []}
+
+    if weights_config is None:
+        weights_config = MUTATION_WEIGHTS_CONFIG
+
+    dim_indices = _get_dimension_col_indices()
+
+    # Need both brokerage and technical dimensions
+    if "brokerage" not in dim_indices or "technical" not in dim_indices:
+        return {"error": "Missing brokerage or technical dimension", "mutations": []}
+
+    brok_cols = dim_indices["brokerage"]
+    tech_cols = dim_indices["technical"]
+
+    # Filter out warmup features from brokerage dimension
+    if _warmup_mask is not None:
+        brok_active = np.array([c for c in brok_cols if _warmup_mask[c]])
+    else:
+        brok_active = brok_cols
+    tech_active = tech_cols  # Technical has no warmup features
+
+    if len(brok_active) == 0 or len(tech_active) == 0:
+        return {"error": "No active features after warmup mask", "mutations": []}
+
+    # Get latest date for each stock
+    dates = _feature_index["date"].values
+    stocks = _feature_index["stock_code"].values
+    unique_stocks = np.unique(stocks)
+
+    # Build weights arrays
+    if use_weights:
+        brok_w = _build_weight_array(brok_active, "brokerage", weights_config)
+        tech_w = _build_weight_array(tech_active, "technical", weights_config)
+    else:
+        brok_w = np.ones(len(brok_active), dtype=np.float32)
+        tech_w = np.ones(len(tech_active), dtype=np.float32)
+
+    # Find latest row index for each stock
+    latest_indices = {}
+    for i in range(len(stocks) - 1, -1, -1):
+        s = stocks[i]
+        if s not in latest_indices:
+            latest_indices[s] = i
+
+    # Compute dimension scores for all stocks at their latest date
+    results = []
+    all_deltas = []
+
+    # Liquidity filter: vol_ratio_20 column index
+    vol_ratio_idx = None
+    if "vol_ratio_20" in _feature_cols:
+        vol_ratio_idx = _feature_cols.index("vol_ratio_20")
+
+    for stock_code, row_idx in latest_indices.items():
+        row = _features_matrix[row_idx]
+
+        # Liquidity filter: skip if vol_ratio_20 Z-score too low
+        if vol_ratio_idx is not None:
+            if row[vol_ratio_idx] < MUTATION_VOLUME_FLOOR_ZSCORE:
+                continue
+
+        # Compute weighted dimension scores
+        brok_values = row[brok_active]
+        tech_values = row[tech_active]
+
+        score_brok = float(np.sum(brok_values * brok_w) / np.sum(brok_w))
+        score_tech = float(np.sum(tech_values * tech_w) / np.sum(tech_w))
+
+        delta_div = score_brok - score_tech
+        all_deltas.append(delta_div)
+
+        results.append({
+            "stock_code": stock_code,
+            "date": str(dates[row_idx])[:10],
+            "score_brokerage": round(score_brok, 4),
+            "score_technical": round(score_tech, 4),
+            "delta_div": round(delta_div, 4),
+            "abs_delta": round(abs(delta_div), 4),
+        })
+
+    # Compute sigma from the distribution of all deltas
+    all_deltas_arr = np.array(all_deltas)
+    delta_mean = float(np.mean(all_deltas_arr))
+    delta_std = float(np.std(all_deltas_arr))
+
+    if delta_std < 1e-8:
+        return {"error": "No variance in delta distribution", "mutations": []}
+
+    # Classify mutations
+    mutations = []
+    for r in results:
+        z_score = (r["delta_div"] - delta_mean) / delta_std
+        r["z_score"] = round(z_score, 4)
+
+        if z_score > threshold_sigma:
+            r["mutation_type"] = "匿蹤吸貨"
+            r["mutation_label"] = "Stealth Accumulation"
+            mutations.append(r)
+        elif z_score < -threshold_sigma:
+            r["mutation_type"] = "誘多派發"
+            r["mutation_label"] = "Deceptive Distribution"
+            mutations.append(r)
+
+    # Sort by |z_score| descending, take top N
+    mutations.sort(key=lambda x: abs(x["z_score"]), reverse=True)
+    mutations = mutations[:top_n]
+
+    # Build histogram data (20 bins)
+    hist_counts, hist_edges = np.histogram(all_deltas_arr, bins=20)
+    histogram = {
+        "counts": hist_counts.tolist(),
+        "edges": [round(float(e), 4) for e in hist_edges.tolist()],
+        "threshold_sigma": threshold_sigma,
+        "threshold_value_upper": round(delta_mean + threshold_sigma * delta_std, 4),
+        "threshold_value_lower": round(delta_mean - threshold_sigma * delta_std, 4),
+    }
+
+    return {
+        "mutations": mutations,
+        "total_stocks_scanned": len(results),
+        "total_mutations": len([r for r in results
+                                if abs((r["delta_div"] - delta_mean) / delta_std) > threshold_sigma]),
+        "distribution": {
+            "mean": round(delta_mean, 4),
+            "std": round(delta_std, 4),
+            "min": round(float(np.min(all_deltas_arr)), 4),
+            "max": round(float(np.max(all_deltas_arr)), 4),
+        },
+        "histogram": histogram,
+        "config": {
+            "threshold_sigma": threshold_sigma,
+            "top_n": top_n,
+            "use_weights": use_weights,
+            "brokerage_features_active": len(brok_active),
+            "brokerage_features_total": len(brok_cols),
+            "technical_features_active": len(tech_active),
+        },
+    }
+
+
+def _build_weight_array(
+    col_indices: np.ndarray, dim_name: str, weights_config: dict
+) -> np.ndarray:
+    """Build weight array for a dimension's active features.
+
+    Uses per-feature weights from config, falls back to _default.
+    """
+    dim_weights = weights_config.get(dim_name, {})
+    default_w = dim_weights.get("_default", 1.0)
+
+    weights = []
+    for idx in col_indices:
+        feat_name = _feature_cols[idx]
+        w = dim_weights.get(feat_name, default_w)
+        weights.append(w)
+
+    return np.array(weights, dtype=np.float32)

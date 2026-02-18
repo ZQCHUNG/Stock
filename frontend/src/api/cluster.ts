@@ -176,6 +176,45 @@ export interface FeatureStatus {
   returns_size_mb?: number
 }
 
+export interface MutationResult {
+  stock_code: string
+  date: string
+  score_brokerage: number
+  score_technical: number
+  delta_div: number
+  abs_delta: number
+  z_score: number
+  mutation_type: string
+  mutation_label: string
+}
+
+export interface MutationScanResult {
+  mutations: MutationResult[]
+  total_stocks_scanned: number
+  total_mutations: number
+  distribution: {
+    mean: number
+    std: number
+    min: number
+    max: number
+  }
+  histogram: {
+    counts: number[]
+    edges: number[]
+    threshold_sigma: number
+    threshold_value_upper: number
+    threshold_value_lower: number
+  }
+  config: {
+    threshold_sigma: number
+    top_n: number
+    use_weights: boolean
+    brokerage_features_active: number
+    brokerage_features_total: number
+    technical_features_active: number
+  }
+}
+
 export const clusterApi = {
   /** 雙區塊查詢 (主 API) */
   similarDual: (req: DualSimilarRequest) =>
@@ -196,4 +235,10 @@ export const clusterApi = {
   /** 取得特徵資料狀態 */
   featureStatus: () =>
     client.get<any, FeatureStatus>('/cluster/feature-status'),
+
+  /** 基因突變掃描 (R88.7) */
+  mutations: (threshold = 1.5, topN = 10, useWeights = false) =>
+    client.get<any, MutationScanResult>('/cluster/mutations', {
+      params: { threshold, top_n: topN, use_weights: useWeights },
+    }),
 }

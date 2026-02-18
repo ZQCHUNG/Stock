@@ -5,6 +5,7 @@ Endpoints:
   POST /api/cluster/similar       — Legacy 查詢（向後相容）
   GET  /api/cluster/dimensions    — 取得可用維度清單
   GET  /api/cluster/feature-status — 特徵資料狀態
+  GET  /api/cluster/mutations     — 基因突變掃描 (R88.7)
 """
 
 from fastapi import APIRouter, HTTPException
@@ -120,3 +121,32 @@ def get_winner_registry():
         "count": len(registry_data),
         "status": "ready",
     }
+
+
+@router.get("/mutations")
+def scan_mutations(
+    threshold: float = 1.5,
+    top_n: int = 10,
+    use_weights: bool = False,
+):
+    """基因突變掃描：找出 Brokerage vs Technical 顯著背離的個股。
+
+    [R88.7 Phase 7 — Wall Street Trader APPROVED]
+    Δ_div > threshold_sigma → 匿蹤吸貨 (stealth accumulation)
+    Δ_div < -threshold_sigma → 誘多派發 (deceptive distribution)
+    """
+    from analysis.cluster_search import scan_gene_mutations
+
+    try:
+        result = scan_gene_mutations(
+            threshold_sigma=threshold,
+            top_n=top_n,
+            use_weights=use_weights,
+        )
+        if "error" in result:
+            raise HTTPException(status_code=503, detail=result["error"])
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
