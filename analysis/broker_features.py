@@ -1,6 +1,6 @@
 """
 R88.7 Method C: Daily Brokerage Feature Engine
-13 日頻分點特徵計算引擎
+14 日頻分點特徵計算引擎
 
 特徵清單 (Trader CONVERGED):
 A. 集中度 (3): hhi_daily, top3_pct, hhi_delta
@@ -9,11 +9,12 @@ C. Smart Money (3): purity_score, foreign_pct, branch_overlap_count
 D. 波動性 (2): daily_net_buy_volatility, turnover_chg
 E. 持續性 (1): consistency_streak
 F. 量價背離 (1): price_divergence
+G. Winner 動能 (1): winner_momentum (Tier 1 count → 0/50/100)
 
 收斂參數:
     [CONVERGED] Missing data > 50% features → NaN dimension
     [CONVERGED] Missing data 25-50% → 50% discount
-    [PLACEHOLDER] Winner Score > 1.1, n >= 15
+    [CONVERGED] Winner Score > 1.1, n >= 15, Tier 1 CI >= 1.0, Tier 2 CI >= 0.7
     [PLACEHOLDER] Purity cutoff: top3 >= 40%
 """
 import json
@@ -132,8 +133,9 @@ def compute_broker_features(
     ohlc: dict = None,
     winner_registry: dict = None,
     market_overlap_counts: dict = None,
+    tier1_codes: set = None,
 ) -> dict:
-    """Compute 13 daily brokerage features from parsed broker data.
+    """Compute 14 daily brokerage features from parsed broker data.
 
     Args:
         parsed: Output of parse_daily_brokers()
@@ -144,9 +146,10 @@ def compute_broker_features(
         ohlc: Dict with {open, high, low, close, volume, atr_14} for price divergence
         winner_registry: Dict of {broker_code: winner_score}
         market_overlap_counts: Dict of {broker_code: count_of_stocks_today}
+        tier1_codes: Set of Tier 1 Winner broker codes (CI >= 1.0)
 
     Returns:
-        Dict of 13 feature values. Missing features = NaN.
+        Dict of 14 feature values. Missing features = NaN.
     """
     buy = parsed["buy_brokers"]
     sell = parsed["sell_brokers"]
@@ -293,6 +296,20 @@ def compute_broker_features(
     else:
         features["broker_price_divergence"] = np.nan
 
+    # ====== G. Winner Momentum (1) ======
+
+    # 14. broker_winner_momentum: Tier 1 winner count in top 3 → 0/50/100
+    #     [CONVERGED] Trader: "只用 Tier 1 鋼鐵核心，不要稀釋最強訊號"
+    if tier1_codes and buy:
+        broker_codes = parsed.get("broker_codes", [])
+        t1_count = 0
+        for i in range(min(3, len(buy))):
+            if i < len(broker_codes) and broker_codes[i] in tier1_codes:
+                t1_count += 1
+        features["broker_winner_momentum"] = min(t1_count, 2) * 50  # 0/50/100
+    else:
+        features["broker_winner_momentum"] = 0
+
     return features
 
 
@@ -304,7 +321,7 @@ def compute_data_quality(features: dict) -> dict:
     - 3-6 missing: quality=degraded, 50% discount
     - > 6 missing: quality=insufficient, dimension=NaN
     """
-    total_features = 13
+    total_features = 14
     missing = sum(1 for v in features.values() if v is None or
                   (isinstance(v, float) and np.isnan(v)))
 
@@ -334,6 +351,7 @@ BROKER_FEATURE_NAMES = [
     "broker_turnover_chg",
     "broker_consistency_streak",
     "broker_price_divergence",
+    "broker_winner_momentum",
 ]
 
-assert len(BROKER_FEATURE_NAMES) == 13
+assert len(BROKER_FEATURE_NAMES) == 14

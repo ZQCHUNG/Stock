@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 # --- PLACEHOLDER parameters ---
 WINNER_SCORE_THRESHOLD = 1.1   # [PLACEHOLDER: WINNER_001] Trader suggested
 WINNER_MIN_N = 15              # [PLACEHOLDER: WINNER_002] Trader suggested
-BOOTSTRAP_CI_LOWER = 0.8      # [HYPOTHESIS: WINNER_003] CI lower bound (adjusted from 1.0)
+# [CONVERGED] Trader: Tiered CI thresholds
+TIER1_CI_LOWER = 1.0           # [CONVERGED: WINNER_003a] Sniper Ready — "鋼鐵核心"
+TIER2_CI_LOWER = 0.7           # [CONVERGED: WINNER_003b] Observer — "觀察名單"
 BOOTSTRAP_ITERATIONS = 1000    # [PLACEHOLDER: WINNER_004]
 GHOST_BIAS_SECTOR_HHI = 0.50  # [PLACEHOLDER: WINNER_005] Max single-sector share
 TOP_K_BUY_BROKERS = 5         # Extract top K buy brokers per file
@@ -376,7 +378,8 @@ def build_registry(
     horizon: str = "d21",
     min_n: int = WINNER_MIN_N,
     score_threshold: float = WINNER_SCORE_THRESHOLD,
-    ci_lower_threshold: float = BOOTSTRAP_CI_LOWER,
+    tier1_ci: float = TIER1_CI_LOWER,
+    tier2_ci: float = TIER2_CI_LOWER,
     with_bootstrap: bool = True,
 ) -> dict:
     """Build complete Winner Branch Registry.
@@ -445,29 +448,44 @@ def build_registry(
                 all_scores[code]["ci_lower"] = 0.0
                 all_scores[code]["ci_upper"] = 0.0
 
-    # Step 6: Filter winners
+    # Step 6: Tiered classification [CONVERGED with Trader]
+    # Tier 1 (Sniper Ready): CI >= 1.0 — highest weight signals
+    # Tier 2 (Observer): CI >= 0.7 — cross-validation only
     winners = {}
     filtered_by_score = 0
     filtered_by_ci = 0
     ghost_biased = 0
+    tier1_count = 0
+    tier2_count = 0
 
     for code, info in all_scores.items():
         if info["score"] < score_threshold:
             filtered_by_score += 1
             continue
-        if with_bootstrap and info.get("ci_lower", 0) < ci_lower_threshold:
+
+        ci_lo = info.get("ci_lower", 0) if with_bootstrap else info["score"]
+
+        if with_bootstrap and ci_lo < tier2_ci:
             filtered_by_ci += 1
             continue
+
+        # Assign tier
+        if ci_lo >= tier1_ci:
+            info["tier"] = 1
+            tier1_count += 1
+        else:
+            info["tier"] = 2
+            tier2_count += 1
+
         if info["ghost_bias"]:
             ghost_biased += 1
-            # Don't filter — flag and discount instead
             info["ghost_bias_discount"] = 0.5
         else:
             info["ghost_bias_discount"] = 1.0
         winners[code] = info
 
     logger.info(
-        f"Winners: {len(winners)} passed "
+        f"Winners: {len(winners)} (Tier 1: {tier1_count}, Tier 2: {tier2_count}) "
         f"(filtered: {filtered_by_score} by score, {filtered_by_ci} by CI, "
         f"{ghost_biased} ghost-biased)"
     )
@@ -478,13 +496,16 @@ def build_registry(
         "metadata": {
             "total_broker_codes": len(all_scores),
             "winners_count": len(winners),
+            "tier1_count": tier1_count,
+            "tier2_count": tier2_count,
             "filtered_by_score": filtered_by_score,
             "filtered_by_ci": filtered_by_ci,
             "ghost_biased_count": ghost_biased,
             "horizon": horizon,
             "min_n": min_n,
             "score_threshold": score_threshold,
-            "ci_lower_threshold": ci_lower_threshold,
+            "tier1_ci": tier1_ci,
+            "tier2_ci": tier2_ci,
             "bootstrap_iterations": BOOTSTRAP_ITERATIONS if with_bootstrap else 0,
             "source_files": len(glob.glob(str(broker_dir / "*.json"))),
             "buy_instances": len(records),
@@ -502,12 +523,27 @@ def build_registry(
 
 
 def load_registry(path: Path = WINNER_OUTPUT_PATH) -> dict:
-    """Load pre-built Winner Branch Registry."""
+    """Load pre-built Winner Branch Registry (all tiers)."""
     if not path.exists():
         return {}
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     return data.get("winners", {})
+
+
+def load_tier1_codes(path: Path = WINNER_OUTPUT_PATH) -> set:
+    """Load only Tier 1 (Sniper Ready) broker codes.
+
+    [CONVERGED] Trader: "只用那 3 家鋼鐵核心" for broker_winner_momentum.
+    """
+    winners = load_registry(path)
+    return {code for code, info in winners.items() if info.get("tier") == 1}
+
+
+def load_tier2_codes(path: Path = WINNER_OUTPUT_PATH) -> set:
+    """Load Tier 2 (Observer) broker codes for cross-validation."""
+    winners = load_registry(path)
+    return {code for code, info in winners.items() if info.get("tier") == 2}
 
 
 # --- CLI entry point ---

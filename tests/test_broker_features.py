@@ -121,9 +121,9 @@ class TestParseDailyBrokers:
 # --- Feature Computation Tests ---
 
 class TestComputeBrokerFeatures:
-    def test_returns_13_features(self, parsed_data):
+    def test_returns_14_features(self, parsed_data):
         features = compute_broker_features(parsed_data)
-        assert len(features) == 13
+        assert len(features) == 14
 
     def test_all_feature_names(self, parsed_data):
         features = compute_broker_features(parsed_data)
@@ -249,7 +249,8 @@ class TestComputeDataQuality:
         features = compute_broker_features(parsed_data, prev_hhi=0.05,
                                            prev_turnover=10000,
                                            lookback_net_ratios=[0.5]*20,
-                                           ohlc={"high": 100, "low": 90, "close": 95, "atr_14": 5})
+                                           ohlc={"high": 100, "low": 90, "close": 95, "atr_14": 5},
+                                           tier1_codes={"6010"})
         quality = compute_data_quality(features)
         assert quality["quality"] == "good"
         assert quality["discount"] == 1.0
@@ -316,9 +317,32 @@ class TestWinnerRegistry:
 
 # --- Feature Names Constant ---
 
+class TestWinnerMomentum:
+    def test_no_tier1_codes(self, parsed_data):
+        features = compute_broker_features(parsed_data)
+        assert features["broker_winner_momentum"] == 0
+
+    def test_one_tier1_match(self, parsed_data):
+        # "6010" is first broker code in fixture
+        features = compute_broker_features(parsed_data, tier1_codes={"6010"})
+        assert features["broker_winner_momentum"] == 50
+
+    def test_two_tier1_matches(self, parsed_data):
+        features = compute_broker_features(parsed_data, tier1_codes={"6010", "9600"})
+        assert features["broker_winner_momentum"] == 100
+
+    def test_three_tier1_matches_caps_at_100(self, parsed_data):
+        features = compute_broker_features(parsed_data, tier1_codes={"6010", "9600", "0039"})
+        assert features["broker_winner_momentum"] == 100
+
+    def test_no_match(self, parsed_data):
+        features = compute_broker_features(parsed_data, tier1_codes={"XXXX"})
+        assert features["broker_winner_momentum"] == 0
+
+
 class TestFeatureNames:
     def test_count(self):
-        assert len(BROKER_FEATURE_NAMES) == 13
+        assert len(BROKER_FEATURE_NAMES) == 14
 
     def test_all_start_with_broker_or_branch_or_daily(self):
         for name in BROKER_FEATURE_NAMES:
