@@ -239,6 +239,7 @@ python -m pytest tests/ -q
 | R88.7P9 | Night Watchman Health Check + Mutation Tooltips (Trader APPROVED) | Done |
 | R88.7P10 | Auto-Summary: Daily Report Generator + UI (Pipeline Health + Market Pulse + Narrative) | Done |
 | R88.7P11 | Hot Sectors + Confidence Score + Activity Percentile (Architect Critic Approved) | Done |
+| R88.7P11.5 | Cold Start Warming Up + Wall Street Narrative + H<0.4 Critical Warning | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -394,16 +395,18 @@ python -m pytest tests/ -q
 - **Atomic Swap Report**: `swap_report.json` 記錄新舊檔案大小、Row 差異、穩定性追蹤
 - **Night Watchman**: Post-swap 健康檢查 — 驗證最新日期 + 分點維度非零率 (brokerage_nonzero_rate > 1%)
 
-**Auto-Summary (R88.7 Phase 10-11)** — 每日自動報告 v1.1:
+**Auto-Summary (R88.7 Phase 10-11.5)** — 每日自動報告 v1.2:
 - `generate_daily_summary()`: Scheduler 跑完後自動生成 JSON 摘要
 - **Pipeline Health**: Swap 狀態 + Night Watchman 健康度 + Row Count Drift 偏差偵測
 - **Market Pulse**: 突變統計 + 偏向分析 (出貨/吸貨/均衡) + Activity Percentile (20日歷史比較)
 - **Hot Sectors**: 族群級資金流向聚合 — 使用 sector_mapping (108股) + industry chain (1965股) 雙層映射
 - **Confidence Score**: `H × S` — Data Health(RowIntegrity+Watchman+BrokerActivity) × Signal Strength(Intensity+Conviction+Concentration)
+- **Cold Start**: `warming_up` flag (history < 5 days), s1 defaults to 0.5, UI "Warming Up" badge
+- **H < 0.4 Critical**: `data_health_critical` flag → frontend red alert overlay, blocks hasty decisions
 - **Top Mutations**: Top 5 匿蹤吸貨 + Top 5 誘多派發，每檔標註產業別
-- **Narrative**: 自動生成中文摘要 + 族群集體吸貨/出貨警示 + 活躍度標籤
+- **Narrative v2**: Wall Street persona — [核心定調]+[族群熱點]+[個股異常]+[風險警示] 結構化模板
 - API: `GET /api/cluster/daily-summary` (cached + `?regenerate=true`)
-- Frontend: ClusterView 頁面頂部 — 信心分數 badge + 族群熱點 tags + 產業別標籤
+- Frontend: ClusterView 頁面頂部 — 信心分數 badge + 族群熱點 tags + 產業別標籤 + Warming Up + Critical Warning
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)
