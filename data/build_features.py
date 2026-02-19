@@ -686,6 +686,20 @@ _POLARITY_NEGATIVE = [
 ]
 
 
+# [CONVERGED — Gemini 2026-02-19 R4]
+# Filter out "result" articles that describe what happened rather than causing it.
+# "盤後解析" type articles: polarity_filter would tag as negative, but it's a result, not a cause.
+_NOISE_TITLE_KEYWORDS = [
+    "盤後", "整理", "摘要", "名單", "一覽", "排行", "漲跌停",
+    "收盤揭示", "成交量排行", "三大法人", "投資股市買賣超",
+]
+
+
+def _is_noise_article(title: str) -> bool:
+    """Check if article title suggests it's a summary/recap, not an event source."""
+    return any(kw in title for kw in _NOISE_TITLE_KEYWORDS)
+
+
 def load_news_data():
     """Load news data from both cnyes and Google News RSS sources.
 
@@ -721,6 +735,10 @@ def load_news_data():
             if len(codes) > MAX_STOCKS_PER_ARTICLE:
                 continue
 
+            # [CONVERGED — Gemini R4] Filter noise articles (盤後/摘要/名單)
+            if _is_noise_article(title):
+                continue
+
             for code in codes:
                 other_codes = sorted(codes - {code})
                 rows.append({
@@ -752,6 +770,10 @@ def load_news_data():
 
             # [CONVERGED — Gemini] Discard 大雜燴 articles
             if len(codes) > MAX_STOCKS_PER_ARTICLE:
+                continue
+
+            # [CONVERGED — Gemini R4] Filter noise articles
+            if _is_noise_article(title):
                 continue
 
             for code in codes:
