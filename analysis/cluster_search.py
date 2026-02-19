@@ -57,10 +57,12 @@ SNIPER_FUND_THRESHOLD = 0.50  # [CONVERGED] Fundamental dim similarity >= 50%
 TACTICAL_FUND_THRESHOLD = 0.40  # [CONVERGED] Tactical tier >= 40%
 SNIPER_LABEL = "[EXPERIMENTAL]"  # [CONVERGED] n=45 < 50, pending more data
 
-# R88.7 Polarity Divergence Warning [CONVERGED — Gemini Wall Street Trader R6]
+# R88.7 Polarity Divergence Warning [CONVERGED — Gemini Wall Street Trader R6-R7]
 # Z-score thresholds for polarity environment mismatch
-POLARITY_DIVERGE_Z = 0.5   # [PLACEHOLDER] Opposite-sign threshold
-POLARITY_WIDE_DIFF = 1.0   # [PLACEHOLDER] Any-direction wide gap
+# [CONVERGED R7]: Trader ruled Z=0.5 "太敏感" — only top 30% of distribution.
+# Raised to |Z| > 1.0 = one standard deviation = statistically significant.
+POLARITY_DIVERGE_Z = 1.0   # [CONVERGED R7] Opposite-sign threshold (was 0.5)
+POLARITY_WIDE_DIFF = 1.5   # [PLACEHOLDER] Any-direction wide gap (raised proportionally)
 
 # R88.7 Phase 5: Sparse features that need daily data accumulation
 # [CONVERGED — Wall Street Trader 2026-02-18]
@@ -1697,12 +1699,114 @@ def _compute_confidence_score(
     }
 
 
+def _scan_toxic_volatility() -> dict:
+    """Scan for Toxic Volatility: attention_spike > 2.0 AND polarity_filter < -1.0.
+
+    [CONVERGED — Gemini Wall Street Trader R7]:
+    "如果一支股票觸發 attention_spike > 2.0 且 polarity_filter < -1.0，
+     這在我們的術語中叫 'Toxic Volatility'（有毒波動）。"
+
+    Forces to top of daily summary to warn traders not to "buy the dip"
+    on stocks that have high attention + strongly negative news.
+    """
+    _load_data()
+    if _feature_cols is None or _features_matrix is None:
+        return {"alerts": [], "error": "Feature data not loaded"}
+
+    # Check if attention features exist
+    if "attention_spike" not in _feature_cols or "polarity_filter" not in _feature_cols:
+        return {"alerts": [], "note": "Attention features not available"}
+
+    spike_idx = _feature_cols.index("attention_spike")
+    pol_idx = _feature_cols.index("polarity_filter")
+
+    # Get latest date for each stock
+    all_codes = _feature_index["stock_code"].values
+    all_dates = _feature_index["date"].values
+    latest_date = _feature_index["date"].max()
+
+    # Only check the most recent date's data
+    recent_mask = all_dates == latest_date
+    if not np.any(recent_mask):
+        return {"alerts": [], "note": "No data for latest date"}
+
+    alerts = []
+    recent_indices = np.where(recent_mask)[0]
+    for idx in recent_indices:
+        spike_z = float(_features_matrix[idx, spike_idx])
+        pol_z = float(_features_matrix[idx, pol_idx])
+
+        # Toxic Volatility: high attention spike + strongly negative polarity
+        if spike_z > 2.0 and pol_z < -1.0:
+            alerts.append({
+                "stock_code": str(all_codes[idx]),
+                "date": str(pd.Timestamp(all_dates[idx]).strftime("%Y-%m-%d")),
+                "attention_spike_z": round(spike_z, 2),
+                "polarity_z": round(pol_z, 2),
+                "label": "Toxic Volatility",
+            })
+
+    # Sort by polarity severity (most negative first)
+    alerts.sort(key=lambda a: a["polarity_z"])
+
+    return {
+        "alerts": alerts,
+        "count": len(alerts),
+        "latest_date": str(latest_date.strftime("%Y-%m-%d")) if hasattr(latest_date, "strftime") else str(latest_date),
+    }
+
+
+def _check_attention_cold_start() -> dict:
+    """Check if attention features are in cold-start phase.
+
+    [CONVERGED — Gemini Wall Street Trader R7]:
+    Cold Start warning placed in Opinion Block. Marks attention dimension as
+    "Data Accumulating (X/30 Days)" when news data has fewer than 30 days
+    of accumulation.
+    """
+    from pathlib import Path
+    from datetime import datetime
+
+    news_dir = Path(__file__).parent.parent / "data" / "pattern_data" / "raw" / "news"
+    if not news_dir.exists():
+        return {"warming_up": True, "days_accumulated": 0, "days_required": 30}
+
+    # Check how many unique dates have news data
+    dates_with_news = set()
+    import re as re_mod
+    for f in news_dir.glob("*.json"):
+        try:
+            fname = f.stem
+            # cnyes_YYYYMMDD_YYYYMMDD_pNNNN → extract first date
+            if fname.startswith("cnyes_"):
+                m = re_mod.search(r"cnyes_(\d{8})", fname)
+                if m:
+                    dates_with_news.add(m.group(1))
+            # google_news_gnews_XXXX.json → use file modification date
+            elif "google_news" in fname:
+                mtime = datetime.fromtimestamp(f.stat().st_mtime)
+                dates_with_news.add(mtime.strftime("%Y%m%d"))
+        except Exception:
+            pass
+
+    days = len(dates_with_news)
+    required = 30
+
+    return {
+        "warming_up": days < required,
+        "days_accumulated": days,
+        "days_required": required,
+        "label": f"Data Accumulating ({days}/{required} Days)" if days < required else "OK",
+    }
+
+
 def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dict:
     """Generate daily auto-summary after scheduler pipeline completes.
 
     [CONVERGED — Architect Critic 2026-02-19]
     v1.1: Added hot_sectors, activity_percentile, row_count_drift.
     v1.2: Cold start warming_up flag, Wall Street narrative template, H<0.4 critical warning.
+    v1.3: Critical Alerts (Toxic Volatility) + Attention Cold Start + Weekend Effect.
 
     Produces a structured JSON summary covering:
     1. Pipeline health (swap report + night watchman + row count drift)
@@ -1723,7 +1827,7 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
     summary = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "generated_at": datetime.now().isoformat(),
-        "version": "1.2",
+        "version": "1.3",
     }
 
     # --- 1. Pipeline Health (from swap_report.json) ---
@@ -1763,6 +1867,16 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
         pipeline_health["status"] = "NO_REPORT"
 
     summary["pipeline_health"] = pipeline_health
+
+    # --- 1.5 CRITICAL ALERTS: Toxic Volatility [CONVERGED — Gemini Wall Street Trader R7] ---
+    # attention_spike > 2.0 AND polarity_filter < -1.0 = "Toxic Volatility"
+    # Force to top of summary so traders don't mistake "similar big drop" for buying opportunity
+    critical_alerts = _scan_toxic_volatility()
+    summary["critical_alerts"] = critical_alerts
+
+    # --- 1.6 Cold Start Warning [CONVERGED — Gemini R7: place in Opinion Block] ---
+    cold_start = _check_attention_cold_start()
+    summary["cold_start"] = cold_start
 
     # --- 2. Mutation Scan ---
     try:
@@ -1946,6 +2060,26 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
                     "信心分數需累積 5 日歷史才穩定。今日任務：校準直覺，觀察 Confidence × Bias 連動。 "
                 )
                 narrative = maiden_prefix + narrative
+
+            # [CRITICAL_ALERTS] forced to top [CONVERGED — Gemini Wall Street Trader R7]
+            if critical_alerts.get("alerts"):
+                toxic_stocks = ", ".join(
+                    f"{a['stock_code']}(Z={a['polarity_z']:.1f})"
+                    for a in critical_alerts["alerts"][:3]
+                )
+                alert_prefix = (
+                    f"[CRITICAL] Toxic Volatility: {len(critical_alerts['alerts'])} 檔高熱度利空股 "
+                    f"({toxic_stocks})。勿因技術面相似而搶反彈。 "
+                )
+                narrative = alert_prefix + narrative
+
+            # Cold Start attention warning [CONVERGED — Gemini R7]
+            if cold_start.get("warming_up"):
+                cold_prefix = (
+                    f"[DATA] 新聞面功能冷啟動中（{cold_start['days_accumulated']}/{cold_start['days_required']}天），"
+                    "Attention Dimension 數據尚未穩定，極性分析僅供參考。 "
+                )
+                narrative = cold_prefix + narrative
 
         summary["narrative"] = narrative
 

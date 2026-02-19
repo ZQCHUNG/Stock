@@ -897,6 +897,16 @@ def compute_attention_features(prices, news):
             base[col] = np.nan
         return base
 
+    # --- Weekend Effect Filter [CONVERGED — Gemini Wall Street Trader R7] ---
+    # Articles published on Sat/Sun should count toward next Monday's attention.
+    # Without this, weekend news is silently dropped (no matching trading day),
+    # causing Monday to undercount and misalign with trader's information set.
+    news = news.copy()
+    dow = news["date"].dt.dayofweek  # Mon=0, Sun=6
+    # Saturday (5) → next Monday (+2 days), Sunday (6) → next Monday (+1 day)
+    news.loc[dow == 5, "date"] = news.loc[dow == 5, "date"] + pd.Timedelta(days=2)
+    news.loc[dow == 6, "date"] = news.loc[dow == 6, "date"] + pd.Timedelta(days=1)
+
     # --- Pre-aggregate news by (stock, date) ---
     # Count articles per stock per day
     news_daily = news.groupby(["stock_code", "date"]).agg(
