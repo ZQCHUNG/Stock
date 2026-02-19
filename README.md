@@ -244,6 +244,7 @@ python -m pytest tests/ -q
 | R88.7P11.5 | Cold Start Warming Up + Wall Street Narrative + H<0.4 Critical Warning | Done |
 | R88.7P12 | Attention Dim 2→7 Features + Google News RSS + Daily Schedule 18:45 (Trader CONVERGED) | Done |
 | R88.7P13 | Polarity Divergence Warning + Cross-Source Fuzzy Dedup (Trader R6 CONVERGED) | Done |
+| R88.7P14 | Maiden Voyage: Toxic Volatility + Cold Start + Weekend Effect (Trader R7 CONVERGED) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -429,8 +430,16 @@ python -m pytest tests/ -q
 - Cross-source fuzzy dedup: title similarity >80% → count once (946 articles removed, SequenceMatcher)
 - Polarity calibration: removed 調查/賣出/風險/cut (false positives), added 調查局/掏空/背信
 - L1 Warning: polarity Z-score gap > 1.0 → "[POLARITY] 輿論環境差異較大"
-- L2 Penalty: opposite polarity (query Z>0.5 vs cases Z<-0.5) → confidence downgrade + "x0.8" flag
+- L2 Penalty: opposite polarity (query Z>1.0 vs cases Z<-1.0) → confidence downgrade + "x0.8" flag
+  - [CONVERGED R7]: Raised from Z=0.5 to Z=1.0 — "Z=0.5 only top 30%, too much noise"
 - Final distribution: 87% neutral, 10.2% positive, 2.0% negative — all genuine signals
+
+**Maiden Voyage Prep (R88.7 Phase 14)** [CONVERGED — Trader R7]:
+- Toxic Volatility scanner: `attention_spike > 2.0` AND `polarity_filter < -1.0` → `[CRITICAL_ALERTS]`
+  - Forced to top of daily summary narrative — prevent buying into negative attention stocks
+- Cold Start warning: tracks news accumulation days (X/30), shows "Data Accumulating" in summary
+- Weekend Effect filter: Sat/Sun article dates shifted to next Monday before attention computation
+- Daily Summary v1.3: Critical alerts prefix + cold start prefix + fallback NaN handling
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 65 features Parquet (292.5 MB, 1096 stocks)
