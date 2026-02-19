@@ -12,7 +12,7 @@ import { useClusterStore } from '../stores/cluster'
 import { useResponsive } from '../composables/useResponsive'
 import { useChartTheme } from '../composables/useChartTheme'
 import { fmtPct, priceColor } from '../utils/format'
-import type { BlockResult, ForwardPath, SimilarCase, SniperAssessment, MutationResult } from '../api/cluster'
+import type { BlockResult, ForwardPath, SimilarCase, SniperAssessment, MutationResult, DailySummary } from '../api/cluster'
 
 const app = useAppStore()
 const store = useClusterStore()
@@ -66,6 +66,7 @@ onMounted(async () => {
   await Promise.all([
     store.loadFeatureStatus(),
     store.loadDimensions(),
+    store.loadDailySummary(),
   ])
 })
 
@@ -820,6 +821,100 @@ function goToStock(code: string) {
             />
           </NCollapseItem>
         </NCollapse>
+      </NCard>
+    </NGi>
+
+    <!-- ==================== Daily Summary (R88.7 Phase 10) ==================== -->
+    <NGi v-if="store.dailySummary">
+      <NCard size="small">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <NTag type="info" :bordered="false" size="small">每日摘要</NTag>
+            <NText strong>Auto-Summary</NText>
+            <NText depth="3" style="font-size: 11px">{{ store.dailySummary.date }}</NText>
+          </NSpace>
+        </template>
+        <template #header-extra>
+          <NSpace :size="8">
+            <NTag
+              :type="store.dailySummary.pipeline_health.status === 'OK' ? 'success' : 'error'"
+              size="small" :bordered="false"
+            >
+              Pipeline: {{ store.dailySummary.pipeline_health.status }}
+            </NTag>
+            <NTag
+              v-if="store.dailySummary.pipeline_health.night_watchman"
+              :type="store.dailySummary.pipeline_health.night_watchman.status === 'HEALTHY' ? 'success' : 'warning'"
+              size="small" :bordered="false"
+            >
+              Watchman: {{ store.dailySummary.pipeline_health.night_watchman.status }}
+            </NTag>
+          </NSpace>
+        </template>
+
+        <!-- Narrative -->
+        <NAlert
+          :type="store.dailySummary.market_pulse?.circuit_breaker?.triggered ? 'error' : 'info'"
+          :title="store.dailySummary.narrative"
+          style="margin-bottom: 8px"
+        />
+
+        <!-- Pulse stats -->
+        <NGrid :cols="cols(2, 3, 5).value" x-gap="8" y-gap="8" style="margin-bottom: 8px">
+          <NGi>
+            <NStatistic label="掃描股數" :value="store.dailySummary.market_pulse?.total_stocks_scanned ?? '-'" />
+          </NGi>
+          <NGi>
+            <NStatistic label="突變數" :value="store.dailySummary.market_pulse?.total_mutations ?? '-'" />
+          </NGi>
+          <NGi>
+            <NStatistic label="匿蹤吸貨" :value="store.dailySummary.market_pulse?.stealth_count ?? '-'" />
+          </NGi>
+          <NGi>
+            <NStatistic label="誘多派發" :value="store.dailySummary.market_pulse?.distribution_count ?? '-'" />
+          </NGi>
+          <NGi>
+            <NStatistic label="偏向" :value="
+              store.dailySummary.market_pulse?.mutation_bias === 'distribution_heavy' ? '出貨' :
+              store.dailySummary.market_pulse?.mutation_bias === 'accumulation_heavy' ? '吸貨' :
+              store.dailySummary.market_pulse?.mutation_bias === 'balanced' ? '均衡' : '中性'
+            " />
+          </NGi>
+        </NGrid>
+
+        <!-- Top mutations side by side -->
+        <NGrid v-if="store.dailySummary.top_mutations" :cols="cols(1, 2, 2).value" x-gap="8" y-gap="8">
+          <NGi>
+            <NText strong style="font-size: 12px; color: #18a058; display: block; margin-bottom: 4px">
+              Top 匿蹤吸貨
+            </NText>
+            <div v-for="m in store.dailySummary.top_mutations.stealth" :key="m.stock_code"
+              style="font-size: 12px; cursor: pointer; padding: 2px 0"
+              @click="goToStock(m.stock_code)"
+            >
+              <NText strong>{{ m.stock_code }}</NText>
+              <NText depth="3"> z={{ m.z_score.toFixed(2) }}σ</NText>
+            </div>
+            <NText v-if="!store.dailySummary.top_mutations.stealth.length" depth="3" style="font-size: 11px">
+              (none)
+            </NText>
+          </NGi>
+          <NGi>
+            <NText strong style="font-size: 12px; color: #d03050; display: block; margin-bottom: 4px">
+              Top 誘多派發
+            </NText>
+            <div v-for="m in store.dailySummary.top_mutations.distribution" :key="m.stock_code"
+              style="font-size: 12px; cursor: pointer; padding: 2px 0"
+              @click="goToStock(m.stock_code)"
+            >
+              <NText strong>{{ m.stock_code }}</NText>
+              <NText depth="3"> z={{ m.z_score.toFixed(2) }}σ</NText>
+            </div>
+            <NText v-if="!store.dailySummary.top_mutations.distribution.length" depth="3" style="font-size: 11px">
+              (none)
+            </NText>
+          </NGi>
+        </NGrid>
       </NCard>
     </NGi>
 

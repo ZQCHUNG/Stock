@@ -6,6 +6,7 @@ import {
   type FeatureStatus,
   type DimensionInfo,
   type MutationScanResult,
+  type DailySummary,
 } from '../api/cluster'
 
 export const useClusterStore = defineStore('cluster', () => {
@@ -25,6 +26,11 @@ export const useClusterStore = defineStore('cluster', () => {
   const mutationResult = ref<MutationScanResult | null>(null)
   const isMutationLoading = ref(false)
   const mutationError = ref('')
+
+  // Daily summary state
+  const dailySummary = ref<DailySummary | null>(null)
+  const isSummaryLoading = ref(false)
+  const summaryError = ref('')
 
   // --- Actions ---
 
@@ -93,6 +99,20 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
+  async function loadDailySummary(regenerate = false) {
+    isSummaryLoading.value = true
+    summaryError.value = ''
+    dailySummary.value = null
+
+    try {
+      dailySummary.value = await clusterApi.dailySummary(regenerate)
+    } catch (e: any) {
+      summaryError.value = e.message || String(e)
+    } finally {
+      isSummaryLoading.value = false
+    }
+  }
+
   return {
     // State
     queryDate,
@@ -108,10 +128,15 @@ export const useClusterStore = defineStore('cluster', () => {
     mutationResult,
     isMutationLoading,
     mutationError,
+    // Daily summary
+    dailySummary,
+    isSummaryLoading,
+    summaryError,
     // Actions
     loadFeatureStatus,
     loadDimensions,
     loadSimilarDual,
     loadMutations,
+    loadDailySummary,
   }
 })

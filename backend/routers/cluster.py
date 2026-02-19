@@ -6,6 +6,7 @@ Endpoints:
   GET  /api/cluster/dimensions    — 取得可用維度清單
   GET  /api/cluster/feature-status — 特徵資料狀態
   GET  /api/cluster/mutations     — 基因突變掃描 (R88.7)
+  GET  /api/cluster/daily-summary — 每日自動摘要 (R88.7 Phase 10)
 """
 
 from fastapi import APIRouter, HTTPException
@@ -145,6 +146,40 @@ def scan_mutations(
         )
         if "error" in result:
             raise HTTPException(status_code=503, detail=result["error"])
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/daily-summary")
+def get_daily_summary(regenerate: bool = False):
+    """取得每日自動摘要 — pipeline 健康 + 突變掃描 + 市場脈搏。
+
+    [R88.7 Phase 10 — Auto-Summary]
+    Args:
+        regenerate: If True, force regenerate (default: read cached JSON).
+    """
+    import json as json_mod
+    from pathlib import Path
+
+    summary_path = Path(__file__).parent.parent.parent / "data" / "daily_summary.json"
+
+    if not regenerate and summary_path.exists():
+        try:
+            with open(summary_path, "r", encoding="utf-8") as f:
+                return json_mod.load(f)
+        except Exception:
+            pass  # Fall through to regenerate
+
+    # Generate fresh summary
+    from analysis.cluster_search import generate_daily_summary
+
+    try:
+        result = generate_daily_summary()
+        if "error" in result.get("market_pulse", {}):
+            raise HTTPException(status_code=503, detail=result["market_pulse"]["error"])
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e))

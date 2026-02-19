@@ -1250,6 +1250,193 @@ def scan_gene_mutations(
     }
 
 
+def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dict:
+    """Generate daily auto-summary after scheduler pipeline completes.
+
+    [CONVERGED — Wall Street Trader 2026-02-19]
+    Produces a structured JSON summary covering:
+    1. Pipeline health (swap report + night watchman)
+    2. Market pulse (mutation statistics + bias direction)
+    3. Top mutations (stealth accumulation + distribution traps)
+    4. Narrative text for quick reading
+
+    Called by scheduler after: fetch_broker → rebuild parquet → atomic swap → mutation scan.
+    Saves to data/daily_summary.json for frontend consumption.
+    """
+    from datetime import datetime
+    from pathlib import Path
+    import json as json_mod
+
+    summary = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "generated_at": datetime.now().isoformat(),
+        "version": "1.0",
+    }
+
+    # --- 1. Pipeline Health (from swap_report.json) ---
+    swap_report_path = Path(__file__).parent.parent / "data" / "pattern_data" / "features" / "swap_report.json"
+    pipeline_health = {"status": "UNKNOWN"}
+
+    if swap_report_path.exists():
+        try:
+            with open(swap_report_path, "r", encoding="utf-8") as f:
+                swap_report = json_mod.load(f)
+
+            pipeline_health = {
+                "status": "OK" if swap_report.get("swap_ok") else "FAILED",
+                "swap_result": swap_report.get("result", "unknown"),
+                "new_rows": swap_report.get("new_row_count"),
+                "row_delta": swap_report.get("row_count_delta"),
+                "size_mb": swap_report.get("new_file_size_mb"),
+                "timestamp": swap_report.get("timestamp"),
+            }
+
+            # Night Watchman health
+            health = swap_report.get("health_check", {})
+            pipeline_health["night_watchman"] = {
+                "status": health.get("status", "UNKNOWN"),
+                "latest_date": health.get("latest_date"),
+                "brokerage_nonzero_rate": health.get("brokerage_nonzero_rate", 0),
+                "brokerage_stocks_with_data": health.get("brokerage_stocks_with_data", 0),
+            }
+        except Exception as e:
+            pipeline_health["error"] = str(e)
+    else:
+        pipeline_health["status"] = "NO_REPORT"
+
+    summary["pipeline_health"] = pipeline_health
+
+    # --- 2. Mutation Scan ---
+    try:
+        mutation_data = scan_gene_mutations(
+            threshold_sigma=threshold_sigma,
+            top_n=top_n,
+            use_weights=False,
+        )
+
+        if "error" in mutation_data:
+            summary["market_pulse"] = {"error": mutation_data["error"]}
+            summary["top_mutations"] = {"stealth": [], "distribution": []}
+            summary["narrative"] = f"Mutation scan error: {mutation_data['error']}"
+            return summary
+
+        total_scanned = mutation_data["total_stocks_scanned"]
+        total_mutations = mutation_data["total_mutations"]
+        mutations = mutation_data["mutations"]
+
+        # Split by type
+        stealth = [m for m in mutations if m.get("z_score", 0) > 0]
+        distribution = [m for m in mutations if m.get("z_score", 0) < 0]
+
+        # Count all mutations (not just top_n) from distribution stats
+        all_stealth_count = sum(1 for m in mutations if m.get("mutation_label") == "Stealth Accumulation")
+        all_distrib_count = sum(1 for m in mutations if m.get("mutation_label") == "Deceptive Distribution")
+
+        # Determine bias
+        if total_mutations == 0:
+            bias = "neutral"
+            bias_ratio = 1.0
+        elif all_distrib_count > all_stealth_count * 1.5:
+            bias = "distribution_heavy"
+            bias_ratio = round(all_distrib_count / max(all_stealth_count, 1), 2)
+        elif all_stealth_count > all_distrib_count * 1.5:
+            bias = "accumulation_heavy"
+            bias_ratio = round(all_stealth_count / max(all_distrib_count, 1), 2)
+        else:
+            bias = "balanced"
+            bias_ratio = round(max(all_stealth_count, all_distrib_count) / max(min(all_stealth_count, all_distrib_count), 1), 2)
+
+        summary["market_pulse"] = {
+            "total_stocks_scanned": total_scanned,
+            "total_mutations": total_mutations,
+            "stealth_count": all_stealth_count,
+            "distribution_count": all_distrib_count,
+            "mutation_bias": bias,
+            "bias_ratio": bias_ratio,
+            "circuit_breaker": mutation_data.get("circuit_breaker", {}),
+            "distribution_stats": mutation_data.get("distribution", {}),
+        }
+
+        summary["top_mutations"] = {
+            "stealth": [
+                {
+                    "stock_code": m["stock_code"],
+                    "date": m["date"],
+                    "z_score": m["z_score"],
+                    "score_brokerage": m["score_brokerage"],
+                    "score_technical": m["score_technical"],
+                }
+                for m in stealth[:5]
+            ],
+            "distribution": [
+                {
+                    "stock_code": m["stock_code"],
+                    "date": m["date"],
+                    "z_score": m["z_score"],
+                    "score_brokerage": m["score_brokerage"],
+                    "score_technical": m["score_technical"],
+                }
+                for m in distribution[:5]
+            ],
+        }
+
+        # --- 3. Generate Narrative ---
+        cb = mutation_data.get("circuit_breaker", {})
+        if cb.get("triggered"):
+            narrative = (
+                f"CIRCUIT BREAKER TRIGGERED: {cb['extreme_count']}/{total_scanned} stocks "
+                f"({cb['extreme_pct']:.1%}) exceed {cb['threshold_sigma']}σ — "
+                f"suspected data anomaly, manual review required."
+            )
+        else:
+            bias_text = {
+                "distribution_heavy": "誘多派發為主",
+                "accumulation_heavy": "匿蹤吸貨為主",
+                "balanced": "多空均衡",
+                "neutral": "無顯著突變",
+            }.get(bias, "未知")
+
+            top_stealth_text = ""
+            if stealth:
+                top_s = stealth[0]
+                top_stealth_text = f"重點觀察 {top_s['stock_code']}（匿蹤吸貨 z={top_s['z_score']:.2f}σ）"
+
+            top_distrib_text = ""
+            if distribution:
+                top_d = distribution[0]
+                top_distrib_text = f"警惕 {top_d['stock_code']}（誘多派發 z={top_d['z_score']:.2f}σ）"
+
+            parts = [
+                f"今日市場分點動向：{bias_text}",
+                f"（{all_distrib_count} 誘多 vs {all_stealth_count} 匿蹤）。",
+            ]
+            if top_stealth_text:
+                parts.append(top_stealth_text + "。")
+            if top_distrib_text:
+                parts.append(top_distrib_text + "。")
+
+            narrative = " ".join(parts)
+
+        summary["narrative"] = narrative
+
+    except Exception as e:
+        logger.error(f"Daily summary mutation scan failed: {e}")
+        summary["market_pulse"] = {"error": str(e)}
+        summary["top_mutations"] = {"stealth": [], "distribution": []}
+        summary["narrative"] = f"Scan failed: {e}"
+
+    # --- 4. Save to disk ---
+    try:
+        summary_path = Path(__file__).parent.parent / "data" / "daily_summary.json"
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json_mod.dump(summary, f, indent=2, ensure_ascii=False)
+        logger.info(f"Daily summary saved: {summary_path}")
+    except Exception as e:
+        logger.error(f"Failed to save daily summary: {e}")
+
+    return summary
+
+
 def _build_weight_array(
     col_indices: np.ndarray, dim_name: str, weights_config: dict
 ) -> np.ndarray:

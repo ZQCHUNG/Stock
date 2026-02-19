@@ -222,6 +222,70 @@ export interface MutationScanResult {
   }
 }
 
+// --- Daily Summary Types (R88.7 Phase 10) ---
+
+export interface NightWatchmanHealth {
+  status: string
+  latest_date: string | null
+  brokerage_nonzero_rate: number
+  brokerage_stocks_with_data: number
+}
+
+export interface PipelineHealth {
+  status: string
+  swap_result?: string
+  new_rows?: number
+  row_delta?: number
+  size_mb?: number
+  timestamp?: string
+  night_watchman?: NightWatchmanHealth
+  error?: string
+}
+
+export interface MutationEntry {
+  stock_code: string
+  date: string
+  z_score: number
+  score_brokerage: number
+  score_technical: number
+}
+
+export interface MarketPulse {
+  total_stocks_scanned: number
+  total_mutations: number
+  stealth_count: number
+  distribution_count: number
+  mutation_bias: string
+  bias_ratio: number
+  circuit_breaker: {
+    triggered: boolean
+    extreme_count: number
+    extreme_pct: number
+    threshold_pct: number
+    threshold_sigma: number
+  }
+  distribution_stats: {
+    mean: number
+    std: number
+    min: number
+    max: number
+  }
+  error?: string
+}
+
+export interface DailySummary {
+  date: string
+  generated_at: string
+  version: string
+  pipeline_health: PipelineHealth
+  market_pulse: MarketPulse
+  top_mutations: {
+    stealth: MutationEntry[]
+    distribution: MutationEntry[]
+  }
+  narrative: string
+}
+
 export const clusterApi = {
   /** 雙區塊查詢 (主 API) */
   similarDual: (req: DualSimilarRequest) =>
@@ -247,5 +311,11 @@ export const clusterApi = {
   mutations: (threshold = 1.5, topN = 10, useWeights = false) =>
     client.get<any, MutationScanResult>('/cluster/mutations', {
       params: { threshold, top_n: topN, use_weights: useWeights },
+    }),
+
+  /** 每日自動摘要 (R88.7 Phase 10) */
+  dailySummary: (regenerate = false) =>
+    client.get<any, DailySummary>('/cluster/daily-summary', {
+      params: { regenerate },
     }),
 }
