@@ -467,10 +467,12 @@ def start_scheduler(interval_minutes: int = 5):
         replace_existing=True,
         max_instances=1,
     )
-    # R88.7: Parquet rebuild at 19:00 (Mon-Fri, after broker fetch)
+    # R88.7: Parquet rebuild at 20:00 (Mon-Fri, after news fetch completes)
+    # [CONVERGED — Wall Street Trader 2026-02-19]: "19:00 太緊，15分鐘緩衝極度危險"
+    # News fetch ~25 min (18:45→19:10), rebuild needs clean data
     _scheduler.add_job(
         _run_parquet_rebuild,
-        trigger=CronTrigger(hour=19, minute=0, day_of_week="mon-fri"),
+        trigger=CronTrigger(hour=20, minute=0, day_of_week="mon-fri"),
         id="parquet_rebuild",
         name="Parquet Feature Rebuild (R88.7)",
         replace_existing=True,

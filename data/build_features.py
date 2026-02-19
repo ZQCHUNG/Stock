@@ -678,12 +678,19 @@ _POLARITY_POSITIVE = [
     "surge", "rally", "boost", "strong", "outperform",
 ]
 _POLARITY_NEGATIVE = [
-    "虧損", "下跌", "衰退", "利空", "看壞", "賣出", "下調",
-    "減資", "裁員", "違約", "訴訟", "調查", "警示", "跌停",
-    "下修", "疲弱", "風險", "負債", "停工", "召回",
-    "downgrade", "sell", "miss", "loss", "cut", "decline",
+    "虧損", "下跌", "衰退", "利空", "看壞", "下調",
+    "減資", "裁員", "違約", "訴訟", "調查局", "警示", "跌停",
+    "下修", "疲弱", "負債", "停工", "召回", "掏空", "背信",
+    "downgrade", "sell", "miss", "loss", "decline",
     "fall", "drop", "warning", "lawsuit", "bearish", "default",
 ]
+# [CONVERGED — Gemini Wall Street Trader 2026-02-19 R6]
+# Removed: 「調查」→ 99.9% are "Factset 最新調查" (analyst surveys), not legal
+# Removed: 「賣出」→ overlaps with institutional dimension (籌碼面已有精確數字)
+# Removed: 「風險」→ too broad (每篇新聞都有「投資風險」disclaimer)
+# Removed: 「cut」→ ambiguous (price cut vs layoff cut)
+# Added: 「調查局」→ actual legal investigation
+# Added: 「掏空」「背信」→ corporate fraud (Gemini mandate: capture non-structural risk)
 
 
 # [CONVERGED — Gemini 2026-02-19 R4]
