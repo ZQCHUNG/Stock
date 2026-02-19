@@ -456,6 +456,17 @@ def start_scheduler(interval_minutes: int = 5):
         replace_existing=True,
         max_instances=1,
     )
+    # R88.7 Phase 12: Google News RSS fetch at 18:45 (Mon-Fri)
+    # [CONVERGED — Wall Street Trader 2026-02-19]
+    # After broker fetch (18:30) and before parquet rebuild (19:00)
+    _scheduler.add_job(
+        _run_google_news_fetch,
+        trigger=CronTrigger(hour=18, minute=45, day_of_week="mon-fri"),
+        id="google_news_fetch",
+        name="Google News RSS Fetch (R88.7 P12)",
+        replace_existing=True,
+        max_instances=1,
+    )
     # R88.7: Parquet rebuild at 19:00 (Mon-Fri, after broker fetch)
     _scheduler.add_job(
         _run_parquet_rebuild,
@@ -855,6 +866,29 @@ def _run_daily_broker_fetch():
             )
     except Exception as e:
         logger.error(f"Daily broker fetch failed: {e}", exc_info=True)
+
+
+def _run_google_news_fetch():
+    """R88.7 Phase 12: Scheduled job — fetch Google News RSS at 18:45.
+
+    [CONVERGED — Wall Street Trader 2026-02-19]
+    Tiered coverage: Top 500 market cap stocks only.
+    Runs in ~25 min (500 stocks × 3.5s avg delay).
+    """
+    try:
+        from data.fetch_google_news import run_fetch
+        from datetime import datetime
+
+        today = datetime.now()
+        if today.weekday() >= 5:
+            logger.debug("Google News fetch: weekend, skipping")
+            return
+
+        logger.info("Google News RSS fetch: starting Top 500 ...")
+        run_fetch(full=False)
+        logger.info("Google News RSS fetch: completed")
+    except Exception as e:
+        logger.error(f"Google News RSS fetch failed: {e}", exc_info=True)
 
 
 def _run_parquet_rebuild():
