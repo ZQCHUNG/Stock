@@ -237,6 +237,7 @@ python -m pytest tests/ -q
 | R88.7P7 | Trader Bulletproof: Canary Check + Atomic Swap + Rate Jitter + Gene Mutation Scanner (Trader APPROVED) | Done |
 | R88.7P8 | Gene Mutation Scanner UI + Circuit Breaker + Atomic Swap Report (Trader APPROVED) | Done |
 | R88.7P9 | Night Watchman Health Check + Mutation Tooltips (Trader APPROVED) | Done |
+| R88.7P10 | Auto-Summary: Daily Report Generator + UI (Pipeline Health + Market Pulse + Narrative) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -391,6 +392,15 @@ python -m pytest tests/ -q
 - **Mutation Tooltips**: 滑鼠懸停顯示「匿蹤吸貨：主力正在低位建倉」「誘多派發：主力正在倒貨」
 - **Atomic Swap Report**: `swap_report.json` 記錄新舊檔案大小、Row 差異、穩定性追蹤
 - **Night Watchman**: Post-swap 健康檢查 — 驗證最新日期 + 分點維度非零率 (brokerage_nonzero_rate > 1%)
+
+**Auto-Summary (R88.7 Phase 10)** — 每日自動報告:
+- `generate_daily_summary()`: Scheduler 跑完後自動生成 JSON 摘要
+- **Pipeline Health**: Swap 狀態 + Night Watchman 健康度
+- **Market Pulse**: 突變統計 + 偏向分析 (出貨/吸貨/均衡)
+- **Top Mutations**: Top 5 匿蹤吸貨 + Top 5 誘多派發
+- **Narrative**: 自動生成中文摘要，一句話告訴 Joe 今日市場分點動向
+- API: `GET /api/cluster/daily-summary` (cached + `?regenerate=true`)
+- Frontend: ClusterView 頁面頂部自動載入顯示
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)
