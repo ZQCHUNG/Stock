@@ -5,6 +5,7 @@ import {
   type DualSimilarResult,
   type FeatureStatus,
   type DimensionInfo,
+  type MutationScanResult,
 } from '../api/cluster'
 
 export const useClusterStore = defineStore('cluster', () => {
@@ -19,6 +20,11 @@ export const useClusterStore = defineStore('cluster', () => {
   const dimensions = ref<DimensionInfo[]>([])
   const isLoading = ref(false)
   const error = ref('')
+
+  // Mutation scanner state
+  const mutationResult = ref<MutationScanResult | null>(null)
+  const isMutationLoading = ref(false)
+  const mutationError = ref('')
 
   // --- Actions ---
 
@@ -73,6 +79,20 @@ export const useClusterStore = defineStore('cluster', () => {
     }
   }
 
+  async function loadMutations(threshold = 1.5, topN = 10, useWeights = false) {
+    isMutationLoading.value = true
+    mutationError.value = ''
+    mutationResult.value = null
+
+    try {
+      mutationResult.value = await clusterApi.mutations(threshold, topN, useWeights)
+    } catch (e: any) {
+      mutationError.value = e.message || String(e)
+    } finally {
+      isMutationLoading.value = false
+    }
+  }
+
   return {
     // State
     queryDate,
@@ -84,9 +104,14 @@ export const useClusterStore = defineStore('cluster', () => {
     dimensions,
     isLoading,
     error,
+    // Mutation scanner
+    mutationResult,
+    isMutationLoading,
+    mutationError,
     // Actions
     loadFeatureStatus,
     loadDimensions,
     loadSimilarDual,
+    loadMutations,
   }
 })

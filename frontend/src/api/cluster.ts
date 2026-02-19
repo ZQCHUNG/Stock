@@ -205,6 +205,13 @@ export interface MutationScanResult {
     threshold_value_upper: number
     threshold_value_lower: number
   }
+  circuit_breaker: {
+    triggered: boolean
+    extreme_count: number
+    extreme_pct: number
+    threshold_pct: number
+    threshold_sigma: number
+  }
   config: {
     threshold_sigma: number
     top_n: number

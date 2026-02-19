@@ -1058,6 +1058,12 @@ MUTATION_WEIGHTS_CONFIG = {
 # (raw volume not in Z-score space, use vol_ratio_20 instead)
 MUTATION_VOLUME_FLOOR_ZSCORE = -2.0
 
+# [CONVERGED — Wall Street Trader 2026-02-19] Circuit Breaker
+# If >30% of stocks show >2σ mutations simultaneously, it's a data bug, not alpha.
+# Abort Atomic Swap and flag the issue.
+GLOBAL_SHIFT_THRESHOLD_PCT = 0.30  # 30% of stocks
+GLOBAL_SHIFT_SIGMA = 2.0  # Z-score threshold for "shifted"
+
 
 def scan_gene_mutations(
     threshold_sigma: float = 1.5,
@@ -1187,6 +1193,19 @@ def scan_gene_mutations(
             r["mutation_label"] = "Deceptive Distribution"
             mutations.append(r)
 
+    # --- Circuit Breaker: Global Shift Check ---
+    # [CONVERGED — Wall Street Trader 2026-02-19]
+    # If >30% of stocks exceed 2σ, it's systemic (data bug), not alpha.
+    n_extreme = int(np.sum(np.abs(all_deltas_arr - delta_mean) / delta_std > GLOBAL_SHIFT_SIGMA))
+    global_shift_pct = n_extreme / len(results) if len(results) > 0 else 0
+    global_shift_triggered = global_shift_pct > GLOBAL_SHIFT_THRESHOLD_PCT
+
+    if global_shift_triggered:
+        logger.warning(
+            f"CIRCUIT BREAKER: {n_extreme}/{len(results)} stocks ({global_shift_pct:.1%}) "
+            f"exceed {GLOBAL_SHIFT_SIGMA}σ — likely data bug, not alpha"
+        )
+
     # Sort by |z_score| descending, take top N
     mutations.sort(key=lambda x: abs(x["z_score"]), reverse=True)
     mutations = mutations[:top_n]
@@ -1213,6 +1232,13 @@ def scan_gene_mutations(
             "max": round(float(np.max(all_deltas_arr)), 4),
         },
         "histogram": histogram,
+        "circuit_breaker": {
+            "triggered": global_shift_triggered,
+            "extreme_count": n_extreme,
+            "extreme_pct": round(global_shift_pct, 4),
+            "threshold_pct": GLOBAL_SHIFT_THRESHOLD_PCT,
+            "threshold_sigma": GLOBAL_SHIFT_SIGMA,
+        },
         "config": {
             "threshold_sigma": threshold_sigma,
             "top_n": top_n,

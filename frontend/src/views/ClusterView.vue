@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { h, computed, onMounted } from 'vue'
+import { h, computed, onMounted, ref as vRef } from 'vue'
 import {
   NGrid, NGi, NCard, NAlert, NButton, NDatePicker,
   NStatistic, NDataTable, NSpace, NTag, NText, NDivider,
@@ -12,7 +12,7 @@ import { useClusterStore } from '../stores/cluster'
 import { useResponsive } from '../composables/useResponsive'
 import { useChartTheme } from '../composables/useChartTheme'
 import { fmtPct, priceColor } from '../utils/format'
-import type { BlockResult, ForwardPath, SimilarCase, SniperAssessment } from '../api/cluster'
+import type { BlockResult, ForwardPath, SimilarCase, SniperAssessment, MutationResult } from '../api/cluster'
 
 const app = useAppStore()
 const store = useClusterStore()
@@ -343,6 +343,140 @@ const weightTransparencyText = computed(() => {
   if (parts.length === 0) return '系統加權：均等'
   return `系統加權：${parts.join(', ')}`
 })
+
+// ==================== Gene Mutation Scanner ====================
+const showMutationPanel = vRef(false)
+
+async function doMutationScan() {
+  showMutationPanel.value = true
+  await store.loadMutations(1.5, 20)
+}
+
+// Mutation table columns
+const mutationColumns: DataTableColumns<MutationResult> = [
+  {
+    title: '股票',
+    key: 'stock_code',
+    width: 70,
+    render: (row) => h(NText, { strong: true }, { default: () => row.stock_code }),
+  },
+  {
+    title: '日期',
+    key: 'date',
+    width: 100,
+  },
+  {
+    title: '類型',
+    key: 'mutation_type',
+    width: 100,
+    render: (row) => h(
+      NTag,
+      {
+        type: row.z_score > 0 ? 'success' : 'error',
+        size: 'small',
+        bordered: false,
+      },
+      { default: () => row.mutation_type },
+    ),
+  },
+  {
+    title: 'Z-Score',
+    key: 'z_score',
+    width: 80,
+    sorter: (a, b) => Math.abs(a.z_score) - Math.abs(b.z_score),
+    render: (row) => h(
+      NText,
+      { style: { color: row.z_score > 0 ? '#16a34a' : '#dc2626', fontWeight: 700 } },
+      { default: () => row.z_score.toFixed(2) + 'σ' },
+    ),
+  },
+  {
+    title: '分點面',
+    key: 'score_brokerage',
+    width: 80,
+    render: (row) => h(NText, {}, { default: () => row.score_brokerage.toFixed(3) }),
+  },
+  {
+    title: '技術面',
+    key: 'score_technical',
+    width: 80,
+    render: (row) => h(NText, {}, { default: () => row.score_technical.toFixed(3) }),
+  },
+  {
+    title: 'Δ_div',
+    key: 'delta_div',
+    width: 80,
+    sorter: (a, b) => a.delta_div - b.delta_div,
+    render: (row) => h(
+      NText,
+      { strong: true, style: { color: row.delta_div > 0 ? '#16a34a' : '#dc2626' } },
+      { default: () => (row.delta_div > 0 ? '+' : '') + row.delta_div.toFixed(3) },
+    ),
+  },
+]
+
+// Mutation histogram chart option
+const mutationHistogramOption = computed(() => {
+  const mr = store.mutationResult
+  if (!mr) return null
+
+  const { counts, edges, threshold_value_upper, threshold_value_lower } = mr.histogram
+  const barData = counts.map((c, i) => {
+    const midpoint = (edges[i] + edges[i + 1]) / 2
+    const isExtreme = midpoint > threshold_value_upper || midpoint < threshold_value_lower
+    return {
+      value: c,
+      itemStyle: { color: isExtreme ? '#dc2626' : colors.value.primary },
+    }
+  })
+
+  const categories = counts.map((_, i) => ((edges[i] + edges[i + 1]) / 2).toFixed(2))
+
+  return {
+    ...baseOption.value,
+    tooltip: {
+      ...tooltipStyle.value,
+      trigger: 'axis',
+      formatter: (params: any) => {
+        const p = params[0]
+        return `Δ_div: ${p.name}<br/>個股數: ${p.value}`
+      },
+    },
+    xAxis: {
+      type: 'category',
+      data: categories,
+      name: 'Δ_div (Brokerage - Technical)',
+      nameLocation: 'middle',
+      nameGap: 28,
+      axisLabel: { fontSize: 10 },
+    },
+    yAxis: {
+      type: 'value',
+      name: '個股數',
+    },
+    series: [
+      {
+        type: 'bar',
+        data: barData,
+        barWidth: '80%',
+        markLine: {
+          silent: true,
+          lineStyle: { type: 'dashed', color: '#dc2626', width: 1.5 },
+          data: [
+            { xAxis: threshold_value_upper.toFixed(2), label: { formatter: `+${mr.config.threshold_sigma}σ`, fontSize: 10 } },
+            { xAxis: threshold_value_lower.toFixed(2), label: { formatter: `-${mr.config.threshold_sigma}σ`, fontSize: 10 } },
+          ],
+        },
+      },
+    ],
+  }
+})
+
+// Navigate to stock Gene Map on click
+function goToStock(code: string) {
+  app.setStockCode(code)
+  doSearch()
+}
 </script>
 
 <template>
@@ -677,6 +811,131 @@ const weightTransparencyText = computed(() => {
             />
           </NCollapseItem>
         </NCollapse>
+      </NCard>
+    </NGi>
+
+    <!-- ==================== Gene Mutation Scanner ==================== -->
+    <NGi>
+      <NCard size="small">
+        <template #header>
+          <NSpace align="center" :size="8">
+            <NTag type="warning" :bordered="false" size="small">突變掃描</NTag>
+            <NText strong>基因突變偵測器</NText>
+            <NText depth="3" style="font-size: 11px">分點面 vs 技術面 顯著背離</NText>
+          </NSpace>
+        </template>
+        <template #header-extra>
+          <NButton
+            size="small"
+            type="warning"
+            :loading="store.isMutationLoading"
+            @click="doMutationScan"
+          >
+            掃描全市場
+          </NButton>
+        </template>
+
+        <!-- Circuit Breaker Alert -->
+        <NAlert
+          v-if="store.mutationResult?.circuit_breaker?.triggered"
+          type="error"
+          title="熔斷警告 — 全市場異常位移"
+          style="margin-bottom: 8px"
+        >
+          {{ store.mutationResult.circuit_breaker.extreme_count }} /
+          {{ store.mutationResult.total_stocks_scanned }} 檔
+          ({{ (store.mutationResult.circuit_breaker.extreme_pct * 100).toFixed(1) }}%)
+          超過 {{ store.mutationResult.circuit_breaker.threshold_sigma }}σ，
+          疑似資料異常，非交易機會。Atomic Swap 應暫停。
+        </NAlert>
+
+        <NAlert
+          v-if="store.mutationError"
+          type="error"
+          :title="store.mutationError"
+          style="margin-bottom: 8px"
+        />
+
+        <!-- Summary stats -->
+        <NGrid
+          v-if="store.mutationResult"
+          :cols="cols(2, 3, 5).value"
+          x-gap="8" y-gap="8"
+          style="margin-bottom: 12px"
+        >
+          <NGi>
+            <NStatistic label="掃描股數">
+              {{ store.mutationResult.total_stocks_scanned }}
+            </NStatistic>
+          </NGi>
+          <NGi>
+            <NStatistic label="突變個股">
+              <span :style="{ color: store.mutationResult.total_mutations > 0 ? '#e53e3e' : '' }">
+                {{ store.mutationResult.total_mutations }}
+              </span>
+            </NStatistic>
+          </NGi>
+          <NGi>
+            <NStatistic label="Δ_div 均值">
+              {{ store.mutationResult.distribution.mean.toFixed(4) }}
+            </NStatistic>
+          </NGi>
+          <NGi>
+            <NStatistic label="Δ_div σ">
+              {{ store.mutationResult.distribution.std.toFixed(4) }}
+            </NStatistic>
+          </NGi>
+          <NGi>
+            <NStatistic label="閾值">
+              ±{{ store.mutationResult.config.threshold_sigma }}σ
+            </NStatistic>
+          </NGi>
+        </NGrid>
+
+        <!-- Histogram -->
+        <div v-if="mutationHistogramOption" style="margin-bottom: 12px">
+          <NText depth="3" style="font-size: 11px">
+            Δ_div 分佈 — 紅色區域為超過 ±{{ store.mutationResult?.config.threshold_sigma }}σ 的突變區
+          </NText>
+          <VChart :option="mutationHistogramOption" style="height: 220px; width: 100%" autoresize />
+        </div>
+
+        <!-- Mutation table -->
+        <div v-if="store.mutationResult && store.mutationResult.mutations.length > 0">
+          <NText depth="3" style="font-size: 11px; margin-bottom: 4px; display: block">
+            Top {{ store.mutationResult.mutations.length }} 突變股（點擊查看基因譜）
+          </NText>
+          <NDataTable
+            :columns="mutationColumns"
+            :data="store.mutationResult.mutations"
+            :pagination="false"
+            :scroll-x="600"
+            size="small"
+            striped
+            :row-props="(row: MutationResult) => ({
+              style: 'cursor: pointer',
+              onClick: () => goToStock(row.stock_code),
+            })"
+          />
+        </div>
+
+        <!-- No results -->
+        <NText
+          v-if="store.mutationResult && store.mutationResult.mutations.length === 0"
+          depth="3"
+          style="text-align: center; display: block; padding: 20px 0"
+        >
+          目前無突變個股（市場穩定期）
+        </NText>
+
+        <!-- Not yet loaded -->
+        <NText
+          v-if="!store.mutationResult && !store.isMutationLoading"
+          depth="3"
+          style="text-align: center; display: block; padding: 12px 0; font-size: 12px"
+        >
+          點擊「掃描全市場」偵測分點面 vs 技術面的顯著背離
+        </NText>
       </NCard>
     </NGi>
 

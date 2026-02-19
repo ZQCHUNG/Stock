@@ -917,9 +917,23 @@ def main():
             print(f"    Temp files preserved for inspection.")
             swap_ok = False
 
+    # Build swap report [CONVERGED — Wall Street Trader 2026-02-19]
+    swap_report = {
+        "timestamp": datetime.now().isoformat(),
+        "swap_ok": swap_ok,
+        "new_file_size_mb": round(features_temp.stat().st_size / 1e6, 2) if features_temp.exists() else 0,
+        "new_row_count": len(features_out),
+        "new_stock_count": int(features_out["stock_code"].nunique()),
+    }
+    if features_final.exists() and swap_ok is not None:
+        swap_report["old_file_size_mb"] = round(prev_size / 1e6, 2) if 'prev_size' in dir() else None
+        swap_report["old_row_count"] = prev_rows if 'prev_rows' in dir() else None
+        swap_report["size_ratio"] = round(size_ratio, 4) if 'size_ratio' in dir() else None
+        swap_report["row_ratio"] = round(row_ratio, 4) if 'row_ratio' in dir() else None
+        swap_report["row_count_delta"] = new_rows - prev_rows if 'prev_rows' in dir() and 'new_rows' in dir() else None
+
     if swap_ok:
         # Atomic swap: remove old, rename temp → final
-        import shutil
         if features_final.exists():
             features_final.unlink()
         features_temp.rename(features_final)
@@ -927,9 +941,17 @@ def main():
             returns_final.unlink()
         returns_temp.rename(returns_final)
         print(f"    ✅ Atomic swap complete")
+        swap_report["result"] = "swapped"
     else:
         # Keep temp files for debugging, don't overwrite production
         print(f"    ❌ Swap aborted. Temp files: {features_temp.name}, {returns_temp.name}")
+        swap_report["result"] = "aborted"
+
+    # Save swap report for Joe to review stability
+    swap_report_path = OUTPUT_DIR / "swap_report.json"
+    with open(swap_report_path, "w", encoding="utf-8") as fp:
+        json.dump(swap_report, fp, indent=2, ensure_ascii=False)
+    print(f"    Swap report saved: {swap_report_path.name}")
 
     metadata = {
         "dimensions": {
