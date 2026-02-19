@@ -1837,6 +1837,14 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
 
             narrative = " ".join(parts)
 
+            # [Phase 11.5] Maiden Voyage — first-run greeting (shows only when warming_up)
+            if confidence.get("warming_up"):
+                maiden_prefix = (
+                    "[Maiden Voyage] R88.7 已上線。系統處於 Warming Up 階段（冷啟動），"
+                    "信心分數需累積 5 日歷史才穩定。今日任務：校準直覺，觀察 Confidence × Bias 連動。 "
+                )
+                narrative = maiden_prefix + narrative
+
         summary["narrative"] = narrative
 
     except Exception as e:
