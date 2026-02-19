@@ -71,8 +71,17 @@ def _load_stock_universe() -> list[str]:
                 data = json.load(fp)
             if isinstance(data, list):
                 return [str(c) for c in data]
-            if isinstance(data, dict) and "codes" in data:
-                return [str(c) for c in data["codes"]]
+            if isinstance(data, dict):
+                for key in ["codes", "stocks"]:
+                    if key in data:
+                        items = data[key]
+                        result = []
+                        for c in items:
+                            if isinstance(c, dict) and "code" in c:
+                                result.append(str(c["code"]))
+                            else:
+                                result.append(str(c))
+                        return result
     return []
 
 
