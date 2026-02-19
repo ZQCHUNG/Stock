@@ -49,6 +49,8 @@ Stock/
 ├── data/
 │   ├── fetcher.py            # yfinance + FinMind + TWSE + Redis cache
 │   ├── twse_provider.py      # TWSE/TPEX unified provider + SQLite
+│   ├── fetch_google_news.py  # Google News RSS fetcher (6 TW finance sites) (R88.7P12)
+│   ├── build_features.py     # 8 sources → 65 features Parquet (R88)
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
@@ -232,7 +234,7 @@ python -m pytest tests/ -q
 | R88.7 | Method C: Daily Brokerage Scraper + 14 Features (Wall Street Trader Approved) | Done |
 | R88.7P3 | Winner Branch Registry — Bootstrap CI + Ghost Bias (Wall Street Trader Approved) | Done |
 | R88.7P4 | Tiered Registry + broker_winner_momentum (14th feature) (Trader CONVERGED) | Done |
-| R88.7P5 | Parquet Integration — 50→60 features, brokerage 4→14 (Gene Map Ready) | Done |
+| R88.7P5 | Parquet Integration — 50→65 features, brokerage 4→14, attention 2→7 (Gene Map Ready) | Done |
 | R88.7P6 | Trader Rulings: Warmup Mask + Cron 18:30 + Weekly Registry (Trader APPROVED) | Done |
 | R88.7P7 | Trader Bulletproof: Canary Check + Atomic Swap + Rate Jitter + Gene Mutation Scanner (Trader APPROVED) | Done |
 | R88.7P8 | Gene Mutation Scanner UI + Circuit Breaker + Atomic Swap Report (Trader APPROVED) | Done |
@@ -240,6 +242,7 @@ python -m pytest tests/ -q
 | R88.7P10 | Auto-Summary: Daily Report Generator + UI (Pipeline Health + Market Pulse + Narrative) | Done |
 | R88.7P11 | Hot Sectors + Confidence Score + Activity Percentile (Architect Critic Approved) | Done |
 | R88.7P11.5 | Cold Start Warming Up + Wall Street Narrative + H<0.4 Critical Warning | Done |
+| R88.7P12 | Attention Dim 2→7 Features + Google News RSS + Daily Schedule 18:45 (Trader CONVERGED) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -371,15 +374,15 @@ python -m pytest tests/ -q
 - 存檔: `data/pattern_data/winner_branches.json`
 
 **Parquet Integration (R88.7 Phase 5)**:
-- `build_features.py` 升級: 50→60 features, brokerage 4→14
+- `build_features.py` 升級: 50→65 features, brokerage 4→14, attention 2→7
 - 109K 月頻分點 + 66 日頻分點 → 14 特徵 → 前填(forward-fill)到日線
 - 109,195 broker records → merged into 1,628,668 daily rows
-- 292.5 MB features_all.parquet (1096 stocks, 2020-2026)
-- Cluster search auto-adapts: 60 features, 6 dimensions, Gene Map ready
+- 306.7 MB features_all.parquet (1096 stocks, 2020-2026)
+- Cluster search auto-adapts: 65 features, 6 dimensions, Gene Map ready
 
 **Trader Rulings (R88.7 Phase 6)** [APPROVED — Wall Street Trader 2026-02-18]:
 - **Warmup Mask**: 4 sparse features (branch_overlap, volatility, price_divergence, winner_momentum) → zero weight in cosine similarity. Frontend shows &#9203; "Data Accumulating" markers
-- **Cron Schedule**: Daily broker fetch at 18:30, Parquet rebuild at 19:00 (Mon-Fri)
+- **Cron Schedule**: Daily broker fetch 18:30 → Google News RSS 18:45 → Parquet rebuild 19:00 (Mon-Fri)
 - **Weekly Registry**: Winner Registry auto-recalculates Saturday 02:00. CI >= 1.0 threshold maintained — "寧可整天不開火，也不要打歪"
 
 **Trader Bulletproof (R88.7 Phase 7)** [APPROVED — Wall Street Trader 2026-02-18]:
@@ -409,7 +412,7 @@ python -m pytest tests/ -q
 - Frontend: ClusterView 頁面頂部 — 信心分數 badge + 族群熱點 tags + 產業別標籤 + Warming Up + Critical Warning
 
 **Attention Dimension Upgrade (R88.7 Phase 12)** [HYPOTHESIS — pending IC validation]:
-- 從 2 → 7 個注意力特徵（60 → 65 total features）
+- 從 2 → 7 個注意力特徵（60 → 65 total features）— Parquet rebuilt + verified
 - `attention_index_7d` (量), `attention_spike` (量突變), `source_diversity` (廣度), `news_velocity` (加速度), `polarity_filter` (三態極性), `news_recency` (時效性), `co_occurrence_score` (共現頻率)
 - NaN-aware: 無新聞股票 → NaN（不是 0），防止稀疏聚類扭曲
 - Polarity Filter: 三態關鍵字分類 (Breaking/Growth=+1, Risk/Legal=-1, Neutral=0)
@@ -417,6 +420,8 @@ python -m pytest tests/ -q
 - Noise Filter: 過濾「盤後/摘要/名單/一覽/三大法人」等非事件源頭文章
 - Google News RSS: 搜索 6 個台灣財經新聞網站，階層式覆蓋 (Top 500 優先)
 - cnyes 覆蓋率: 284 → 448 stocks (+58%)，改用 API 原生 `stock` 欄位
+- Daily Schedule: 18:30 broker → **18:45 news** → 19:00 parquet (Mon-Fri)
+- First batch: 504 Google News files fetched (2026-02-19)
 - IC 實驗: INCONCLUSIVE (僅 11 天數據)，需累積 30+ 天後驗證
 
 **檔案**:
