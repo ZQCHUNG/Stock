@@ -238,6 +238,7 @@ python -m pytest tests/ -q
 | R88.7P8 | Gene Mutation Scanner UI + Circuit Breaker + Atomic Swap Report (Trader APPROVED) | Done |
 | R88.7P9 | Night Watchman Health Check + Mutation Tooltips (Trader APPROVED) | Done |
 | R88.7P10 | Auto-Summary: Daily Report Generator + UI (Pipeline Health + Market Pulse + Narrative) | Done |
+| R88.7P11 | Hot Sectors + Confidence Score + Activity Percentile (Architect Critic Approved) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -393,14 +394,16 @@ python -m pytest tests/ -q
 - **Atomic Swap Report**: `swap_report.json` 記錄新舊檔案大小、Row 差異、穩定性追蹤
 - **Night Watchman**: Post-swap 健康檢查 — 驗證最新日期 + 分點維度非零率 (brokerage_nonzero_rate > 1%)
 
-**Auto-Summary (R88.7 Phase 10)** — 每日自動報告:
+**Auto-Summary (R88.7 Phase 10-11)** — 每日自動報告 v1.1:
 - `generate_daily_summary()`: Scheduler 跑完後自動生成 JSON 摘要
-- **Pipeline Health**: Swap 狀態 + Night Watchman 健康度
-- **Market Pulse**: 突變統計 + 偏向分析 (出貨/吸貨/均衡)
-- **Top Mutations**: Top 5 匿蹤吸貨 + Top 5 誘多派發
-- **Narrative**: 自動生成中文摘要，一句話告訴 Joe 今日市場分點動向
+- **Pipeline Health**: Swap 狀態 + Night Watchman 健康度 + Row Count Drift 偏差偵測
+- **Market Pulse**: 突變統計 + 偏向分析 (出貨/吸貨/均衡) + Activity Percentile (20日歷史比較)
+- **Hot Sectors**: 族群級資金流向聚合 — 使用 sector_mapping (108股) + industry chain (1965股) 雙層映射
+- **Confidence Score**: `H × S` — Data Health(RowIntegrity+Watchman+BrokerActivity) × Signal Strength(Intensity+Conviction+Concentration)
+- **Top Mutations**: Top 5 匿蹤吸貨 + Top 5 誘多派發，每檔標註產業別
+- **Narrative**: 自動生成中文摘要 + 族群集體吸貨/出貨警示 + 活躍度標籤
 - API: `GET /api/cluster/daily-summary` (cached + `?regenerate=true`)
-- Frontend: ClusterView 頁面頂部自動載入顯示
+- Frontend: ClusterView 頁面頂部 — 信心分數 badge + 族群熱點 tags + 產業別標籤
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)
@@ -408,7 +411,7 @@ python -m pytest tests/ -q
 - `analysis/cluster_search.py` — Dual-Pipeline + Per-Dimension Similarity 引擎
 - `analysis/broker_features.py` — R88.7 14 日頻分點特徵計算引擎
 - `analysis/winner_registry.py` — R88.7 Tiered Winner Branch Registry
-- `backend/routers/cluster.py` — 5 API endpoints (similar-dual, similar, dimensions, feature-status, winner-registry)
+- `backend/routers/cluster.py` — 6 API endpoints (similar-dual, similar, dimensions, feature-status, mutations, daily-summary)
 - `frontend/src/views/ClusterView.vue` — Dual Block + Gene Map + Dimension Lens UI
 
 ### Auto Trail Classifier (R73-R79)
