@@ -947,6 +947,37 @@ def main():
         print(f"    ❌ Swap aborted. Temp files: {features_temp.name}, {returns_temp.name}")
         swap_report["result"] = "aborted"
 
+    # --- Night Watchman: Post-Swap Health Check ---
+    # [CONVERGED — Wall Street Trader 2026-02-19]
+    # Verify data freshness + brokerage dimension vitality after swap
+    health = {}
+    if swap_ok:
+        final_df = features_out  # already in memory
+        latest_date = str(final_df["date"].max())[:10]
+        health["latest_date"] = latest_date
+
+        # Check brokerage non-zero rate
+        brok_cols_check = [c for c in broker_cols if c in final_df.columns]
+        if brok_cols_check:
+            latest_rows = final_df[final_df["date"] == final_df["date"].max()]
+            brok_data = latest_rows[brok_cols_check]
+            total_cells = brok_data.shape[0] * brok_data.shape[1]
+            nonzero_cells = int((brok_data != 0).sum().sum()) if total_cells > 0 else 0
+            health["brokerage_nonzero_rate"] = round(nonzero_cells / total_cells, 4) if total_cells > 0 else 0
+            health["brokerage_stocks_with_data"] = int((brok_data != 0).any(axis=1).sum())
+            health["brokerage_total_stocks"] = len(latest_rows)
+            health["brokerage_features_checked"] = len(brok_cols_check)
+        else:
+            health["brokerage_nonzero_rate"] = 0
+            health["brokerage_warning"] = "no brokerage columns found"
+
+        all_ok = health.get("brokerage_nonzero_rate", 0) > 0.01
+        health["status"] = "HEALTHY" if all_ok else "WARNING"
+        print(f"    Health: {health['status']} | Latest: {latest_date} | "
+              f"Brokerage non-zero: {health.get('brokerage_nonzero_rate', 0):.1%}")
+
+    swap_report["health_check"] = health
+
     # Save swap report for Joe to review stability
     swap_report_path = OUTPUT_DIR / "swap_report.json"
     with open(swap_report_path, "w", encoding="utf-8") as fp:

@@ -3,7 +3,7 @@ import { h, computed, onMounted, ref as vRef } from 'vue'
 import {
   NGrid, NGi, NCard, NAlert, NButton, NDatePicker,
   NStatistic, NDataTable, NSpace, NTag, NText, NDivider,
-  NInputNumber, NCollapse, NCollapseItem, NProgress,
+  NInputNumber, NCollapse, NCollapseItem, NProgress, NTooltip,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
@@ -370,13 +370,22 @@ const mutationColumns: DataTableColumns<MutationResult> = [
     key: 'mutation_type',
     width: 100,
     render: (row) => h(
-      NTag,
+      NTooltip,
+      { trigger: 'hover' },
       {
-        type: row.z_score > 0 ? 'success' : 'error',
-        size: 'small',
-        bordered: false,
+        trigger: () => h(
+          NTag,
+          {
+            type: row.z_score > 0 ? 'success' : 'error',
+            size: 'small',
+            bordered: false,
+          },
+          { default: () => row.mutation_type },
+        ),
+        default: () => row.z_score > 0
+          ? '分點積極買超、技術面平淡 — 主力正在低位建倉，市場尚未察覺'
+          : '技術面火熱、分點已撤退 — 股價強勢但主力正在倒貨，小心高位套牢',
       },
-      { default: () => row.mutation_type },
     ),
   },
   {
