@@ -1,14 +1,18 @@
 """Local Feature Engineering Script
 
-Processes 8 raw JSON data sources → 60 features per (stock, date) → Parquet output.
+Processes 8 raw JSON data sources → 65 features per (stock, date) → Parquet output.
 Runs entirely on local machine — no Colab needed.
 
 Design changes from Gemini Wall Street Trader debate (R88):
-- 60 features across 6 dimensions (upgraded from 50/5 in R88.7)
+- 65 features across 6 dimensions (upgraded from 60 in R88.7 Phase 12)
 - Brokerage dimension: 14 features from broker_features.py engine (R88.7 Method C)
 - T+n date filtering: monthly revenue T+11, quarterly financials T+46
 - regime_tag column for regime-aware similarity filtering
-- News dimension renamed to "Attention" (Attention Index)
+- Attention dimension: 7 features (upgraded from 2) — [CONVERGED 2026-02-19]
+  - attention_index_7d, attention_spike, source_diversity, news_velocity,
+    polarity_filter, news_recency, co_occurrence_score
+  - NaN for stocks without news (not 0) — sparsity protection
+  - Google News RSS + cnyes dual-source
 
 Usage:
     python data/build_features.py
@@ -654,13 +658,44 @@ def compute_fundamental_features(prices, financials_raw, revenue):
 
 
 # ============================================================
-# 7. Attention Features (2) — renamed from "News"
-# [CONVERGED] Gemini: News Count = "Attention Index", remove fake sentiment
+# 7. Attention Features (7) — upgraded from 2 → 7
+# [CONVERGED — Gemini Wall Street Trader 2026-02-19]
+# 7 features: attention_index_7d, attention_spike, source_diversity,
+#   news_velocity, polarity_filter, news_recency, co_occurrence_score
+# NaN handling: stocks without news → NaN (not 0) to avoid sparsity clustering
+# Polarity Filter: 3-state (Breaking/Growth=+1, Risk/Legal=-1, Neutral=0)
+# Co-occurrence: articles mentioning >10 stocks discarded (大雜燴 filter)
 # ============================================================
-def load_news_data():
-    news_dir = DATA_ROOT / "news"
-    mentions = defaultdict(lambda: defaultdict(int))
 
+# Polarity keywords — reused from analysis/report/news.py
+# [CONVERGED] Gemini: "Don't call it sentiment. Call it Polarity Filter."
+_POLARITY_POSITIVE = [
+    "營收成長", "獲利", "專利", "合作", "得獎", "突破", "上漲",
+    "利多", "看好", "買進", "目標價", "新高", "擴產", "訂單",
+    "法說會", "轉盈", "認證", "通過", "上調", "強勁",
+    "獲獎", "勇奪", "榮獲", "授權", "簽約", "雙增", "轉機",
+    "upgrade", "buy", "beat", "record", "growth", "profit", "launch",
+    "surge", "rally", "boost", "strong", "outperform",
+]
+_POLARITY_NEGATIVE = [
+    "虧損", "下跌", "衰退", "利空", "看壞", "賣出", "下調",
+    "減資", "裁員", "違約", "訴訟", "調查", "警示", "跌停",
+    "下修", "疲弱", "風險", "負債", "停工", "召回",
+    "downgrade", "sell", "miss", "loss", "cut", "decline",
+    "fall", "drop", "warning", "lawsuit", "bearish", "default",
+]
+
+
+def load_news_data():
+    """Load news data from both cnyes and Google News RSS sources.
+
+    Returns DataFrame with columns: date, stock_code, news_count, source,
+    title, co_mentioned (list of other stocks in same article).
+    """
+    news_dir = DATA_ROOT / "news"
+    rows = []
+
+    # --- Source 1: cnyes (existing) ---
     for f in sorted(news_dir.glob("cnyes_*.json")):
         parts = f.stem.split("_")
         if len(parts) < 3:
@@ -672,44 +707,198 @@ def load_news_data():
             d = json.load(fp)
 
         for article in d.get("data", []):
+            title = str(article.get("title", ""))
             content = str(article.get("content", ""))
-            for code in set(re.findall(r"(?:TWS:|TWG:)(\d{4})", content)):
-                mentions[code][date] += 1
+            # Use stock field if available (more reliable), fallback to regex
+            stock_list = article.get("stock", [])
+            if stock_list:
+                codes = set(c for c in stock_list if re.match(r"^\d{4}$", str(c)))
+            else:
+                codes = set(re.findall(r"(?:TWS:|TWG:)(\d{4})", content))
+                codes.update(re.findall(r"\((\d{4})-TW\)", content))
 
-    rows = []
-    for code, date_counts in mentions.items():
-        for date, count in date_counts.items():
-            rows.append({"date": date, "stock_code": code, "news_count": count})
+            # [CONVERGED — Gemini] Discard 大雜燴 articles (>10 stocks)
+            if len(codes) > MAX_STOCKS_PER_ARTICLE:
+                continue
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["date", "stock_code", "news_count"])
+            for code in codes:
+                other_codes = sorted(codes - {code})
+                rows.append({
+                    "date": date,
+                    "stock_code": code,
+                    "source": "cnyes",
+                    "title": title[:200],
+                    "co_mentioned": other_codes,
+                })
+
+    # --- Source 2: Google News RSS ---
+    for f in sorted(news_dir.glob("google_news_gnews_*.json")):
+        with open(f, "r", encoding="utf-8") as fp:
+            d = json.load(fp)
+
+        query_stock = d.get("query_stock", "")
+        for article in d.get("data", []):
+            title = str(article.get("title", ""))
+            pub_ts = article.get("publishAt")
+            if pub_ts:
+                date = pd.Timestamp(datetime.fromtimestamp(pub_ts).strftime("%Y-%m-%d"))
+            else:
+                continue
+
+            source_name = article.get("source", "google_news")
+            codes = set(article.get("stock_codes", []))
+            if query_stock and query_stock not in codes:
+                codes.add(query_stock)
+
+            # [CONVERGED — Gemini] Discard 大雜燴 articles
+            if len(codes) > MAX_STOCKS_PER_ARTICLE:
+                continue
+
+            for code in codes:
+                other_codes = sorted(codes - {code})
+                rows.append({
+                    "date": date,
+                    "stock_code": code,
+                    "source": source_name,
+                    "title": title[:200],
+                    "co_mentioned": other_codes,
+                })
+
+    if not rows:
+        return pd.DataFrame(columns=["date", "stock_code", "source", "title", "co_mentioned"])
+
+    df = pd.DataFrame(rows)
+    # Deduplicate: same stock + same date + same title → keep first
+    df = df.drop_duplicates(subset=["date", "stock_code", "title"], keep="first")
+    return df
+
+
+# Max stocks per article for co_occurrence — [CONVERGED — Gemini]
+MAX_STOCKS_PER_ARTICLE = 10
+
+
+def _compute_polarity(title: str) -> int:
+    """Compute polarity filter: +1 (Breaking/Growth), -1 (Risk/Legal), 0 (Neutral).
+
+    [CONVERGED — Gemini] "Don't call it sentiment, call it Polarity Filter."
+    Three-state classification using keyword dictionary.
+    """
+    title_lower = title.lower()
+    pos = sum(1 for kw in _POLARITY_POSITIVE if kw in title_lower)
+    neg = sum(1 for kw in _POLARITY_NEGATIVE if kw in title_lower)
+    if pos > neg:
+        return 1
+    elif neg > pos:
+        return -1
+    return 0
 
 
 def compute_attention_features(prices, news):
-    """Compute 2 attention features (renamed from news).
+    """Compute 7 attention features.
 
-    [CONVERGED] Gemini Wall Street Trader:
-    - Removed fake news_sentiment (we have no real sentiment model)
-    - Renamed to "Attention Index" — measures if stock is in public eye
-    - A cold stock going from 0→5 news articles is a significant signal
+    [CONVERGED — Gemini Wall Street Trader 2026-02-19]
+    7 features across 6 signal types:
+    1. attention_index_7d — 量 (7-day rolling news count)
+    2. attention_spike — 量突變 (today / 30d avg)
+    3. source_diversity — 廣度 (unique sources in 7d)
+    4. news_velocity — 加速度 (today count - yesterday count)
+    5. polarity_filter — 三態極性 (keyword-based: +1/0/-1)
+    6. news_recency — 時效性 (days since last article, 0=today)
+    7. co_occurrence_score — 共現頻率 (articles with other stocks / total articles)
+
+    NaN handling: stocks without ANY news data → NaN for all features.
+    This prevents sparsity-driven clustering distortion [CONVERGED — Gemini Rebuttal B].
     """
     base = prices[["date", "stock_code"]].copy().sort_values(["stock_code", "date"])
 
-    if len(news) > 0:
-        base = base.merge(news[["date", "stock_code", "news_count"]], on=["date", "stock_code"], how="left")
-    else:
-        base["news_count"] = 0
+    if len(news) == 0:
+        # No news at all — all features are NaN
+        for col in ["attention_index_7d", "attention_spike", "source_diversity",
+                     "news_velocity", "polarity_filter", "news_recency",
+                     "co_occurrence_score"]:
+            base[col] = np.nan
+        return base
 
-    base["news_count"] = base["news_count"].fillna(0)
+    # --- Pre-aggregate news by (stock, date) ---
+    # Count articles per stock per day
+    news_daily = news.groupby(["stock_code", "date"]).agg(
+        news_count=("title", "count"),
+        unique_sources=("source", "nunique"),
+        avg_polarity=("title", lambda titles: np.mean([_compute_polarity(t) for t in titles])),
+        has_co_mention=("co_mentioned", lambda cms: np.mean([1 if len(c) > 0 else 0 for c in cms])),
+    ).reset_index()
+
+    # Track which stocks have ANY news data
+    stocks_with_news = set(news["stock_code"].unique())
+
+    # Merge
+    base = base.merge(news_daily, on=["date", "stock_code"], how="left")
+
+    # For stocks WITH news data: fill missing days with 0 (they exist in news universe)
+    # For stocks WITHOUT any news: keep NaN (they're not in the news universe)
+    has_news_mask = base["stock_code"].isin(stocks_with_news)
+    for col in ["news_count", "unique_sources", "avg_polarity", "has_co_mention"]:
+        base.loc[has_news_mask, col] = base.loc[has_news_mask, col].fillna(0)
+        # Stocks without news: remain NaN
+
+    # --- Feature 1: attention_index_7d (rolling 7d sum) ---
     base["attention_index_7d"] = base.groupby("stock_code")["news_count"].transform(
-        lambda x: x.rolling(7, min_periods=1).sum()
+        lambda x: x.rolling(7, min_periods=1).sum() if x.notna().any() else x
     )
+
+    # --- Feature 2: attention_spike (today / 30d avg) ---
     avg_30d = base.groupby("stock_code")["news_count"].transform(
-        lambda x: x.rolling(30, min_periods=1).mean()
+        lambda x: x.rolling(30, min_periods=1).mean() if x.notna().any() else x
     )
     base["attention_spike"] = base["news_count"] / avg_30d.replace(0, np.nan)
-    base["attention_spike"] = base["attention_spike"].fillna(0)
 
-    return base[["date", "stock_code", "attention_index_7d", "attention_spike"]]
+    # --- Feature 3: source_diversity (rolling 7d unique sources) ---
+    base["source_diversity"] = base.groupby("stock_code")["unique_sources"].transform(
+        lambda x: x.rolling(7, min_periods=1).max() if x.notna().any() else x
+    )
+
+    # --- Feature 4: news_velocity (delta: today - yesterday) ---
+    base["news_velocity"] = base.groupby("stock_code")["news_count"].transform(
+        lambda x: x.diff() if x.notna().any() else x
+    )
+
+    # --- Feature 5: polarity_filter (rolling 7d average polarity) ---
+    base["polarity_filter"] = base.groupby("stock_code")["avg_polarity"].transform(
+        lambda x: x.rolling(7, min_periods=1).mean() if x.notna().any() else x
+    )
+
+    # --- Feature 6: news_recency (days since last article) ---
+    # For each stock, compute days since last non-zero news day
+    def _compute_recency(group):
+        if group["news_count"].isna().all():
+            return pd.Series(np.nan, index=group.index)
+        last_news_day = pd.NaT
+        recency = []
+        for idx, row in group.iterrows():
+            if row["news_count"] > 0:
+                last_news_day = row["date"]
+                recency.append(0)
+            elif pd.notna(last_news_day):
+                days = (row["date"] - last_news_day).days
+                recency.append(min(days, 30))  # Cap at 30
+            else:
+                recency.append(np.nan)
+        return pd.Series(recency, index=group.index)
+
+    base["news_recency"] = base.groupby("stock_code", group_keys=False).apply(_compute_recency)
+
+    # --- Feature 7: co_occurrence_score ---
+    # [CONVERGED — Gemini] "大哥帶小弟" asymmetric dependence
+    # co_occurrence = articles_with_other_stocks / total_articles
+    base["co_occurrence_score"] = base.groupby("stock_code")["has_co_mention"].transform(
+        lambda x: x.rolling(7, min_periods=1).mean() if x.notna().any() else x
+    )
+
+    # Clean up temp columns
+    out_cols = ["date", "stock_code", "attention_index_7d", "attention_spike",
+                "source_diversity", "news_velocity", "polarity_filter",
+                "news_recency", "co_occurrence_score"]
+    return base[out_cols]
 
 
 # ============================================================
@@ -822,13 +1011,16 @@ def main():
     # Attention (renamed from News)
     print("\n[9/11] Computing attention features...")
     news_df = load_news_data()
-    attention_cols = ["attention_index_7d", "attention_spike"]
+    attention_cols = [
+        "attention_index_7d", "attention_spike", "source_diversity",
+        "news_velocity", "polarity_filter", "news_recency", "co_occurrence_score",
+    ]
     attention_features = compute_attention_features(prices, news_df)
 
     # ===== MERGE ALL =====
     print("\n[10/11] Merging all features...")
     ALL_FEATURE_COLS = tech_cols + inst_cols + broker_cols + industry_cols + fund_cols + attention_cols
-    assert len(ALL_FEATURE_COLS) == 60, f"Expected 60 features, got {len(ALL_FEATURE_COLS)}"
+    assert len(ALL_FEATURE_COLS) == 65, f"Expected 65 features, got {len(ALL_FEATURE_COLS)}"
 
     merged = tech_all[["date", "stock_code"] + tech_cols].copy()
     merged = merged.merge(inst_features[["date", "stock_code"] + inst_cols], on=["date", "stock_code"], how="left")
@@ -862,8 +1054,16 @@ def main():
     print(f"  Stocks: {merged['stock_code'].nunique()}")
 
     # Z-Score Normalize (rolling 252d)
+    # [CONVERGED — Gemini 2026-02-19] Attention features use NaN-aware handling:
+    # Stocks WITHOUT news data keep NaN (not 0) to prevent sparsity clustering.
+    # Non-attention features fill NaN → 0 as before.
     print("\n  Z-score normalizing (rolling 252d)...")
     merged = merged.sort_values(["stock_code", "date"])
+
+    # Track which (stock, row) had NaN attention BEFORE normalization
+    # These are stocks genuinely outside the news universe
+    attention_nan_mask = merged[attention_cols].isna().all(axis=1)
+
     for col in ALL_FEATURE_COLS:
         merged[col] = merged[col].replace([np.inf, -np.inf], np.nan)
         grouped = merged.groupby("stock_code")[col]
@@ -871,7 +1071,15 @@ def main():
         rolling_std = grouped.transform(lambda x: x.rolling(252, min_periods=60).std())
         merged[col] = (merged[col] - rolling_mean) / rolling_std.replace(0, np.nan)
         merged[col] = merged[col].clip(-5, 5)
-    merged[ALL_FEATURE_COLS] = merged[ALL_FEATURE_COLS].fillna(0)
+
+    # Fill NaN → 0 for non-attention features
+    non_attention_cols = [c for c in ALL_FEATURE_COLS if c not in attention_cols]
+    merged[non_attention_cols] = merged[non_attention_cols].fillna(0)
+
+    # For attention features: fill NaN → 0 only for stocks IN news universe
+    # Stocks outside news universe: keep NaN
+    for col in attention_cols:
+        merged.loc[~attention_nan_mask, col] = merged.loc[~attention_nan_mask, col].fillna(0)
 
     # Forward returns
     print("\n[11/11] Computing forward returns...")
@@ -991,7 +1199,7 @@ def main():
             "brokerage": {"features": broker_cols, "count": len(broker_cols), "description": "分點面 — 14特徵分點基因譜 (R88.7)"},
             "industry": {"features": industry_cols, "count": len(industry_cols), "description": "產業面 — 族群強弱/供應鏈"},
             "fundamental": {"features": fund_cols, "count": len(fund_cols), "description": "基本面 — 財報/營收/估值 (T+46/T+11)"},
-            "attention": {"features": attention_cols, "count": len(attention_cols), "description": "關注度 — 媒體關注指數"},
+            "attention": {"features": attention_cols, "count": len(attention_cols), "description": "關注度 — 7維媒體注意力 (量/速/廣/時/性/連)"},
         },
         "all_features": ALL_FEATURE_COLS,
         "total_features": len(ALL_FEATURE_COLS),
