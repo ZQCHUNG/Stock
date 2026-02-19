@@ -874,8 +874,24 @@ function goToStock(code: string) {
               信心: {{ (store.dailySummary.confidence_score.score * 100).toFixed(0) }}%
               {{ store.dailySummary.confidence_score.label }}
             </NTag>
+            <NTag
+              v-if="store.dailySummary.confidence_score?.warming_up"
+              type="default" size="small" :bordered="false"
+            >
+              Warming Up
+            </NTag>
           </NSpace>
         </template>
+
+        <!-- Data Health Critical Warning [Phase 11.5 — Architect Critic] -->
+        <NAlert
+          v-if="store.dailySummary.confidence_score?.data_health_critical"
+          type="error"
+          title="DATA HEALTH CRITICAL"
+          style="margin-bottom: 8px"
+        >
+          數據健康度嚴重不足（H &lt; 0.4）。系統建議手動檢查數據源後再做交易決策。
+        </NAlert>
 
         <!-- Narrative -->
         <NAlert

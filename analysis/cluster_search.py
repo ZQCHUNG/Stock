@@ -1497,6 +1497,9 @@ def _compute_confidence_score(
 
     H = h1(RowIntegrity 40%) + h2(NightWatchman 40%) + h3(BrokerageActivity 20%)
     S = s1(Intensity 30%) + s2(Conviction 30%) + s3(Concentration 40%)
+
+    [Phase 11.5 — Cold Start] If activity history < 5 days, s1 defaults to 0.5
+    and warming_up flag is set. If H < 0.4, data_health_critical flag is set.
     """
     if circuit_breaker_triggered:
         return {
@@ -1505,6 +1508,8 @@ def _compute_confidence_score(
             "color": "red",
             "data_health": 0.0,
             "signal_strength": 0.0,
+            "warming_up": False,
+            "data_health_critical": False,
         }
 
     # --- Data Health (H) ---
@@ -1533,8 +1538,10 @@ def _compute_confidence_score(
 
     # --- Signal Strength (S) ---
     # s1: Activity intensity (percentile)
+    # [Phase 11.5] Cold start: insufficient data → default 0.5, flag warming_up
     activity = market_pulse.get("activity_percentile", {})
     pct = activity.get("percentile")
+    warming_up = pct is None  # No historical percentile = cold start
     s1 = (pct / 100.0) if pct is not None else 0.5
 
     # s2: Conviction — how biased is the market
@@ -1550,6 +1557,9 @@ def _compute_confidence_score(
 
     # --- Final: H × S ---
     score = round(data_health * signal_strength, 4)
+
+    # [Phase 11.5] Data health critical warning
+    data_health_critical = data_health < 0.4
 
     # Color mapping
     pct_score = score * 100
@@ -1572,6 +1582,8 @@ def _compute_confidence_score(
         "color": color,
         "data_health": round(data_health, 4),
         "signal_strength": round(signal_strength, 4),
+        "warming_up": warming_up,
+        "data_health_critical": data_health_critical,
         "components": {
             "h1_row_integrity": round(h1, 3),
             "h2_night_watchman": round(h2, 3),
@@ -1588,6 +1600,7 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
 
     [CONVERGED — Architect Critic 2026-02-19]
     v1.1: Added hot_sectors, activity_percentile, row_count_drift.
+    v1.2: Cold start warming_up flag, Wall Street narrative template, H<0.4 critical warning.
 
     Produces a structured JSON summary covering:
     1. Pipeline health (swap report + night watchman + row count drift)
@@ -1608,7 +1621,7 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
     summary = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "generated_at": datetime.now().isoformat(),
-        "version": "1.1",
+        "version": "1.2",
     }
 
     # --- 1. Pipeline Health (from swap_report.json) ---
@@ -1746,63 +1759,81 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
         )
         summary["confidence_score"] = confidence
 
-        # --- 5. Generate Narrative (with sector context) ---
+        # --- 5. Generate Narrative (Wall Street Persona) ---
+        # [Phase 11.5 — Architect Critic] Template:
+        # [核心定調] + [族群熱點] + [個股異常] + [風險警示]
         if cb.get("triggered"):
             narrative = (
                 f"CIRCUIT BREAKER TRIGGERED: {cb['extreme_count']}/{total_scanned} stocks "
-                f"({cb['extreme_pct']:.1%}) exceed {cb['threshold_sigma']}σ — "
-                f"suspected data anomaly, manual review required."
+                f"({cb['extreme_pct']:.1%}) exceed {cb['threshold_sigma']}σ. "
+                f"市場出現極端異常波動，系統建議觀望或縮減部位。手動檢查數據源。"
             )
         else:
-            bias_text = {
-                "distribution_heavy": "誘多派發為主",
-                "accumulation_heavy": "匿蹤吸貨為主",
-                "balanced": "多空均衡",
-                "neutral": "無顯著突變",
-            }.get(bias, "未知")
+            # [核心定調] — based on bias ratio intensity
+            if bias_ratio > 2.0:
+                core_tone = f"市場呈現明顯「派發」慣性（比率 {bias_ratio:.1f}x），主力出貨意圖明確"
+            elif bias_ratio > 1.5:
+                core_tone = f"市場偏向「誘多派發」格局（{all_distrib_count} 出貨 vs {all_stealth_count} 吸貨）"
+            elif all_stealth_count > all_distrib_count * 2:
+                core_tone = f"市場展現強烈「匿蹤吸貨」特徵（比率 {bias_ratio:.1f}x），聰明錢正在進場"
+            elif all_stealth_count > all_distrib_count * 1.5:
+                core_tone = f"市場偏向「匿蹤吸貨」（{all_stealth_count} 吸貨 vs {all_distrib_count} 出貨）"
+            elif abs(all_stealth_count - all_distrib_count) <= 2:
+                core_tone = f"市場多空均衡（{all_stealth_count} 吸貨 vs {all_distrib_count} 出貨），觀望為宜"
+            else:
+                core_tone = f"今日分點動向：{all_distrib_count} 誘多 vs {all_stealth_count} 匿蹤"
 
-            top_stealth_text = ""
-            if stealth:
-                top_s = stealth[0]
-                sec = sector_lookup.get(top_s["stock_code"], "")
-                sec_tag = f"[{sec}]" if sec and sec != "未分類" else ""
-                top_stealth_text = f"重點觀察 {top_s['stock_code']}{sec_tag}（匿蹤吸貨 z={top_s['z_score']:.2f}σ）"
-
-            top_distrib_text = ""
-            if distribution:
-                top_d = distribution[0]
-                sec = sector_lookup.get(top_d["stock_code"], "")
-                sec_tag = f"[{sec}]" if sec and sec != "未分類" else ""
-                top_distrib_text = f"警惕 {top_d['stock_code']}{sec_tag}（誘多派發 z={top_d['z_score']:.2f}σ）"
-
-            # Sector cluster warning
-            sector_warning = ""
+            # [族群熱點]
+            sector_parts = []
             stealth_heavy = [s for s in hot_sectors if s["signal"] == "stealth_heavy"]
             distrib_heavy = [s for s in hot_sectors if s["signal"] == "distribution_heavy"]
             if stealth_heavy:
                 top_sec = stealth_heavy[0]
-                sector_warning += f"族群吸貨：{top_sec['sector']}（{top_sec['stealth_count']}檔）。"
+                sector_parts.append(
+                    f"焦點：「{top_sec['sector']}」族群出現集體吸貨異動（{top_sec['stealth_count']}檔）"
+                )
             if distrib_heavy:
                 top_sec = distrib_heavy[0]
-                sector_warning += f"族群出貨：{top_sec['sector']}（{top_sec['distribution_count']}檔）。"
+                sector_parts.append(
+                    f"警示：「{top_sec['sector']}」族群有集體撤退跡象（{top_sec['distribution_count']}檔）"
+                )
 
-            # Activity context
-            activity_text = ""
-            if activity.get("label") and activity["label"] != "insufficient_data":
-                activity_text = f"突變活躍度：{activity['label']}。"
+            # [個股異常]
+            stock_parts = []
+            if stealth:
+                top_s = stealth[0]
+                sec = sector_lookup.get(top_s["stock_code"], "")
+                sec_tag = f"[{sec}]" if sec and sec != "未分類" else ""
+                stock_parts.append(
+                    f"重點盯防 {top_s['stock_code']}{sec_tag}，z={top_s['z_score']:.2f}σ，具備極端統計意義"
+                )
+            if distribution:
+                top_d = distribution[0]
+                sec = sector_lookup.get(top_d["stock_code"], "")
+                sec_tag = f"[{sec}]" if sec and sec != "未分類" else ""
+                stock_parts.append(
+                    f"警惕 {top_d['stock_code']}{sec_tag}，z={top_d['z_score']:.2f}σ，疑似主力出貨"
+                )
 
-            parts = [
-                f"今日市場分點動向：{bias_text}",
-                f"（{all_distrib_count} 誘多 vs {all_stealth_count} 匿蹤）。",
-            ]
-            if activity_text:
-                parts.append(activity_text)
-            if sector_warning:
-                parts.append(sector_warning)
-            if top_stealth_text:
-                parts.append(top_stealth_text + "。")
-            if top_distrib_text:
-                parts.append(top_distrib_text + "。")
+            # [風險警示]
+            risk_parts = []
+            if activity.get("label") == "極端活躍":
+                risk_parts.append("突變活躍度極端偏高，留意市場轉折風險")
+            elif activity.get("label") == "異常冷清":
+                risk_parts.append("突變活躍度異常偏低，市場流動性不足")
+
+            # Data health critical warning [Phase 11.5]
+            if confidence.get("data_health_critical"):
+                risk_parts.append("數據健康度嚴重不足（H<0.4），建議手動檢查數據源後再做決策")
+
+            # Assemble narrative
+            parts = [core_tone + "。"]
+            for sp in sector_parts:
+                parts.append(sp + "。")
+            for sp in stock_parts:
+                parts.append(sp + "。")
+            for rp in risk_parts:
+                parts.append(rp + "。")
 
             narrative = " ".join(parts)
 

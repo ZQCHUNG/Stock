@@ -1,7 +1,7 @@
 {
   "date": "2026-02-19",
-  "generated_at": "2026-02-19T12:13:15.661673",
-  "version": "1.1",
+  "generated_at": "2026-02-19T12:21:00.206060",
+  "version": "1.2",
   "pipeline_health": {
     "status": "NO_REPORT"
   },
@@ -140,6 +140,8 @@
     "color": "red",
     "data_health": 0.4,
     "signal_strength": 0.683,
+    "warming_up": true,
+    "data_health_critical": false,
     "components": {
       "h1_row_integrity": 0.5,
       "h2_night_watchman": 0.5,
@@ -149,5 +151,5 @@
       "s3_concentration": 1.0
     }
   },
-  "narrative": "今日市場分點動向：誘多派發為主 （14 誘多 vs 6 匿蹤）。 族群出貨：半導體（5檔）。 重點觀察 5443[半導體]（匿蹤吸貨 z=3.10σ）。 警惕 3702[電子通路]（誘多派發 z=-4.00σ）。"
+  "narrative": "市場呈現明顯「派發」慣性（比率 2.3x），主力出貨意圖明確。 警示：「半導體」族群有集體撤退跡象（5檔）。 重點盯防 5443[半導體]，z=3.10σ，具備極端統計意義。 警惕 3702[電子通路]，z=-4.00σ，疑似主力出貨。"
 }

@@ -306,6 +306,8 @@ export interface ConfidenceScore {
   color: 'green' | 'yellow' | 'red'
   data_health: number
   signal_strength: number
+  warming_up: boolean
+  data_health_critical: boolean
   components?: {
     h1_row_integrity: number
     h2_night_watchman: number
