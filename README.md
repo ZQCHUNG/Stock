@@ -235,6 +235,8 @@ python -m pytest tests/ -q
 | R88.7P5 | Parquet Integration — 50→60 features, brokerage 4→14 (Gene Map Ready) | Done |
 | R88.7P6 | Trader Rulings: Warmup Mask + Cron 18:30 + Weekly Registry (Trader APPROVED) | Done |
 | R88.7P7 | Trader Bulletproof: Canary Check + Atomic Swap + Rate Jitter + Gene Mutation Scanner (Trader APPROVED) | Done |
+| R88.7P8 | Gene Mutation Scanner UI + Circuit Breaker + Atomic Swap Report (Trader APPROVED) | Done |
+| R88.7P9 | Night Watchman Health Check + Mutation Tooltips (Trader APPROVED) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -382,6 +384,13 @@ python -m pytest tests/ -q
 - **Atomic Swap**: Write `features_all_temp.parquet` first, validate row count & file size within ±5% of previous, then `mv` to replace. Prevents mid-rebuild corruption
 - **Rate Limit Jitter**: `random.uniform(0.1, 0.5)` between each request to avoid WAF detection on government APIs
 - **Gene Mutation Scanner**: `scan_gene_mutations()` — Δ_div = Score_brokerage - Score_technical. >1.5σ = "匿蹤吸貨", <-1.5σ = "誘多派發". Weighted Z-score with warmup exclusion. API: GET `/api/cluster/mutations`
+
+**Mutation Scanner UI + Circuit Breaker (R88.7 Phase 8-9)** [APPROVED — Wall Street Trader 2026-02-19]:
+- **Circuit Breaker (Global Shift Check)**: >30% 股票同時 >2σ 突變 → 判定為資料異常，非 alpha。自動暫停 Atomic Swap
+- **Mutation Scanner UI**: 掃描全市場 1096 檔 → Δ_div 分佈直方圖 + Top 20 突變股表格 + 5 統計卡
+- **Mutation Tooltips**: 滑鼠懸停顯示「匿蹤吸貨：主力正在低位建倉」「誘多派發：主力正在倒貨」
+- **Atomic Swap Report**: `swap_report.json` 記錄新舊檔案大小、Row 差異、穩定性追蹤
+- **Night Watchman**: Post-swap 健康檢查 — 驗證最新日期 + 分點維度非零率 (brokerage_nonzero_rate > 1%)
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)
