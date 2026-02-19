@@ -222,13 +222,21 @@ export interface MutationScanResult {
   }
 }
 
-// --- Daily Summary Types (R88.7 Phase 10) ---
+// --- Daily Summary Types (R88.7 Phase 10-11) ---
 
 export interface NightWatchmanHealth {
   status: string
   latest_date: string | null
   brokerage_nonzero_rate: number
   brokerage_stocks_with_data: number
+}
+
+export interface RowCountDrift {
+  status: string
+  deviation_pct: number | null
+  expected_rows?: number
+  actual_rows?: number
+  history_days?: number
 }
 
 export interface PipelineHealth {
@@ -239,6 +247,7 @@ export interface PipelineHealth {
   size_mb?: number
   timestamp?: string
   night_watchman?: NightWatchmanHealth
+  row_count_drift?: RowCountDrift
   error?: string
 }
 
@@ -248,6 +257,23 @@ export interface MutationEntry {
   z_score: number
   score_brokerage: number
   score_technical: number
+  sector?: string
+}
+
+export interface ActivityPercentile {
+  percentile: number | null
+  label: string
+  history_days: number
+  min_required?: number
+  avg_20d?: number
+}
+
+export interface HotSector {
+  sector: string
+  stealth_count: number
+  distribution_count: number
+  total: number
+  signal: 'stealth_heavy' | 'distribution_heavy' | 'mixed'
 }
 
 export interface MarketPulse {
@@ -257,6 +283,7 @@ export interface MarketPulse {
   distribution_count: number
   mutation_bias: string
   bias_ratio: number
+  activity_percentile?: ActivityPercentile
   circuit_breaker: {
     triggered: boolean
     extreme_count: number
@@ -273,12 +300,30 @@ export interface MarketPulse {
   error?: string
 }
 
+export interface ConfidenceScore {
+  score: number
+  label: string
+  color: 'green' | 'yellow' | 'red'
+  data_health: number
+  signal_strength: number
+  components?: {
+    h1_row_integrity: number
+    h2_night_watchman: number
+    h3_brokerage_activity: number
+    s1_intensity: number
+    s2_conviction: number
+    s3_concentration: number
+  }
+}
+
 export interface DailySummary {
   date: string
   generated_at: string
   version: string
   pipeline_health: PipelineHealth
   market_pulse: MarketPulse
+  confidence_score?: ConfidenceScore
+  hot_sectors: HotSector[]
   top_mutations: {
     stealth: MutationEntry[]
     distribution: MutationEntry[]

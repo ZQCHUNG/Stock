@@ -1250,15 +1250,351 @@ def scan_gene_mutations(
     }
 
 
+def _load_sector_lookup() -> dict:
+    """Load combined sector lookup: sector_mapping (108) + industry chain (1965).
+
+    Returns dict of stock_code → sector_name (Chinese).
+    Priority: sector_mapping L1 > industry chain_name.
+    """
+    lookup = {}
+
+    # 1. Industry chain v2 mapping (broader coverage, 1965 stocks)
+    chain_map_path = Path(__file__).parent.parent / "data" / "pattern_data" / "raw" / "industry"
+    chain_translate = {
+        "semiconductor": "半導體", "pcb": "PCB", "flat_display": "面板",
+        "passive_components": "被動元件", "connectors": "連接器",
+        "cloud": "雲端/資料中心", "computer_peripherals": "電腦周邊",
+        "automotive": "汽車電子", "automation": "自動化",
+        "electrical_machinery": "重電/電機", "energy_creation": "能源/風電",
+        "energy_saving": "節能", "energy_storage": "儲能",
+        "telecom": "電信/通訊", "steel": "鋼鐵",
+        "cement": "水泥", "construction_materials": "營建",
+        "petrochemical": "石化", "textile": "紡織",
+        "food": "食品", "food_biotech": "食品生技",
+        "paper": "造紙", "trading": "貿易百貨",
+        "pharma": "製藥", "medical_devices": "醫療器材",
+        "regenerative_medicine": "再生醫療", "ecommerce": "電子商務",
+        "space_satellite": "太空衛星", "sports_tech": "運動科技",
+        "touch_panel": "觸控面板",
+    }
+    try:
+        import glob as glob_mod
+        files = sorted(glob_mod.glob(str(chain_map_path / "mapping_*_mapping_v2.json")))
+        if files:
+            import json as jm
+            with open(files[-1], "r", encoding="utf-8") as f:
+                chain_data = jm.load(f)
+            for code, chains in chain_data.get("stock_to_chains", {}).items():
+                if chains:
+                    raw_name = chains[0]["chain_name"]
+                    lookup[code] = chain_translate.get(raw_name, raw_name)
+    except Exception as e:
+        logger.warning(f"Failed to load industry chain mapping: {e}")
+
+    # 2. sector_mapping L1 (higher priority, overrides chain for 108 stocks)
+    try:
+        from data.sector_mapping import SECTOR_MAPPING, SECTOR_L1_MAP
+        for code, l2 in SECTOR_MAPPING.items():
+            lookup[code] = SECTOR_L1_MAP.get(l2, l2)
+    except Exception as e:
+        logger.warning(f"Failed to load sector_mapping: {e}")
+
+    return lookup
+
+
+def _aggregate_hot_sectors(mutations: list, sector_lookup: dict) -> list:
+    """Aggregate mutations by sector to detect cluster-level fund flows.
+
+    [CONVERGED — Architect Critic 2026-02-19]
+    Taiwan market operates on sector-level fund flows. Seeing 3 stealth
+    stocks in '半導體設備' is more actionable than 3 random stocks.
+
+    Returns list of {sector, stealth_count, distribution_count, total, signal}.
+    """
+    from collections import Counter
+
+    sector_stealth: Counter = Counter()
+    sector_distrib: Counter = Counter()
+
+    for m in mutations:
+        code = m.get("stock_code", "")
+        sector = sector_lookup.get(code, "未分類")
+        if m.get("mutation_label") == "Stealth Accumulation" or m.get("z_score", 0) > 0:
+            sector_stealth[sector] += 1
+        elif m.get("mutation_label") == "Deceptive Distribution" or m.get("z_score", 0) < 0:
+            sector_distrib[sector] += 1
+
+    # Merge into unified sector list
+    all_sectors = set(sector_stealth.keys()) | set(sector_distrib.keys())
+    results = []
+    for sec in all_sectors:
+        sc = sector_stealth.get(sec, 0)
+        dc = sector_distrib.get(sec, 0)
+        total = sc + dc
+        if total < 2:
+            continue  # Skip single-stock sectors (noise)
+        if sc > dc * 1.5:
+            signal = "stealth_heavy"
+        elif dc > sc * 1.5:
+            signal = "distribution_heavy"
+        else:
+            signal = "mixed"
+        results.append({
+            "sector": sec,
+            "stealth_count": sc,
+            "distribution_count": dc,
+            "total": total,
+            "signal": signal,
+        })
+
+    results.sort(key=lambda x: x["total"], reverse=True)
+    return results[:10]
+
+
+def _compute_activity_percentile(current_mutations: int, data_dir: Path) -> dict:
+    """Compare today's mutation count against recent history.
+
+    [CONVERGED — Architect Critic 2026-02-19]
+    '151 mutations' means nothing without historical context.
+    Returns activity_percentile and activity_label.
+    Requires n>=5 history entries; otherwise returns insufficient_data.
+    """
+    import json as jm
+
+    history_path = data_dir / "daily_summary_history.json"
+    history = []
+    if history_path.exists():
+        try:
+            with open(history_path, "r", encoding="utf-8") as f:
+                history = jm.load(f)
+        except Exception:
+            history = []
+
+    # Extract historical mutation counts
+    hist_counts = [h.get("total_mutations", 0) for h in history if "total_mutations" in h]
+
+    if len(hist_counts) < 5:
+        return {
+            "percentile": None,
+            "label": "insufficient_data",
+            "history_days": len(hist_counts),
+            "min_required": 5,
+        }
+
+    # Compute percentile rank of current value among historical
+    below = sum(1 for c in hist_counts if c < current_mutations)
+    percentile = round(below / len(hist_counts) * 100, 1)
+
+    if percentile >= 80:
+        label = "極端活躍"
+    elif percentile >= 60:
+        label = "偏高"
+    elif percentile >= 40:
+        label = "正常"
+    elif percentile >= 20:
+        label = "偏低"
+    else:
+        label = "異常冷清"
+
+    return {
+        "percentile": percentile,
+        "label": label,
+        "history_days": len(hist_counts),
+        "avg_20d": round(sum(hist_counts[-20:]) / len(hist_counts[-20:]), 1),
+    }
+
+
+def _append_to_history(summary: dict, data_dir: Path, max_entries: int = 60):
+    """Append today's summary metrics to rolling history file.
+
+    Keeps last `max_entries` days for percentile computation.
+    """
+    import json as jm
+
+    history_path = data_dir / "daily_summary_history.json"
+    history = []
+    if history_path.exists():
+        try:
+            with open(history_path, "r", encoding="utf-8") as f:
+                history = jm.load(f)
+        except Exception:
+            history = []
+
+    entry = {
+        "date": summary.get("date"),
+        "total_mutations": summary.get("market_pulse", {}).get("total_mutations", 0),
+        "stealth_count": summary.get("market_pulse", {}).get("stealth_count", 0),
+        "distribution_count": summary.get("market_pulse", {}).get("distribution_count", 0),
+        "new_rows": summary.get("pipeline_health", {}).get("new_rows"),
+    }
+
+    # Deduplicate by date
+    history = [h for h in history if h.get("date") != entry["date"]]
+    history.append(entry)
+
+    # Keep only recent entries
+    history = history[-max_entries:]
+
+    try:
+        with open(history_path, "w", encoding="utf-8") as f:
+            jm.dump(history, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.warning(f"Failed to save summary history: {e}")
+
+
+def _compute_row_count_drift(current_rows: int | None, data_dir: Path) -> dict:
+    """Check if today's row count deviates from recent average.
+
+    [CONVERGED — Architect Critic 2026-02-19]
+    If exchange fails to deliver certain data, row count drops.
+    Flag WARNING if deviation > 10%.
+    """
+    import json as jm
+
+    if current_rows is None:
+        return {"status": "NO_DATA", "deviation_pct": None}
+
+    history_path = data_dir / "daily_summary_history.json"
+    if not history_path.exists():
+        return {"status": "NO_HISTORY", "deviation_pct": None}
+
+    try:
+        with open(history_path, "r", encoding="utf-8") as f:
+            history = jm.load(f)
+    except Exception:
+        return {"status": "NO_HISTORY", "deviation_pct": None}
+
+    hist_rows = [h.get("new_rows") for h in history if h.get("new_rows") is not None]
+    if len(hist_rows) < 3:
+        return {"status": "INSUFFICIENT_HISTORY", "deviation_pct": None, "history_days": len(hist_rows)}
+
+    avg_5d = sum(hist_rows[-5:]) / len(hist_rows[-5:])
+    if avg_5d == 0:
+        return {"status": "OK", "deviation_pct": 0, "expected_rows": 0}
+
+    deviation_pct = round((current_rows - avg_5d) / avg_5d * 100, 1)
+    status = "WARNING" if abs(deviation_pct) > 10 else "OK"
+
+    return {
+        "status": status,
+        "deviation_pct": deviation_pct,
+        "expected_rows": round(avg_5d),
+        "actual_rows": current_rows,
+    }
+
+
+def _compute_confidence_score(
+    pipeline_health: dict,
+    market_pulse: dict,
+    hot_sectors: list,
+    circuit_breaker_triggered: bool,
+) -> dict:
+    """Compute system confidence score: Data Health × Signal Strength.
+
+    [CONVERGED — Architect Critic 2026-02-19]
+    Formula: Confidence = H × S (multiply, not add).
+    If circuit breaker triggered, force to 0.
+
+    H = h1(RowIntegrity 40%) + h2(NightWatchman 40%) + h3(BrokerageActivity 20%)
+    S = s1(Intensity 30%) + s2(Conviction 30%) + s3(Concentration 40%)
+    """
+    if circuit_breaker_triggered:
+        return {
+            "score": 0.0,
+            "label": "CIRCUIT_BREAKER",
+            "color": "red",
+            "data_health": 0.0,
+            "signal_strength": 0.0,
+        }
+
+    # --- Data Health (H) ---
+    # h1: Row Integrity — deviation within 20% → full score
+    drift = pipeline_health.get("row_count_drift", {})
+    dev_pct = drift.get("deviation_pct")
+    if dev_pct is not None:
+        h1 = max(0.0, 1.0 - abs(dev_pct) / 20.0)
+    else:
+        h1 = 0.5  # No data = assume middle
+
+    # h2: Night Watchman status
+    nw = pipeline_health.get("night_watchman", {})
+    nw_status = nw.get("status", "UNKNOWN")
+    h2 = {"HEALTHY": 1.0, "WARNING": 0.5, "FAILED": 0.0}.get(nw_status, 0.5)
+
+    # h3: Brokerage non-zero rate in [0.40, 0.55]
+    nonzero_rate = nw.get("brokerage_nonzero_rate", 0)
+    if 0.40 <= nonzero_rate <= 0.55:
+        h3 = 1.0
+    else:
+        distance = min(abs(nonzero_rate - 0.40), abs(nonzero_rate - 0.55))
+        h3 = max(0.0, 1.0 - distance / 0.05 * 0.2)
+
+    data_health = h1 * 0.4 + h2 * 0.4 + h3 * 0.2
+
+    # --- Signal Strength (S) ---
+    # s1: Activity intensity (percentile)
+    activity = market_pulse.get("activity_percentile", {})
+    pct = activity.get("percentile")
+    s1 = (pct / 100.0) if pct is not None else 0.5
+
+    # s2: Conviction — how biased is the market
+    bias_ratio = market_pulse.get("bias_ratio", 1.0)
+    raw_conviction = abs(bias_ratio - 1.0)
+    s2 = min(1.0, raw_conviction / 3.0)  # Normalize: ratio=4 → (4-1)/3 = 1.0
+
+    # s3: Concentration — any sector with 3+ mutations
+    has_cluster = any(s.get("total", 0) >= 3 for s in hot_sectors)
+    s3 = 1.0 if has_cluster else 0.5
+
+    signal_strength = s1 * 0.3 + s2 * 0.3 + s3 * 0.4
+
+    # --- Final: H × S ---
+    score = round(data_health * signal_strength, 4)
+
+    # Color mapping
+    pct_score = score * 100
+    if pct_score >= 85:
+        color = "green"
+    elif pct_score >= 60:
+        color = "yellow"
+    else:
+        color = "red"
+
+    label_map = {
+        "green": "高信心",
+        "yellow": "中等",
+        "red": "低信心",
+    }
+
+    return {
+        "score": score,
+        "label": label_map[color],
+        "color": color,
+        "data_health": round(data_health, 4),
+        "signal_strength": round(signal_strength, 4),
+        "components": {
+            "h1_row_integrity": round(h1, 3),
+            "h2_night_watchman": round(h2, 3),
+            "h3_brokerage_activity": round(h3, 3),
+            "s1_intensity": round(s1, 3),
+            "s2_conviction": round(s2, 3),
+            "s3_concentration": round(s3, 3),
+        },
+    }
+
+
 def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dict:
     """Generate daily auto-summary after scheduler pipeline completes.
 
-    [CONVERGED — Wall Street Trader 2026-02-19]
+    [CONVERGED — Architect Critic 2026-02-19]
+    v1.1: Added hot_sectors, activity_percentile, row_count_drift.
+
     Produces a structured JSON summary covering:
-    1. Pipeline health (swap report + night watchman)
-    2. Market pulse (mutation statistics + bias direction)
-    3. Top mutations (stealth accumulation + distribution traps)
-    4. Narrative text for quick reading
+    1. Pipeline health (swap report + night watchman + row count drift)
+    2. Market pulse (mutation statistics + bias + activity level)
+    3. Hot sectors (cluster-level fund flow aggregation)
+    4. Top mutations (stealth accumulation + distribution traps)
+    5. Narrative text with sector context
 
     Called by scheduler after: fetch_broker → rebuild parquet → atomic swap → mutation scan.
     Saves to data/daily_summary.json for frontend consumption.
@@ -1267,14 +1603,16 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
     from pathlib import Path
     import json as json_mod
 
+    data_dir = Path(__file__).parent.parent / "data"
+
     summary = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "generated_at": datetime.now().isoformat(),
-        "version": "1.0",
+        "version": "1.1",
     }
 
     # --- 1. Pipeline Health (from swap_report.json) ---
-    swap_report_path = Path(__file__).parent.parent / "data" / "pattern_data" / "features" / "swap_report.json"
+    swap_report_path = data_dir / "pattern_data" / "features" / "swap_report.json"
     pipeline_health = {"status": "UNKNOWN"}
 
     if swap_report_path.exists():
@@ -1299,6 +1637,11 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
                 "brokerage_nonzero_rate": health.get("brokerage_nonzero_rate", 0),
                 "brokerage_stocks_with_data": health.get("brokerage_stocks_with_data", 0),
             }
+
+            # Row count drift detection [Architect Critic]
+            pipeline_health["row_count_drift"] = _compute_row_count_drift(
+                swap_report.get("new_row_count"), data_dir
+            )
         except Exception as e:
             pipeline_health["error"] = str(e)
     else:
@@ -1317,6 +1660,7 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
         if "error" in mutation_data:
             summary["market_pulse"] = {"error": mutation_data["error"]}
             summary["top_mutations"] = {"stealth": [], "distribution": []}
+            summary["hot_sectors"] = []
             summary["narrative"] = f"Mutation scan error: {mutation_data['error']}"
             return summary
 
@@ -1346,6 +1690,9 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
             bias = "balanced"
             bias_ratio = round(max(all_stealth_count, all_distrib_count) / max(min(all_stealth_count, all_distrib_count), 1), 2)
 
+        # Activity percentile vs history [Architect Critic]
+        activity = _compute_activity_percentile(total_mutations, data_dir)
+
         summary["market_pulse"] = {
             "total_stocks_scanned": total_scanned,
             "total_mutations": total_mutations,
@@ -1353,10 +1700,17 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
             "distribution_count": all_distrib_count,
             "mutation_bias": bias,
             "bias_ratio": bias_ratio,
+            "activity_percentile": activity,
             "circuit_breaker": mutation_data.get("circuit_breaker", {}),
             "distribution_stats": mutation_data.get("distribution", {}),
         }
 
+        # --- 3. Hot Sectors (cluster-level fund flows) [Architect Critic] ---
+        sector_lookup = _load_sector_lookup()
+        hot_sectors = _aggregate_hot_sectors(mutations, sector_lookup)
+        summary["hot_sectors"] = hot_sectors
+
+        # Add sector info to top mutations
         summary["top_mutations"] = {
             "stealth": [
                 {
@@ -1365,6 +1719,7 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
                     "z_score": m["z_score"],
                     "score_brokerage": m["score_brokerage"],
                     "score_technical": m["score_technical"],
+                    "sector": sector_lookup.get(m["stock_code"], "未分類"),
                 }
                 for m in stealth[:5]
             ],
@@ -1375,13 +1730,23 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
                     "z_score": m["z_score"],
                     "score_brokerage": m["score_brokerage"],
                     "score_technical": m["score_technical"],
+                    "sector": sector_lookup.get(m["stock_code"], "未分類"),
                 }
                 for m in distribution[:5]
             ],
         }
 
-        # --- 3. Generate Narrative ---
+        # --- 4. Confidence Score [Architect Critic] ---
         cb = mutation_data.get("circuit_breaker", {})
+        confidence = _compute_confidence_score(
+            pipeline_health=summary["pipeline_health"],
+            market_pulse=summary["market_pulse"],
+            hot_sectors=hot_sectors,
+            circuit_breaker_triggered=cb.get("triggered", False),
+        )
+        summary["confidence_score"] = confidence
+
+        # --- 5. Generate Narrative (with sector context) ---
         if cb.get("triggered"):
             narrative = (
                 f"CIRCUIT BREAKER TRIGGERED: {cb['extreme_count']}/{total_scanned} stocks "
@@ -1399,17 +1764,41 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
             top_stealth_text = ""
             if stealth:
                 top_s = stealth[0]
-                top_stealth_text = f"重點觀察 {top_s['stock_code']}（匿蹤吸貨 z={top_s['z_score']:.2f}σ）"
+                sec = sector_lookup.get(top_s["stock_code"], "")
+                sec_tag = f"[{sec}]" if sec and sec != "未分類" else ""
+                top_stealth_text = f"重點觀察 {top_s['stock_code']}{sec_tag}（匿蹤吸貨 z={top_s['z_score']:.2f}σ）"
 
             top_distrib_text = ""
             if distribution:
                 top_d = distribution[0]
-                top_distrib_text = f"警惕 {top_d['stock_code']}（誘多派發 z={top_d['z_score']:.2f}σ）"
+                sec = sector_lookup.get(top_d["stock_code"], "")
+                sec_tag = f"[{sec}]" if sec and sec != "未分類" else ""
+                top_distrib_text = f"警惕 {top_d['stock_code']}{sec_tag}（誘多派發 z={top_d['z_score']:.2f}σ）"
+
+            # Sector cluster warning
+            sector_warning = ""
+            stealth_heavy = [s for s in hot_sectors if s["signal"] == "stealth_heavy"]
+            distrib_heavy = [s for s in hot_sectors if s["signal"] == "distribution_heavy"]
+            if stealth_heavy:
+                top_sec = stealth_heavy[0]
+                sector_warning += f"族群吸貨：{top_sec['sector']}（{top_sec['stealth_count']}檔）。"
+            if distrib_heavy:
+                top_sec = distrib_heavy[0]
+                sector_warning += f"族群出貨：{top_sec['sector']}（{top_sec['distribution_count']}檔）。"
+
+            # Activity context
+            activity_text = ""
+            if activity.get("label") and activity["label"] != "insufficient_data":
+                activity_text = f"突變活躍度：{activity['label']}。"
 
             parts = [
                 f"今日市場分點動向：{bias_text}",
                 f"（{all_distrib_count} 誘多 vs {all_stealth_count} 匿蹤）。",
             ]
+            if activity_text:
+                parts.append(activity_text)
+            if sector_warning:
+                parts.append(sector_warning)
             if top_stealth_text:
                 parts.append(top_stealth_text + "。")
             if top_distrib_text:
@@ -1423,14 +1812,18 @@ def generate_daily_summary(threshold_sigma: float = 1.5, top_n: int = 20) -> dic
         logger.error(f"Daily summary mutation scan failed: {e}")
         summary["market_pulse"] = {"error": str(e)}
         summary["top_mutations"] = {"stealth": [], "distribution": []}
+        summary["hot_sectors"] = []
         summary["narrative"] = f"Scan failed: {e}"
 
-    # --- 4. Save to disk ---
+    # --- 6. Save to disk + append history ---
     try:
-        summary_path = Path(__file__).parent.parent / "data" / "daily_summary.json"
+        summary_path = data_dir / "daily_summary.json"
         with open(summary_path, "w", encoding="utf-8") as f:
             json_mod.dump(summary, f, indent=2, ensure_ascii=False)
         logger.info(f"Daily summary saved: {summary_path}")
+
+        # Append to rolling history for percentile computation
+        _append_to_history(summary, data_dir)
     except Exception as e:
         logger.error(f"Failed to save daily summary: {e}")
 

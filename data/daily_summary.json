@@ -1,0 +1,153 @@
+{
+  "date": "2026-02-19",
+  "generated_at": "2026-02-19T12:13:15.661673",
+  "version": "1.1",
+  "pipeline_health": {
+    "status": "NO_REPORT"
+  },
+  "market_pulse": {
+    "total_stocks_scanned": 1096,
+    "total_mutations": 151,
+    "stealth_count": 6,
+    "distribution_count": 14,
+    "mutation_bias": "distribution_heavy",
+    "bias_ratio": 2.33,
+    "activity_percentile": {
+      "percentile": null,
+      "label": "insufficient_data",
+      "history_days": 1,
+      "min_required": 5
+    },
+    "circuit_breaker": {
+      "triggered": false,
+      "extreme_count": 40,
+      "extreme_pct": 0.0365,
+      "threshold_pct": 0.3,
+      "threshold_sigma": 2.0
+    },
+    "distribution_stats": {
+      "mean": 0.0301,
+      "std": 0.7154,
+      "min": -2.8322,
+      "max": 2.2469
+    }
+  },
+  "hot_sectors": [
+    {
+      "sector": "半導體",
+      "stealth_count": 1,
+      "distribution_count": 5,
+      "total": 6,
+      "signal": "distribution_heavy"
+    },
+    {
+      "sector": "傳產",
+      "stealth_count": 1,
+      "distribution_count": 1,
+      "total": 2,
+      "signal": "mixed"
+    }
+  ],
+  "top_mutations": {
+    "stealth": [
+      {
+        "stock_code": "5443",
+        "date": "2026-02-11",
+        "z_score": 3.0988,
+        "score_brokerage": 1.1207,
+        "score_technical": -1.1261,
+        "sector": "半導體"
+      },
+      {
+        "stock_code": "4907",
+        "date": "2026-02-11",
+        "z_score": 2.5156,
+        "score_brokerage": 1.2873,
+        "score_technical": -0.5425,
+        "sector": "營建"
+      },
+      {
+        "stock_code": "1560",
+        "date": "2026-02-11",
+        "z_score": 2.459,
+        "score_brokerage": 1.214,
+        "score_technical": -0.5752,
+        "sector": "重電/電機"
+      },
+      {
+        "stock_code": "3623",
+        "date": "2026-02-11",
+        "z_score": 2.4331,
+        "score_brokerage": 0.9524,
+        "score_technical": -0.8184,
+        "sector": "觸控面板"
+      },
+      {
+        "stock_code": "1303",
+        "date": "2026-02-11",
+        "z_score": 2.3645,
+        "score_brokerage": 1.2999,
+        "score_technical": -0.4217,
+        "sector": "傳產"
+      }
+    ],
+    "distribution": [
+      {
+        "stock_code": "3702",
+        "date": "2026-02-11",
+        "z_score": -4.0011,
+        "score_brokerage": -0.3262,
+        "score_technical": 2.506,
+        "sector": "電子通路"
+      },
+      {
+        "stock_code": "8085",
+        "date": "2026-02-11",
+        "z_score": -3.0166,
+        "score_brokerage": -0.7432,
+        "score_technical": 1.3848,
+        "sector": "被動元件"
+      },
+      {
+        "stock_code": "3576",
+        "date": "2026-02-11",
+        "z_score": -2.9789,
+        "score_brokerage": -0.3926,
+        "score_technical": 1.7082,
+        "sector": "節能"
+      },
+      {
+        "stock_code": "3581",
+        "date": "2026-02-11",
+        "z_score": -2.9118,
+        "score_brokerage": -0.3447,
+        "score_technical": 1.7082,
+        "sector": "半導體"
+      },
+      {
+        "stock_code": "8092",
+        "date": "2026-02-11",
+        "z_score": -2.8908,
+        "score_brokerage": -0.6531,
+        "score_technical": 1.3848,
+        "sector": "半導體"
+      }
+    ]
+  },
+  "confidence_score": {
+    "score": 0.2732,
+    "label": "低信心",
+    "color": "red",
+    "data_health": 0.4,
+    "signal_strength": 0.683,
+    "components": {
+      "h1_row_integrity": 0.5,
+      "h2_night_watchman": 0.5,
+      "h3_brokerage_activity": 0.0,
+      "s1_intensity": 0.5,
+      "s2_conviction": 0.443,
+      "s3_concentration": 1.0
+    }
+  },
+  "narrative": "今日市場分點動向：誘多派發為主 （14 誘多 vs 6 匿蹤）。 族群出貨：半導體（5檔）。 重點觀察 5443[半導體]（匿蹤吸貨 z=3.10σ）。 警惕 3702[電子通路]（誘多派發 z=-4.00σ）。"
+}

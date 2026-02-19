@@ -824,20 +824,21 @@ function goToStock(code: string) {
       </NCard>
     </NGi>
 
-    <!-- ==================== Daily Summary (R88.7 Phase 10) ==================== -->
+    <!-- ==================== Daily Summary (R88.7 Phase 10-11) ==================== -->
     <NGi v-if="store.dailySummary">
       <NCard size="small">
         <template #header>
           <NSpace align="center" :size="8">
             <NTag type="info" :bordered="false" size="small">每日摘要</NTag>
             <NText strong>Auto-Summary</NText>
-            <NText depth="3" style="font-size: 11px">{{ store.dailySummary.date }}</NText>
+            <NText depth="3" style="font-size: 11px">v{{ store.dailySummary.version }} · {{ store.dailySummary.date }}</NText>
           </NSpace>
         </template>
         <template #header-extra>
-          <NSpace :size="8">
+          <NSpace :size="4">
             <NTag
-              :type="store.dailySummary.pipeline_health.status === 'OK' ? 'success' : 'error'"
+              :type="store.dailySummary.pipeline_health.status === 'OK' ? 'success' :
+                     store.dailySummary.pipeline_health.status === 'NO_REPORT' ? 'default' : 'error'"
               size="small" :bordered="false"
             >
               Pipeline: {{ store.dailySummary.pipeline_health.status }}
@@ -848,6 +849,30 @@ function goToStock(code: string) {
               size="small" :bordered="false"
             >
               Watchman: {{ store.dailySummary.pipeline_health.night_watchman.status }}
+            </NTag>
+            <NTag
+              v-if="store.dailySummary.pipeline_health.row_count_drift?.status === 'WARNING'"
+              type="warning" size="small" :bordered="false"
+            >
+              RowDrift: {{ store.dailySummary.pipeline_health.row_count_drift.deviation_pct }}%
+            </NTag>
+            <NTag
+              v-if="store.dailySummary.market_pulse?.activity_percentile?.label &&
+                    store.dailySummary.market_pulse.activity_percentile.label !== 'insufficient_data'"
+              :type="store.dailySummary.market_pulse.activity_percentile.percentile! >= 80 ? 'error' :
+                     store.dailySummary.market_pulse.activity_percentile.percentile! >= 60 ? 'warning' : 'default'"
+              size="small" :bordered="false"
+            >
+              活躍度: {{ store.dailySummary.market_pulse.activity_percentile.label }}
+            </NTag>
+            <NTag
+              v-if="store.dailySummary.confidence_score"
+              :type="store.dailySummary.confidence_score.color === 'green' ? 'success' :
+                     store.dailySummary.confidence_score.color === 'yellow' ? 'warning' : 'error'"
+              size="small" :bordered="false"
+            >
+              信心: {{ (store.dailySummary.confidence_score.score * 100).toFixed(0) }}%
+              {{ store.dailySummary.confidence_score.label }}
             </NTag>
           </NSpace>
         </template>
@@ -882,6 +907,28 @@ function goToStock(code: string) {
           </NGi>
         </NGrid>
 
+        <!-- Hot Sectors (Phase 11 — Architect Critic) -->
+        <div v-if="store.dailySummary.hot_sectors?.length" style="margin-bottom: 8px">
+          <NText strong style="font-size: 12px; display: block; margin-bottom: 4px">
+            族群熱點
+          </NText>
+          <NSpace :size="4" :wrap="true">
+            <NTag
+              v-for="sec in store.dailySummary.hot_sectors"
+              :key="sec.sector"
+              :type="sec.signal === 'stealth_heavy' ? 'success' :
+                     sec.signal === 'distribution_heavy' ? 'error' : 'warning'"
+              size="small"
+            >
+              {{ sec.sector }}
+              <template #avatar>
+                <span style="font-size: 10px">{{ sec.signal === 'stealth_heavy' ? '↗' : sec.signal === 'distribution_heavy' ? '↘' : '↔' }}</span>
+              </template>
+              ({{ sec.stealth_count }}↗ {{ sec.distribution_count }}↘)
+            </NTag>
+          </NSpace>
+        </div>
+
         <!-- Top mutations side by side -->
         <NGrid v-if="store.dailySummary.top_mutations" :cols="cols(1, 2, 2).value" x-gap="8" y-gap="8">
           <NGi>
@@ -893,6 +940,7 @@ function goToStock(code: string) {
               @click="goToStock(m.stock_code)"
             >
               <NText strong>{{ m.stock_code }}</NText>
+              <NText v-if="m.sector && m.sector !== '未分類'" depth="3" style="font-size: 10px"> [{{ m.sector }}]</NText>
               <NText depth="3"> z={{ m.z_score.toFixed(2) }}σ</NText>
             </div>
             <NText v-if="!store.dailySummary.top_mutations.stealth.length" depth="3" style="font-size: 11px">
@@ -908,6 +956,7 @@ function goToStock(code: string) {
               @click="goToStock(m.stock_code)"
             >
               <NText strong>{{ m.stock_code }}</NText>
+              <NText v-if="m.sector && m.sector !== '未分類'" depth="3" style="font-size: 10px"> [{{ m.sector }}]</NText>
               <NText depth="3"> z={{ m.z_score.toFixed(2) }}σ</NText>
             </div>
             <NText v-if="!store.dailySummary.top_mutations.distribution.length" depth="3" style="font-size: 11px">
