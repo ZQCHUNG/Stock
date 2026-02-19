@@ -408,9 +408,21 @@ python -m pytest tests/ -q
 - API: `GET /api/cluster/daily-summary` (cached + `?regenerate=true`)
 - Frontend: ClusterView 頁面頂部 — 信心分數 badge + 族群熱點 tags + 產業別標籤 + Warming Up + Critical Warning
 
+**Attention Dimension Upgrade (R88.7 Phase 12)** [HYPOTHESIS — pending IC validation]:
+- 從 2 → 7 個注意力特徵（60 → 65 total features）
+- `attention_index_7d` (量), `attention_spike` (量突變), `source_diversity` (廣度), `news_velocity` (加速度), `polarity_filter` (三態極性), `news_recency` (時效性), `co_occurrence_score` (共現頻率)
+- NaN-aware: 無新聞股票 → NaN（不是 0），防止稀疏聚類扭曲
+- Polarity Filter: 三態關鍵字分類 (Breaking/Growth=+1, Risk/Legal=-1, Neutral=0)
+- Co-occurrence: asymmetric "大哥帶小弟" 設計 — co_articles/total 自然權重小型股
+- Noise Filter: 過濾「盤後/摘要/名單/一覽/三大法人」等非事件源頭文章
+- Google News RSS: 搜索 6 個台灣財經新聞網站，階層式覆蓋 (Top 500 優先)
+- cnyes 覆蓋率: 284 → 448 stocks (+58%)，改用 API 原生 `stock` 欄位
+- IC 實驗: INCONCLUSIVE (僅 11 天數據)，需累積 30+ 天後驗證
+
 **檔案**:
-- `data/build_features.py` — 8 原始 JSON → 60 features Parquet (292.5 MB, 1096 stocks)
+- `data/build_features.py` — 8 原始 JSON → 65 features Parquet (292.5 MB, 1096 stocks)
 - `data/fetch_broker_daily.py` — R88.7 日頻分點爬蟲 (Fubon DJhtm, 10 workers)
+- `data/fetch_google_news.py` — Google News RSS 爬蟲 (6 台灣財經網站, 階層覆蓋)
 - `analysis/cluster_search.py` — Dual-Pipeline + Per-Dimension Similarity 引擎
 - `analysis/broker_features.py` — R88.7 14 日頻分點特徵計算引擎
 - `analysis/winner_registry.py` — R88.7 Tiered Winner Branch Registry
