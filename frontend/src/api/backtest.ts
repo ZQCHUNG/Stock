@@ -19,6 +19,15 @@ export interface BoldBacktestParams {
   slippage?: number
 }
 
+export interface AggressiveBacktestParams {
+  period_days?: number
+  initial_capital?: number
+  params?: Record<string, any>
+  commission_rate?: number
+  tax_rate?: number
+  slippage?: number
+}
+
 export interface StrategyComparisonParams {
   period_days?: number
   initial_capital?: number
@@ -45,6 +54,8 @@ export const backtestApi = {
     client.post<any, any>(`/backtest/${code}/alpha-beta`, req),
   bold: (code: string, req: BoldBacktestParams = {}) =>
     client.post<any, any>(`/backtest/${code}/bold`, req, { timeout: 120_000 }),
+  aggressive: (code: string, req: AggressiveBacktestParams = {}) =>
+    client.post<any, any>(`/backtest/${code}/aggressive`, req, { timeout: 180_000 }),
   strategyComparison: (code: string, req: StrategyComparisonParams = {}) =>
     client.post<any, any>(`/backtest/${code}/strategy-comparison`, req),
   metaStrategy: (stockCodes: string[], periodDays = 730, initialCapital = 1_000_000) =>

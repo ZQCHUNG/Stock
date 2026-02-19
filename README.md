@@ -26,6 +26,7 @@ Stock/
 │   ├── strategy_v5.py        # V5 均值回歸策略
 │   ├── strategy_adaptive.py  # Adaptive 混合策略
 │   ├── strategy_bold.py      # Bold 大膽策略 (R66)
+│   ├── strategy_aggressive.py # Aggressive 真大膽 — WarriorExitEngine (R88)
 │   ├── scoring.py            # SQS 信號品質評分 (8 dimensions)
 │   ├── rs_scanner.py         # Full-market RS Scanner (927 stocks) (R83)
 │   ├── sector_rs.py          # Sector RS + Peer Alpha + Cluster Risk (R84)
@@ -42,7 +43,7 @@ Stock/
 │   ├── liquidity.py          # Liquidity Score (DTL + Spread + Tick Size) (R69)
 │   └── market_regime.py      # Bull/Bear/Sideways detection
 ├── backtest/
-│   ├── engine.py             # Backtest engine (v4/v5/bold/portfolio)
+│   ├── engine.py             # Backtest engine (v4/v5/bold/aggressive/portfolio)
 │   ├── risk_manager.py       # VaR + Sizing + Concentration + Circuit Breaker (R60/R80)
 │   ├── sqs_backtest.py       # SQS effectiveness validation
 │   └── bold_parameter_sweep.py  # Parameter sensitivity analysis (R67)
@@ -245,6 +246,7 @@ python -m pytest tests/ -q
 | R88.7P12 | Attention Dim 2→7 Features + Google News RSS + Daily Schedule 18:45 (Trader CONVERGED) | Done |
 | R88.7P13 | Polarity Divergence Warning + Cross-Source Fuzzy Dedup (Trader R6 CONVERGED) | Done |
 | R88.7P14 | Maiden Voyage: Toxic Volatility + Cold Start + Weekend Effect (Trader R7 CONVERGED) | Done |
+| R88.8 | Aggressive Mode — WarriorExitEngine (ATR 3x Trail + Pyramiding + Regime Gate) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -450,6 +452,28 @@ python -m pytest tests/ -q
 - `analysis/winner_registry.py` — R88.7 Tiered Winner Branch Registry
 - `backend/routers/cluster.py` — 6 API endpoints (similar-dual, similar, dimensions, feature-status, mutations, daily-summary)
 - `frontend/src/views/ClusterView.vue` — Dual Block + Gene Map + Dimension Lens UI
+
+### Aggressive Mode — WarriorExitEngine (R88.8)
+
+與 Bold 策略 **物理隔離** 的大波段捕捉引擎，目標 +50% ~ +200% 波段（亞翔、陽明、光聖、亞果型）：
+
+**Exit Hierarchy** (寬止損，坐穩大波段):
+1. **Gap-Down Guard**: 開盤跳空低於 -20% → 立即出場
+2. **Disaster Stop**: -20% hard limit (Secretary mandate, 不可免除)
+3. **ATR 3x Trailing**: 從進場價追蹤，peak - 3×ATR（CTO: 2x 對台股主波段太緊）
+4. **MA20 Slope Combo**: MA20 斜率轉負 + 股價 < 上週最低 → 趨勢衰竭出場
+5. **MA50 Death Cross**: 股價跌破 MA50 → 最後防線
+6. **Max Hold 60d**: 強制平倉
+
+**What is NOT here (by design)**: NO structural_stop, NO time_stop_5d, NO tight trailing
+
+**Pyramiding (加碼)**: 20% → +10% → +10% = 40% max, MA20 回測確認
+
+**Regime Gate**: TAIEX < MA200 → block entries, MA20 slope negative → reduce size
+
+**North Star Metrics**: Payload Ratio (Top 5% trades profit / total), Home Run Frequency (>50% gain), Ulcer Index
+
+**41 tests** in `tests/test_strategy_aggressive.py`
 
 ### Auto Trail Classifier (R73-R79)
 

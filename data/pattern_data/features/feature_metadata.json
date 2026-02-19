@@ -45,15 +45,23 @@
     },
     "brokerage": {
       "features": [
-        "broker_hhi",
+        "broker_hhi_daily",
+        "broker_top3_pct",
+        "broker_hhi_delta",
         "broker_net_buy_ratio",
-        "broker_consistency",
-        "broker_spread"
+        "broker_spread",
+        "broker_net_momentum_5d",
+        "broker_purity_score",
+        "broker_foreign_pct",
+        "branch_overlap_count",
+        "daily_net_buy_volatility",
+        "broker_turnover_chg",
+        "broker_consistency_streak",
+        "broker_price_divergence",
+        "broker_winner_momentum"
       ],
-      "count": 4,
-      "frequency": "monthly",
-      "frequency_target": "daily",
-      "description": "分點面 — 主力分點進出/集中度"
+      "count": 14,
+      "description": "分點面 — 14特徵分點基因譜 (R88.7)"
     },
     "industry": {
       "features": [
@@ -83,10 +91,15 @@
     "attention": {
       "features": [
         "attention_index_7d",
-        "attention_spike"
+        "attention_spike",
+        "source_diversity",
+        "news_velocity",
+        "polarity_filter",
+        "news_recency",
+        "co_occurrence_score"
       ],
-      "count": 2,
-      "description": "關注度 — 媒體關注指數"
+      "count": 7,
+      "description": "關注度 — 7維媒體注意力 (量/速/廣/時/性/連)"
     }
   },
   "all_features": [
@@ -121,10 +134,20 @@
     "tdcc_retail_chg",
     "tdcc_big_chg",
     "tdcc_concentration",
-    "broker_hhi",
+    "broker_hhi_daily",
+    "broker_top3_pct",
+    "broker_hhi_delta",
     "broker_net_buy_ratio",
-    "broker_consistency",
     "broker_spread",
+    "broker_net_momentum_5d",
+    "broker_purity_score",
+    "broker_foreign_pct",
+    "branch_overlap_count",
+    "daily_net_buy_volatility",
+    "broker_turnover_chg",
+    "broker_consistency_streak",
+    "broker_price_divergence",
+    "broker_winner_momentum",
     "sector_rs",
     "peer_alpha",
     "sector_momentum",
@@ -139,9 +162,14 @@
     "operating_margin",
     "debt_ratio",
     "attention_index_7d",
-    "attention_spike"
+    "attention_spike",
+    "source_diversity",
+    "news_velocity",
+    "polarity_filter",
+    "news_recency",
+    "co_occurrence_score"
   ],
-  "total_features": 50,
+  "total_features": 65,
   "extra_columns": [
     "regime_tag"
   ],
@@ -161,7 +189,7 @@
     "quarterly_financials": 46,
     "monthly_revenue": 11
   },
-  "created_at": "2026-02-18T10:02:08.073322",
+  "created_at": "2026-02-19T19:48:08.545507",
   "stock_count": 1096,
   "date_range": [
     "2020-01-02 00:00:00",

@@ -71,6 +71,15 @@ class BoldBacktestRequest(BaseModel):
     slippage: float | None = None
 
 
+class AggressiveBacktestRequest(BaseModel):
+    period_days: int = 2920  # 8 年（大波段需要長期數據）
+    initial_capital: float = 1_000_000
+    params: dict | None = None
+    commission_rate: float | None = None
+    tax_rate: float | None = None
+    slippage: float | None = None
+
+
 class SqsBacktestRequest(BaseModel):
     stock_codes: list[str] | None = None
     period_days: int = 730
@@ -403,6 +412,42 @@ def run_bold_backtest(code: str, req: BoldBacktestRequest):
             slippage=req.slippage,
         )
         return _serialize_backtest_result(result)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{code}/aggressive")
+def run_aggressive_backtest(code: str, req: AggressiveBacktestRequest):
+    """執行 Aggressive Mode 回測（真・大膽模式 — WarriorExitEngine）
+
+    目標：捕捉 +50% ~ +200% 大波段（亞翔、陽明、光聖、亞果型）。
+    接受 15-20% MDD 作為代價。
+
+    與 Bold 完全分離的出場引擎：
+    - 無 structural_stop、無 time_stop_5d
+    - ATR 3× trailing + MA50 death cross + -20% 災難止損
+    - 含加碼機制（Pyramiding）
+    """
+    from data.fetcher import get_stock_data
+    from backtest.engine import run_backtest_aggressive
+    from backend.dependencies import make_serializable
+    try:
+        df = get_stock_data(code, period_days=req.period_days)
+        result = run_backtest_aggressive(
+            df,
+            initial_capital=req.initial_capital,
+            params=req.params,
+            commission_rate=req.commission_rate,
+            tax_rate=req.tax_rate,
+            slippage=req.slippage,
+        )
+        serialized = _serialize_backtest_result(result)
+        # Attach aggressive-specific metrics
+        if result.trail_mode_info and "aggressive_metrics" in result.trail_mode_info:
+            serialized["aggressive_metrics"] = make_serializable(
+                result.trail_mode_info["aggressive_metrics"]
+            )
+        return serialized
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

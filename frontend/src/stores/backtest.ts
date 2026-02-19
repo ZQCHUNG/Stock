@@ -1,15 +1,16 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { backtestApi, type BacktestParams, type BoldBacktestParams } from '../api/backtest'
+import { backtestApi, type BacktestParams, type BoldBacktestParams, type AggressiveBacktestParams } from '../api/backtest'
 import { message } from '../utils/discrete'
 
-export type StrategyType = 'v4' | 'v5' | 'adaptive' | 'bold'
+export type StrategyType = 'v4' | 'v5' | 'adaptive' | 'bold' | 'aggressive'
 
 const STRATEGY_LABELS: Record<StrategyType, string> = {
   v4: 'V4 趨勢動量',
   v5: 'V5 均值回歸',
   adaptive: 'Adaptive 混合',
   bold: 'Bold 大膽',
+  aggressive: 'Aggressive 真大膽',
 }
 
 export const useBacktestStore = defineStore('backtest', () => {
@@ -21,6 +22,7 @@ export const useBacktestStore = defineStore('backtest', () => {
   const sensitivityResult = ref<any>(null)
   const alphaBetaResult = ref<any>(null)
   const boldResult = ref<any>(null)
+  const aggressiveResult = ref<any>(null)
   const strategyComparison = ref<any>(null)
   const isLoading = ref(false)
   const error = ref('')
@@ -132,6 +134,19 @@ export const useBacktestStore = defineStore('backtest', () => {
     }
   }
 
+  async function runAggressive(code: string, req?: AggressiveBacktestParams) {
+    isLoading.value = true
+    error.value = ''
+    try {
+      aggressiveResult.value = await backtestApi.aggressive(code, req)
+      message.success(`Aggressive 回測完成：${aggressiveResult.value.total_trades || 0} 筆交易`)
+    } catch (e: any) {
+      error.value = e.message
+    } finally {
+      isLoading.value = false
+    }
+  }
+
   async function runStrategyComparison(code: string, req?: { period_days?: number; initial_capital?: number }) {
     isLoading.value = true
     error.value = ''
@@ -146,10 +161,10 @@ export const useBacktestStore = defineStore('backtest', () => {
   }
 
   return {
-    singleResult, singleStrategy, portfolioResult, simulationResult, boldResult,
+    singleResult, singleStrategy, portfolioResult, simulationResult, boldResult, aggressiveResult,
     rollingResult, sensitivityResult, alphaBetaResult, strategyComparison,
     isLoading, error,
-    runSingle, runPortfolio, runSimulation, runBold,
+    runSingle, runPortfolio, runSimulation, runBold, runAggressive,
     runRolling, runSensitivity, runAlphaBeta, runStrategyComparison,
   }
 })

@@ -17,6 +17,11 @@ from analysis.strategy_bold import (
     generate_bold_signals, compute_bold_exit,
     STRATEGY_BOLD_PARAMS, STRATEGY_BOLD_ULTRA_WIDE,
 )
+from analysis.strategy_aggressive import (
+    compute_warrior_exit, check_pyramid_condition,
+    compute_aggressive_metrics, compute_ulcer_index,
+    STRATEGY_AGGRESSIVE_PARAMS,
+)
 
 
 @dataclass
@@ -1042,6 +1047,241 @@ class BacktestEngine:
         self._calculate_metrics(result)
         return result
 
+    def run_aggressive(self, df: pd.DataFrame, params: dict | None = None,
+                        rs_rating: float | None = None) -> BacktestResult:
+        """執行 Aggressive Mode 回測（真・大膽模式 — WarriorExitEngine）
+
+        與 Bold 完全分離的出場引擎，目標：捕捉 +50% ~ +200% 大波段。
+        接受 15-20% MDD 作為代價。
+
+        EXIT HIERARCHY:
+        1. Disaster stop: -20% hard
+        2. ATR 3× trailing from entry
+        3. MA20 slope combo (slope negative + price < weekly low)
+        4. MA50 death cross
+        5. Max hold 60 days
+
+        DOES NOT HAVE: structural_stop, time_stop_5d, tight trailing.
+        """
+        p = dict(STRATEGY_AGGRESSIVE_PARAMS)
+        if params:
+            p.update(params)
+
+        # Reuse Bold entry signals (same 4 entry types)
+        # Override some entry params for aggressive mode
+        bold_entry_params = dict(STRATEGY_BOLD_PARAMS)
+        bold_entry_params["min_volume_lots"] = p.get("min_volume_lots", 100)
+        bold_entry_params["volume_breakout_ratio"] = p.get("volume_breakout_ratio", 2.0)
+        if params:
+            bold_entry_params.update(params)
+
+        signals_df = generate_bold_signals(df, params=bold_entry_params, rs_rating=rs_rating)
+
+        max_hold = p.get("max_hold_days", 60)
+        initial_pos_pct = p.get("pyramid_initial_pct", 0.20)
+
+        # Pre-compute indicators for WarriorExitEngine
+        ma20_series = signals_df["ma20"] if "ma20" in signals_df.columns else signals_df["close"].rolling(20).mean()
+        ma50_series = signals_df["close"].rolling(50, min_periods=25).mean()
+        ma20_slope_lookback = p.get("ma20_slope_lookback", 5)
+        ma20_slope_series = ma20_series.pct_change(ma20_slope_lookback)
+
+        # Weekly low (5-day rolling low for "last week's low")
+        weekly_low_series = signals_df["low"].rolling(5, min_periods=3).min().shift(1) if "low" in signals_df.columns else pd.Series(np.nan, index=signals_df.index)
+
+        # Volume for pyramiding
+        vol_ma20_series = signals_df["volume"].rolling(20, min_periods=10).mean() if "volume" in signals_df.columns else pd.Series(np.nan, index=signals_df.index)
+
+        cash = self.initial_capital
+        position = 0
+        trades: list[Trade] = []
+        current_trade: Trade | None = None
+        equity_history = []
+        hold_days = 0
+        peak_price = 0.0
+        pyramid_adds = 0  # Number of pyramid additions for current trade
+        total_invested = 0.0  # Total invested in current position
+
+        _has_high = "high" in signals_df.columns
+        _has_low = "low" in signals_df.columns
+        _has_volume = "volume" in signals_df.columns
+        _has_open = "open" in signals_df.columns
+        prev_close = None
+        prev_above_ma50 = None
+
+        for row in signals_df.itertuples():
+            date = row.Index
+            price = row.close
+            high = row.high if _has_high else price
+            low = row.low if _has_low else price
+            open_price = row.open if _has_open else price
+            signal = row.bold_signal if hasattr(row, "bold_signal") else "HOLD"
+            atr = row.atr if hasattr(row, "atr") else 0.0
+            volume = row.volume if _has_volume else 0
+
+            # Get indicator values
+            _ma20 = ma20_series.get(date, None)
+            if _ma20 is not None and (np.isnan(_ma20) or np.isinf(_ma20)):
+                _ma20 = None
+            _ma20_slope = ma20_slope_series.get(date, None)
+            if _ma20_slope is not None and (np.isnan(_ma20_slope) or np.isinf(_ma20_slope)):
+                _ma20_slope = None
+            _weekly_low = weekly_low_series.get(date, None)
+            if _weekly_low is not None and (np.isnan(_weekly_low) or np.isinf(_weekly_low)):
+                _weekly_low = None
+            _ma50 = ma50_series.get(date, None)
+            if _ma50 is not None and (np.isnan(_ma50) or np.isinf(_ma50)):
+                _ma50 = None
+
+            # MA50 crossover detection
+            current_above_ma50 = (price > _ma50) if _ma50 is not None else None
+
+            if position > 0:
+                peak_price = max(peak_price, high)
+                hold_days += 1
+
+            # ===== EXIT CHECK (WarriorExitEngine) =====
+            force_sell = False
+            exit_reason = ""
+            exit_price = 0.0
+
+            if position > 0 and current_trade is not None:
+                exit_result = compute_warrior_exit(
+                    entry_price=current_trade.price_open,
+                    current_price=price,
+                    peak_price=peak_price,
+                    current_atr=atr,
+                    hold_days=hold_days,
+                    current_low=low,
+                    params=p,
+                    current_ma20=_ma20,
+                    ma20_slope=_ma20_slope,
+                    weekly_low=_weekly_low,
+                    current_ma50=_ma50,
+                    price_above_ma50=current_above_ma50,
+                    prev_price_above_ma50=prev_above_ma50,
+                    current_open=open_price,
+                )
+                if exit_result["should_exit"]:
+                    force_sell = True
+                    exit_reason = exit_result["exit_reason"]
+                    if exit_reason == "gap_down_guard":
+                        # Gap-down: exit at open price (already below stop)
+                        exit_price = open_price
+                    else:
+                        trail_stop = exit_result["trailing_stop_price"]
+                        if low <= trail_stop:
+                            exit_price = trail_stop
+                        else:
+                            exit_price = price
+
+            if force_sell and position > 0 and current_trade is not None:
+                cash += self._close_position(position, exit_price, current_trade, date, exit_reason)
+                trades.append(current_trade)
+                position, current_trade, hold_days, peak_price = 0, None, 0, 0.0
+                pyramid_adds = 0
+                total_invested = 0.0
+
+            if position == 0 and cash > 0:
+                cash *= (1 + self._rf_daily)
+
+            equity_history.append({"date": date, "equity": cash + position * price})
+
+            # ===== PYRAMID CHECK (add to winning position) =====
+            if (position > 0 and current_trade is not None
+                    and pyramid_adds < p.get("pyramid_max_adds", 2)
+                    and total_invested < cash * p.get("pyramid_max_total_pct", 0.40) * 2):
+                _vol_ma20 = vol_ma20_series.get(date, None)
+                if _vol_ma20 is not None and (np.isnan(_vol_ma20) or np.isinf(_vol_ma20)):
+                    _vol_ma20 = None
+
+                pyramid_result = check_pyramid_condition(
+                    entry_price=current_trade.price_open,
+                    current_price=price,
+                    current_ma20=_ma20,
+                    prev_close=prev_close,
+                    current_volume=float(volume) if volume else None,
+                    volume_ma20=float(_vol_ma20) if _vol_ma20 is not None else None,
+                    add_count=pyramid_adds,
+                    params=p,
+                )
+                if pyramid_result["should_add"]:
+                    add_pct = pyramid_result.get("add_pct", 0.10)
+                    add_cash = cash * add_pct
+                    buy_price = price * (1 + self.slippage)
+                    add_shares = int(add_cash / (buy_price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
+                    if add_shares >= TRADE_UNIT:
+                        add_cost = add_shares * buy_price
+                        add_commission = add_cost * self.commission_rate
+                        cash -= (add_cost + add_commission)
+                        # Update trade: average up the entry price
+                        old_cost = current_trade.price_open * current_trade.shares
+                        new_total_shares = current_trade.shares + add_shares
+                        current_trade.price_open = (old_cost + add_cost) / new_total_shares
+                        current_trade.shares = new_total_shares
+                        current_trade.commission += add_commission
+                        position = new_total_shares
+                        total_invested += add_cost
+                        pyramid_adds += 1
+
+            # ===== ENTRY =====
+            if signal == "BUY" and position == 0:
+                # Liquidity gate (Secretary mandate): entry < 2% of 20-day avg volume
+                _vol_ma20_entry = vol_ma20_series.get(date, None)
+                if (_vol_ma20_entry is not None
+                        and not np.isnan(_vol_ma20_entry)
+                        and _vol_ma20_entry > 0):
+                    max_entry_shares = _vol_ma20_entry * p.get("liquidity_pct_cap", 0.02)
+                    max_entry_cash = max_entry_shares * price
+                    effective_pct = min(initial_pos_pct, max_entry_cash / cash) if cash > 0 else initial_pos_pct
+                else:
+                    effective_pct = initial_pos_pct
+
+                trade, shares, cash = self._open_position(
+                    price, high, volume, cash, effective_pct, date)
+                if trade is not None:
+                    position = shares
+                    current_trade = trade
+                    peak_price = high
+                    hold_days = 0
+                    pyramid_adds = 0
+                    total_invested = shares * trade.price_open
+
+            prev_close = price
+            prev_above_ma50 = current_above_ma50
+
+        # End-of-period close
+        if position > 0 and current_trade is not None:
+            last_price = signals_df.iloc[-1]["close"]
+            cash += self._close_position(position, last_price, current_trade,
+                                         signals_df.index[-1], "end_of_period")
+            trades.append(current_trade)
+
+        equity_curve = self._build_equity_curve(equity_history)
+
+        # Compute aggressive-specific metrics
+        trade_dicts = [{"return_pct": t.return_pct} for t in trades]
+        agg_metrics = compute_aggressive_metrics(trade_dicts)
+        ulcer = compute_ulcer_index(equity_curve)
+        agg_metrics["ulcer_index"] = ulcer
+
+        result = BacktestResult(
+            trades=trades,
+            equity_curve=equity_curve,
+            params_description=(
+                f"Aggressive (WarriorExit) | Disaster -{p.get('disaster_stop_pct', 0.20)*100:.0f}% | "
+                f"ATR {p.get('atr_trail_multiplier', 3.0):.0f}× | "
+                f"MaxHold {max_hold}d | "
+                f"Pyramid {pyramid_adds} adds"
+            ),
+            trail_mode_info={
+                "mode": "aggressive",
+                "aggressive_metrics": agg_metrics,
+            },
+        )
+        self._calculate_metrics(result)
+        return result
+
     def _calculate_metrics(self, result: BacktestResult) -> None:
         """計算績效指標"""
         if result.equity_curve.empty:
@@ -1246,6 +1486,29 @@ def run_backtest_bold(
         slippage=slippage,
     )
     return engine.run_bold(df, params=params, ultra_wide=ultra_wide, rs_rating=rs_rating)
+
+
+def run_backtest_aggressive(
+    df: pd.DataFrame,
+    initial_capital: float | None = None,
+    params: dict | None = None,
+    commission_rate: float | None = None,
+    tax_rate: float | None = None,
+    slippage: float | None = None,
+    rs_rating: float | None = None,
+) -> BacktestResult:
+    """便捷函式：執行 Aggressive Mode 回測（真・大膽模式）
+
+    Uses WarriorExitEngine — physically separated from Bold exit logic.
+    Target: +50% ~ +200% waves. Accepts 15-20% MDD.
+    """
+    engine = BacktestEngine(
+        initial_capital=initial_capital,
+        commission_rate=commission_rate,
+        tax_rate=tax_rate,
+        slippage=slippage,
+    )
+    return engine.run_aggressive(df, params=params, rs_rating=rs_rating)
 
 
 @dataclass
