@@ -17,6 +17,11 @@ R88.5 CONVERGED (Wall Street Trader — 6-year stress test approved):
   [VERIFIED] PF=1.65 (n=45) at Sniper tier, 6-year cross-environment
   [EXPERIMENTAL] n=45 < 50 — not yet [VERIFIED], pending more data
 
+R88.7 CONVERGED (Wall Street Trader R6 — Polarity Divergence Warning):
+  Level 1: Warning text when query vs cases polarity Z-score gap > 1.0
+  Level 2: Confidence downgrade when polarity is opposite (Z > 0.5 vs Z < -0.5)
+  Cross-source fuzzy dedup: title similarity > 80% → count as one article
+
 Protocol v3 labels:
   [VERIFIED] TRANSACTION_COST = 0.00785
   [CONVERGED] Dual-block architecture, time decay, regime filter
@@ -51,6 +56,11 @@ SNIPER_SIM_THRESHOLD = 0.88  # [CONVERGED] Mean similarity >= 88%
 SNIPER_FUND_THRESHOLD = 0.50  # [CONVERGED] Fundamental dim similarity >= 50%
 TACTICAL_FUND_THRESHOLD = 0.40  # [CONVERGED] Tactical tier >= 40%
 SNIPER_LABEL = "[EXPERIMENTAL]"  # [CONVERGED] n=45 < 50, pending more data
+
+# R88.7 Polarity Divergence Warning [CONVERGED — Gemini Wall Street Trader R6]
+# Z-score thresholds for polarity environment mismatch
+POLARITY_DIVERGE_Z = 0.5   # [PLACEHOLDER] Opposite-sign threshold
+POLARITY_WIDE_DIFF = 1.0   # [PLACEHOLDER] Any-direction wide gap
 
 # R88.7 Phase 5: Sparse features that need daily data accumulation
 # [CONVERGED — Wall Street Trader 2026-02-18]
@@ -738,15 +748,57 @@ def _find_cases(
     return cases, query_info
 
 
+def _extract_polarity_info(
+    query_idx: int, cases: list[dict]
+) -> Optional[dict]:
+    """Extract polarity_filter Z-scores for query and matched cases.
+
+    [CONVERGED — Gemini Wall Street Trader R6]:
+    Polarity Divergence Warning: If tech patterns are similar but news
+    environment is opposite, the historical outcomes may not apply.
+    """
+    if _feature_cols is None or "polarity_filter" not in _feature_cols:
+        return None
+
+    pol_idx = _feature_cols.index("polarity_filter")
+    query_polarity = float(_features_matrix[query_idx, pol_idx])
+
+    if not cases:
+        return None
+
+    # Look up case indices via (stock_code, date) matching
+    idx_codes = _feature_index["stock_code"].values
+    idx_dates = _feature_index["date"].values
+
+    case_polarities = []
+    for case in cases:
+        case_date = np.datetime64(case["date"])
+        mask = (idx_codes == case["stock_code"]) & (idx_dates == case_date)
+        idxs = np.where(mask)[0]
+        if len(idxs) > 0:
+            case_polarities.append(float(_features_matrix[idxs[0], pol_idx]))
+
+    if not case_polarities:
+        return None
+
+    return {
+        "query_polarity_z": round(query_polarity, 3),
+        "cases_avg_polarity_z": round(float(np.mean(case_polarities)), 3),
+        "n_cases_with_polarity": len(case_polarities),
+    }
+
+
 def _generate_opinion(
     raw_stats: dict,
     aug_stats: dict,
     query_info: dict,
     aug_cases: list[dict],
+    polarity_info: Optional[dict] = None,
 ) -> dict:
     """Generate text advice for Block 2 (System Analysis).
 
     [CONVERGED] Architect Critic: must include regime label and quality warnings.
+    [CONVERGED — Gemini Wall Street Trader R6]: Polarity Divergence Warning.
     """
     regime_labels = {1: "多頭", 0: "盤整", -1: "空頭"}
     regime = query_info.get("regime", 0)
@@ -793,15 +845,60 @@ def _generate_opinion(
                 f"差異來自 Regime 過濾與特徵加權。"
             )
 
+    # Polarity Divergence Warning [CONVERGED — Gemini Wall Street Trader R6]
+    # Level 1: Warning text when query vs cases polarity diverges
+    # Level 2: Confidence downgrade when polarity is outright opposite
+    polarity_penalty = False
+    if polarity_info is not None:
+        q_pol = polarity_info["query_polarity_z"]
+        c_pol = polarity_info["cases_avg_polarity_z"]
+
+        # Level 2 (opposite environments) — also triggers Level 1 text
+        if q_pol > POLARITY_DIVERGE_Z and c_pol < -POLARITY_DIVERGE_Z:
+            lines.append(
+                f"[POLARITY] 當前處於偏多輿論環境 (Z={q_pol:+.2f})，"
+                f"但相似案例多在利空環境 (Z={c_pol:+.2f})。"
+                "歷史報酬可能不適用於當前情境。[Confidence x0.8]"
+            )
+            polarity_penalty = True
+        elif q_pol < -POLARITY_DIVERGE_Z and c_pol > POLARITY_DIVERGE_Z:
+            lines.append(
+                f"[POLARITY] 當前處於偏空輿論環境 (Z={q_pol:+.2f})，"
+                f"但相似案例多在利多環境 (Z={c_pol:+.2f})。"
+                "歷史報酬可能不適用於當前情境。[Confidence x0.8]"
+            )
+            polarity_penalty = True
+        # Level 1 (wide gap, same or mixed direction)
+        elif abs(q_pol - c_pol) > POLARITY_WIDE_DIFF:
+            lines.append(
+                f"[POLARITY] 輿論環境差異較大 "
+                f"(查詢 Z={q_pol:+.2f} vs 案例均值 Z={c_pol:+.2f})，"
+                "建議留意新聞面影響。"
+            )
+
+    # Confidence level
+    if n >= 30:
+        confidence = "high"
+    elif n >= 15:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    # Level 2 penalty: downgrade confidence by one tier
+    if polarity_penalty and confidence != "low":
+        confidence = "medium" if confidence == "high" else "low"
+
     return {
         "regime_label": regime_label,
         "advice_text": "\n".join(lines),
-        "confidence": "high" if n >= 30 else ("medium" if n >= 15 else "low"),
+        "confidence": confidence,
+        "polarity_divergence": polarity_penalty,
+        "polarity_info": polarity_info,
         "filters_applied": [
             f"Regime: {regime_label}",
             "Dynamic Feature Weighting",
             "Time Decay (2y half-life)",
-        ],
+        ] + (["Polarity Divergence Penalty (x0.8)"] if polarity_penalty else []),
     }
 
 
@@ -903,8 +1000,13 @@ def find_similar_dual(
     aug_stats = _compute_statistics(aug_cases)
     aug_paths = _get_forward_prices(aug_cases)
 
-    # Generate opinion text
-    opinion = _generate_opinion(raw_stats, aug_stats, query_info, aug_cases)
+    # R88.7 Polarity Divergence Warning [CONVERGED — Gemini Wall Street Trader R6]
+    polarity_info = _extract_polarity_info(query_idx, aug_cases)
+
+    # Generate opinion text (with polarity check)
+    opinion = _generate_opinion(
+        raw_stats, aug_stats, query_info, aug_cases, polarity_info
+    )
 
     # Build weight transparency for Block 2 [R88.3 ARCHITECT]
     aug_weight_info = {}

@@ -707,6 +707,50 @@ def _is_noise_article(title: str) -> bool:
     return any(kw in title for kw in _NOISE_TITLE_KEYWORDS)
 
 
+def _fuzzy_dedup_titles(df: pd.DataFrame, threshold: float = 0.80) -> pd.DataFrame:
+    """Cross-source fuzzy dedup: same stock + same day + title similarity > threshold.
+
+    [CONVERGED — Gemini Wall Street Trader R6]:
+    "Echo Chamber" prevention — cnyes + Google News often publish the same story.
+    Without dedup, attention_spike gets inflated by duplicate coverage.
+
+    Uses SequenceMatcher (stdlib) for title similarity. Efficient because
+    group size is typically 1-5 articles per (stock, date).
+    """
+    from difflib import SequenceMatcher
+
+    if len(df) == 0:
+        return df
+
+    # Reset index to ensure contiguous 0..N-1 (after drop_duplicates, index has gaps)
+    df = df.reset_index(drop=True)
+    keep_mask = np.ones(len(df), dtype=bool)
+    # Group by (stock_code, date) — most groups have 1-5 rows
+    grouped = df.groupby(["stock_code", "date"])
+
+    for _, group in grouped:
+        if len(group) <= 1:
+            continue
+        indices = group.index.tolist()
+        titles = group["title"].values
+        # Compare each title against earlier titles in the group
+        for i in range(1, len(indices)):
+            if not keep_mask[indices[i]]:
+                continue
+            for j in range(i):
+                if not keep_mask[indices[j]]:
+                    continue
+                ratio = SequenceMatcher(None, titles[i], titles[j]).ratio()
+                if ratio > threshold:
+                    keep_mask[indices[i]] = False
+                    break  # Already marked as duplicate
+
+    removed = int((~keep_mask).sum())
+    if removed > 0:
+        print(f"  Fuzzy dedup: removed {removed} near-duplicate articles (threshold={threshold*100:.0f}%)")
+    return df[keep_mask].reset_index(drop=True)
+
+
 def load_news_data():
     """Load news data from both cnyes and Google News RSS sources.
 
@@ -799,6 +843,11 @@ def load_news_data():
     df = pd.DataFrame(rows)
     # Deduplicate: same stock + same date + same title → keep first
     df = df.drop_duplicates(subset=["date", "stock_code", "title"], keep="first")
+
+    # Cross-source fuzzy dedup [CONVERGED — Gemini Wall Street Trader R6]
+    # Same day + same stock + title similarity > 80% → count as one article
+    # Prevents "echo chamber" on attention_spike / attention_index_7d
+    df = _fuzzy_dedup_titles(df, threshold=0.80)
     return df
 
 
@@ -1150,7 +1199,7 @@ def main():
               f"({size_ratio:.2f}x), rows {prev_rows}→{new_rows} ({row_ratio:.2f}x)")
 
         if abs(size_ratio - 1.0) > 0.05 or abs(row_ratio - 1.0) > 0.05:
-            print(f"    ⚠️ VALIDATION FAILED: deviation > ±5%. Keeping old file.")
+            print(f"    [!] VALIDATION FAILED: deviation > +/-5%. Keeping old file.")
             print(f"    Temp files preserved for inspection.")
             swap_ok = False
 
@@ -1177,11 +1226,11 @@ def main():
         if returns_final.exists():
             returns_final.unlink()
         returns_temp.rename(returns_final)
-        print(f"    ✅ Atomic swap complete")
+        print("    Atomic swap complete")
         swap_report["result"] = "swapped"
     else:
         # Keep temp files for debugging, don't overwrite production
-        print(f"    ❌ Swap aborted. Temp files: {features_temp.name}, {returns_temp.name}")
+        print(f"    [X] Swap aborted. Temp files: {features_temp.name}, {returns_temp.name}")
         swap_report["result"] = "aborted"
 
     # --- Night Watchman: Post-Swap Health Check ---

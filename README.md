@@ -243,6 +243,7 @@ python -m pytest tests/ -q
 | R88.7P11 | Hot Sectors + Confidence Score + Activity Percentile (Architect Critic Approved) | Done |
 | R88.7P11.5 | Cold Start Warming Up + Wall Street Narrative + H<0.4 Critical Warning | Done |
 | R88.7P12 | Attention Dim 2→7 Features + Google News RSS + Daily Schedule 18:45 (Trader CONVERGED) | Done |
+| R88.7P13 | Polarity Divergence Warning + Cross-Source Fuzzy Dedup (Trader R6 CONVERGED) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -420,9 +421,16 @@ python -m pytest tests/ -q
 - Noise Filter: 過濾「盤後/摘要/名單/一覽/三大法人」等非事件源頭文章
 - Google News RSS: 搜索 6 個台灣財經新聞網站，階層式覆蓋 (Top 500 優先)
 - cnyes 覆蓋率: 284 → 448 stocks (+58%)，改用 API 原生 `stock` 欄位
-- Daily Schedule: 18:30 broker → **18:45 news** → 19:00 parquet (Mon-Fri)
+- Daily Schedule: 18:30 broker → **18:45 news** → **20:00 parquet** (Mon-Fri) [Trader R6: 75-min buffer]
 - First batch: 504 Google News files fetched (2026-02-19)
 - IC 實驗: INCONCLUSIVE (僅 11 天數據)，需累積 30+ 天後驗證
+
+**Polarity Divergence Warning (R88.7 Phase 13)** [CONVERGED — Trader R6]:
+- Cross-source fuzzy dedup: title similarity >80% → count once (946 articles removed, SequenceMatcher)
+- Polarity calibration: removed 調查/賣出/風險/cut (false positives), added 調查局/掏空/背信
+- L1 Warning: polarity Z-score gap > 1.0 → "[POLARITY] 輿論環境差異較大"
+- L2 Penalty: opposite polarity (query Z>0.5 vs cases Z<-0.5) → confidence downgrade + "x0.8" flag
+- Final distribution: 87% neutral, 10.2% positive, 2.0% negative — all genuine signals
 
 **檔案**:
 - `data/build_features.py` — 8 原始 JSON → 65 features Parquet (292.5 MB, 1096 stocks)
