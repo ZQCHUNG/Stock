@@ -899,6 +899,17 @@ class BacktestEngine:
         vol_ma20_series = signals_df["volume"].rolling(20, min_periods=10).mean() if "volume" in signals_df.columns else pd.Series(np.nan, index=signals_df.index)
         ma5_series = signals_df["close"].rolling(5, min_periods=3).mean()
 
+        # Phase 7B: MA10 for Parabolic Hold
+        ma10_series = signals_df["close"].rolling(10, min_periods=5).mean()
+
+        # Phase 9: Position multiplier from Dual-Gate Track B
+        pos_mult_series = signals_df["bold_position_mult"] if "bold_position_mult" in signals_df.columns else pd.Series(1.0, index=signals_df.index)
+
+        # Phase 9: MA5 slope for Parabolic Hold slope filter
+        ma5_slope_series = ma5_series.pct_change(5)  # 5-day pct change of MA5
+        parabolic_slope_filter = p.get("parabolic_slope_filter", True)
+        parabolic_slope_threshold = p.get("parabolic_slope_threshold", 0.02)
+
         cash = self.initial_capital
         position = 0
         trades: list[Trade] = []
@@ -970,6 +981,10 @@ class BacktestEngine:
             _ma5 = ma5_series.get(date, None)
             if _ma5 is not None and (np.isnan(_ma5) or np.isinf(_ma5)):
                 _ma5 = None
+            # Phase 7B: MA10 for Parabolic Hold
+            _ma10 = ma10_series.get(date, None)
+            if _ma10 is not None and (np.isnan(_ma10) or np.isinf(_ma10)):
+                _ma10 = None
 
             if position > 0 and current_trade is not None:
                 exit_result = compute_bold_exit(
@@ -987,6 +1002,8 @@ class BacktestEngine:
                     current_vol_ma5=_vol_ma5,
                     current_vol_ma20=_vol_ma20,
                     current_ma5=_ma5,
+                    current_ma10=_ma10,
+                    ma5_slope=ma5_slope_series.get(date, None),
                 )
                 if exit_result["should_exit"]:
                     force_sell = True
@@ -1062,6 +1079,10 @@ class BacktestEngine:
                 effective_max_pos = max_pos_pct
                 if ecf_enabled and consecutive_loss_count >= ecf_cap:
                     effective_max_pos = max_pos_pct * ecf_reduction
+                # Phase 9: Track B position multiplier (0.7x for RS 40-79)
+                _pos_mult = pos_mult_series.get(date, 1.0)
+                if _pos_mult < 1.0:
+                    effective_max_pos *= _pos_mult
                 trade, shares, cash = self._open_position(
                     price, high, volume, cash, effective_max_pos, date)
                 if trade is not None:

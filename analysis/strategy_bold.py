@@ -91,6 +91,38 @@ STRATEGY_BOLD_PARAMS = {
     # [PLACEHOLDER: MOMENTUM_ACCELERATION_GAP] 快捷通道門檻
     "mp_price_ma50_ratio": 1.15,            # Price/MA50 > 此值 → 跳過 VCP（已遠離底部）
 
+    # --- [PLACEHOLDER: BOLD_RS_DUAL_GATE] Phase 9: Tiered Dual-Gate RS Filter ---
+    # 華爾街交易員 R9 + Architect Critic APPROVED 2026-02-22
+    # 原 Phase 8 Track B (ALL conditions) 統計上互斥 → 0 entries → 改為分級門檻
+    # 軌道 A (Power Play): RS >= 80 → 按現有邏輯
+    # 軌道 B1 (準龍頭): RS 60-79 → Vol > 1.5x AND ATR < 0.6 (蓄勢待發)
+    # 軌道 B2 (性格改變): RS 40-59 → Vol > 2.5x OR 單日漲幅 > 5% (慣性突變)
+    "bold_rs_filter_enabled": True,          # 啟用 RS 過濾
+    "bold_rs_filter_min": 80,                # 軌道 A 門檻
+    "bold_rs_trackb_enabled": True,          # 啟用軌道 B (Turnaround Sniper)
+    "bold_rs_trackb_min": 40,                # [PLACEHOLDER: RS_TRACKB_MIN = 40]
+    # B1 (RS 60-79): 準龍頭模式 — 已在起漲邊緣，不需爆量證明
+    "bold_rs_b1_min": 60,                    # [PLACEHOLDER: RS_B1_MIN = 60]
+    "bold_rs_b1_vol_ratio": 1.5,             # [PLACEHOLDER: B1_VOL = 1.5] 量能門檻 (vs MA20)
+    "bold_rs_b1_atr_tightness": 0.6,         # [PLACEHOLDER: B1_ATR = 0.6] ATR 壓縮
+    # B2 (RS 40-59): 性格改變模式 — 需要暴力買盤或價格噴發
+    "bold_rs_b2_vol_ratio": 2.5,             # [PLACEHOLDER: B2_MOMENTUM_VOL = 2.5]
+    "bold_rs_b2_daily_gain": 0.05,           # [PLACEHOLDER: B2_MOMENTUM_GAIN = 0.05] 單日漲幅 5%
+    # 共用: Track B 部位係數 (Trader R9: 資金權重偏好強勢)
+    "bold_rs_trackb_position_mult": 0.7,     # [PLACEHOLDER: TRACK_B_SIZE_MULTIPLIER = 0.7]
+
+    # --- [PLACEHOLDER: PARABOLIC_HOLD] Phase 7B: Parabolic Hold（Level 4 Trail）---
+    # 華爾街交易員 R6 + Architect Critic APPROVED 2026-02-22
+    # 「Trade #8 抓到了 473，但股價去了 1985」— 超強趨勢需要更寬的出場
+    # 收盤跌破 MA10 才出場（不看盤中），強迫系統在拋物線中留在大部隊
+    "parabolic_hold_enabled": True,          # 啟用 Level 4 拋物線持倉
+    "parabolic_gain_trigger": 0.20,          # [PLACEHOLDER: PARABOLIC_GAIN_TRIGGER = 0.20] R8: 獲利墊底 20% 才啟動
+    "parabolic_ma_period": 10,               # [PLACEHOLDER: PARABOLIC_MA = 10] 使用 MA10
+    # Phase 9: Parabolic Slope Filter (Trader R9 + Architect APPROVED)
+    # MA5 平緩時退回 ATR trail，避免盤整區被 MA10 無謂洗出
+    "parabolic_slope_filter": True,          # 啟用斜率過濾
+    "parabolic_slope_threshold": 0.02,       # [PLACEHOLDER: SLOPE_LIMIT] MA5 5日斜率 > 2% 才算噴發
+
     # --- Phase 1 防守：物理止損機制（R62 Gemini 共識）---
     # [HYPOTHESIS: PRICE_TIME_SYNERGY] Price-Time Synergy（取代 time_stop_5d）
     # 華爾街交易員判決 + Architect Critic CONDITIONAL APPROVED (2026-02-22)
@@ -472,6 +504,8 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
     # --- 訊號邏輯 ---
     signals = pd.Series("HOLD", index=result.index)
     entry_types = pd.Series("", index=result.index)
+    # Phase 9: Position multiplier per bar (1.0 = full, 0.7 = Track B reduced)
+    pos_multipliers = pd.Series(1.0, index=result.index)
 
     # Phase 6: Track VCP entry state — Momentum Pullback only unlocks after
     # a VCP-qualifying entry proves the trend (avoid paper cuts in base building)
@@ -551,6 +585,48 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
                     # Neither VCP nor Momentum Pullback → skip
                     continue
 
+        # --- [PLACEHOLDER: BOLD_RS_DUAL_GATE] Phase 9: Tiered Dual-Gate RS Filter ---
+        # 華爾街交易員 R9 + Architect Critic APPROVED 2026-02-22
+        # 軌道 A: RS >= 80 → 直接通過
+        # 軌道 B1: RS 60-79 (準龍頭) → Vol > 1.5x AND ATR < 0.6
+        # 軌道 B2: RS 40-59 (性格改變) → Vol > 2.5x OR 單日漲幅 > 5%
+        # RS < 40 → 完全阻擋
+        if p.get("bold_rs_filter_enabled", True) and rs_rating is not None:
+            rs_min_a = p.get("bold_rs_filter_min", 80)
+            rs_min_b = p.get("bold_rs_trackb_min", 40)
+            rs_b1_min = p.get("bold_rs_b1_min", 60)
+            trackb_on = p.get("bold_rs_trackb_enabled", True)
+
+            if rs_rating >= rs_min_a:
+                pass  # 軌道 A: Power Play — 直接通過
+            elif trackb_on and rs_rating >= rs_b1_min:
+                # 軌道 B1 (RS 60-79): 準龍頭模式 — Vol > 1.5x AND ATR < 0.6
+                _b1_pass = True
+                _vr = vol_ratio.iloc[i]
+                if np.isnan(_vr) or _vr < p.get("bold_rs_b1_vol_ratio", 1.5):
+                    _b1_pass = False
+                if _b1_pass:
+                    _at = vcp_atr_tightness.iloc[i]
+                    if np.isnan(_at) or _at >= p.get("bold_rs_b1_atr_tightness", 0.6):
+                        _b1_pass = False
+                if not _b1_pass:
+                    continue
+                # B1 pass → mark position multiplier
+                pos_multipliers.iloc[i] = p.get("bold_rs_trackb_position_mult", 0.7)
+            elif trackb_on and rs_rating >= rs_min_b:
+                # 軌道 B2 (RS 40-59): 性格改變模式 — Vol > 2.5x OR daily gain > 5%
+                _vr = vol_ratio.iloc[i]
+                _daily_gain = (result["close"].iloc[i] / result["close"].iloc[i - 1] - 1
+                               if i > 0 else 0)
+                _b2_vol_ok = not np.isnan(_vr) and _vr >= p.get("bold_rs_b2_vol_ratio", 2.5)
+                _b2_gain_ok = _daily_gain >= p.get("bold_rs_b2_daily_gain", 0.05)
+                if not (_b2_vol_ok or _b2_gain_ok):
+                    continue
+                # B2 pass → mark position multiplier
+                pos_multipliers.iloc[i] = p.get("bold_rs_trackb_position_mult", 0.7)
+            else:
+                continue  # RS < 40 → 完全阻擋
+
         vol_lots = result["volume"].iloc[i] / 1000
 
         # --- 進場 A：能量擠壓突破（標準門檻）---
@@ -624,17 +700,18 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
 
                 # 6. RS 過濾（R62 → R93 升級：RS Momentum 取代絕對值）
                 # [HYPOTHESIS: RS_MOMENTUM_ALPHA] 華爾街交易員判決 2026-02-22
-                # 原: RS percentile >= 80 (太滯後，6442 漲 6 倍才到 Diamond)
-                # 新: Per-bar RS Momentum > 1.05 (偵測加速度，不等絕對值爬到頂)
+                # 當 rs_rating 由 caller 傳入時，RS 決策已由 Dual-Gate (line 579) 處理
+                # Entry D 不應重複檢查，否則會造成 cascade bug:
+                #   Entry D blocked → vcp_entry_occurred=False → 全線崩潰
+                # 只有 standalone 模式 (rs_rating=None) 才啟用 per-bar RS Momentum
                 rs_ok = True
-                if p.get("rs_momentum_enabled", True) and rs_momentum_series is not None:
-                    bar_rsm = rs_momentum_series.iloc[i] if i < len(rs_momentum_series) else np.nan
-                    if not np.isnan(bar_rsm):
-                        rs_ok = bar_rsm >= p.get("rs_momentum_min", 1.05)
-                    # If NaN (not enough data), let it pass
-                elif p.get("rs_rating_enabled", True) and rs_rating is not None:
-                    # Fallback: 傳統 RS 絕對值模式（scalar from caller）
-                    rs_ok = rs_rating >= p.get("rs_rating_min", 80)
+                if rs_rating is None:
+                    # Standalone 模式：無外部 RS → Entry D 自行檢查 RS Momentum
+                    if p.get("rs_momentum_enabled", True) and rs_momentum_series is not None:
+                        bar_rsm = rs_momentum_series.iloc[i] if i < len(rs_momentum_series) else np.nan
+                        if not np.isnan(bar_rsm):
+                            rs_ok = bar_rsm >= p.get("rs_momentum_min", 1.05)
+                        # If NaN (not enough data), let it pass
 
                 if ma_aligned and near_high and rsi_ok and vol_ok and slope_ok and rs_ok:
                     signals.iloc[i] = "BUY"
@@ -655,6 +732,8 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
     result["bold_squeeze"] = squeeze
     result["bold_vol_ratio"] = vol_ratio
     result["bold_near_52w_low"] = near_52w_low
+    # Phase 9: Position multiplier (Architect: define in strategy, execute in engine)
+    result["bold_position_mult"] = pos_multipliers
 
     return result
 
@@ -709,6 +788,8 @@ def compute_bold_exit(
     current_vol_ma5: float | None = None,
     current_vol_ma20: float | None = None,
     current_ma5: float | None = None,
+    current_ma10: float | None = None,
+    ma5_slope: float | None = None,
 ) -> dict:
     """計算 Bold 策略的出場決策（階梯式 Step-up Buffer + Phase 1 物理止損）
 
@@ -727,6 +808,7 @@ def compute_bold_exit(
         current_vol_ma5: 當前 5 日均量（R62 Momentum Lag Stop 用）
         current_vol_ma20: 當前 20 日均量（R62 Momentum Lag Stop 用）
         current_ma5: 當前 MA5 值（R62 Momentum Lag Stop 延長期安全網）
+        current_ma10: 當前 MA10 值（Phase 7B Parabolic Hold 出場用）
 
     Returns:
         {
@@ -900,6 +982,23 @@ def compute_bold_exit(
             "gain_pct": gain_pct,
         }
 
+    # --- [PLACEHOLDER: PARABOLIC_HOLD] Phase 7B: Parabolic Hold (Level 4 Trail) ---
+    # 華爾街交易員 R6 + Architect Critic APPROVED 2026-02-22
+    # 「Trade #8 在 473 出場，股價去了 1985」— 超強趨勢需要 MA10 close 出場法
+    # 條件: gain >= 30% AND close < MA10 (收盤價，非盤中)
+    # 比 ATR trail 更寬鬆：拋物線中 stock 可能距 MA10 很遠，ATR trail 會過早觸發
+    # Phase 9: Parabolic Slope Filter — only activate MA10 exit when MA5 is steep
+    # If MA5 slope is flat (< threshold), fall back to ATR trail (avoid consolidation washout)
+    _slope_ok = True
+    if p.get("parabolic_slope_filter", True) and ma5_slope is not None:
+        if not np.isnan(ma5_slope):
+            _slope_ok = ma5_slope >= p.get("parabolic_slope_threshold", 0.02)
+        # NaN slope → let parabolic work (not enough data)
+    parabolic_on = (p.get("parabolic_hold_enabled", True)
+                    and current_ma10 is not None
+                    and not np.isnan(current_ma10)
+                    and _slope_ok)
+
     # --- Level 3: 獲利 > 50%（信念模式）---
     if gain_pct >= p["trail_level3_threshold"]:
         # Regime-Based Trail: 多頭 regime 下放寬 trail
@@ -919,6 +1018,33 @@ def compute_bold_exit(
         # Level 2 保底（確保不虧到成本 +10% 以下）
         floor_price = entry_price * (1 + p["trail_level2_floor"])
         trail_price = max(trail_price, floor_price)
+
+        # Phase 7B: Parabolic Hold — 用 MA10 close 取代 ATR/固定 trail
+        # 在拋物線走勢中，MA10 close 比 ATR trail 更能跟隨趨勢
+        # 只在收盤價判定（Architect: is_bar_closed = True by EOD），不看盤中
+        if parabolic_on and gain_pct >= p.get("parabolic_gain_trigger", 0.30):
+            # Use MA10 as the trailing reference instead of ATR trail
+            # BUT keep the ATR trail as safety net (take the wider of the two)
+            ma10_stop = current_ma10
+            parabolic_trail = max(ma10_stop, floor_price)  # MA10 + floor protection
+            # If close breaks MA10, exit (parabolic trend broken)
+            if current_price < ma10_stop:
+                return {
+                    "should_exit": True,
+                    "exit_reason": "parabolic_ma10_break",
+                    "level": 4,
+                    "trailing_stop_price": ma10_stop,
+                    "gain_pct": gain_pct,
+                }
+            # If ATR trail triggers but MA10 holds → stay (trust the trend)
+            # Only exit if BOTH MA10 breaks AND ATR trail triggers
+            return {
+                "should_exit": False,
+                "exit_reason": "",
+                "level": 4,
+                "trailing_stop_price": parabolic_trail,
+                "gain_pct": gain_pct,
+            }
 
         if current_price <= trail_price:
             reason = "trail_level3_regime" if regime_bullish else "trail_level3"
@@ -942,6 +1068,26 @@ def compute_bold_exit(
         floor_price = entry_price * (1 + p["trail_level2_floor"])
         trail_price = peak_price * (1 - p["trail_level1_pct"])
         trail_price = max(trail_price, floor_price)
+
+        # Phase 7B: Parabolic Hold in Level 2 — same MA10 close logic
+        if parabolic_on and gain_pct >= p.get("parabolic_gain_trigger", 0.30):
+            ma10_stop = current_ma10
+            if current_price < ma10_stop:
+                return {
+                    "should_exit": True,
+                    "exit_reason": "parabolic_ma10_break",
+                    "level": 4,
+                    "trailing_stop_price": ma10_stop,
+                    "gain_pct": gain_pct,
+                }
+            parabolic_trail = max(ma10_stop, floor_price)
+            return {
+                "should_exit": False,
+                "exit_reason": "",
+                "level": 4,
+                "trailing_stop_price": parabolic_trail,
+                "gain_pct": gain_pct,
+            }
 
         if current_price <= trail_price:
             return {
