@@ -48,6 +48,8 @@ STRATEGY_BOLD_PARAMS = {
     "volume_ramp_enabled": True,      # 啟用量能爬坡偵測
     "volume_ramp_min_lots": 30,       # 小型股最低門檻 30 張
     "volume_ramp_ratio": 2.0,         # 近期量 > 遠期量 2 倍以上
+    # [R14.12 CTO mandate] Volume Ramp 獨立硬門檻 (worst OOS performer)
+    "volume_ramp_atr_max": 0.50,      # ATR tightness must < 0.50 for volume_ramp (stricter than general 0.55)
     "volume_ramp_lookback_short": 20, # 近期量能窗口 20 日
     "volume_ramp_lookback_long": 120, # 遠期量能窗口 120 日
     "price_breakout_high_days": 60,   # 價格突破 N 日新高
@@ -72,10 +74,11 @@ STRATEGY_BOLD_PARAMS = {
     # A) ATR Tightness: 當前 ATR(20) / 過去 60 天最大 ATR < 0.6 = 壓縮中
     # B) Volume Dry-up: 過去 5 天至少 2 天 volume < vol_ma20 × 0.5 = 籌碼沈澱
     "vcp_entry_filter_enabled": True,     # 啟用 VCP 進場過濾
-    "vcp_atr_tightness_max": 0.6,         # [HYPOTHESIS] ATR 壓縮比率上限
+    "vcp_atr_tightness_max": 0.60,        # [R14.13 CTO] ATR 壓縮比率上限 (soft gate, OR with vol dryup)
+    "vcp_atr_hard_ceiling": 0.85,         # [R14.13 CTO] ATR 安全閥硬限制 (absolute block, 0.75→0.85 for convexity)
     "vcp_atr_tightness_lookback": 60,     # Rolling Max ATR 回看天數
     "vcp_vol_dryup_days": 5,              # 量縮檢查窗口天數
-    "vcp_vol_dryup_min_count": 2,         # 至少 N 天量 < threshold
+    "vcp_vol_dryup_min_count": 1,         # [R14.12 CTO Option C] 至少 1 天量 < threshold
     "vcp_vol_dryup_ratio": 0.5,           # volume < vol_ma20 × 此值
 
     # --- [HYPOTHESIS: MOMENTUM_PULLBACK] Phase 6: 動能回踩進場（Branch B）---
@@ -147,7 +150,9 @@ STRATEGY_BOLD_PARAMS = {
     # 華爾街交易員判決 + Architect Critic CONDITIONAL APPROVED (2026-02-22)
     # 原 time_stop_5d 被驗證為大波段殺手：6442 在 172 進場 8 天被踢出，後漲到 1985
     # 新邏輯：5d 無 3% gain 但 price > entry*0.98 且 vol 萎縮 → 繼續持有
-    "time_stop_days": 5,              # 初始觀察天數
+    "time_stop_days": 5,              # 初始觀察天數 (default for low-ATR entries)
+    "pts_high_atr_days": 8,           # [R14.13 CTO] PTS extended for high-ATR entries (ATR 0.6-0.85)
+    "pts_high_atr_threshold": 0.60,   # [R14.13 CTO] ATR >= this triggers extended PTS
     "time_stop_min_gain": 0.03,       # 最低收益門檻 3%
     "time_stop_enabled": True,        # 啟用時間止損（現為 Price-Time Synergy）
     "pts_hold_threshold": 0.98,       # [HYPOTHESIS] Price-Time Synergy: 持有門檻 (entry * 0.98)
@@ -557,8 +562,15 @@ def generate_bold_signals(
         if vcp_filter_on:
             _atr_tight = vcp_atr_tightness.iloc[i]
             _vol_dry = vcp_vol_dryup_count.iloc[i]
-            vcp_pass = ((not np.isnan(_atr_tight) and _atr_tight < vcp_tightness_max)
-                        or _vol_dry >= vcp_dryup_min_count)
+            _atr_ceiling = p.get("vcp_atr_hard_ceiling", 0.75)
+            # [R14.12 CTO Option C] Safety Valve Architecture:
+            # (ATR < 0.55 OR vol_dryup >= 1) AND (ATR < 0.75)
+            # OR logic preserves trade volume, hard ceiling blocks dangerous high-ATR entries
+            # R14.11 AND was too aggressive (6 trades, 0 wins = over-optimization trap)
+            _soft_pass = ((not np.isnan(_atr_tight) and _atr_tight < vcp_tightness_max)
+                          or _vol_dry >= vcp_dryup_min_count)
+            _hard_pass = (np.isnan(_atr_tight) or _atr_tight < _atr_ceiling)
+            vcp_pass = _soft_pass and _hard_pass
 
             if not vcp_pass:
                 # Branch B: Momentum Pullback — only if VCP already proved the trend
@@ -730,6 +742,7 @@ def generate_bold_signals(
 
         # --- 進場 C：量能爬坡突破（小型股發現）---
         # 低門檻：只要 30 張即可，但需要量能趨勢 + 價格突破
+        # [R14.12 CTO mandate] 獨立硬門檻: ATR < 0.50 (stricter than general 0.55)
         if (p.get("volume_ramp_enabled", True) and
             vol_lots >= p.get("volume_ramp_min_lots", 30)):
             ramp = vol_ramp_ratio.iloc[i]
@@ -740,9 +753,13 @@ def generate_bold_signals(
                 ramp >= p.get("volume_ramp_ratio", 2.0) and
                 is_new_high and above_ma and
                 vol_ratio.iloc[i] > 1.5):  # 當日量 > 1.5x 20日均量
-                signals.iloc[i] = "BUY"
-                entry_types.iloc[i] = "volume_ramp"
-                continue
+                # [R14.12] volume_ramp independent ATR gate (stricter than general VCP)
+                _vr_atr = vcp_atr_tightness.iloc[i]
+                _vr_atr_max = p.get("volume_ramp_atr_max", 0.50)
+                if np.isnan(_vr_atr) or _vr_atr < _vr_atr_max:
+                    signals.iloc[i] = "BUY"
+                    entry_types.iloc[i] = "volume_ramp"
+                    continue
 
         # --- 進場 D：動能趨勢突破（Marathon Runner）---
         # [PLACEHOLDER: BOLD_E_D_001] — 抓光聖型強勢趨勢股
@@ -815,6 +832,8 @@ def generate_bold_signals(
     result["bold_near_52w_low"] = near_52w_low
     # Phase 9: Position multiplier (Architect: define in strategy, execute in engine)
     result["bold_position_mult"] = pos_multipliers
+    # [R14.13] Export ATR tightness for dynamic PTS in backtest engine
+    result["bold_atr_tightness"] = vcp_atr_tightness
 
     return result
 
@@ -871,6 +890,7 @@ def compute_bold_exit(
     current_ma5: float | None = None,
     current_ma10: float | None = None,
     ma5_slope: float | None = None,
+    entry_atr_tightness: float | None = None,
 ) -> dict:
     """計算 Bold 策略的出場決策（階梯式 Step-up Buffer + Phase 1 物理止損）
 
@@ -940,8 +960,14 @@ def compute_bold_exit(
     #   - Hold if: price > entry*0.98 AND volume shrinking (vol_ma5 < vol_ma20)
     #   - Exit if: price < entry*0.95 OR (hold > pts_max_hold AND still no gain)
     #   - 破 MA5 時若 price < entry*0.98 → 出場（結構崩壞）
+    # [R14.13 CTO] Dynamic PTS: high-ATR entries get 8 days instead of 5
+    _pts_days = p.get("time_stop_days", 5)
+    if (entry_atr_tightness is not None
+            and entry_atr_tightness >= p.get("pts_high_atr_threshold", 0.60)):
+        _pts_days = p.get("pts_high_atr_days", 8)
+
     if (p.get("time_stop_enabled", True)
-            and hold_days >= p.get("time_stop_days", 5)
+            and hold_days >= _pts_days
             and gain_pct < p.get("time_stop_min_gain", 0.03)
             and gain_pct > -p["stop_loss_pct"]):
 

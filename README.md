@@ -257,6 +257,7 @@ python -m pytest tests/ -q
 | R93 Phase 11 | **VCP Hard Gate + RS ROC Gate + RS Drop Alert** — RS Decile validated (200 stocks, 928 trades) | Done |
 | R14 Group 1-2 | **Parameter Sweep** — rs_hard=55, structural_stop=False, clc=3 VALIDATED (200 stocks, 32 combos) | Done |
 | R14 Group 3-4 | **Parabolic Refactor + Exit Params** — tl1=0.08, pg=0.10 VALIDATED; Phase A ABORTED → Entry Audit | Done |
+| R14.13 | **VCP Safety Valve + Dynamic PTS** — Entry quality audit complete; PF=4.67, WR=46.7%, 45 trades (CTO APPROVED) | Done |
 
 ### R14 Parameter Sweep — Bold PLACEHOLDER Cleanup (Gemini R14.1-R14.5)
 
@@ -294,10 +295,15 @@ python -m pytest tests/ -q
 - 12 combos (4×3), IS Calmar 3.55-4.32, ALL OOS negative (-0.28 to -0.34)
 - CTO REJECTED tl1=0.12 (Sharp Peak 17.9%), chose tl1=0.08 (most robust)
 
-**Phase A ABORTED — CTO Pivot to Entry Quality Audit:**
+**Phase A ABORTED → Entry Quality Audit (R14.9-R14.13):**
 - OOS Calmar negative across ALL param combos → structural Entry problem, not Exit
 - CTO: "Exit 不能修復 Entry 的錯誤" — pivot to VCP Failure Mode Analysis
-- Next: Analyze 20 failed OOS breakouts (RS Slope, Volume Quality, Market Correlation)
+- **VCP OR→AND experiment (R14.11)**: 6 trades, 0 wins — Over-optimization trap (AND too aggressive)
+- **Safety Valve (R14.12)**: ATR ceiling 0.75 — 33 trades, PF=1.99, but convexity killed (+24.6% vs +263%)
+- **R14.13 FINAL (CTO APPROVED)**: `(ATR<0.60 OR dry>=1) AND (ATR<0.85)` + volume_ramp ATR<0.50 + PTS 8d
+  - 45 trades, WR=46.7%, AvgRet=+4.21%, PF=4.67, Best=+51.4%
+  - Key insight: PTS 8-day extension rescued "slow-heat" big winners (5d→8d for ATR≥0.60)
+  - **Phase A COMPLETE** — CTO declared R14.13 as VALIDATED baseline
 
 ### Phase 11: VCP Hard Gate + RS ROC + RS Drop Alert (R93, Gemini R13 + Architect APPROVED)
 
@@ -308,8 +314,9 @@ RS Decile Analysis (200 stocks, 928 trades) 驗證：RS 價值在 Convexity（�
 - Avg Win 單調遞增: RS 0-10 = +13.10% → RS 90-100 = +22.27%
 - Expectancy: RS 90-100 = +4.19 vs RS 0-10 = +2.85 (47% higher)
 
-**11A: VCP Hard Gate (Entry Quality)**
-- Track A 需同時 RS>=80 AND VCP compressed (ATR tightness < 0.6)
+**11A: VCP Hard Gate (Entry Quality) [UPDATED R14.13]**
+- VCP filter: `(ATR < 0.60 OR vol_dryup >= 1) AND (ATR < 0.85)` — Safety Valve architecture
+- Track A 需同時 RS>=80 AND VCP compressed
 - VCP 未就緒 → 降級為 Track B (0.7x position)
 
 **11B: RS ROC Acceleration Gate (Entry Timing)**

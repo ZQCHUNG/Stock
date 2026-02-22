@@ -910,6 +910,9 @@ class BacktestEngine:
         # Phase 9: Position multiplier from Dual-Gate Track B
         pos_mult_series = signals_df["bold_position_mult"] if "bold_position_mult" in signals_df.columns else pd.Series(1.0, index=signals_df.index)
 
+        # [R14.13] ATR tightness for dynamic PTS
+        atr_tightness_series = signals_df["bold_atr_tightness"] if "bold_atr_tightness" in signals_df.columns else pd.Series(np.nan, index=signals_df.index)
+
         # Phase 9: MA5 slope for Parabolic Hold slope filter
         ma5_slope_series = ma5_series.pct_change(5)  # 5-day pct change of MA5
         parabolic_slope_filter = p.get("parabolic_slope_filter", True)
@@ -935,6 +938,7 @@ class BacktestEngine:
         hold_days = 0
         peak_price = 0.0
         entry_low = None       # Phase 1：進場日低點
+        _entry_atr_tightness = None  # [R14.13] ATR tightness at entry for dynamic PTS
         prev_day_low = None    # Phase 1：進場前一日低點
 
         # R62 Equity Curve Filter：連續虧損計數（策略層級）
@@ -1021,6 +1025,7 @@ class BacktestEngine:
                     current_ma5=_ma5,
                     current_ma10=_ma10,
                     ma5_slope=ma5_slope_series.get(date, None),
+                    entry_atr_tightness=_entry_atr_tightness,
                 )
                 if exit_result["should_exit"]:
                     force_sell = True
@@ -1091,6 +1096,7 @@ class BacktestEngine:
                     }
                 position, current_trade, hold_days, peak_price = 0, None, 0, 0.0
                 entry_low, prev_day_low = None, None  # Phase 1：清除進場日資訊
+                _entry_atr_tightness = None  # [R14.13] Reset entry ATR tightness
                 # Phase 11C: Reset RS drop counters on position close
                 _rs_below_soft_count = 0
                 _rs_below_hard_count = 0
@@ -1152,6 +1158,10 @@ class BacktestEngine:
                     hold_days = 0
                     # Phase 1 防守：記錄進場日低點與前一日低點
                     entry_low = low
+                    # [R14.13] Store entry ATR tightness for dynamic PTS
+                    _entry_atr_tightness = atr_tightness_series.get(date, None)
+                    if _entry_atr_tightness is not None and (np.isnan(_entry_atr_tightness) or np.isinf(_entry_atr_tightness)):
+                        _entry_atr_tightness = None
                     # 取得前一日低點（用 signals_df 的索引位置）
                     _idx = signals_df.index.get_loc(date)
                     if _idx > 0 and _has_low:
