@@ -67,6 +67,30 @@ STRATEGY_BOLD_PARAMS = {
     "min_volume_lots": 200,           # 最低日均量（張）— 標準模式門檻
     "atr_period": 20,                 # ATR 週期
 
+    # --- [HYPOTHESIS: VCP_ENTRY_FILTER] Phase 5: VCP 進場過濾（華爾街交易員判決 2026-02-22）---
+    # 「沒有 Base 的 Breakout 就是誘多」— 砍掉 paper cuts（6442 Trade #1-5）
+    # A) ATR Tightness: 當前 ATR(20) / 過去 60 天最大 ATR < 0.6 = 壓縮中
+    # B) Volume Dry-up: 過去 5 天至少 2 天 volume < vol_ma20 × 0.5 = 籌碼沈澱
+    "vcp_entry_filter_enabled": True,     # 啟用 VCP 進場過濾
+    "vcp_atr_tightness_max": 0.6,         # [HYPOTHESIS] ATR 壓縮比率上限
+    "vcp_atr_tightness_lookback": 60,     # Rolling Max ATR 回看天數
+    "vcp_vol_dryup_days": 5,              # 量縮檢查窗口天數
+    "vcp_vol_dryup_min_count": 2,         # 至少 N 天量 < threshold
+    "vcp_vol_dryup_ratio": 0.5,           # volume < vol_ma20 × 此值
+
+    # --- [HYPOTHESIS: MOMENTUM_PULLBACK] Phase 6: 動能回踩進場（Branch B）---
+    # 華爾街交易員判決 + Architect Critic APPROVED 2026-02-22
+    # 「不要放寬 VCP，而是模組化進場邏輯 — VCP 是第一波，Momentum Pullback 是半山腰」
+    # 當 VCP 不通過時，若股票已在確認上升趨勢中回踩支撐，允許非 VCP 進場
+    "momentum_pullback_enabled": True,      # 啟用 Branch B 動能回踩
+    "mp_ma50_slope_days": 10,               # [HYPOTHESIS] MA50 斜率 > 0 需持續 N 天
+    "mp_pullback_lookback": 5,              # [HYPOTHESIS] 回踩支撐檢查窗口（天）
+    "mp_pullback_tolerance": 1.02,          # [HYPOTHESIS] Low <= MA20 * 此值 = 觸碰
+    "mp_vol_below_avg": True,               # 量能收斂: 當前量 < 5日均量
+    "mp_high_breakout_days": 3,             # 價格重啟: 突破前 N 天高點
+    # [PLACEHOLDER: MOMENTUM_ACCELERATION_GAP] 快捷通道門檻
+    "mp_price_ma50_ratio": 1.15,            # Price/MA50 > 此值 → 跳過 VCP（已遠離底部）
+
     # --- Phase 1 防守：物理止損機制（R62 Gemini 共識）---
     # [HYPOTHESIS: PRICE_TIME_SYNERGY] Price-Time Synergy（取代 time_stop_5d）
     # 華爾街交易員判決 + Architect Critic CONDITIONAL APPROVED (2026-02-22)
@@ -404,11 +428,129 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
                     rsm_values.iloc[idx] = rs_now / rs_past
         rs_momentum_series = rsm_values
 
+    # --- [HYPOTHESIS: MOMENTUM_PULLBACK] Phase 6: 動能回踩指標 ---
+    # MA50, MA10, MA50 slope, 3-day rolling high (for Branch B entry)
+    ma50 = result["close"].rolling(50, min_periods=25).mean()
+    ma10 = result["close"].rolling(10, min_periods=5).mean()
+    ma50_diff = ma50.diff()
+    mp_slope_days = p.get("mp_ma50_slope_days", 10)
+    # MA50 斜率連續正: rolling min of diff > 0 = all positive in window
+    ma50_slope_positive_streak = ma50_diff.rolling(mp_slope_days, min_periods=mp_slope_days).min()
+    # 3-day rolling high for price restart trigger
+    mp_breakout_days = p.get("mp_high_breakout_days", 3)
+    rolling_high_3d = result["high"].rolling(mp_breakout_days, min_periods=1).max().shift(1)  # previous N days' high
+    # Pullback detection: check if low touched MA20 within lookback window
+    mp_pullback_lb = p.get("mp_pullback_lookback", 5)
+    mp_pullback_tol = p.get("mp_pullback_tolerance", 1.02)
+    # For each bar, check if any low in last N days was <= MA20 * tolerance
+    low_near_ma20 = (result["low"] <= result["ma20"] * mp_pullback_tol).astype(int)
+    low_near_ma10 = (result["low"] <= ma10 * mp_pullback_tol).astype(int)
+    pullback_touched_ma20 = low_near_ma20.rolling(mp_pullback_lb, min_periods=1).max()  # 1 if any day touched
+    pullback_touched_ma10 = low_near_ma10.rolling(mp_pullback_lb, min_periods=1).max()
+
+    # --- [HYPOTHESIS: VCP_ENTRY_FILTER] Phase 5: VCP 進場過濾 ---
+    # A) ATR Tightness: ATR(20) / Max_ATR(60) — 低值 = 壓縮中
+    atr_20 = result["atr"] if "atr" in result.columns else (result["high"] - result["low"]).rolling(20).mean()
+    atr_max_lb = p.get("vcp_atr_tightness_lookback", 60)
+    atr_rolling_max = atr_20.rolling(atr_max_lb, min_periods=20).max()
+    vcp_atr_tightness = atr_20 / atr_rolling_max  # < 0.6 = compressed
+
+    # B) Volume Dry-up: count of last N days where volume < vol_ma20 * ratio
+    vcp_dryup_ratio = p.get("vcp_vol_dryup_ratio", 0.5)
+    vol_below_threshold = (result["volume"] < vol_ma_20 * vcp_dryup_ratio).astype(int)
+    vcp_dryup_days = p.get("vcp_vol_dryup_days", 5)
+    vcp_vol_dryup_count = vol_below_threshold.rolling(vcp_dryup_days, min_periods=1).sum()
+
+    vcp_filter_on = p.get("vcp_entry_filter_enabled", True)
+    vcp_tightness_max = p.get("vcp_atr_tightness_max", 0.6)
+    vcp_dryup_min_count = p.get("vcp_vol_dryup_min_count", 2)
+
+    # Phase 6 Momentum Pullback params
+    mp_enabled = p.get("momentum_pullback_enabled", True)
+    mp_price_ma50_ratio = p.get("mp_price_ma50_ratio", 1.15)
+
     # --- 訊號邏輯 ---
     signals = pd.Series("HOLD", index=result.index)
     entry_types = pd.Series("", index=result.index)
 
+    # Phase 6: Track VCP entry state — Momentum Pullback only unlocks after
+    # a VCP-qualifying entry proves the trend (avoid paper cuts in base building)
+    vcp_entry_occurred = False
+
     for i in range(60, n):
+        # Phase 6: Update VCP entry tracking from previous bar
+        # (must happen before VCP gate since entries use `continue`)
+        if vcp_filter_on and not vcp_entry_occurred and i > 60:
+            if signals.iloc[i - 1] == "BUY":
+                # Previous bar generated a BUY — must have passed VCP gate
+                vcp_entry_occurred = True
+
+        # --- Dual-Track Entry Gate (Phase 5+6) ---
+        # Branch A: VCP Sniper — compression detected (base breakout)
+        # Branch B: Momentum Pullback — established uptrend pullback (power play)
+        #   → ONLY available after VCP has already fired at least once
+        # If neither passes → skip entry
+        if vcp_filter_on:
+            _atr_tight = vcp_atr_tightness.iloc[i]
+            _vol_dry = vcp_vol_dryup_count.iloc[i]
+            vcp_pass = ((not np.isnan(_atr_tight) and _atr_tight < vcp_tightness_max)
+                        or _vol_dry >= vcp_dryup_min_count)
+
+            if not vcp_pass:
+                # Branch B: Momentum Pullback — only if VCP already proved the trend
+                # 華爾街交易員: 「不要放寬 VCP，而是模組化進場邏輯」
+                mp_pass = False
+                if mp_enabled and vcp_entry_occurred:
+                    _close_i = result["close"].iloc[i]
+                    _ma50_i = ma50.iloc[i]
+                    _ma50_slope_streak = ma50_slope_positive_streak.iloc[i]
+                    _ma20_i = result["ma20"].iloc[i]
+
+                    if (not np.isnan(_ma50_i) and not np.isnan(_ma50_slope_streak)
+                            and not np.isnan(_ma20_i)):
+                        # Core conditions shared by both paths:
+                        # 1. Trend: Price > MA50 AND MA50 slope > 0 for N days
+                        trend_ok = (_close_i > _ma50_i and _ma50_slope_streak > 0)
+                        # 2. Pullback: low recently touched MA20 or MA10
+                        pb_ok = (pullback_touched_ma20.iloc[i] >= 1
+                                 or pullback_touched_ma10.iloc[i] >= 1)
+                        # 3. Close above MA20 (support held, not broken)
+                        above_ma20 = _close_i > _ma20_i
+                        # 4. Volume convergence during PULLBACK (not breakout day)
+                        #    Check if any of previous N days had vol < vol_ma5
+                        #    (selling exhaustion during pullback before restart)
+                        #    Window matches pullback lookback for consistency
+                        vol_converge = True
+                        if p.get("mp_vol_below_avg", True) and i >= mp_pullback_lb:
+                            _found_low_vol = False
+                            for j in range(max(1, i - mp_pullback_lb), i):  # previous N days
+                                _vj = result["volume"].iloc[j]
+                                _v5j = vol_ma_5.iloc[j]
+                                if not np.isnan(_v5j) and _v5j > 0 and _vj < _v5j:
+                                    _found_low_vol = True
+                                    break
+                            vol_converge = _found_low_vol
+                        # 5. Price restart: break previous 3-day high
+                        _rh3d = rolling_high_3d.iloc[i]
+                        price_restart = (not np.isnan(_rh3d)
+                                         and result["high"].iloc[i] > _rh3d)
+
+                        # [PLACEHOLDER: MOMENTUM_ACCELERATION_GAP]
+                        # Shortcut: Price/MA50 > threshold → relaxed check
+                        # (already far above base, just need trend + support)
+                        shortcut = _close_i / _ma50_i > mp_price_ma50_ratio
+
+                        if shortcut:
+                            # Relaxed: trend + pullback + close > MA20 + price restart
+                            mp_pass = trend_ok and pb_ok and above_ma20 and price_restart
+                        else:
+                            # Full: all 5 conditions including volume convergence
+                            mp_pass = trend_ok and pb_ok and above_ma20 and vol_converge and price_restart
+
+                if not mp_pass:
+                    # Neither VCP nor Momentum Pullback → skip
+                    continue
+
         vol_lots = result["volume"].iloc[i] / 1000
 
         # --- 進場 A：能量擠壓突破（標準門檻）---
