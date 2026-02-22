@@ -14,8 +14,12 @@ from analysis.winner_dna import (
     MatchResult,
     _auto_label_cluster,
     _compute_horizon_stats,
+    _compute_recency_weighted_performance,
+    _cosine_sim,
+    _find_knn_neighbors,
     cluster_winners,
     compute_cluster_profiles,
+    load_profiles_from_db,
     match_stock_to_dna,
     reduce_dimensions,
 )
@@ -386,3 +390,369 @@ class TestConfig:
         assert WINNER_DNA_CONFIG["transaction_cost"] == 0.00785
         assert 7 in WINNER_DNA_CONFIG["performance_horizons"]
         assert 365 in WINNER_DNA_CONFIG["performance_horizons"]
+
+    def test_phase4_config(self):
+        """Phase 4 config keys should exist."""
+        assert WINNER_DNA_CONFIG["recency_halflife_years"] == 2.0
+        assert WINNER_DNA_CONFIG["min_samples_confident"] == 30
+
+    def test_phase5_config(self):
+        """Phase 5 config keys should exist."""
+        assert WINNER_DNA_CONFIG["knn_k"] == 5
+        assert WINNER_DNA_CONFIG["dtw_window_structure"] == 60
+        assert WINNER_DNA_CONFIG["dtw_window_momentum"] == 20
+        assert WINNER_DNA_CONFIG["stage1_weight"] == 0.7
+        assert WINNER_DNA_CONFIG["stage2_weight"] == 0.3
+        assert WINNER_DNA_CONFIG["multiscale_agreement_boost"] == 1.5
+        assert WINNER_DNA_CONFIG["failed_pattern_warning_ratio"] == 0.6
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Recency-Weighted Performance Tests
+# ---------------------------------------------------------------------------
+
+class TestRecencyWeightedPerformance:
+    def test_basic_recency(self):
+        """Recency weighting should give higher weight to recent samples."""
+        np.random.seed(42)
+        data = pd.DataFrame({
+            "epiphany_date": pd.date_range("2022-01-01", periods=20, freq="90D"),
+            "fwd_21d": [0.05] * 10 + [0.10] * 10,  # Recent samples have higher returns
+        })
+        result = _compute_recency_weighted_performance(
+            data, [21], txn_cost=0.00785, halflife_years=2.0
+        )
+        assert "d21" in result
+        # Recent samples (0.10) should pull weighted avg above simple avg (0.075)
+        assert result["d21"]["avg_return"] > 0.075
+
+    def test_empty_data(self):
+        """Empty data should return empty dict."""
+        data = pd.DataFrame({"epiphany_date": [], "fwd_21d": []})
+        result = _compute_recency_weighted_performance(
+            data, [21], txn_cost=0.00785, halflife_years=2.0
+        )
+        assert result == {}
+
+    def test_no_epiphany_column(self):
+        """Missing epiphany_date column should return empty dict."""
+        data = pd.DataFrame({"fwd_21d": [0.05, 0.10]})
+        result = _compute_recency_weighted_performance(
+            data, [21], txn_cost=0.00785, halflife_years=2.0
+        )
+        assert result == {}
+
+    def test_win_rate_bounded(self):
+        """Recency-weighted win rate should be between 0 and 1."""
+        np.random.seed(42)
+        data = pd.DataFrame({
+            "epiphany_date": pd.date_range("2023-01-01", periods=50, freq="7D"),
+            "fwd_21d": np.random.normal(0.05, 0.1, 50),
+        })
+        result = _compute_recency_weighted_performance(
+            data, [21], txn_cost=0.00785, halflife_years=2.0
+        )
+        assert 0 <= result["d21"]["win_rate"] <= 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Confidence Level Tests
+# ---------------------------------------------------------------------------
+
+class TestConfidenceLevel:
+    def test_confident_cluster(self):
+        """Cluster with >= 30 samples should be 'confident'."""
+        samples_df, all_features = _make_samples_df(60, 65)
+        reduced = np.random.normal(0, 1, (60, 8))
+        labels = np.array([0] * 60)
+
+        profiles = compute_cluster_profiles(
+            samples_df, labels, reduced, all_features
+        )
+        assert profiles[0].confidence == "confident"
+
+    def test_speculative_cluster(self):
+        """Cluster with < 30 samples should be 'speculative'."""
+        samples_df, all_features = _make_samples_df(20, 65)
+        samples_df = samples_df.head(20)
+        reduced = np.random.normal(0, 1, (20, 8))
+        labels = np.array([0] * 20)
+
+        profiles = compute_cluster_profiles(
+            samples_df, labels, reduced, all_features
+        )
+        assert profiles[0].confidence == "speculative"
+
+    def test_winner_ratio(self):
+        """Winner ratio should be computed correctly."""
+        samples_df, all_features = _make_samples_df(60, 65)
+        reduced = np.random.normal(0, 1, (60, 8))
+        labels = np.array([0] * 60)
+
+        profiles = compute_cluster_profiles(
+            samples_df, labels, reduced, all_features
+        )
+        # 40 winners out of 60 (first 60 from _make_samples_df: 40 winners, 20 losers)
+        assert 0 < profiles[0].winner_ratio <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Cosine Similarity Helper Tests
+# ---------------------------------------------------------------------------
+
+class TestCosineSim:
+    def test_identical_vectors(self):
+        """Identical vectors should have cosine sim = 1."""
+        v = np.array([1.0, 2.0, 3.0])
+        assert _cosine_sim(v, v) == pytest.approx(1.0, abs=1e-6)
+
+    def test_orthogonal_vectors(self):
+        """Orthogonal vectors should have cosine sim = 0."""
+        a = np.array([1.0, 0.0])
+        b = np.array([0.0, 1.0])
+        assert _cosine_sim(a, b) == pytest.approx(0.0, abs=1e-6)
+
+    def test_opposite_vectors(self):
+        """Opposite vectors should have cosine sim = -1."""
+        a = np.array([1.0, 0.0])
+        b = np.array([-1.0, 0.0])
+        assert _cosine_sim(a, b) == pytest.approx(-1.0, abs=1e-6)
+
+    def test_zero_vector(self):
+        """Zero vector should return 0."""
+        a = np.array([0.0, 0.0])
+        b = np.array([1.0, 2.0])
+        assert _cosine_sim(a, b) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: k-NN Tests
+# ---------------------------------------------------------------------------
+
+class TestKNN:
+    def test_finds_k_neighbors(self):
+        """Should find exactly k neighbors."""
+        np.random.seed(42)
+        n_samples = 50
+        n_features = 8
+        samples_reduced = np.random.normal(0, 1, (n_samples, n_features))
+        samples_df = pd.DataFrame({
+            "stock_code": [f"S{i:03d}" for i in range(n_samples)],
+            "epiphany_date": pd.date_range("2024-01-01", periods=n_samples),
+            "label": ["winner"] * 30 + ["loser"] * 20,
+            "gene_mutation_delta": np.random.normal(0, 1, n_samples),
+        })
+        labels = np.array([0] * 25 + [1] * 25)
+        query = np.random.normal(0, 1, n_features)
+
+        neighbors = _find_knn_neighbors(query, samples_reduced, samples_df, labels, k=5)
+        assert len(neighbors) == 5
+
+    def test_neighbors_sorted_by_similarity(self):
+        """Neighbors should be sorted by cosine similarity (descending)."""
+        np.random.seed(42)
+        n = 20
+        samples_reduced = np.random.normal(0, 1, (n, 8))
+        samples_df = pd.DataFrame({
+            "stock_code": [f"S{i}" for i in range(n)],
+            "epiphany_date": pd.date_range("2024-01-01", periods=n),
+            "label": ["winner"] * n,
+            "gene_mutation_delta": np.zeros(n),
+        })
+        labels = np.zeros(n, dtype=int)
+        query = np.random.normal(0, 1, 8)
+
+        neighbors = _find_knn_neighbors(query, samples_reduced, samples_df, labels, k=5)
+        sims = [nb["cosine_similarity"] for nb in neighbors]
+        assert sims == sorted(sims, reverse=True)
+
+    def test_empty_samples(self):
+        """Empty samples should return empty list."""
+        samples_reduced = np.empty((0, 8))
+        samples_df = pd.DataFrame()
+        neighbors = _find_knn_neighbors(
+            np.zeros(8), samples_reduced, samples_df, None, k=5
+        )
+        assert neighbors == []
+
+    def test_neighbor_has_forward_returns(self):
+        """Neighbors should include forward return data if available."""
+        np.random.seed(42)
+        samples_reduced = np.random.normal(0, 1, (10, 8))
+        samples_df = pd.DataFrame({
+            "stock_code": [f"S{i}" for i in range(10)],
+            "epiphany_date": pd.date_range("2024-01-01", periods=10),
+            "label": ["winner"] * 10,
+            "gene_mutation_delta": np.zeros(10),
+            "fwd_21d": np.random.normal(0.05, 0.1, 10),
+            "fwd_90d": np.random.normal(0.10, 0.2, 10),
+        })
+        labels = np.zeros(10, dtype=int)
+        query = np.random.normal(0, 1, 8)
+
+        neighbors = _find_knn_neighbors(query, samples_reduced, samples_df, labels, k=3)
+        assert "fwd_21d" in neighbors[0]
+        assert "fwd_90d" in neighbors[0]
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Failed Pattern Warning Tests
+# ---------------------------------------------------------------------------
+
+class TestFailedPatternWarning:
+    def test_no_warning_all_winners(self):
+        """All winner neighbors should not trigger warning."""
+        np.random.seed(42)
+        n = 10
+        samples_reduced = np.random.normal(0, 1, (n, 8))
+        samples_df = pd.DataFrame({
+            "stock_code": [f"S{i}" for i in range(n)],
+            "epiphany_date": pd.date_range("2024-01-01", periods=n),
+            "label": ["winner"] * n,
+            "gene_mutation_delta": np.zeros(n),
+        })
+
+        from sklearn.decomposition import PCA
+        matrix = np.random.normal(0, 1, (n, 65))
+        reducer = PCA(n_components=8, random_state=42)
+        reducer.fit(matrix)
+
+        all_features = [f"feat_{i}" for i in range(65)]
+        features_df = pd.DataFrame([{
+            "stock_code": "TEST",
+            "date": pd.Timestamp("2024-06-01"),
+            **{f: np.random.normal(0, 1) for f in all_features},
+        }])
+
+        profiles = [ClusterProfile(cluster_id=0, centroid=[1.0] * 8, n_samples=30)]
+
+        result = match_stock_to_dna(
+            "TEST", features_df, profiles, reducer, all_features,
+            samples_df=samples_df,
+            samples_reduced=samples_reduced,
+            samples_labels=np.zeros(n, dtype=int),
+        )
+        assert not result.failed_pattern_warning
+
+    def test_warning_mostly_losers(self):
+        """Mostly loser neighbors should trigger warning."""
+        np.random.seed(42)
+        n = 10
+        samples_reduced = np.random.normal(0, 1, (n, 8))
+        samples_df = pd.DataFrame({
+            "stock_code": [f"S{i}" for i in range(n)],
+            "epiphany_date": pd.date_range("2024-01-01", periods=n),
+            "label": ["loser"] * 8 + ["winner"] * 2,  # 80% losers
+            "gene_mutation_delta": np.zeros(n),
+        })
+
+        from sklearn.decomposition import PCA
+        matrix = np.random.normal(0, 1, (n, 65))
+        reducer = PCA(n_components=8, random_state=42)
+        reducer.fit(matrix)
+
+        all_features = [f"feat_{i}" for i in range(65)]
+        features_df = pd.DataFrame([{
+            "stock_code": "TEST",
+            "date": pd.Timestamp("2024-06-01"),
+            **{f: np.random.normal(0, 1) for f in all_features},
+        }])
+
+        profiles = [ClusterProfile(cluster_id=0, centroid=[1.0] * 8, n_samples=30)]
+
+        result = match_stock_to_dna(
+            "TEST", features_df, profiles, reducer, all_features,
+            samples_df=samples_df,
+            samples_reduced=samples_reduced,
+            samples_labels=np.zeros(n, dtype=int),
+        )
+        assert result.failed_pattern_warning
+        assert result.failed_pattern_ratio >= 0.6
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Match with k-NN Integration Tests
+# ---------------------------------------------------------------------------
+
+class TestMatchWithKNN:
+    def test_match_uses_knn_when_samples_provided(self):
+        """When samples are provided, match should use k-NN."""
+        np.random.seed(42)
+        n = 20
+        n_features = 65
+
+        all_features = [f"feat_{i}" for i in range(n_features)]
+
+        # Build samples
+        samples_reduced = np.random.normal(0, 1, (n, 8))
+        samples_df = pd.DataFrame({
+            "stock_code": [f"S{i}" for i in range(n)],
+            "epiphany_date": pd.date_range("2024-01-01", periods=n),
+            "label": ["winner"] * 15 + ["loser"] * 5,
+            "gene_mutation_delta": np.random.normal(0, 1, n),
+            **{f: np.random.normal(0, 1, n) for f in all_features},
+        })
+        labels = np.array([0] * 10 + [1] * 10)
+
+        # Build reducer
+        from sklearn.decomposition import PCA
+        matrix = np.random.normal(0, 1, (n, n_features))
+        reducer = PCA(n_components=8, random_state=42)
+        reducer.fit(matrix)
+
+        # Build query stock features
+        features_df = pd.DataFrame([{
+            "stock_code": "QUERY",
+            "date": pd.Timestamp("2024-06-01"),
+            **{f: np.random.normal(0, 1) for f in all_features},
+        }])
+
+        profiles = [
+            ClusterProfile(cluster_id=0, centroid=samples_reduced[:10].mean(axis=0).tolist(), n_samples=30),
+            ClusterProfile(cluster_id=1, centroid=samples_reduced[10:].mean(axis=0).tolist(), n_samples=30),
+        ]
+
+        result = match_stock_to_dna(
+            "QUERY", features_df, profiles, reducer, all_features,
+            samples_df=samples_df,
+            samples_reduced=samples_reduced,
+            samples_labels=labels,
+        )
+
+        assert result.stock_code == "QUERY"
+        assert len(result.nearest_neighbors) == 5  # k=5
+        assert result.best_cluster_id in [0, 1]
+        assert result.confidence in ["confident", "speculative", "unknown"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: Load Profiles from DB Tests
+# ---------------------------------------------------------------------------
+
+class TestLoadProfilesFromDB:
+    def test_round_trip(self):
+        """Profiles should survive to_dict → load_profiles_from_db."""
+        profiles = [
+            ClusterProfile(
+                cluster_id=0, n_samples=50, n_winners=40, n_losers=10,
+                label="MomentumBreak", confidence="confident",
+                winner_ratio=0.8, centroid=[1.0, 2.0],
+            ),
+            ClusterProfile(
+                cluster_id=1, n_samples=20, confidence="speculative",
+            ),
+        ]
+
+        db = {"clusters": [p.to_dict() for p in profiles]}
+        loaded = load_profiles_from_db(db)
+
+        assert len(loaded) == 2
+        assert loaded[0].cluster_id == 0
+        assert loaded[0].confidence == "confident"
+        assert loaded[0].winner_ratio == 0.8
+        assert loaded[1].confidence == "speculative"
+
+    def test_empty_db(self):
+        """Empty DB should return empty list."""
+        assert load_profiles_from_db({}) == []
+        assert load_profiles_from_db({"clusters": []}) == []

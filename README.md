@@ -58,7 +58,7 @@ Stock/
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
-├── tests/                    # 450+ tests (pytest, synthetic fixtures)
+├── tests/                    # 470+ tests (pytest, synthetic fixtures)
 └── config.py                 # Strategy params, fee rates
 ```
 
@@ -191,7 +191,7 @@ docker run -d --name stock-redis -p 6379:6379 redis:7-alpine redis-server --appe
 
 ```bash
 python -m pytest tests/ -q
-# 450+ tests, all synthetic fixtures, no network dependency
+# 470+ tests, all synthetic fixtures, no network dependency
 ```
 
 ---
@@ -251,7 +251,7 @@ python -m pytest tests/ -q
 | R88.7P14 | Maiden Voyage: Toxic Volatility + Cold Start + Weekend Effect (Trader R7 CONVERGED) | Done |
 | R88.8 | Aggressive Mode — WarriorExitEngine (ATR 3x Trail + Pyramiding + Regime Gate) | Done |
 | R89 | Market Guard — 全局斷路器 (ADL + Breadth + Gap Detection) | Done |
-| R90 | Pattern Recognition Phase 2-3 — Winner DNA Labeling + HDBSCAN Clustering | Done |
+| R90 | Pattern Recognition Phase 2-5 — Winner DNA Labeling + Clustering + Performance DB + Two-Stage Matcher | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -523,10 +523,29 @@ python -m pytest tests/ -q
 | 4. 自動標籤 | MomentumBreak / VolumeExplosion / Cluster_X |
 | 5. DNA 匹配 | Stage 1 Cosine: 新股 vs Cluster Centroids (>85%) |
 
-- Wall Street Trader APPROVED: DTW limited to top 30 candidates
-- Architect Critic CONDITIONAL APPROVED: 物理一致性 PASS + 參數實證 PASS
-- 25 tests (labeler) + 26 tests (winner_dna) ALL PASSING
-- API: `GET /{code}/winner-dna-match`, `GET /{code}/super-stock-flag`
+**Phase 4: Pattern Performance DB** (`analysis/winner_dna.py` upgraded)
+
+| 功能 | 說明 | 標記 |
+|------|------|------|
+| Recency Weighting | 指數衰減 w=2^(-ΔT/halflife)，近期樣本權重更高 | [PLACEHOLDER: RECENCY_HALFLIFE_2Y] |
+| Confidence Level | n_samples < 30 → "speculative" (投機性匹配) | [HYPOTHESIS: MIN_SAMPLE_30] |
+| Persist Library | winner_dna_library.json + reducer.pkl + scaler.pkl | — |
+| Winner Ratio | 每群 winner 佔比統計 | — |
+
+**Phase 5: Two-Stage Matcher** (`analysis/winner_dna.py` upgraded)
+
+| 功能 | 說明 | 標記 |
+|------|------|------|
+| k-NN (k=5) | 取代靜態 centroid，找 5 個最像前輩 | Trader mandate |
+| Multi-scale DTW | 60d 結構 + 20d 動能，兩者一致 → 信心加倍 | [PLACEHOLDER: MULTISCALE_BOOST] |
+| Final Score | 0.7×cosine + 0.3×(1/(1+dtw)) | [PLACEHOLDER: STAGE2_WEIGHT_070_030] |
+| Failed Pattern Warning | >60% k-NN 是 losers → 紅色警告 | — |
+| Amber Warning | speculative + Failed Pattern → Diamond 降級 | Architect mandate |
+
+- Wall Street Trader APPROVED: k-NN > centroid, 0.7/0.3 weight, multi-scale DTW
+- Architect Critic OFFICIALLY APPROVED: 物理一致性 PASS + 參數實證 PASS + 財務安全 PASS
+- 25 tests (labeler) + 48 tests (winner_dna) + 23 tests (market_guard) ALL PASSING
+- API: `GET /{code}/winner-dna-match`, `GET /{code}/super-stock-flag`, `GET /pattern-library`
 
 ### Auto Trail Classifier (R73-R79)
 

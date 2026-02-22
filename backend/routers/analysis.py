@@ -1070,15 +1070,23 @@ def find_similar_in_history(
 
 @router.get("/{code}/winner-dna-match")
 def get_winner_dna_match(code: str):
-    """比對股票與贏家 DNA 庫 — Two-Stage Matcher (Stage 1: Cosine)
+    """比對股票與贏家 DNA 庫 — Phase 5 Two-Stage Matcher
 
-    [PLACEHOLDER: MATCH_THRESHOLD_085] — 85% similarity needs sensitivity test
+    [OFFICIALLY APPROVED — Architect Critic Phase 4-5 Gate]
+    Stage 1: k-NN (k=5) in reduced space
+    Stage 2: Multi-scale DTW (60d + 20d) when price data available
+    Failed Pattern warning: red warning if stock matches losers too
     """
     try:
         from analysis.winner_dna import (
             load_cluster_db,
+            load_reducer,
+            load_profiles_from_db,
+            match_stock_to_dna,
             FEATURES_FILE,
-            ClusterProfile,
+            WINNER_DNA_FILE,
+            PRICE_CACHE_FILE,
+            _load_metadata,
         )
         import numpy as np
         import pandas as pd
@@ -1094,54 +1102,64 @@ def get_winner_dna_match(code: str):
             raise HTTPException(status_code=500, detail="Features file not found")
 
         features_df = pd.read_parquet(FEATURES_FILE)
-        stock_data = features_df[features_df["stock_code"] == code]
-        if stock_data.empty:
-            return {"code": code, "status": "no_data", "detail": "Stock not in features"}
-
-        latest = stock_data.sort_values("date").iloc[-1]
-
-        # Extract feature vector
-        from analysis.winner_dna import _load_metadata
         metadata = _load_metadata()
         all_features = metadata["all_features"]
-        feat_vector = np.array([float(latest.get(f, 0.0)) for f in all_features])
-        feat_vector = np.nan_to_num(feat_vector, nan=0.0)
 
-        # Compare against each cluster centroid (cosine similarity)
-        matches = []
-        for cluster in db.get("clusters", []):
-            centroid = np.array(cluster["centroid"])
-            if len(centroid) == 0:
-                continue
+        # Load reducer (persisted UMAP/PCA)
+        reducer = load_reducer()
+        if reducer is None:
+            return {"code": code, "status": "no_reducer",
+                    "detail": "Reducer not found. Rebuild DNA library."}
 
-            # Need to reduce feat_vector to same dimensionality
-            # Use simplified approach: compare raw feature means per cluster top features
-            dot = np.dot(feat_vector[:len(centroid)], centroid) if len(feat_vector) >= len(centroid) else 0
-            norm_q = np.linalg.norm(feat_vector[:len(centroid)])
-            norm_c = np.linalg.norm(centroid)
-            sim = dot / (norm_q * norm_c) if (norm_q > 1e-8 and norm_c > 1e-8) else 0
+        # Load profiles
+        profiles = load_profiles_from_db(db)
 
-            matches.append({
-                "cluster_id": cluster["cluster_id"],
-                "label": cluster.get("label", ""),
-                "similarity": round(float(sim), 4),
-                "n_samples": cluster["n_samples"],
-                "performance": cluster.get("performance", {}),
-            })
+        # Load samples for k-NN (optional but recommended)
+        samples_df = None
+        samples_reduced = None
+        samples_labels = None
+        if WINNER_DNA_FILE.exists():
+            samples_df = pd.read_parquet(WINNER_DNA_FILE)
+            # Re-reduce samples through the same reducer
+            feature_cols = [f for f in all_features if f in samples_df.columns]
+            feature_matrix = samples_df[feature_cols].values.astype(np.float64)
+            feature_matrix = np.nan_to_num(feature_matrix, nan=0.0)
+            try:
+                samples_reduced = reducer.transform(feature_matrix)
+                # Assign labels based on cluster centroids (closest centroid)
+                from analysis.winner_dna import _cosine_sim
+                samples_labels = np.zeros(len(samples_df), dtype=int)
+                for i in range(len(samples_df)):
+                    best_sim = -1
+                    for p in profiles:
+                        centroid = np.array(p.centroid)
+                        if len(centroid) == samples_reduced.shape[1]:
+                            sim = _cosine_sim(samples_reduced[i], centroid)
+                            if sim > best_sim:
+                                best_sim = sim
+                                samples_labels[i] = p.cluster_id
+            except Exception:
+                samples_df = None
+                samples_reduced = None
 
-        matches.sort(key=lambda x: x["similarity"], reverse=True)
+        # Load price data for DTW Stage 2 (optional)
+        price_df = None
+        if PRICE_CACHE_FILE.exists():
+            try:
+                price_df = pd.read_parquet(PRICE_CACHE_FILE)
+            except Exception:
+                pass
 
-        best = matches[0] if matches else None
-        is_match = best is not None and best["similarity"] >= 0.85
+        # Run Two-Stage Matcher
+        result = match_stock_to_dna(
+            code, features_df, profiles, reducer, all_features,
+            samples_df=samples_df,
+            samples_reduced=samples_reduced,
+            samples_labels=samples_labels,
+            price_df=price_df,
+        )
 
-        return {
-            "code": code,
-            "date": str(latest["date"]),
-            "is_match": is_match,
-            "best_cluster": best,
-            "all_matches": matches[:5],
-            "n_clusters": len(db.get("clusters", [])),
-        }
+        return result.to_dict()
     except HTTPException:
         raise
     except Exception as e:
@@ -1186,6 +1204,33 @@ def get_super_stock_flag(code: str):
         }
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/pattern-library")
+def get_pattern_library():
+    """Phase 4: Pattern Performance DB — Winner DNA Library 概覽
+
+    Returns cluster profiles with multi-horizon performance stats,
+    recency-weighted stats, and confidence levels.
+    """
+    try:
+        from analysis.winner_dna import load_cluster_db
+
+        db = load_cluster_db()
+        if db is None:
+            return {"status": "no_library",
+                    "detail": "Winner DNA library not built yet."}
+
+        return {
+            "status": "ok",
+            "build_date": db.get("build_date", ""),
+            "version": db.get("version", ""),
+            "n_samples": db.get("n_samples", 0),
+            "n_clusters": db.get("n_clusters", 0),
+            "clusters": db.get("clusters", []),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
