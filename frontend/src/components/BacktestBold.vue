@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { h, ref, reactive, computed, watch } from 'vue'
 import {
   NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NSwitch, NText, NSpin, NTag,
 } from 'naive-ui'
@@ -36,6 +36,24 @@ const ultraWide = ref(true)
 const klineData = ref<TimeSeriesData | null>(null)
 const klineLoading = ref(false)
 const liquidityData = ref<any>(null)
+
+// Phase 8C: Trade Replay
+const candlestickRef = ref<InstanceType<typeof CandlestickChart> | null>(null)
+const activeTradeIdx = ref<number | undefined>(undefined)
+const activeTab = ref('equity')
+
+function replayTrade(trade: any, index: number) {
+  activeTradeIdx.value = index
+  activeTab.value = 'kline-trades'
+  // Wait for tab switch, then zoom
+  setTimeout(() => {
+    candlestickRef.value?.zoomToTrade(trade)
+  }, 100)
+}
+
+function clearReplay() {
+  activeTradeIdx.value = undefined
+}
 
 const r = computed(() => bt.boldResult)
 
@@ -153,13 +171,42 @@ function exportTrades() {
 const tradePagination = reactive({ page: 1, pageSize: 15, showSizePicker: true, pageSizes: [10, 15, 25, 50] })
 
 const tradeColumns = [
+  {
+    title: '',
+    key: 'replay',
+    width: 45,
+    render: (row: any, index: number) => h(
+      NButton,
+      { size: 'tiny', type: 'primary', ghost: true, onClick: () => replayTrade(row, index) },
+      () => '>>',
+    ),
+  },
   { title: '開倉日', key: 'date_open', width: 100, render: (row: any) => row.date_open?.slice(0, 10) },
   { title: '平倉日', key: 'date_close', width: 100, render: (row: any) => row.date_close?.slice(0, 10) },
   { title: '買入價', key: 'price_open', width: 80, render: (row: any) => row.price_open?.toFixed(2) },
   { title: '賣出價', key: 'price_close', width: 80, render: (row: any) => row.price_close?.toFixed(2) },
   { title: '損益', key: 'pnl', width: 100, render: (row: any) => fmtNum(row.pnl) },
-  { title: '報酬%', key: 'return_pct', width: 80, render: (row: any) => fmtPct(row.return_pct) },
+  {
+    title: '報酬%',
+    key: 'return_pct',
+    width: 80,
+    render: (row: any) => h(
+      'span',
+      { style: `color: ${(row.return_pct ?? 0) >= 0 ? '#e53e3e' : '#38a169'}; font-weight: 600` },
+      fmtPct(row.return_pct),
+    ),
+  },
   { title: '出場原因', key: 'exit_reason', width: 120 },
+  {
+    title: '天數',
+    key: 'hold_days',
+    width: 55,
+    render: (row: any) => {
+      if (!row.date_open || !row.date_close) return '-'
+      const days = Math.round((new Date(row.date_close).getTime() - new Date(row.date_open).getTime()) / 86400000)
+      return `${days}d`
+    },
+  },
 ]
 </script>
 
@@ -212,14 +259,21 @@ const tradeColumns = [
         <NGi v-if="r.total_costs"><MetricCard title="總交易成本" :value="'$' + fmtNum(r.total_costs, 0)" color="#e53e3e" /></NGi>
       </NGrid>
 
-      <NTabs type="line">
+      <NTabs v-model:value="activeTab" type="line">
         <NTabPane name="equity" tab="權益曲線">
           <NCard size="small"><ChartContainer :option="equityOption" height="350px" /></NCard>
         </NTabPane>
         <NTabPane name="kline-trades" tab="K線交易">
           <NCard size="small">
             <NSpin :show="klineLoading">
-              <CandlestickChart v-if="klineData" :data="klineData" :trades="r?.trades" />
+              <CandlestickChart
+                v-if="klineData"
+                ref="candlestickRef"
+                :data="klineData"
+                :trades="r?.trades"
+                :active-trade-idx="activeTradeIdx"
+                :show-trade-areas="true"
+              />
               <div v-else style="text-align: center; padding: 40px; color: var(--text-muted)">載入中...</div>
             </NSpin>
           </NCard>
@@ -231,7 +285,11 @@ const tradeColumns = [
           <NCard size="small"><ChartContainer :option="exitPieOption" height="300px" /></NCard>
         </NTabPane>
         <NTabPane name="trades" tab="交易明細">
-          <NSpace style="margin-bottom: 8px" justify="end">
+          <NSpace style="margin-bottom: 8px" justify="space-between">
+            <NSpace :size="8" align="center">
+              <NText depth="3" style="font-size: 11px">Click >> to replay trade on K-line chart</NText>
+              <NButton v-if="activeTradeIdx != null" size="tiny" @click="clearReplay">Clear Selection</NButton>
+            </NSpace>
             <NButton size="small" @click="exportTrades" :disabled="!r?.trades?.length">匯出 CSV</NButton>
           </NSpace>
           <NDataTable :columns="tradeColumns" :data="r.trades" :pagination="tradePagination" size="small" :scroll-x="640" />

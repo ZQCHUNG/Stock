@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CandlestickChart as Candle, LineChart, BarChart, ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, ToolboxComponent } from 'echarts/components'
+import { GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, MarkAreaComponent, AxisPointerComponent, ToolboxComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import type { TimeSeriesData } from '../api/stocks'
 import { fmtPrice, fmtVol } from '../utils/format'
 import { useChartTheme } from '../composables/useChartTheme'
 
-use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, AxisPointerComponent, ToolboxComponent, CanvasRenderer])
+use([Candle, LineChart, BarChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, DataZoomComponent, MarkPointComponent, MarkAreaComponent, AxisPointerComponent, ToolboxComponent, CanvasRenderer])
 
 export interface TradeMarker {
   date_open: string
@@ -28,9 +28,39 @@ const props = defineProps<{
   signals?: TimeSeriesData | null
   trades?: TradeMarker[]
   group?: string
+  activeTradeIdx?: number  // Phase 8C: Highlight active trade
+  showTradeAreas?: boolean // Phase 8C: Show holding period areas
 }>()
 
 const { colors, tooltipStyle, toolboxConfig } = useChartTheme()
+
+const chartRef = ref<any>(null)
+
+/** Phase 8C: Zoom to trade with contextual padding (-20d, +10d) */
+function zoomToTrade(trade: TradeMarker) {
+  const d = props.data
+  if (!d || !chartRef.value) return
+  const dates = d.dates
+  const dateIdx: Record<string, number> = {}
+  dates.forEach((dt: string, i: number) => { dateIdx[dt.slice(0, 10)] = i })
+
+  const openIdx = dateIdx[trade.date_open?.slice(0, 10)] ?? 0
+  const closeIdx = dateIdx[trade.date_close?.slice(0, 10)] ?? dates.length - 1
+  const padBefore = 20
+  const padAfter = 10
+  const startIdx = Math.max(0, openIdx - padBefore)
+  const endIdx = Math.min(dates.length - 1, closeIdx + padAfter)
+  const startPct = (startIdx / dates.length) * 100
+  const endPct = (endIdx / dates.length) * 100
+
+  chartRef.value.dispatchAction({
+    type: 'dataZoom',
+    start: startPct,
+    end: endPct,
+  })
+}
+
+defineExpose({ zoomToTrade })
 
 const option = computed(() => {
   const d = props.data
@@ -87,6 +117,41 @@ const option = computed(() => {
     })
   }
 
+  // Trade holding period areas (Phase 8C)
+  const tradeAreas: any[] = []
+  if (props.trades?.length && props.showTradeAreas) {
+    const dateIdx: Record<string, number> = {}
+    dates.forEach((d: string, i: number) => { dateIdx[d.slice(0, 10)] = i })
+
+    props.trades.forEach((t, tidx) => {
+      const od = t.date_open?.slice(0, 10)
+      const cd = t.date_close?.slice(0, 10)
+      if (od && cd && dateIdx[od] !== undefined && dateIdx[cd] !== undefined) {
+        const isProfit = (t.return_pct ?? 0) > 0
+        const isActive = tidx === props.activeTradeIdx
+        const opacity = isActive ? 0.2 : 0.06
+        const color = isProfit ? `rgba(56,161,105,${opacity})` : `rgba(229,62,62,${opacity})`
+        tradeAreas.push([
+          { xAxis: dateIdx[od], itemStyle: { color } },
+          { xAxis: dateIdx[cd] },
+        ])
+      }
+    })
+  }
+
+  // Build trade lookup for rich tooltips
+  const tradeByDate: Record<string, { type: 'entry' | 'exit'; trade: TradeMarker }[]> = {}
+  if (props.trades?.length) {
+    const dateIdxMap: Record<string, number> = {}
+    dates.forEach((d: string, i: number) => { dateIdxMap[d.slice(0, 10)] = i })
+    props.trades.forEach((t) => {
+      const od = t.date_open?.slice(0, 10)
+      const cd = t.date_close?.slice(0, 10)
+      if (od) { (tradeByDate[od] = tradeByDate[od] || []).push({ type: 'entry', trade: t }) }
+      if (cd) { (tradeByDate[cd] = tradeByDate[cd] || []).push({ type: 'exit', trade: t }) }
+    })
+  }
+
   // Support/Resistance lines + exit lines
   const markLines: any[] = []
   for (const s of props.supports || []) {
@@ -116,11 +181,35 @@ const option = computed(() => {
           if (ma5[idx] != null) html += ` MA5 ${fmtPrice(ma5[idx])}`
           if (ma20[idx] != null) html += ` MA20 ${fmtPrice(ma20[idx])}`
         }
-        // Trade marker info
-        params.forEach((p: any) => {
-          if (p.seriesName === '買入點') html += `<br/><span style="color:#e53e3e">▲ 買入</span> $${fmtPrice(p.value[1])}`
-          else if (p.seriesName === '賣出點') html += `<br/><span style="color:#38a169">▼ 賣出</span> $${fmtPrice(p.value[1])}`
-        })
+        // Rich trade marker info (Phase 8C)
+        const dateStr = date?.slice(0, 10) || ''
+        const tradeInfos = tradeByDate[dateStr]
+        if (tradeInfos?.length) {
+          tradeInfos.forEach(({ type, trade }) => {
+            if (type === 'entry') {
+              html += `<br/><span style="color:#e53e3e; font-weight:bold">▲ Entry</span> @${fmtPrice(trade.price_open)}`
+              if ((trade as any).sqs_score) html += ` | SQS: ${(trade as any).sqs_score}`
+              if ((trade as any).rs_rating) html += ` | RS: ${(trade as any).rs_rating}`
+              if ((trade as any).entry_type) html += ` | ${(trade as any).entry_type}`
+            } else {
+              html += `<br/><span style="color:#38a169; font-weight:bold">▼ Exit</span> @${fmtPrice(trade.price_close)}`
+              const ret = trade.return_pct ?? 0
+              const retColor = ret >= 0 ? '#e53e3e' : '#38a169'
+              html += ` <span style="color:${retColor}">${ret >= 0 ? '+' : ''}${(ret * 100).toFixed(1)}%</span>`
+              if (trade.exit_reason) html += ` | ${trade.exit_reason}`
+              const days = trade.date_open && trade.date_close
+                ? Math.round((new Date(trade.date_close).getTime() - new Date(trade.date_open).getTime()) / 86400000)
+                : null
+              if (days != null) html += ` | ${days}d`
+            }
+          })
+        } else {
+          // Fallback to simple markers
+          params.forEach((p: any) => {
+            if (p.seriesName === '買入點') html += `<br/><span style="color:#e53e3e">▲ 買入</span> $${fmtPrice(p.value[1])}`
+            else if (p.seriesName === '賣出點') html += `<br/><span style="color:#38a169">▼ 賣出</span> $${fmtPrice(p.value[1])}`
+          })
+        }
         return html + '</div>'
       },
     },
@@ -160,6 +249,7 @@ const option = computed(() => {
           ],
         } : undefined,
         markLine: markLines.length ? { silent: true, symbol: 'none', data: markLines } : undefined,
+        markArea: tradeAreas.length ? { silent: true, data: tradeAreas } : undefined,
       },
       { name: 'MA5', type: 'line', data: ma5, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1 }, symbol: 'none', itemStyle: { color: '#ff6b35' } },
       { name: 'MA20', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, lineStyle: { width: 1 }, symbol: 'none', itemStyle: { color: '#2196f3' } },
@@ -193,5 +283,5 @@ const option = computed(() => {
 </script>
 
 <template>
-  <VChart :option="option" :group="group" autoresize style="height: 500px" />
+  <VChart ref="chartRef" :option="option" :group="group" autoresize style="height: 500px" />
 </template>
