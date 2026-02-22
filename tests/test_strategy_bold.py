@@ -104,14 +104,14 @@ class TestComputeBoldExit:
         assert result["exit_reason"] == "trail_level1"
 
     def test_level1_trailing_preempted_by_time_stop(self):
-        """Time stop fires before trail when gain is low after 5+ days."""
+        """PTS timeout fires before trail when gain is low after 20+ days."""
         result = compute_bold_exit(
             entry_price=100, current_price=96, peak_price=115,
             current_atr=3.0, hold_days=30
         )
-        # gain=-4% < 3%, hold_days=30 → time stop fires first
+        # gain=-4% < 3%, hold_days=30 >= pts_max_hold_days=20 → PTS timeout
         assert result["should_exit"] is True
-        assert "time_stop" in result["exit_reason"]
+        assert "pts_" in result["exit_reason"] or "time_stop" in result["exit_reason"]
 
     def test_level2_protection(self):
         """Level 2: gain 30-50%, locks in cost+10%."""
@@ -309,14 +309,14 @@ class TestPhase1DefenseStops:
 
     # --- 時間止損 ---
     def test_time_stop_triggers_after_n_days_low_gain(self):
-        """5 days with gain < 3% should trigger time stop."""
+        """5 days with gain < 3% should trigger PTS exit (no volume data = no synergy)."""
         result = compute_bold_exit(
             entry_price=100, current_price=101, peak_price=102,
             current_atr=3.0, hold_days=5,
         )
-        # gain = 1% < 3%, hold_days=5 → time stop
+        # gain = 1% < 3%, hold_days=5, no vol data → pts_no_synergy
         assert result["should_exit"] is True
-        assert "time_stop" in result["exit_reason"]
+        assert "pts_" in result["exit_reason"] or "time_stop" in result["exit_reason"]
 
     def test_time_stop_does_not_trigger_with_good_gain(self):
         """5 days with gain >= 3% should NOT trigger time stop."""
@@ -346,14 +346,14 @@ class TestPhase1DefenseStops:
         assert "time_stop" not in result.get("exit_reason", "")
 
     def test_time_stop_negative_gain(self):
-        """Time stop should also trigger when gain is negative (but above disaster)."""
+        """PTS should exit when gain is negative and no synergy conditions met."""
         result = compute_bold_exit(
             entry_price=100, current_price=97, peak_price=101,
             current_atr=3.0, hold_days=6,
         )
-        # gain = -3% < 3%, hold_days=6 → time stop
+        # gain = -3% < 3%, hold_days=6, no vol data → pts_no_synergy
         assert result["should_exit"] is True
-        assert "time_stop" in result["exit_reason"]
+        assert "pts_" in result["exit_reason"] or "time_stop" in result["exit_reason"]
 
     # --- 趨勢破位 ---
     def test_trend_break_triggers(self):
@@ -648,7 +648,7 @@ class TestMomentumLagStop:
         assert not result["should_exit"], "量縮時應延長持有，不出場"
 
     def test_volume_shrink_but_breaks_ma5(self):
-        """量縮但破 MA5 → 立即出場。gain 在 ±1% 內但 close < MA5。"""
+        """量縮但破 MA5 且 price < entry → PTS MA5 break 出場。"""
         p = self._base_params()
         result = compute_bold_exit(
             entry_price=100, current_price=99.5, peak_price=101,
@@ -657,10 +657,10 @@ class TestMomentumLagStop:
             current_ma5=100.0,  # price 99.5 < MA5 100.0
         )
         assert result["should_exit"]
-        assert result["exit_reason"] == "momentum_lag_ma5_break"
+        assert "ma5_break" in result["exit_reason"]
 
-    def test_no_volume_shrink_time_stop(self):
-        """量沒縮且不動 → 正常 time stop。"""
+    def test_no_volume_shrink_pts_no_synergy(self):
+        """量沒縮且不動 → PTS no synergy exit。"""
         p = self._base_params()
         result = compute_bold_exit(
             entry_price=100, current_price=100.5, peak_price=101,
@@ -669,10 +669,10 @@ class TestMomentumLagStop:
             current_ma5=99.0,
         )
         assert result["should_exit"]
-        assert "time_stop" in result["exit_reason"]
+        assert "pts_no_synergy" in result["exit_reason"]
 
-    def test_loss_beyond_threshold_time_stop(self):
-        """虧超過 1% → 5 天直接 time stop，不延長。"""
+    def test_loss_vol_shrink_pts_grace(self):
+        """Price at hold threshold + vol shrinking → PTS grace (no exit)。"""
         p = self._base_params()
         result = compute_bold_exit(
             entry_price=100, current_price=98.0, peak_price=101,
@@ -680,23 +680,23 @@ class TestMomentumLagStop:
             current_vol_ma5=800_000, current_vol_ma20=1_000_000,
             current_ma5=97.0,
         )
-        assert result["should_exit"]
-        assert "time_stop" in result["exit_reason"]
+        # price 98 >= entry*0.98=98, vol shrinking, hold<20 → PTS grace (hold)
+        assert not result["should_exit"], "PTS grace: price at threshold + vol shrinking"
 
-    def test_extended_day_8_hard_stop(self):
-        """到第 8 天 → 無論如何都出場。"""
+    def test_pts_timeout_after_max_days(self):
+        """到 pts_max_hold_days → PTS timeout 出場。"""
         p = self._base_params()
         result = compute_bold_exit(
             entry_price=100, current_price=100.5, peak_price=101,
-            current_atr=2.0, hold_days=8, params=p,
+            current_atr=2.0, hold_days=20, params=p,
             current_vol_ma5=800_000, current_vol_ma20=1_000_000,
             current_ma5=99.0,
         )
         assert result["should_exit"]
-        assert "time_stop_8d" in result["exit_reason"]
+        assert "pts_timeout" in result["exit_reason"]
 
-    def test_mls_disabled_falls_back_to_time_stop(self):
-        """MLS 關閉 → 回到原始 time stop。"""
+    def test_mls_disabled_pts_no_synergy(self):
+        """MLS 關閉但 PTS still works → pts_no_synergy for vol not shrinking。"""
         p = self._base_params()
         p["momentum_lag_stop_enabled"] = False
         result = compute_bold_exit(
@@ -705,11 +705,11 @@ class TestMomentumLagStop:
             current_vol_ma5=800_000, current_vol_ma20=1_000_000,
             current_ma5=99.0,
         )
-        assert result["should_exit"]
-        assert "time_stop" in result["exit_reason"]
+        # vol shrinking + price above hold → PTS grace (no exit)
+        assert not result["should_exit"], "PTS grace: vol shrinking + price above hold"
 
-    def test_no_volume_data_falls_back(self):
-        """沒有量能數據 → 回到 time stop。"""
+    def test_no_volume_data_pts_no_synergy(self):
+        """沒有量能數據 → PTS no synergy (can't verify vol shrinking)。"""
         p = self._base_params()
         result = compute_bold_exit(
             entry_price=100, current_price=100.5, peak_price=101,
@@ -718,7 +718,7 @@ class TestMomentumLagStop:
             current_ma5=99.0,
         )
         assert result["should_exit"]
-        assert "time_stop" in result["exit_reason"]
+        assert "pts_no_synergy" in result["exit_reason"]
 
     def test_good_gain_no_time_stop(self):
         """漲超過 3% → 不觸發 time stop。"""

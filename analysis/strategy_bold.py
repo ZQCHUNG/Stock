@@ -68,10 +68,16 @@ STRATEGY_BOLD_PARAMS = {
     "atr_period": 20,                 # ATR 週期
 
     # --- Phase 1 防守：物理止損機制（R62 Gemini 共識）---
-    # [PLACEHOLDER: BOLD_TIME_STOP] 時間止損：進場後 N 天內未脫離成本 3%，強制撤退
-    "time_stop_days": 5,              # 時間止損天數
-    "time_stop_min_gain": 0.03,       # 時間止損最低收益門檻 3%
-    "time_stop_enabled": True,        # 啟用時間止損
+    # [HYPOTHESIS: PRICE_TIME_SYNERGY] Price-Time Synergy（取代 time_stop_5d）
+    # 華爾街交易員判決 + Architect Critic CONDITIONAL APPROVED (2026-02-22)
+    # 原 time_stop_5d 被驗證為大波段殺手：6442 在 172 進場 8 天被踢出，後漲到 1985
+    # 新邏輯：5d 無 3% gain 但 price > entry*0.98 且 vol 萎縮 → 繼續持有
+    "time_stop_days": 5,              # 初始觀察天數
+    "time_stop_min_gain": 0.03,       # 最低收益門檻 3%
+    "time_stop_enabled": True,        # 啟用時間止損（現為 Price-Time Synergy）
+    "pts_hold_threshold": 0.98,       # [HYPOTHESIS] Price-Time Synergy: 持有門檻 (entry * 0.98)
+    "pts_abandon_threshold": 0.95,    # [HYPOTHESIS] 放棄門檻 (entry * 0.95)
+    "pts_max_hold_days": 20,          # [HYPOTHESIS] PTS 最長延長持有天數
     # [PLACEHOLDER: BOLD_STRUCT_STOP] 結構止損：跌破 min(進場日低點, 前一日低點)
     "structural_stop_enabled": True,  # 啟用結構止損
     # [PLACEHOLDER: BOLD_TREND_STOP] 趨勢破位：價格 < MA20 且 MA20 斜率 ≤ 0
@@ -87,7 +93,7 @@ STRATEGY_BOLD_PARAMS = {
 
     # --- R62/R63 RS_Rating 相對強度過濾（O'Neil RS — Gemini + Architect Critic 共識）---
     # [VERIFIED: INDUSTRY_STANDARD] RS 排名門檻（O'Neil: top 20% = Diamond）
-    "rs_rating_min": 80,              # Entry D 需 RS ≥ 80（前 20%）
+    "rs_rating_min": 80,              # Entry D 需 RS ≥ 80（前 20%）— 或用 RS Momentum 替代
     # [VERIFIED: ONEILL_RS_TRADITION] RS 回看天數
     "rs_lookback": 120,               # 120 天價格強度
     # [PLACEHOLDER: BOLD_RS_002] 排除近期天數（避免抓到力竭標的）
@@ -98,6 +104,14 @@ STRATEGY_BOLD_PARAMS = {
     "rs_base_weight": 0.6,            # 前 100 天基礎強度權重
     "rs_recent_weight": 0.4,          # 近 20 天加速權重
     "rs_recent_days": 20,             # 近期分割點
+    # [HYPOTHESIS: RS_MOMENTUM_ALPHA] RS Momentum（斜率）— 華爾街交易員判決 2026-02-22
+    # 回測驗證：RS 絕對值滯後（6442 漲 6 倍才 Diamond, 6139 從未到 Diamond）
+    # 但 RS Momentum 作為 Entry D 過濾也有問題：base-building 期 RS 自然下降
+    # → RS Momentum 適合做 portfolio-level scanner，不適合做 entry filter
+    # 單股回測時 DISABLED；portfolio scanning 時可 enable
+    "rs_momentum_enabled": False,     # Entry D 的 RS Momentum 過濾（預設關閉）
+    "rs_momentum_lookback": 20,       # RS 斜率計算窗口（天）
+    "rs_momentum_min": 1.05,          # [HYPOTHESIS] RS_today/RS_20d_ago > 1.05 = 加速中
 
     # --- R62 Equity Curve Filter（連續虧損保護 — Gemini + Architect Critic 共識）---
     # [PLACEHOLDER: BOLD_ECF_001] 連續虧損上限
@@ -124,6 +138,16 @@ STRATEGY_BOLD_PARAMS = {
     # --- 部位 ---
     "max_position_pct": 0.20,         # 大膽模式最大倉位 20%（衛星）
     "max_hold_days": 120,             # 最長持有天數
+
+    # --- [HYPOTHESIS: REENTRY_ENGINE] Re-entry Engine（二次進場）---
+    # 華爾街交易員判決 + Architect APPROVED 2026-02-22
+    # 被 stop 踢出後監控 N 天，價格重新突破出場日高點 → 二次進場
+    # Phase 4B 品質過濾（交易員判決：56 次交易 = 給券商打工）
+    "reentry_enabled": True,          # 啟用 Re-entry Engine
+    "reentry_window_days": 20,        # [HYPOTHESIS] 監控窗口天數
+    "reentry_cooldown_days": 3,       # [HYPOTHESIS: NOISE_REDUCTION_FILTER] 出場後冷卻期（天）
+    "reentry_volume_ratio": 1.5,      # [HYPOTHESIS: NOISE_REDUCTION_FILTER] Re-entry 日成交量 > vol_ma5 × 此倍數
+    "reentry_min_price_pct": 0.02,    # [HYPOTHESIS: NOISE_REDUCTION_FILTER] Re-entry 價 > exit_price × (1 + 此值)
 
     # --- Regime-Based Trail（Conviction 2.0，取代 DEAD conviction_hold_gain）---
     "ultra_wide": False,              # 是否啟用超寬頻模式
@@ -206,6 +230,49 @@ def compute_rs_ratio(
 
     # 幾何加權：穩定上漲 > 短命噴泉
     return (base_return ** base_weight) * (recent_return ** recent_weight)
+
+
+def compute_rs_momentum(
+    df: pd.DataFrame,
+    lookback: int = 20,
+    rs_lookback: int = 120,
+    rs_exclude_recent: int = 5,
+    rs_base_weight: float = 0.6,
+    rs_recent_weight: float = 0.4,
+    rs_recent_days: int = 20,
+) -> float | None:
+    """計算 RS Momentum（RS 斜率）— 偵測 RS 加速度
+
+    [HYPOTHESIS: RS_MOMENTUM_ALPHA] 華爾街交易員判決 2026-02-22
+    回測驗證：RS 絕對值嚴重滯後（6442 漲 6 倍才到 Diamond）
+    改用 RS_today / RS_N_days_ago 偵測「加速度」而非「速度」
+
+    Args:
+        df: 股價 DataFrame（需有 'close' column）
+        lookback: RS Momentum 計算窗口（天），預設 20 天
+        其餘參數傳遞給 compute_rs_ratio
+
+    Returns:
+        RS Momentum ratio (float > 1.0 = 加速中) 或 None
+    """
+    if len(df) < rs_lookback + rs_exclude_recent + lookback:
+        return None
+
+    # Current RS
+    rs_now = compute_rs_ratio(
+        df, rs_lookback, rs_exclude_recent,
+        rs_base_weight, rs_recent_weight, rs_recent_days,
+    )
+    # RS N days ago
+    rs_past = compute_rs_ratio(
+        df.iloc[:-lookback], rs_lookback, rs_exclude_recent,
+        rs_base_weight, rs_recent_weight, rs_recent_days,
+    )
+
+    if rs_now is None or rs_past is None or rs_past <= 0:
+        return None
+
+    return rs_now / rs_past
 
 
 def _compute_bb_bandwidth(df: pd.DataFrame) -> pd.Series:
@@ -312,6 +379,31 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
     slope_days_req = p.get("momentum_ma20_slope_days", 10)
     ma20_slope_positive_streak = ma20_diff.rolling(slope_days_req, min_periods=slope_days_req).min()
 
+    # --- RS Momentum per-bar computation ---
+    # [HYPOTHESIS: RS_MOMENTUM_ALPHA] 計算每一根 bar 的 RS 斜率
+    rs_momentum_series = None
+    if p.get("rs_momentum_enabled", True):
+        rsm_lookback = p.get("rs_momentum_lookback", 20)
+        rs_lb = p.get("rs_lookback", 120)
+        rs_ex = p.get("rs_exclude_recent", 5)
+        rs_bw = p.get("rs_base_weight", 0.6)
+        rs_rw = p.get("rs_recent_weight", 0.4)
+        rs_rd = p.get("rs_recent_days", 20)
+        min_bars_needed = rs_lb + rs_ex + rsm_lookback
+
+        rsm_values = pd.Series(np.nan, index=result.index)
+        for idx in range(min_bars_needed, n):
+            # RS now (up to bar idx)
+            sub_now = result.iloc[:idx + 1]
+            rs_now = compute_rs_ratio(sub_now, rs_lb, rs_ex, rs_bw, rs_rw, rs_rd)
+            # RS N days ago (up to bar idx - rsm_lookback)
+            if idx - rsm_lookback >= rs_lb + rs_ex:
+                sub_past = result.iloc[:idx - rsm_lookback + 1]
+                rs_past = compute_rs_ratio(sub_past, rs_lb, rs_ex, rs_bw, rs_rw, rs_rd)
+                if rs_now is not None and rs_past is not None and rs_past > 0:
+                    rsm_values.iloc[idx] = rs_now / rs_past
+        rs_momentum_series = rsm_values
+
     # --- 訊號邏輯 ---
     signals = pd.Series("HOLD", index=result.index)
     entry_types = pd.Series("", index=result.index)
@@ -388,9 +480,18 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
                 # 5. MA20 斜率 > 0 持續至少 N 天
                 slope_ok = _slope_streak > 0
 
-                # 6. RS_Rating 過濾（R62）：只做全市場前 20% 強勢股
+                # 6. RS 過濾（R62 → R93 升級：RS Momentum 取代絕對值）
+                # [HYPOTHESIS: RS_MOMENTUM_ALPHA] 華爾街交易員判決 2026-02-22
+                # 原: RS percentile >= 80 (太滯後，6442 漲 6 倍才到 Diamond)
+                # 新: Per-bar RS Momentum > 1.05 (偵測加速度，不等絕對值爬到頂)
                 rs_ok = True
-                if p.get("rs_rating_enabled", True) and rs_rating is not None:
+                if p.get("rs_momentum_enabled", True) and rs_momentum_series is not None:
+                    bar_rsm = rs_momentum_series.iloc[i] if i < len(rs_momentum_series) else np.nan
+                    if not np.isnan(bar_rsm):
+                        rs_ok = bar_rsm >= p.get("rs_momentum_min", 1.05)
+                    # If NaN (not enough data), let it pass
+                elif p.get("rs_rating_enabled", True) and rs_rating is not None:
+                    # Fallback: 傳統 RS 絕對值模式（scalar from caller）
                     rs_ok = rs_rating >= p.get("rs_rating_min", 80)
 
                 if ma_aligned and near_high and rsi_ok and vol_ok and slope_ok and rs_ok:
@@ -525,48 +626,90 @@ def compute_bold_exit(
                 "gain_pct": gain_pct,
             }
 
-    # --- 時間止損 / Momentum Lag Stop（R62 優化）---
-    # 原始邏輯：固定 N 天不動就砍
-    # R62 優化：如果 ±1% 內且量縮（vol_ma_5 < vol_ma_20），延長至 8 天，但破 MA5 立砍
-    # 注意：僅在虧損尚未達到災難停損時觸發
+    # --- Price-Time Synergy（取代 time_stop_5d — 華爾街交易員 + Architect 2026-02-22）---
+    # [HYPOTHESIS: PRICE_TIME_SYNERGY]
+    # 核心邏輯：飆股起漲初期常有 1-2 週平台整理（量縮價穩 = 籌碼吸收）
+    # 舊 time_stop_5d 被驗證為大波段殺手（6442 Capture 3.2%）
+    # 新規則：
+    #   - 5d 無 3% gain → 檢查 Price-Time Synergy 條件
+    #   - Hold if: price > entry*0.98 AND volume shrinking (vol_ma5 < vol_ma20)
+    #   - Exit if: price < entry*0.95 OR (hold > pts_max_hold AND still no gain)
+    #   - 破 MA5 時若 price < entry*0.98 → 出場（結構崩壞）
     if (p.get("time_stop_enabled", True)
             and hold_days >= p.get("time_stop_days", 5)
             and gain_pct < p.get("time_stop_min_gain", 0.03)
             and gain_pct > -p["stop_loss_pct"]):
 
-        time_stop_days = p.get("time_stop_days", 5)
-        extended_days = p.get("time_stop_extended_days", 8)
-        lag_threshold = p.get("momentum_lag_gain_threshold", 0.01)
-        mls_enabled = p.get("momentum_lag_stop_enabled", True)
+        pts_hold = p.get("pts_hold_threshold", 0.98)
+        pts_abandon = p.get("pts_abandon_threshold", 0.95)
+        pts_max = p.get("pts_max_hold_days", 20)
 
-        # Momentum Lag Stop: 量縮且報酬在 ±1% → 延長觀察
-        if (mls_enabled
-                and hold_days < extended_days
-                and abs(gain_pct) <= lag_threshold
-                and current_vol_ma5 is not None
-                and current_vol_ma20 is not None
-                and current_vol_ma20 > 0
-                and current_vol_ma5 < current_vol_ma20):
-            # 量縮中，給更多時間 — 但破 MA5 立刻出場
+        price_above_hold = current_price >= entry_price * pts_hold
+        vol_shrinking = (current_vol_ma5 is not None
+                         and current_vol_ma20 is not None
+                         and current_vol_ma20 > 0
+                         and current_vol_ma5 < current_vol_ma20)
+
+        # Case 1: Price collapsed below abandon threshold → immediate exit
+        if current_price < entry_price * pts_abandon:
+            return {
+                "should_exit": True,
+                "exit_reason": "pts_abandon",
+                "level": 0,
+                "trailing_stop_price": entry_price * pts_abandon,
+                "gain_pct": gain_pct,
+            }
+
+        # Case 2: Price holding AND volume shrinking → continue holding (PTS active)
+        if price_above_hold and vol_shrinking and hold_days < pts_max:
+            # PTS grace period — 量縮價穩，繼續觀察
+            # But if breaks MA5 while below entry → exit
             if (current_ma5 is not None
-                    and current_price < current_ma5):
+                    and current_price < current_ma5
+                    and current_price < entry_price):
                 return {
                     "should_exit": True,
-                    "exit_reason": "momentum_lag_ma5_break",
+                    "exit_reason": "pts_ma5_break",
                     "level": 0,
                     "trailing_stop_price": current_ma5,
                     "gain_pct": gain_pct,
                 }
-            # 還在延長期內，不出場
-        else:
-            # 不符合延長條件（量沒縮 or 虧超過 1% or 已達 8 天）→ 執行 time stop
+            # Still in grace period, don't exit
+            pass
+        # Case 3: Exceeded PTS max hold days → exit
+        elif hold_days >= pts_max and gain_pct < p.get("time_stop_min_gain", 0.03):
             return {
                 "should_exit": True,
-                "exit_reason": f"time_stop_{time_stop_days}d" if hold_days < extended_days else f"time_stop_{extended_days}d",
+                "exit_reason": f"pts_timeout_{pts_max}d",
                 "level": 0,
                 "trailing_stop_price": entry_price,
                 "gain_pct": gain_pct,
             }
+        # Case 4: Price not holding OR volume not shrinking → old time_stop behavior
+        elif not price_above_hold or not vol_shrinking:
+            time_stop_days = p.get("time_stop_days", 5)
+            extended_days = p.get("time_stop_extended_days", 8)
+
+            # Give a bit more time if within extended window and volume is shrinking
+            if (hold_days < extended_days
+                    and vol_shrinking
+                    and abs(gain_pct) <= p.get("momentum_lag_gain_threshold", 0.01)):
+                if (current_ma5 is not None and current_price < current_ma5):
+                    return {
+                        "should_exit": True,
+                        "exit_reason": "momentum_lag_ma5_break",
+                        "level": 0,
+                        "trailing_stop_price": current_ma5,
+                        "gain_pct": gain_pct,
+                    }
+            else:
+                return {
+                    "should_exit": True,
+                    "exit_reason": f"pts_no_synergy_{hold_days}d",
+                    "level": 0,
+                    "trailing_stop_price": entry_price,
+                    "gain_pct": gain_pct,
+                }
 
     # --- 趨勢破位：價格 < MA20 且 MA20 斜率 ≤ 0 ---
     # [PLACEHOLDER: BOLD_TREND_STOP] — 比單純 trailing stop 更有結構意義
@@ -675,7 +818,16 @@ def compute_bold_exit(
         }
 
     # --- Level 1: 獲利 < 30%（保本模式）---
-    trail_price = peak_price * (1 - p["trail_level1_pct"])
+    # [HYPOTHESIS: VOL_ADAPTIVE_EXIT_V1] Phase 4A: ATR-based wider trail
+    # 華爾街交易員判決 + Architect APPROVED 2026-02-22:
+    # 固定 15% 是「死板的物理」，ATR-based 是「動態的物理」
+    # 用 min(pct_stop, atr_stop) → 取更寬的那個，給飆股呼吸空間
+    pct_stop = peak_price * (1 - p["trail_level1_pct"])
+    if p.get("use_atr_trail", True) and current_atr > 0:
+        atr_stop = peak_price - p["atr_trail_multiplier"] * current_atr
+        trail_price = min(pct_stop, atr_stop)  # 取更寬的止損（給波動空間）
+    else:
+        trail_price = pct_stop
 
     if current_price <= trail_price:
         return {

@@ -876,8 +876,8 @@ class BacktestEngine:
         if params:
             p.update(params)
 
-        # R63: rs_rating (percentile 0-100) 需 caller 從全市場排名提供
-        # 單股回測無法自算 percentile，故未提供時不做 RS 過濾
+        # R63/R93: rs_rating (percentile) 或 rs_momentum (斜率)
+        # RS Momentum 現在在 generate_bold_signals 內 per-bar 計算
         signals_df = generate_bold_signals(df, params=p, rs_rating=rs_rating)
 
         sl_pct = p.get("stop_loss_pct", 0.15)
@@ -914,6 +914,17 @@ class BacktestEngine:
         ecf_enabled = p.get("equity_curve_filter_enabled", True)
         ecf_cap = p.get("consecutive_loss_cap", 3)
         ecf_reduction = p.get("position_reduction_factor", 0.5)
+
+        # [HYPOTHESIS: REENTRY_ENGINE] Phase 3+4B: Re-entry Engine (Pivot High Breakout)
+        # 華爾街交易員判決 2026-02-22 + Architect APPROVED
+        # 被 stop 踢出後監控 20 天，重新突破出場當天高點 → 二次進場
+        # Phase 4B: 品質過濾 — cooldown + volume + price distance
+        reentry_enabled = p.get("reentry_enabled", True)
+        reentry_window = p.get("reentry_window_days", 20)
+        reentry_cooldown = p.get("reentry_cooldown_days", 3)
+        reentry_vol_ratio = p.get("reentry_volume_ratio", 1.5)
+        reentry_min_price = p.get("reentry_min_price_pct", 0.02)
+        reentry_watchlist: dict = {}  # {exit_date: {high_to_reclaim, exit_price, days_remaining, cooldown}}
 
         _has_high = "high" in signals_df.columns
         _has_low = "low" in signals_df.columns
@@ -996,6 +1007,15 @@ class BacktestEngine:
                         consecutive_loss_count = 0
                     else:
                         consecutive_loss_count += 1
+                # [HYPOTHESIS: REENTRY_ENGINE] Add to re-entry watchlist
+                # Track the high on exit day — if price reclaims this level, re-enter
+                if reentry_enabled and exit_reason not in ("end_of_period", "disaster_stop_15pct"):
+                    reentry_watchlist[date] = {
+                        "high_to_reclaim": high,  # Price must exceed exit-day high
+                        "exit_price": exit_price,
+                        "days_remaining": reentry_window,
+                        "cooldown": reentry_cooldown,  # Phase 4B: 冷卻期
+                    }
                 position, current_trade, hold_days, peak_price = 0, None, 0, 0.0
                 entry_low, prev_day_low = None, None  # Phase 1：清除進場日資訊
 
@@ -1004,8 +1024,39 @@ class BacktestEngine:
 
             equity_history.append({"date": date, "equity": cash + position * price})
 
+            # ===== Re-entry Watchlist decay =====
+            expired_reentries = []
+            for exit_dt, info in reentry_watchlist.items():
+                info["days_remaining"] -= 1
+                info["cooldown"] = max(0, info.get("cooldown", 0) - 1)
+                if info["days_remaining"] <= 0:
+                    expired_reentries.append(exit_dt)
+            for dt in expired_reentries:
+                del reentry_watchlist[dt]
+
+            # ===== Re-entry check: Pivot High Breakout + Phase 4B Quality Filters =====
+            # [HYPOTHESIS: NOISE_REDUCTION_FILTER]
+            # 3 filters: cooldown (3d) + volume (1.5x vol_ma5) + price distance (2%)
+            reentry_trigger = False
+            if reentry_enabled and position == 0 and reentry_watchlist:
+                _bar_vol = row.volume if _has_volume else 0
+                for exit_dt, info in list(reentry_watchlist.items()):
+                    if high >= info["high_to_reclaim"]:
+                        # Phase 4B Filter 1: Cooldown period
+                        if info.get("cooldown", 0) > 0:
+                            continue
+                        # Phase 4B Filter 2: Price distance — must be > exit_price * (1 + min_pct)
+                        if price < info["exit_price"] * (1 + reentry_min_price):
+                            continue
+                        # Phase 4B Filter 3: Volume confirmation — bar vol > vol_ma5 * ratio
+                        if _vol_ma5 is not None and _vol_ma5 > 0 and _bar_vol < _vol_ma5 * reentry_vol_ratio:
+                            continue
+                        reentry_trigger = True
+                        del reentry_watchlist[exit_dt]
+                        break
+
             # ===== 進場 =====
-            if signal == "BUY" and position == 0:
+            if (signal == "BUY" or reentry_trigger) and position == 0:
                 volume = row.volume if _has_volume else 0
                 # R62 Equity Curve Filter：連續虧損時減半倉位
                 effective_max_pos = max_pos_pct
