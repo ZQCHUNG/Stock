@@ -25,8 +25,9 @@ Stock/
 │   ├── strategy_v4.py        # V4 趨勢動量策略 (main)
 │   ├── strategy_v5.py        # V5 均值回歸策略
 │   ├── strategy_adaptive.py  # Adaptive 混合策略
-│   ├── strategy_bold.py      # Bold 大膽策略 (R66)
+│   ├── strategy_bold.py      # Bold 大膽策略 (R66, Phase 10 PIT RS)
 │   ├── strategy_aggressive.py # Aggressive 真大膽 — WarriorExitEngine (R88)
+│   ├── pit_rs.py              # Point-in-Time RS Engine (1939 stocks, 664 dates) (R93)
 │   ├── scoring.py            # SQS 信號品質評分 (8 dimensions)
 │   ├── rs_scanner.py         # Full-market RS Scanner (927 stocks) (R83)
 │   ├── sector_rs.py          # Sector RS + Peer Alpha + Cluster Risk (R84)
@@ -252,6 +253,26 @@ python -m pytest tests/ -q
 | R88.8 | Aggressive Mode — WarriorExitEngine (ATR 3x Trail + Pyramiding + Regime Gate) | Done |
 | R89 | Market Guard — 全局斷路器 (ADL + Breadth + Gap Detection) | Done |
 | R90 | Pattern Recognition Phase 2-6 — Winner DNA Full Pipeline (Label → Cluster → Perf DB → Matcher → UI) | Done |
+| R93 Phase 10 | **Point-in-Time RS Engine** — eliminates look-ahead bias (1939 stocks, 664 dates, WR 37%→46%) | Done |
+
+### Point-in-Time RS Engine (R93 Phase 10, Gemini R10-R12 APPROVED)
+
+消除 RS 前瞻偏差的核心引擎。靜態 RS 用 2026 年數據回看 2024 年進場決定 = 作弊。
+
+**驗證結果（24 檔，3 年回測）：**
+
+| Config | Active | Trades | Invested% | Win Rate |
+|--------|--------|--------|-----------|----------|
+| Baseline (no RS) | 20 | 114 | +511.4% | 41% |
+| Static RS (BIASED) | 15 | 68 | +421.5% | 37% |
+| **PIT RS (CORRECT)** | **14** | **52** | **+207.9%** | **46%** |
+
+- 6442 光聖 PIT RS=24 at 2024-01-26（靜態 98.6）→ PIT 正確擋掉 +97.1% trade
+- 6139 亞翔 PIT RS=97-99 → PIT 正確放行（真正強勢股）
+- `analysis/pit_rs.py`: yf.download() 批量下載，1943 stocks 63 秒
+- 整合 strategy_bold.py (per-bar PIT RS) + backtest/engine.py (pass-through)
+- float32 parquet cache: `data/pit_rs_matrix.parquet`, `pit_rs_percentile.parquet`
+- Gemini R12: "我寧願要 200%/46% 的穩定系統，也不要 500%/41% 的雲霄飛車"
 
 ### RS Rating & Sector Context (R83-R84)
 
