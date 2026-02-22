@@ -43,6 +43,10 @@ onMounted(async () => {
     }
   }
   if (allBuyStocks.length) loadBatchSqs(allBuyStocks)
+
+  // R90: Load DNA matches for high-confidence picks only (5-10 stocks, manageable)
+  const hcCodes = (rec.alphaHunter?.high_confidence || []).map((s: any) => s.code)
+  if (hcCodes.length) loadDnaMatches(hcCodes)
 })
 
 const watchlistCodes = computed(() => new Set(wl.watchlist.map(s => s.code)))
@@ -144,6 +148,41 @@ function sqsColor(sqs: number): string {
   return '#999'
 }
 
+// DNA Match map (R90: Winner DNA badges)
+const dnaMap = ref<Map<string, any>>(new Map())
+
+async function loadDnaMatches(codes: string[]) {
+  if (!codes.length) return
+  const promises = codes.map(async (code) => {
+    try {
+      const data = await analysisApi.winnerDnaMatch(code)
+      if (data && data.best_cluster_id !== undefined) {
+        dnaMap.value.set(code, data)
+      }
+    } catch { /* DNA data optional */ }
+  })
+  await Promise.allSettled(promises)
+  // Trigger reactivity
+  dnaMap.value = new Map(dnaMap.value)
+}
+
+function getDna(code: string): any { return dnaMap.value.get(code) }
+function dnaLabel(data: any): string {
+  if (!data || data.status === 'no_library') return ''
+  const pct = Math.round((data.final_score || 0) * 100)
+  if (data.failed_pattern_warning) return `\u26A0 ${pct}%`
+  if (data.is_super_stock_potential) return `\u2B50 ${pct}%`
+  if (data.is_match) return `\uD83E\uDDEC ${pct}%`
+  return ''
+}
+function dnaColor(data: any): string {
+  if (!data) return '#94a3b8'
+  if (data.failed_pattern_warning) return '#ef4444'
+  if (data.is_super_stock_potential) return '#f59e0b'
+  if (data.is_match) return '#22c55e'
+  return '#94a3b8'
+}
+
 // Alpha hunter data
 const alphaData = computed(() => rec.alphaHunter)
 // Sort high confidence by SQS (Gemini R42: SQS-Ledger replaces R40 regime sort)
@@ -233,6 +272,25 @@ const holdColumns: DataTableColumns = [
                   >
                     C={{ stock.confidence.toFixed(2) }}
                   </NTag>
+                  <!-- R90: DNA Match badge -->
+                  <NTooltip v-if="getDna(stock.code) && dnaLabel(getDna(stock.code))" trigger="hover">
+                    <template #trigger>
+                      <NTag
+                        :color="{ textColor: '#fff', color: dnaColor(getDna(stock.code)), borderColor: dnaColor(getDna(stock.code)) }"
+                        size="small"
+                        style="font-weight: 700"
+                      >
+                        {{ dnaLabel(getDna(stock.code)) }}
+                      </NTag>
+                    </template>
+                    <div style="max-width: 200px; font-size: 12px">
+                      <div>DNA {{ getDna(stock.code).confidence || 'Unknown' }}</div>
+                      <div>Cluster #{{ getDna(stock.code).best_cluster_id }}</div>
+                      <div v-if="getDna(stock.code).cluster_profile?.top_features?.length">
+                        Top: {{ getDna(stock.code).cluster_profile.top_features.slice(0, 3).map((f: any) => f.feature || f.name).join(', ') }}
+                      </div>
+                    </div>
+                  </NTooltip>
                 </NSpace>
               </div>
               <!-- Maturity progress bar -->

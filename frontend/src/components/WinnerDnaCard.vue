@@ -140,6 +140,14 @@ const neighborData = computed(() => {
 const dtw60 = computed(() => props.data?.dtw_score_60d || 0)
 const dtw20 = computed(() => props.data?.dtw_score_20d || 0)
 const multiAgree = computed(() => props.data?.multiscale_agreement === true)
+
+// Divergence Warning (Trader P1: Stage 1/2 divergence)
+// If cosine similarity > 0.8 but DTW distance > 5, features match but shape doesn't
+const hasDivergence = computed(() => {
+  const cosSim = props.data?.cosine_similarity || 0
+  const dtwDist = Math.max(dtw60.value, dtw20.value)
+  return cosSim > 0.8 && dtwDist > 5
+})
 </script>
 
 <template>
@@ -175,6 +183,14 @@ const multiAgree = computed(() => props.data?.multiscale_agreement === true)
     >
       {{ '\u26A0' }} Failed Pattern Warning: {{ (data.failed_pattern_ratio * 100).toFixed(0) }}% of nearest neighbors are losers.
       Proceed with extreme caution.
+    </div>
+
+    <!-- Divergence Warning (Trader P1: Stage 1 vs Stage 2 mismatch) -->
+    <div
+      v-if="hasDivergence"
+      style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; color: #b45309; font-size: 13px; font-weight: 600"
+    >
+      {{ '\u26A0' }} Divergence: Data features match (cosine {{ ((data.cosine_similarity || 0) * 100).toFixed(0) }}%) but price shape diverges (DTW {{ Math.max(dtw60, dtw20).toFixed(1) }}). Proceed with caution.
     </div>
 
     <!-- Score + Match Info -->
