@@ -99,7 +99,8 @@ class TestComputeBoldExit:
             current_atr=3.0, hold_days=30,
             params={"time_stop_enabled": False},
         )
-        # peak=115, trail at 115*0.85=97.75, current=96 < 97.75
+        # peak=115, pct_trail=115*0.92=105.8, atr_trail=115-9=106 → trail=105.8
+        # current=96 < 105.8
         assert result["should_exit"] is True
         assert result["exit_reason"] == "trail_level1"
 
@@ -126,12 +127,12 @@ class TestComputeBoldExit:
     def test_level2_locks_profit(self):
         """Level 2 should lock in minimum profit."""
         result = compute_bold_exit(
-            entry_price=100, current_price=135, peak_price=155,
+            entry_price=100, current_price=145, peak_price=155,
             current_atr=3.0, hold_days=30
         )
-        # gain=35%, in Level 2
-        # trail: max(155*0.85=131.75, 100*1.10=110) = 131.75
-        # current 135 > 131.75 → hold
+        # gain=45%, in Level 2
+        # trail: max(155*0.92=142.6, 100*1.10=110) = 142.6  (trail_level1_pct=0.08)
+        # current 145 > 142.6 → hold
         assert result["should_exit"] is False
         assert result["level"] == 2
 
@@ -157,8 +158,8 @@ class TestComputeBoldExit:
         )
         # gain=45% but peak was 200 → was Level 3
         # Actually gain_pct = 0.45, < 0.50, so Level 2 now
-        # trail: max(200*0.85=170, 110) = 170
-        # current 145 < 170 → exit
+        # trail: max(200*0.92=184, 110) = 184  (trail_level1_pct=0.08)
+        # current 145 < 184 → exit
         assert result["should_exit"] is True
 
     def test_level3_atr_trail(self):

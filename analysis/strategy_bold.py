@@ -135,7 +135,7 @@ STRATEGY_BOLD_PARAMS = {
     # 「Trade #8 抓到了 473，但股價去了 1985」— 超強趨勢需要更寬的出場
     # 收盤跌破 MA10 才出場（不看盤中），強迫系統在拋物線中留在大部隊
     "parabolic_hold_enabled": True,          # 啟用 Level 4 拋物線持倉
-    "parabolic_gain_trigger": 0.20,          # [PLACEHOLDER: PARABOLIC_GAIN_TRIGGER = 0.20] R8: 獲利墊底 20% 才啟動
+    "parabolic_gain_trigger": 0.10,          # [VALIDATED: R14.8 Group 4, n=200, tl1=0.08/pg=0.10 best OOS] 獲利 10% 啟動拋物線監控
     "parabolic_ma_period": 10,               # [PLACEHOLDER: PARABOLIC_MA = 10] 使用 MA10
     # Phase 9: Parabolic Slope Filter (Trader R9 + Architect APPROVED)
     # MA5 平緩時退回 ATR trail，避免盤整區被 MA10 無謂洗出
@@ -160,10 +160,10 @@ STRATEGY_BOLD_PARAMS = {
     "ma20_slope_lookback": 5,         # MA20 斜率計算窗口（天）
 
     # --- R62 Momentum Lag Stop（取代固定 Time Stop — Gemini + Architect Critic 共識）---
-    # [PLACEHOLDER: BOLD_MLS_001] 延長期上限天數
-    "time_stop_extended_days": 8,     # [NON-FUNCTIONAL: R14 Group 2] Logic masked by PTS Case 4 contradiction
-    # [PLACEHOLDER: BOLD_MLS_002] 量縮判定增益門檻
-    "momentum_lag_gain_threshold": 0.01,  # ±1% 內算「不動」
+    # [NON-FUNCTIONAL: R14 Group 2] Logic masked by PTS Case 4 contradiction
+    "time_stop_extended_days": 8,
+    # [DELETED: R14.7 CTO mandate] Dead code — PTS Case 4 vol_shrinking contradiction
+    "momentum_lag_gain_threshold": 0.01,
     "momentum_lag_stop_enabled": True,    # 啟用 Momentum Lag Stop
 
     # --- R62/R63 RS_Rating 相對強度過濾（O'Neil RS — Gemini + Architect Critic 共識）---
@@ -199,7 +199,7 @@ STRATEGY_BOLD_PARAMS = {
     "stop_loss_pct": 0.15,            # 絕對災難停損 -15%
     "min_hold_days": 10,              # 最短持有天數
     # Level 1: 獲利 < 30%
-    "trail_level1_pct": 0.15,         # trailing -15%
+    "trail_level1_pct": 0.08,         # [VALIDATED: R14.8 Group 4, n=200, plateau confirmed] trailing -8%
     # Level 2: 獲利 30-50%
     "trail_level2_threshold": 0.30,   # 進入 Level 2 的獲利門檻
     "trail_level2_floor": 0.10,       # 鎖住成本 +10% 以上（保底）
@@ -990,31 +990,17 @@ def compute_bold_exit(
                 "trailing_stop_price": entry_price,
                 "gain_pct": gain_pct,
             }
-        # Case 4: Price not holding OR volume not shrinking → old time_stop behavior
+        # Case 4: Price not holding OR volume not shrinking → exit
+        # [CLEANED: R14.8] Removed contradictory extended grace logic (LEGACY_LOGIC_ERROR)
+        # Old code had vol_shrinking check inside Case 4 which requires !vol_shrinking → dead code
         elif not price_above_hold or not vol_shrinking:
-            time_stop_days = p.get("time_stop_days", 5)
-            extended_days = p.get("time_stop_extended_days", 8)
-
-            # Give a bit more time if within extended window and volume is shrinking
-            if (hold_days < extended_days
-                    and vol_shrinking
-                    and abs(gain_pct) <= p.get("momentum_lag_gain_threshold", 0.01)):
-                if (current_ma5 is not None and current_price < current_ma5):
-                    return {
-                        "should_exit": True,
-                        "exit_reason": "momentum_lag_ma5_break",
-                        "level": 0,
-                        "trailing_stop_price": current_ma5,
-                        "gain_pct": gain_pct,
-                    }
-            else:
-                return {
-                    "should_exit": True,
-                    "exit_reason": f"pts_no_synergy_{hold_days}d",
-                    "level": 0,
-                    "trailing_stop_price": entry_price,
-                    "gain_pct": gain_pct,
-                }
+            return {
+                "should_exit": True,
+                "exit_reason": f"pts_no_synergy_{hold_days}d",
+                "level": 0,
+                "trailing_stop_price": entry_price,
+                "gain_pct": gain_pct,
+            }
 
     # --- 趨勢破位：價格 < MA20 且 MA20 斜率 ≤ 0 ---
     # [PLACEHOLDER: BOLD_TREND_STOP] — 比單純 trailing stop 更有結構意義
@@ -1063,13 +1049,14 @@ def compute_bold_exit(
             "gain_pct": gain_pct,
         }
 
-    # --- [PLACEHOLDER: PARABOLIC_HOLD] Phase 7B: Parabolic Hold (Level 4 Trail) ---
-    # 華爾街交易員 R6 + Architect Critic APPROVED 2026-02-22
-    # 「Trade #8 在 473 出場，股價去了 1985」— 超強趨勢需要 MA10 close 出場法
-    # 條件: gain >= 30% AND close < MA10 (收盤價，非盤中)
-    # 比 ATR trail 更寬鬆：拋物線中 stock 可能距 MA10 很遠，ATR trail 會過早觸發
-    # Phase 9: Parabolic Slope Filter — only activate MA10 exit when MA5 is steep
-    # If MA5 slope is flat (< threshold), fall back to ATR trail (avoid consolidation washout)
+    # --- [VALIDATED: R14.8 Option C] Parabolic Hold — Global Monitor (pre-Level) ---
+    # CTO R14.7 mandate: Extract parabolic as independent "global monitor"
+    # Before: parabolic only checked inside Level 2+ (gain>=30%), making trigger param useless
+    # After: parabolic activates for ANY gain >= parabolic_gain_trigger (independent of Level)
+    # When active: MA10 close exit replaces ATR/fixed trail (lets big wins run further)
+    #
+    # Phase 9: Parabolic Slope Filter — only activate when MA5 is steep
+    # If MA5 slope is flat (< threshold), fall back to normal trail (avoid consolidation washout)
     _slope_ok = True
     if p.get("parabolic_slope_filter", True) and ma5_slope is not None:
         if not np.isnan(ma5_slope):
@@ -1079,6 +1066,32 @@ def compute_bold_exit(
                     and current_ma10 is not None
                     and not np.isnan(current_ma10)
                     and _slope_ok)
+
+    parabolic_trigger = p.get("parabolic_gain_trigger", 0.20)
+    if parabolic_on and gain_pct >= parabolic_trigger:
+        # Parabolic Hold active — use MA10 as trailing reference
+        ma10_stop = current_ma10
+        # Floor protection: never give back below entry + trail_level2_floor (10%)
+        floor_price = entry_price * (1 + p.get("trail_level2_floor", 0.10))
+        parabolic_trail = max(ma10_stop, floor_price)
+
+        # If close breaks MA10, exit (parabolic trend broken)
+        if current_price < ma10_stop:
+            return {
+                "should_exit": True,
+                "exit_reason": "parabolic_ma10_break",
+                "level": 4,
+                "trailing_stop_price": ma10_stop,
+                "gain_pct": gain_pct,
+            }
+        # MA10 holds → stay in trade (trust the trend, override ATR/fixed trail)
+        return {
+            "should_exit": False,
+            "exit_reason": "",
+            "level": 4,
+            "trailing_stop_price": parabolic_trail,
+            "gain_pct": gain_pct,
+        }
 
     # --- Level 3: 獲利 > 50%（信念模式）---
     if gain_pct >= p["trail_level3_threshold"]:
@@ -1099,33 +1112,6 @@ def compute_bold_exit(
         # Level 2 保底（確保不虧到成本 +10% 以下）
         floor_price = entry_price * (1 + p["trail_level2_floor"])
         trail_price = max(trail_price, floor_price)
-
-        # Phase 7B: Parabolic Hold — 用 MA10 close 取代 ATR/固定 trail
-        # 在拋物線走勢中，MA10 close 比 ATR trail 更能跟隨趨勢
-        # 只在收盤價判定（Architect: is_bar_closed = True by EOD），不看盤中
-        if parabolic_on and gain_pct >= p.get("parabolic_gain_trigger", 0.30):
-            # Use MA10 as the trailing reference instead of ATR trail
-            # BUT keep the ATR trail as safety net (take the wider of the two)
-            ma10_stop = current_ma10
-            parabolic_trail = max(ma10_stop, floor_price)  # MA10 + floor protection
-            # If close breaks MA10, exit (parabolic trend broken)
-            if current_price < ma10_stop:
-                return {
-                    "should_exit": True,
-                    "exit_reason": "parabolic_ma10_break",
-                    "level": 4,
-                    "trailing_stop_price": ma10_stop,
-                    "gain_pct": gain_pct,
-                }
-            # If ATR trail triggers but MA10 holds → stay (trust the trend)
-            # Only exit if BOTH MA10 breaks AND ATR trail triggers
-            return {
-                "should_exit": False,
-                "exit_reason": "",
-                "level": 4,
-                "trailing_stop_price": parabolic_trail,
-                "gain_pct": gain_pct,
-            }
 
         if current_price <= trail_price:
             reason = "trail_level3_regime" if regime_bullish else "trail_level3"
@@ -1149,26 +1135,6 @@ def compute_bold_exit(
         floor_price = entry_price * (1 + p["trail_level2_floor"])
         trail_price = peak_price * (1 - p["trail_level1_pct"])
         trail_price = max(trail_price, floor_price)
-
-        # Phase 7B: Parabolic Hold in Level 2 — same MA10 close logic
-        if parabolic_on and gain_pct >= p.get("parabolic_gain_trigger", 0.30):
-            ma10_stop = current_ma10
-            if current_price < ma10_stop:
-                return {
-                    "should_exit": True,
-                    "exit_reason": "parabolic_ma10_break",
-                    "level": 4,
-                    "trailing_stop_price": ma10_stop,
-                    "gain_pct": gain_pct,
-                }
-            parabolic_trail = max(ma10_stop, floor_price)
-            return {
-                "should_exit": False,
-                "exit_reason": "",
-                "level": 4,
-                "trailing_stop_price": parabolic_trail,
-                "gain_pct": gain_pct,
-            }
 
         if current_price <= trail_price:
             return {

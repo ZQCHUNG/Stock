@@ -105,7 +105,7 @@ Stock/
 - C) Volume Ramp: 小型股發現（30 張門檻 + 量能爬坡 2x）
 
 **出場 (Step-up Buffer)**:
-- Level 1 (< 30% gain): trailing -15%
+- Level 1 (< 30% gain): trailing -8% [VALIDATED R14.8]
 - Level 2 (30-50% gain): 鎖住成本 +10%
 - Level 3 (> 50% gain): trailing -25%/-30%/-35%
 - Ultra-Wide Conviction: MA200 上升時 -35% trail, gain > 100% + 200d 跳過 max_hold
@@ -256,6 +256,7 @@ python -m pytest tests/ -q
 | R93 Phase 10 | **Point-in-Time RS Engine** — eliminates look-ahead bias (1939 stocks, 664 dates, WR 37%→46%) | Done |
 | R93 Phase 11 | **VCP Hard Gate + RS ROC Gate + RS Drop Alert** — RS Decile validated (200 stocks, 928 trades) | Done |
 | R14 Group 1-2 | **Parameter Sweep** — rs_hard=55, structural_stop=False, clc=3 VALIDATED (200 stocks, 32 combos) | Done |
+| R14 Group 3-4 | **Parabolic Refactor + Exit Params** — tl1=0.08, pg=0.10 VALIDATED; Phase A ABORTED → Entry Audit | Done |
 
 ### R14 Parameter Sweep — Bold PLACEHOLDER Cleanup (Gemini R14.1-R14.5)
 
@@ -282,7 +283,21 @@ python -m pytest tests/ -q
 - Single-stock Calmar 0.34 = Professional Grade; 0.8 target is portfolio-level
 - Edge Ratio 1.72 > 1.2 = system has edge, outlier-robust (ExpEx2% > 0)
 
-**Group 3 獲利保護組 (PENDING):** parabolic_gain × momentum_lag
+**Group 3 獲利保護組 (COMPLETE — Architecture Bugs Found):**
+- `parabolic_gain_trigger` — ALL 12 combos identical (parabolic only checked inside Level 2+, making trigger useless)
+- `momentum_lag_gain_threshold` [DELETED] — PTS Case 4 vol_shrinking contradiction = dead code
+- **R14.8 Fix**: Parabolic Option C refactor — extracted as pre-Level "global monitor" (CTO APPROVED)
+
+**Group 4 出場核心組 (COMPLETE — CTO R14.8 VALIDATED):**
+- `trail_level1_pct=0.08` [VALIDATED] — plateau confirmed, best OOS robustness
+- `parabolic_gain_trigger=0.10` [VALIDATED] — differentiation confirmed post-refactor
+- 12 combos (4×3), IS Calmar 3.55-4.32, ALL OOS negative (-0.28 to -0.34)
+- CTO REJECTED tl1=0.12 (Sharp Peak 17.9%), chose tl1=0.08 (most robust)
+
+**Phase A ABORTED — CTO Pivot to Entry Quality Audit:**
+- OOS Calmar negative across ALL param combos → structural Entry problem, not Exit
+- CTO: "Exit 不能修復 Entry 的錯誤" — pivot to VCP Failure Mode Analysis
+- Next: Analyze 20 failed OOS breakouts (RS Slope, Volume Quality, Market Correlation)
 
 ### Phase 11: VCP Hard Gate + RS ROC + RS Drop Alert (R93, Gemini R13 + Architect APPROVED)
 
