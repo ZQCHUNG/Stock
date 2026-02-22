@@ -48,7 +48,7 @@ Stock/
 │   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
 ├── backtest/
 │   ├── engine.py             # Backtest engine (v4/v5/bold/aggressive/portfolio)
-│   ├── portfolio_runner.py   # Portfolio Backtester — 108 stocks day-by-day (R14.14)
+│   ├── portfolio_runner.py   # Portfolio Backtester — 108 stocks + 3-Layer Defense (R14.14-16)
 │   ├── risk_manager.py       # VaR + Sizing + Concentration + Circuit Breaker (R60/R80)
 │   ├── sqs_backtest.py       # SQS effectiveness validation
 │   └── bold_parameter_sweep.py  # Parameter sensitivity analysis (R67)
@@ -260,6 +260,34 @@ python -m pytest tests/ -q
 | R14 Group 3-4 | **Parabolic Refactor + Exit Params** — tl1=0.08, pg=0.10 VALIDATED; Phase A ABORTED → Entry Audit | Done |
 | R14.13 | **VCP Safety Valve + Dynamic PTS** — Entry quality audit complete; PF=4.67, WR=46.7%, 45 trades (CTO APPROVED) | Done |
 | R14.14 | **Phase B: Portfolio Backtester** — 108 stocks, Vol-Adjusted Sizing, Config C APPROVED (CTO R14.14v2) | Done |
+| R14.15-16 | **3-Layer Risk Defense** — Sector Cap + Corr Heat + Global Brake, Config B VALIDATED (Zero-cost Insurance) | Done |
+
+### R14.15-16: 3-Layer Risk Defense (CTO VALIDATED — Config B Locked)
+
+108 檔 Portfolio-level 風險防禦系統。三層防護：L1 Sector Cap + Correlation Heat Penalty + Global Brake。
+
+**Config B (Production — CTO VALIDATED as "Zero-cost Insurance"):**
+- Layer 1: L1 Sector Exposure Cap 30% + Soft Scaling 0.5^(n-1)
+- Layer 2: 20D Rolling Corr > 0.7 → Rank Penalty ×0.8 (with Vol Filter 1.2×)
+- Layer 3: Global Brake — >50% holdings pairwise corr > 0.75 → stop entries
+
+**4-Way Comparison (R14.15 + R14.16 CTO Load Test):**
+
+| Config | Period | Return | MaxDD | Sharpe | Calmar | Trades |
+|--------|--------|--------|-------|--------|--------|--------|
+| A: Baseline (no defense) | OOS | +14.48% | -2.95% | 2.04 | 4.53 | 83 |
+| A: Baseline | Stress | -3.98% | -4.96% | -2.28 | -0.82 | 52 |
+| **B: Config B (LOCKED)** | **OOS** | **+13.88%** | **-2.28%** | **2.09** | **5.61** | **83** |
+| **B: Config B** | **Stress** | **-3.63%** | **-4.15%** | **-2.35** | **-0.90** | **50** |
+| C: L2 20% + corr 0.55 | IS | +10.16% | -5.86% | 1.06 | 0.89 | 185 |
+| D: L2 15% + corr 0.55 | IS | +10.16% | -5.86% | 1.06 | 0.89 | 185 |
+
+**CTO Key Rulings:**
+- Config B = "Zero-cost Insurance" — OOS Calmar 4.53→5.61, MaxDD -2.95%→-2.28%, return only -0.60%
+- Config C/D REJECTED — corr 0.55 causes IS -2.69% damage (punishes normal market co-movement)
+- L1/L2 Sector Caps never bind naturally (14 L1 sectors + avg 3.6 positions = auto-diversified)
+- Defense is "air filter" — invisible normally, blocks extreme cluster crashes
+- **Defense Phase COMPLETE** — CTO: "再刷 Defense 參數已無邊際效益"
 
 ### Phase B: Portfolio Backtester (R14.14, CTO R14.14v2 APPROVED)
 

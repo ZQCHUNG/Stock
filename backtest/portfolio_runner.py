@@ -1,10 +1,15 @@
 """Portfolio Backtester — Day-by-day multi-stock simulation
 
-CTO R14.13 Phase B: Portfolio-level backtest with:
+CTO R14.14v2 Phase B + R14.15/R14.16: Portfolio-level backtest with:
 - Selection Priority: RS×0.5 + SQS×0.3 + RS_Momentum×0.2
 - Position Sizing: Equal Weight (baseline) or Volatility-Adjusted Fixed Risk
 - TAIEX Guard: 3-tier max positions based on MA200
-- Crowdedness: Max 2 positions per sub-sector
+- Vol Breakout Gate: breakout volume > MA5 × 1.5
+- R14.15/R14.16 3-Layer Risk Defense (CTO + Architect APPROVED):
+  - L1 Sector Exposure Cap + L2 Sub-sector Cap (CTO R14.16)
+  - L1 Soft Scaling: 0.5^(n-1) when L1 sector count > threshold
+  - Portfolio Heat: 20D rolling corr → rank penalty when corr > threshold
+  - Global Brake: stop entries when >50% holdings corr > threshold
 - Hard Floor: ADV < 100 lots → excluded
 
 Gemini conversation: ce94f8a78bb93401
@@ -21,6 +26,7 @@ from analysis.strategy_bold import (
     STRATEGY_BOLD_PARAMS,
 )
 from analysis.rs_scanner import compute_rs_ratio
+from data.sector_mapping import get_stock_sector
 
 warnings.filterwarnings("ignore")
 
@@ -76,6 +82,29 @@ PORTFOLIO_PARAMS = {
     # Volume Breakout Gate (CTO R14.14v2 — anti pts_abandon)
     "vol_breakout_gate_enabled": True,
     "vol_breakout_gate_ratio": 1.5,     # Breakout day volume > MA5_Vol × 1.5
+
+    # === R14.15/R14.16 3-Layer Risk Defense (CTO VALIDATED — Config B locked) ===
+    # [VALIDATED: Zero-cost insurance — does not degrade normal performance]
+    # Layer 1: Sector Exposure Control (L1 + L2)
+    "sector_risk_enabled": True,
+    "sector_l1_exposure_cap": 0.30,     # [VALIDATED R14.16] L1 cap (safety net, rarely triggers)
+    "sector_l2_exposure_cap": 0.20,     # [CTO R14.16] L2 cap — dormant with avg 3-4 positions
+    "sector_l2_enabled": False,         # [CTO R14.16 RULING] Disabled — not binding at current scale
+    "sector_soft_scaling_threshold": 2, # [VALIDATED] Start scaling at >2 stocks in same L1 sector
+    "sector_soft_scaling_factor": 0.5,  # [VALIDATED] Size_adj = Size × 0.5^(n-1)
+
+    # Layer 2: Portfolio Heat (Correlation-based ranking penalty)
+    "corr_heat_enabled": True,
+    "corr_rolling_window": 20,          # [CTO VALIDATED] 20D rolling correlation
+    "corr_rank_penalty_threshold": 0.7, # [VALIDATED R14.16] 0.7 beats 0.55 (IS -2.69% damage at 0.55)
+    "corr_rank_penalty_factor": 0.8,    # [VALIDATED] Rank × 0.8 when corr > 0.7
+    "corr_vol_filter_enabled": True,    # [VALIDATED] Vol filter prevents noise-based penalties
+    "corr_vol_filter_ratio": 1.2,       # Only count corr when stock 20D vol > 1.2× market vol
+
+    # Layer 3: Global Brake (Stop all entries when portfolio too correlated)
+    "global_brake_enabled": True,
+    "global_brake_corr_threshold": 0.75,  # [VALIDATED R14.16] 0.75 (0.65 tested, no OOS benefit)
+    "global_brake_pct_threshold": 0.50,   # [VALIDATED] >50% holdings above corr threshold
 
     # Transaction costs (matching existing TRANSACTION_COST = 0.00785)
     "commission_rate": 0.001425,    # 0.1425% per side
@@ -220,6 +249,30 @@ class PortfolioBacktester:
         self.p = {**PORTFOLIO_PARAMS, **(params or {})}
         self.bold_params = {**STRATEGY_BOLD_PARAMS}
 
+    def _compute_pairwise_corr(self, code_a: str, code_b: str,
+                                day_idx: int, window: int = 20) -> float:
+        """Compute 20D rolling correlation between two stocks.
+
+        Returns correlation value or 0.0 if insufficient data.
+        """
+        rm = self._returns_matrix
+        if code_a not in rm or code_b not in rm:
+            return 0.0
+        dates = self._all_dates_list
+        window_dates = dates[max(0, day_idx - window):day_idx]
+        rets_a = [rm[code_a].get(d, np.nan) for d in window_dates]
+        rets_b = [rm[code_b].get(d, np.nan) for d in window_dates]
+        # Filter out NaN pairs
+        valid = [(a, b) for a, b in zip(rets_a, rets_b)
+                 if not (np.isnan(a) or np.isnan(b))]
+        if len(valid) < window // 2:
+            return 0.0
+        arr_a = np.array([v[0] for v in valid])
+        arr_b = np.array([v[1] for v in valid])
+        if arr_a.std() == 0 or arr_b.std() == 0:
+            return 0.0
+        return float(np.corrcoef(arr_a, arr_b)[0, 1])
+
     def run(
         self,
         stock_data: dict[str, pd.DataFrame],
@@ -323,7 +376,63 @@ class PortfolioBacktester:
             for rank_idx, c in enumerate(sorted_codes):
                 rs_rank_cache[date_str][c] = round(rank_idx / (n - 1) * 100, 1) if n > 1 else 50.0
 
-        # Step 5: Day-by-day simulation
+        # Step 5: Pre-compute 20D rolling correlation data (R14.15 Layer 2+3)
+        corr_enabled = p.get("corr_heat_enabled", True) or p.get("global_brake_enabled", True)
+        corr_window = p.get("corr_rolling_window", 20)
+        corr_matrix_cache = {}  # {date_str: {(code_a, code_b): corr_value}}
+        stock_vol_cache = {}    # {date_str: {code: 20d_volatility}}
+        market_vol_cache = {}   # {date_str: float}
+
+        if corr_enabled and len(signals_cache) > 1:
+            print("  Pre-computing 20D rolling correlations...")
+            # Build aligned close price matrix for correlation
+            # Use a subset of dates (only trading dates in our range)
+            close_matrix = {}
+            for code, df in signals_cache.items():
+                close_series = {}
+                for d_str in all_dates:
+                    if d_str in stock_date_sets.get(code, set()):
+                        idx = stock_date_to_idx[code][d_str]
+                        close_series[d_str] = float(df["close"].iloc[idx])
+                close_matrix[code] = close_series
+
+            # Compute daily returns for each stock
+            returns_matrix = {}
+            for code, prices in close_matrix.items():
+                dates_sorted = sorted(prices.keys())
+                rets = {}
+                for i in range(1, len(dates_sorted)):
+                    d = dates_sorted[i]
+                    d_prev = dates_sorted[i - 1]
+                    if prices[d_prev] > 0:
+                        rets[d] = prices[d] / prices[d_prev] - 1.0
+                returns_matrix[code] = rets
+
+            # Pre-compute 20D volatility per stock and market average
+            all_codes_list = list(returns_matrix.keys())
+            for day_i, date_str_loop in enumerate(all_dates):
+                if day_i < corr_window:
+                    continue
+                window_dates = all_dates[max(0, day_i - corr_window):day_i]
+                stock_vols = {}
+                for code in all_codes_list:
+                    window_rets = [returns_matrix[code].get(d, 0.0) for d in window_dates
+                                   if d in returns_matrix[code]]
+                    if len(window_rets) >= corr_window // 2:
+                        stock_vols[code] = float(np.std(window_rets)) if len(window_rets) > 1 else 0.0
+                stock_vol_cache[date_str_loop] = stock_vols
+                if stock_vols:
+                    market_vol_cache[date_str_loop] = float(np.mean(list(stock_vols.values())))
+
+            # Pre-compute pairwise correlation only for held stocks (computed on-the-fly)
+            # Store returns_matrix for on-the-fly computation in the loop
+            self._returns_matrix = returns_matrix
+            self._all_dates_list = all_dates
+        else:
+            self._returns_matrix = {}
+            self._all_dates_list = all_dates
+
+        # Step 6: Day-by-day simulation
         print("  Running day-by-day simulation...")
         cash = float(p["initial_capital"])
         positions = {}  # {code: {shares, entry_price, entry_date, entry_atr, sector, peak_price, hold_days}}
@@ -506,6 +615,30 @@ class PortfolioBacktester:
             if available_slots <= 0:
                 continue
 
+            # === R14.15 Layer 3: Global Brake ===
+            # If >50% of holdings have pairwise corr > 0.75 → stop all entries
+            global_brake_active = False
+            if (p.get("global_brake_enabled", True) and
+                    len(positions) >= 3 and day_idx >= corr_window):
+                held_codes = list(positions.keys())
+                n_held = len(held_codes)
+                high_corr_pairs = 0
+                total_pairs = 0
+                brake_threshold = p.get("global_brake_corr_threshold", 0.75)
+                for i_h in range(n_held):
+                    for j_h in range(i_h + 1, n_held):
+                        corr_val = self._compute_pairwise_corr(
+                            held_codes[i_h], held_codes[j_h], day_idx, corr_window
+                        )
+                        total_pairs += 1
+                        if corr_val > brake_threshold:
+                            high_corr_pairs += 1
+                if total_pairs > 0 and high_corr_pairs / total_pairs > p.get("global_brake_pct_threshold", 0.50):
+                    global_brake_active = True
+
+            if global_brake_active:
+                continue
+
             # Determine current risk regime (Volatility Scaling — CTO R14.14)
             is_defensive = False
             if date_str in taiex_ma200_cache:
@@ -615,7 +748,12 @@ class PortfolioBacktester:
                 rank = compute_rank_score(rs_rating, sqs, rs_momentum, p)
 
                 entry_type = str(row.get("bold_entry_type", ""))
-                sector = sectors.get(code, "unknown")
+                # Use L1 sector from precise mapping, fallback to passed-in sectors
+                sector_l1 = get_stock_sector(code, level=1)
+                if sector_l1 == "未分類":
+                    sector_l1 = sectors.get(code, "未分類")
+                # L2 sub-sector for finer-grained cap (CTO R14.16)
+                sector_l2 = get_stock_sector(code, level=2)
 
                 candidates.append({
                     "code": code,
@@ -628,7 +766,8 @@ class PortfolioBacktester:
                     "rs_momentum": rs_momentum,
                     "atr_tightness": atr_tight,
                     "entry_type": entry_type,
-                    "sector": sector,
+                    "sector": sector_l1,
+                    "sector_l2": sector_l2,
                     "adv_lots": adv_lots,
                     "volume": float(row.get("volume", 0)),
                 })
@@ -636,32 +775,82 @@ class PortfolioBacktester:
             if not candidates:
                 continue
 
-            # Sort by rank (descending)
+            # === R14.15 Layer 2: Portfolio Heat Ranking Penalty ===
+            # If candidate's avg correlation with held positions > 0.7 → rank × 0.8
+            if (p.get("corr_heat_enabled", True) and
+                    len(positions) >= 1 and day_idx >= corr_window):
+                held_codes_list = list(positions.keys())
+                corr_penalty_threshold = p.get("corr_rank_penalty_threshold", 0.7)
+                corr_penalty_factor = p.get("corr_rank_penalty_factor", 0.8)
+                vol_filter_enabled = p.get("corr_vol_filter_enabled", True)
+                vol_filter_ratio = p.get("corr_vol_filter_ratio", 1.2)
+                market_vol = market_vol_cache.get(date_str, 0.0)
+                day_stock_vols = stock_vol_cache.get(date_str, {})
+
+                for cand in candidates:
+                    cand_code = cand["code"]
+                    # Check vol filter: only apply corr penalty when candidate vol > 1.2× market
+                    if vol_filter_enabled and market_vol > 0:
+                        cand_vol = day_stock_vols.get(cand_code, 0.0)
+                        if cand_vol < market_vol * vol_filter_ratio:
+                            continue  # Low vol → corr is noise, skip penalty
+
+                    # Average correlation with held positions
+                    corr_sum = 0.0
+                    corr_count = 0
+                    for held_code in held_codes_list:
+                        c = self._compute_pairwise_corr(cand_code, held_code, day_idx, corr_window)
+                        if not np.isnan(c):
+                            corr_sum += c
+                            corr_count += 1
+                    avg_corr = corr_sum / corr_count if corr_count > 0 else 0.0
+
+                    if avg_corr > corr_penalty_threshold:
+                        cand["rank"] *= corr_penalty_factor
+
+            # Sort by rank (descending) — after correlation penalty applied
             candidates.sort(key=lambda c: c["rank"], reverse=True)
 
-            # Apply crowdedness filter
-            sector_count = {}
+            # Apply sector exposure control (L1 + L2 sectors)
+            sector_count = {}       # L1 sector count
+            sector_exposure = {}    # L1 {sector: total_exposure_ntd}
+            sector_l2_exposure = {} # L2 {sub-sector: total_exposure_ntd}
             for code, pos in positions.items():
-                s = pos.get("sector", "unknown")
+                s = pos.get("sector", "未分類")
                 sector_count[s] = sector_count.get(s, 0) + 1
+                price = last_known_price.get(code, pos["entry_price"])
+                sector_exposure[s] = sector_exposure.get(s, 0.0) + pos["shares"] * price
+                # L2 sub-sector tracking (CTO R14.16)
+                s_l2 = pos.get("sector_l2", get_stock_sector(code, level=2))
+                sector_l2_exposure[s_l2] = sector_l2_exposure.get(s_l2, 0.0) + pos["shares"] * price
 
             # Allocate to top candidates
             entries_today = 0
+            equity = port_value  # Use current portfolio value
+
             for cand in candidates:
                 if entries_today >= available_slots:
                     break
 
-                # Crowdedness check
                 cand_sector = cand["sector"]
-                if sector_count.get(cand_sector, 0) >= max_per_sector:
-                    continue
+                cand_sector_l2 = cand.get("sector_l2", "未分類")
+
+                # === R14.15/R14.16 Layer 1: Sector Exposure Cap (L1 + L2) ===
+                if p.get("sector_risk_enabled", True) and equity > 0:
+                    # L1 sector cap
+                    current_l1_exposure = sector_exposure.get(cand_sector, 0.0)
+                    l1_cap = p.get("sector_l1_exposure_cap", 0.30)
+                    if current_l1_exposure / equity > l1_cap:
+                        continue  # Hard cap: L1 sector over limit
+
+                    # L2 sub-sector cap (CTO R14.16)
+                    if p.get("sector_l2_enabled", True):
+                        current_l2_exposure = sector_l2_exposure.get(cand_sector_l2, 0.0)
+                        l2_cap = p.get("sector_l2_exposure_cap", 0.20)
+                        if current_l2_exposure / equity > l2_cap:
+                            continue  # Hard cap: L2 sub-sector over limit
 
                 # Position sizing
-                equity = cash + sum(
-                    pos["shares"] * cand.get("price", pos["entry_price"])
-                    for pos in positions.values()
-                )
-
                 if p["sizing_mode"] == "equal_weight":
                     # Equal weight: divide equally among max positions
                     pos_size = min(
@@ -670,8 +859,6 @@ class PortfolioBacktester:
                     )
                 else:
                     # Vol-adjusted: Fixed Risk (CTO R14.14)
-                    # Shares = (Equity * Risk%) / (Entry - Stop)
-                    # Stop = Entry × (1 - stop_pct), using disaster_stop_pct
                     stop_pct = self.bold_params.get("disaster_stop_pct", 0.15)
                     stop_distance = cand["price"] * stop_pct
                     if stop_distance > 0:
@@ -679,6 +866,15 @@ class PortfolioBacktester:
                     else:
                         pos_size = equity / p["max_positions"]
                     pos_size = min(pos_size, equity * p["max_position_pct"])
+
+                # === R14.15 Layer 1: Soft Scaling ===
+                # When sector count > threshold, scale down position: Size × 0.5^(n-1)
+                if p.get("sector_risk_enabled", True):
+                    n_in_sector = sector_count.get(cand_sector, 0)
+                    threshold = p.get("sector_soft_scaling_threshold", 2)
+                    if n_in_sector >= threshold:
+                        scaling = p.get("sector_soft_scaling_factor", 0.5) ** (n_in_sector - threshold + 1)
+                        pos_size *= scaling
 
                 if pos_size < p["min_position_ntd"]:
                     continue
@@ -705,6 +901,7 @@ class PortfolioBacktester:
                     "entry_atr": cand["atr_tightness"],
                     "entry_type": cand["entry_type"],
                     "sector": cand_sector,
+                    "sector_l2": cand_sector_l2,
                     "peak_price": cand["high"],
                     "hold_days": 0,
                     "entry_low": cand["low"],
@@ -715,6 +912,8 @@ class PortfolioBacktester:
                     "position_pct": actual_cost / equity if equity > 0 else 0,
                 }
                 sector_count[cand_sector] = sector_count.get(cand_sector, 0) + 1
+                sector_exposure[cand_sector] = sector_exposure.get(cand_sector, 0.0) + actual_cost
+                sector_l2_exposure[cand_sector_l2] = sector_l2_exposure.get(cand_sector_l2, 0.0) + actual_cost
                 entries_today += 1
 
         # Step 6: Compute results
