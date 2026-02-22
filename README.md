@@ -264,6 +264,7 @@ python -m pytest tests/ -q
 | R14.17 | **Aggressive Mode Acid Test** — WarriorExitEngine KILLED (all 3 periods), Sniper B (1.5%/0.5%) VALIDATED | Done |
 | R14.18 | **Final Production Baseline** — Sniper B + Config B + Bold Exits LOCKED (OOS Calmar 8.06) | Done |
 | R14.18-8B | **Phase 8B: Sniper Scanner Dashboard** — POST /api/screener/bold-scan + SniperScannerTab.vue (CTO P0 priority) | Done |
+| R14.18-8A | **Phase 8A: Portfolio Bold Visualization** — Equity curve + TAIEX benchmark + Drawdown + Monthly Heatmap + MDD info | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
@@ -300,7 +301,19 @@ R14 參數清洗與系統強化 **階段圓滿結束**。最終生產基線：
 - **Sniper Score** = RS_120D × 0.5 + SQS × 0.3 + RS_Mom × 0.2 (CTO 公式)
 - **Filters**: Min RS (default 60), Min Volume (default 50 張), No Signal toggle
 - **Frontend**: `SniperScannerTab.vue` — Stats cards + DataTable with RS/VCP/SQS/Sniper badges
-- **Next**: Phase 8A (Backtest Equity Curve), Phase 8C (Trade Replay)
+- **Next**: Phase 8C (Trade Replay)
+
+### Phase 8A: Portfolio Bold Visualization (CTO R14.18)
+
+Portfolio-level 回測視覺化，整合到回測頁面「Portfolio Performance」tab。
+
+- **Backend**: `POST /api/backtest/portfolio-bold` — 跑 PortfolioBacktester (108 stocks, R14.18 config)
+- **Response**: equity curve + TAIEX benchmark + drawdown + holdings_count + monthly returns + MDD info
+- **Equity Curve**: Strategy (green) vs TAIEX Benchmark (grey dashed), log scale toggle, dataZoom
+- **Drawdown**: Underwater chart (red fill), MDD peak-to-trough pin marker
+- **Monthly Heatmap**: Year × Month grid with yearly totals, red-green color scale
+- **MDD Banner**: Peak/Trough/Recovery dates, drawdown days, total underwater days
+- **Synced Tooltips**: Date + Strategy value + Benchmark value + Holdings count
 
 ### R14.15-16: 3-Layer Risk Defense (CTO VALIDATED — Config B Locked)
 
