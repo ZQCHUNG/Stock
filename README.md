@@ -265,6 +265,7 @@ python -m pytest tests/ -q
 | R14.18 | **Final Production Baseline** — Sniper B + Config B + Bold Exits LOCKED (OOS Calmar 8.06) | Done |
 | R14.18-8B | **Phase 8B: Sniper Scanner Dashboard** — POST /api/screener/bold-scan + SniperScannerTab.vue (CTO P0 priority) | Done |
 | R14.18-8A | **Phase 8A: Portfolio Bold Visualization** — Equity curve + TAIEX benchmark + Drawdown + Monthly Heatmap + MDD info | Done |
+| R14.18-8C | **Phase 8C: Trade Replay** — Click-to-zoom + markArea + rich tooltips on CandlestickChart (CTO enhancement) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
@@ -314,6 +315,16 @@ Portfolio-level 回測視覺化，整合到回測頁面「Portfolio Performance�
 - **Monthly Heatmap**: Year × Month grid with yearly totals, red-green color scale
 - **MDD Banner**: Peak/Trough/Recovery dates, drawdown days, total underwater days
 - **Synced Tooltips**: Date + Strategy value + Benchmark value + Holdings count
+
+### Phase 8C: Trade Replay (CTO R14.18)
+
+BacktestBold 的 K 線交易複盤功能（增強模式，非獨立組件）。
+
+- **Click-to-Zoom**: Trade table >> button → K-line auto-zooms to [entry-20d, exit+10d]
+- **markArea**: Green (profit) / Red (loss) holding period overlay on candlestick
+- **Rich Tooltips**: Entry = SQS + RS + entry_type; Exit = reason + return% + held days
+- **Hold Days Column**: Added to trade table with color-coded return %
+- **Phase 8 Complete**: Scanner (8B) + Visualization (8A) + Replay (8C) — full closed loop
 
 ### R14.15-16: 3-Layer Risk Defense (CTO VALIDATED — Config B Locked)
 
