@@ -72,4 +72,7 @@ export const analysisApi = {
     client.get<any, any>(`/analysis/${code}/stop-levels`, {
       params: { entry_price: entryPrice, entry_type: entryType },
     }),
+  // R90: Winner DNA Pattern Recognition
+  winnerDnaMatch: (code: string) => client.get<any, any>(`/analysis/${code}/winner-dna-match`),
+  patternLibrary: () => client.get<any, any>('/analysis/pattern-library'),
 }

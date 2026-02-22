@@ -44,7 +44,7 @@ Stock/
 │   ├── market_regime.py      # Bull/Bear/Sideways detection
 │   ├── market_guard.py       # Market Regime Global Switch — 全局斷路器 (R89)
 │   ├── pattern_labeler.py    # Phase 2: Historical Winner DNA 標記 (R90)
-│   └── winner_dna.py         # Phase 3: UMAP + HDBSCAN Winner Clustering (R90)
+│   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
 ├── backtest/
 │   ├── engine.py             # Backtest engine (v4/v5/bold/aggressive/portfolio)
 │   ├── risk_manager.py       # VaR + Sizing + Concentration + Circuit Breaker (R60/R80)
@@ -251,7 +251,7 @@ python -m pytest tests/ -q
 | R88.7P14 | Maiden Voyage: Toxic Volatility + Cold Start + Weekend Effect (Trader R7 CONVERGED) | Done |
 | R88.8 | Aggressive Mode — WarriorExitEngine (ATR 3x Trail + Pyramiding + Regime Gate) | Done |
 | R89 | Market Guard — 全局斷路器 (ADL + Breadth + Gap Detection) | Done |
-| R90 | Pattern Recognition Phase 2-5 — Winner DNA Labeling + Clustering + Performance DB + Two-Stage Matcher | Done |
+| R90 | Pattern Recognition Phase 2-6 — Winner DNA Full Pipeline (Label → Cluster → Perf DB → Matcher → UI) | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -547,6 +547,19 @@ python -m pytest tests/ -q
 - 25 tests (labeler) + 48 tests (winner_dna) + 23 tests (market_guard) ALL PASSING
 - API: `GET /{code}/winner-dna-match`, `GET /{code}/super-stock-flag`, `GET /pattern-library`
 
+**Phase 6: Decision Assist UI** (`frontend/src/components/WinnerDnaCard.vue`)
+
+| 功能 | 說明 | 來源 |
+|------|------|------|
+| Decision Header | Traffic Light: Red (Failed) / Gold (Super) / Green (Match) / Gray (No Match) | Trader Phase 6 |
+| Final Score Gauge | 圓形進度條顯示 blended score (0-100%) | Trader mandate |
+| Confidence Badge | Confident (gold) / Speculative (amber) — based on sample size | Architect mandate |
+| Feature Attribution | Top 5 匹配特徵 Z-score 標籤 | Trader: "match reasons" |
+| k-NN Neighbors Table | 5 個最相似前輩 + 30d 報酬 | Phase 5 data |
+| Multi-scale DTW | 60d + 20d shape match badges + agreement indicator | Trader mandate |
+| Failed Pattern Warning | Red banner when >60% k-NN are losers | Trader: "Failed Patterns Library" |
+| Cluster Performance | Multi-horizon win rate + avg return cards | Phase 4 data |
+
 ### Auto Trail Classifier (R73-R79)
 
 以 Walk-Forward Optimization 驗證的波動率自適應移動停利系統：
@@ -761,12 +774,19 @@ Phase 3: Pattern 分群 — UMAP + HDBSCAN Winner Clustering (R90) ✅
          → HDBSCAN 密度聚類 → 5-8 Winner DNA 群落
          → 每群: Centroid + Top Features + Multi-horizon 勝率/Expectancy/PF
          → Auto-Label: MomentumBreak / VolumeExplosion / Cluster_X
-Phase 4: 建立 Pattern 績效資料庫
-         → 每個 pattern × 持有天數（7d/21d/30d/90d/180d/365d）→ 勝率 + 平均報酬 + Expectancy
-Phase 5: 即時比對引擎（新線型出現 → 匹配 pattern → 顯示歷史勝率）
-         → Stage 1: Cosine Similarity (features >85%) — 已完成 ✅
-         → Stage 2: DTW (price shape, top 30 candidates) — 待整合
-Phase 6: 決策輔助 UI（勝率 > 門檻 → 建議進場）
+Phase 4: 建立 Pattern 績效資料庫 (R90) ✅
+         → Recency-weighted performance (half-life 2yr)
+         → Confidence levels: Confident (≥30 samples) / Speculative (<30)
+         → Winner ratio per cluster + regime distribution
+Phase 5: 即時比對引擎 — k-NN + Multi-scale DTW (R90) ✅
+         → Stage 1: k-NN (k=5) in reduced space (Trader: replace centroid)
+         → Stage 2: Multi-scale DTW (60d structure + 20d momentum)
+         → Final Score: 0.7×cosine + 0.3×(1/(1+dtw))
+         → Failed Pattern Warning: >60% k-NN losers → red alert
+Phase 6: 決策輔助 UI — WinnerDnaCard (R90) ✅
+         → Traffic Light Decision Header + Final Score Gauge
+         → Feature Attribution + k-NN Table + DTW Badges
+         → Integrated into TechnicalView
 ```
 
 ### 訓練資料優先級（分批餵入，不一次全上）

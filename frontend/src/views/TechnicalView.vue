@@ -20,6 +20,7 @@ import PositionCalculator from '../components/PositionCalculator.vue'
 import SizingAdvisor from '../components/SizingAdvisor.vue'
 import TrailModeBadge from '../components/TrailModeBadge.vue'
 import BoldStatusPanel from '../components/BoldStatusPanel.vue'
+import WinnerDnaCard from '../components/WinnerDnaCard.vue'
 import VChart from 'vue-echarts'
 
 const app = useAppStore()
@@ -51,6 +52,7 @@ async function loadData() {
   tech.loadSqs(code)             // Non-blocking: load SQS data
   tech.loadFundamentals(code)    // Non-blocking: load fundamental data
   tech.loadTrailClassifier(code) // Non-blocking: load trail mode badge (R76)
+  tech.loadWinnerDna(code)       // Non-blocking: load Winner DNA match (R90)
   // Connect charts for crosshair + dataZoom sync after data renders
   nextTick(() => { try { connect('tech') } catch { /* charts not ready */ } })
 }
@@ -274,6 +276,9 @@ function sqsGradeIcon(grade: string): string {
 
       <!-- Bold Status Panel (R63: RS + MLS + ECF) -->
       <BoldStatusPanel v-if="tech.boldStatus" :data="tech.boldStatus" :sector-context="tech.sectorContext" :vcp-context="tech.vcpContext" />
+
+      <!-- R90: Winner DNA Pattern Recognition -->
+      <WinnerDnaCard v-if="tech.winnerDna" :data="tech.winnerDna" />
 
       <!-- 流動性風險評分 (R69) -->
       <NCard v-if="tech.liquidity" size="small" style="margin-bottom: 16px">
