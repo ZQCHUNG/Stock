@@ -80,6 +80,13 @@ class AggressiveBacktestRequest(BaseModel):
     slippage: float | None = None
 
 
+class PortfolioBoldRequest(BaseModel):
+    """Portfolio-level Bold backtest (R14.18 Production Baseline)"""
+    period_days: int = 1095  # 3 years default
+    initial_capital: float = 10_000_000
+    params: dict | None = None  # Override PortfolioBacktester params
+
+
 class SqsBacktestRequest(BaseModel):
     stock_codes: list[str] | None = None
     period_days: int = 730
@@ -885,6 +892,189 @@ def compute_var_endpoint(req: RiskAssessmentRequest):
         return result.to_dict()
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# === Phase 8A: Portfolio Bold Backtest with Equity Curve (CTO R14.18) ===
+
+
+@router.post("/portfolio-bold")
+def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
+    """Phase 8A: Run portfolio-level Bold backtest (R14.18 Production Baseline).
+
+    Returns equity curve, TAIEX benchmark, drawdown, holdings count,
+    and monthly returns for visualization.
+    """
+    from backtest.portfolio_runner import PortfolioBacktester
+    from data.fetcher import get_taiex_data
+    from backend.dependencies import make_serializable
+    import pandas as pd
+    import numpy as np
+
+    try:
+        params = req.params or {}
+        params.setdefault("initial_capital", req.initial_capital)
+        params.setdefault("period_days", req.period_days)
+
+        bt = PortfolioBacktester(params=params)
+        result = bt.run()
+
+        eq_df = result.equity_curve
+        if eq_df.empty:
+            raise HTTPException(status_code=400, detail="Backtest produced no data")
+
+        dates = eq_df.index.strftime("%Y-%m-%d").tolist()
+        equity = eq_df["equity"].tolist()
+
+        # Drawdown series
+        running_max = eq_df["equity"].cummax()
+        drawdown = ((eq_df["equity"] - running_max) / running_max).tolist()
+
+        # TAIEX benchmark (normalized to same starting capital)
+        benchmark = []
+        try:
+            taiex = get_taiex_data(period_days=req.period_days + 60)
+            if not taiex.empty:
+                taiex_close = taiex["close"] if "close" in taiex.columns else taiex.iloc[:, 0]
+                # Align to backtest date range
+                taiex_close.index = pd.to_datetime(taiex_close.index)
+                bt_start = pd.Timestamp(dates[0])
+                bt_end = pd.Timestamp(dates[-1])
+                taiex_aligned = taiex_close.loc[
+                    (taiex_close.index >= bt_start) & (taiex_close.index <= bt_end)
+                ]
+                if len(taiex_aligned) > 0:
+                    # Normalize: start at same capital as portfolio
+                    scale = req.initial_capital / taiex_aligned.iloc[0]
+                    taiex_norm = (taiex_aligned * scale).tolist()
+                    taiex_dates = taiex_aligned.index.strftime("%Y-%m-%d").tolist()
+                    benchmark = [
+                        {"date": d, "value": round(v, 0)}
+                        for d, v in zip(taiex_dates, taiex_norm)
+                    ]
+        except Exception:
+            pass  # Benchmark is optional
+
+        # Holdings count per day (from trades)
+        holdings_count = _compute_holdings_count(dates, result.trades)
+
+        # Monthly returns
+        monthly_returns = _compute_monthly_returns(eq_df)
+
+        # MDD duration (days from peak to recovery)
+        mdd_info = _compute_mdd_info(eq_df)
+
+        # Trade summary for chart markers
+        trade_markers = []
+        for t in result.trades:
+            trade_markers.append({
+                "code": t.code,
+                "date_open": t.date_open,
+                "date_close": t.date_close,
+                "return_pct": round(t.return_pct, 4),
+                "exit_reason": t.exit_reason,
+                "entry_type": t.entry_type,
+            })
+
+        return make_serializable({
+            "dates": dates,
+            "equity": equity,
+            "benchmark": benchmark,
+            "drawdown": drawdown,
+            "holdings_count": holdings_count,
+            "monthly_returns": monthly_returns,
+            "mdd_info": mdd_info,
+            "trade_markers": trade_markers,
+            # Summary stats
+            "total_return": result.total_return,
+            "annual_return": result.annual_return,
+            "max_drawdown": result.max_drawdown,
+            "sharpe_ratio": result.sharpe_ratio,
+            "calmar_ratio": result.calmar_ratio,
+            "profit_factor": result.profit_factor,
+            "win_rate": result.win_rate,
+            "total_trades": result.total_trades,
+            "avg_return": result.avg_return,
+            "avg_holding_days": result.avg_holding_days,
+            "max_positions_used": result.max_positions_used,
+            "avg_positions": result.avg_positions,
+            "taiex_guard_activations": result.taiex_guard_activations,
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _compute_holdings_count(dates: list[str], trades) -> list[int]:
+    """Compute number of open positions for each date."""
+    import pandas as pd
+    counts = []
+    for d in dates:
+        n = 0
+        for t in trades:
+            if t.date_open and t.date_close:
+                if t.date_open <= d <= t.date_close:
+                    n += 1
+            elif t.date_open and not t.date_close:
+                if t.date_open <= d:
+                    n += 1
+        counts.append(n)
+    return counts
+
+
+def _compute_monthly_returns(eq_df) -> list[dict]:
+    """Compute monthly returns from equity DataFrame."""
+    import pandas as pd
+    equity = eq_df["equity"]
+    # Resample to month-end
+    monthly = equity.resample("ME").last()
+    monthly_ret = monthly.pct_change().dropna()
+    result = []
+    for dt, ret in monthly_ret.items():
+        result.append({
+            "year": dt.year,
+            "month": dt.month,
+            "return_pct": round(float(ret) * 100, 2),
+        })
+    return result
+
+
+def _compute_mdd_info(eq_df) -> dict:
+    """Compute max drawdown duration and peak-to-trough info."""
+    import pandas as pd
+    equity = eq_df["equity"]
+    running_max = equity.cummax()
+    drawdown = (equity - running_max) / running_max
+
+    # Find MDD trough
+    mdd_idx = drawdown.idxmin()
+    mdd_val = float(drawdown.min())
+
+    # Find peak before MDD trough
+    peak_idx = running_max.loc[:mdd_idx].idxmax()
+
+    # Find recovery after MDD trough (equity >= peak value)
+    peak_val = equity.loc[peak_idx]
+    recovery_mask = equity.loc[mdd_idx:] >= peak_val
+    recovery_idx = None
+    if recovery_mask.any():
+        recovery_idx = recovery_mask.idxmax()
+
+    duration_days = (mdd_idx - peak_idx).days if hasattr(mdd_idx - peak_idx, 'days') else 0
+    recovery_days = None
+    if recovery_idx is not None:
+        recovery_days = (recovery_idx - mdd_idx).days if hasattr(recovery_idx - mdd_idx, 'days') else None
+
+    return {
+        "peak_date": peak_idx.strftime("%Y-%m-%d") if hasattr(peak_idx, 'strftime') else str(peak_idx),
+        "trough_date": mdd_idx.strftime("%Y-%m-%d") if hasattr(mdd_idx, 'strftime') else str(mdd_idx),
+        "recovery_date": recovery_idx.strftime("%Y-%m-%d") if recovery_idx is not None and hasattr(recovery_idx, 'strftime') else None,
+        "mdd_pct": round(mdd_val * 100, 2),
+        "drawdown_days": duration_days,
+        "recovery_days": recovery_days,
+        "total_underwater_days": duration_days + (recovery_days or 0),
+    }
 
 
 @router.post("/risk/stress-test")
