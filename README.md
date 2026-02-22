@@ -254,6 +254,30 @@ python -m pytest tests/ -q
 | R89 | Market Guard — 全局斷路器 (ADL + Breadth + Gap Detection) | Done |
 | R90 | Pattern Recognition Phase 2-6 — Winner DNA Full Pipeline (Label → Cluster → Perf DB → Matcher → UI) | Done |
 | R93 Phase 10 | **Point-in-Time RS Engine** — eliminates look-ahead bias (1939 stocks, 664 dates, WR 37%→46%) | Done |
+| R93 Phase 11 | **VCP Hard Gate + RS ROC Gate + RS Drop Alert** — RS Decile validated (200 stocks, 928 trades) | Done |
+
+### Phase 11: VCP Hard Gate + RS ROC + RS Drop Alert (R93, Gemini R13 + Architect APPROVED)
+
+RS Decile Analysis (200 stocks, 928 trades) 驗證：RS 價值在 Convexity（右尾報酬），非勝率。
+
+**RS Decile 驗證結果：**
+- Median Return Spearman rho=0.576, p=0.082 (borderline significant)
+- Avg Win 單調遞增: RS 0-10 = +13.10% → RS 90-100 = +22.27%
+- Expectancy: RS 90-100 = +4.19 vs RS 0-10 = +2.85 (47% higher)
+
+**11A: VCP Hard Gate (Entry Quality)**
+- Track A 需同時 RS>=80 AND VCP compressed (ATR tightness < 0.6)
+- VCP 未就緒 → 降級為 Track B (0.7x position)
+
+**11B: RS ROC Acceleration Gate (Entry Timing)**
+- 進場需 RS_ROC_20d > 0（RS 加速中）
+- 阻擋減速動量進場（6442 RS 24 時 ROC=-0.12 被正確擋掉）
+
+**11C: RS Drop Alert (Exit Defense)**
+- 3 級防禦 + Hysteresis 連續 3 天（Architect mandate，anti-chatter）:
+  - RS < 75: 停止加碼
+  - RS < 70: Soft Exit（收緊至 swing low/10MA）
+  - RS < 60: Hard Exit（無條件出場，清除殭屍持倉）
 
 ### Point-in-Time RS Engine (R93 Phase 10, Gemini R10-R12 APPROVED)
 
