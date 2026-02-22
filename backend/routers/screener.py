@@ -307,3 +307,140 @@ def run_screener_stream(filters: ScreenerFilter):
         yield sse_done(make_serializable(results))
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# === Phase 8B: Sniper Scanner Dashboard (CTO R14.18) ===
+
+
+class BoldScanRequest(BaseModel):
+    """Bold Sniper 掃描參數"""
+    min_rs: float = 60          # Minimum RS percentile (default: Gold+)
+    min_volume_lots: float = 50  # Minimum avg volume (張)
+    include_no_signal: bool = False  # Include stocks without active Bold signal
+
+
+@router.post("/bold-scan")
+def run_bold_scan(req: BoldScanRequest | None = None):
+    """Phase 8B: Sniper Target List — 每日收盤後掃描全市場
+
+    Combines Bold signal + RS Rating + VCP Score + SQS into a ranked
+    Sniper Target List. Uses SCAN_STOCKS (108 stocks) as the universe.
+
+    Sniper Score = RS_120D × 0.5 + SQS × 0.3 + RS_Mom × 0.2
+    (CTO R14.18 formula)
+    """
+    from config import SCAN_STOCKS
+    from data.fetcher import get_stock_data
+    from data.sector_mapping import get_stock_sector
+    from analysis.strategy_bold import get_bold_analysis, compute_rs_ratio, compute_rs_momentum
+    from analysis.rs_scanner import get_stock_rs_rating
+    from analysis.vcp_detector import detect_vcp
+    from backend.dependencies import make_serializable
+
+    if req is None:
+        req = BoldScanRequest()
+
+    results = []
+    errors = []
+
+    for code, info in SCAN_STOCKS.items():
+        try:
+            df = get_stock_data(code, period_days=300)
+            if df.empty or len(df) < 60:
+                continue
+
+            latest = df.iloc[-1]
+            price = float(latest["close"])
+            volume_lots = float(latest["volume"]) / 1000
+
+            # Volume filter
+            avg_vol = float(df["volume"].iloc[-20:].mean()) / 1000
+            if avg_vol < req.min_volume_lots:
+                continue
+
+            # 1. Bold signal
+            bold = get_bold_analysis(df)
+            has_signal = bold.get("signal") == "BUY"
+
+            if not has_signal and not req.include_no_signal:
+                continue
+
+            # 2. RS Rating (from cached rankings first, fallback to compute)
+            rs_info = get_stock_rs_rating(code)
+            rs_rating = None
+            rs_grade = "unknown"
+            if rs_info:
+                rs_rating = rs_info.get("rs_rating")
+                rs_grade = rs_info.get("grade", "unknown")
+            else:
+                rs_ratio = compute_rs_ratio(df)
+                rs_rating = rs_ratio * 100 if rs_ratio else None
+
+            if rs_rating is not None and rs_rating < req.min_rs:
+                continue
+
+            # RS Momentum (20d slope)
+            rs_mom = compute_rs_momentum(df, period=20)
+
+            # 3. VCP detection
+            vcp_result = detect_vcp(df)
+            vcp_score = vcp_result.vcp_score if vcp_result else 0
+
+            # 4. SQS — lightweight inline (avoid heavy computation)
+            sqs_score = None
+            try:
+                from analysis.scoring import compute_sqs_for_signal
+                sqs_data = compute_sqs_for_signal(code, df)
+                if sqs_data:
+                    sqs_score = sqs_data.get("total_score")
+            except Exception:
+                pass
+
+            # 5. Compute Sniper Score (CTO formula)
+            rs_norm = (rs_rating / 100.0) if rs_rating else 0
+            sqs_norm = (sqs_score / 100.0) if sqs_score else 0
+            rs_mom_norm = min(max(rs_mom * 10, 0), 1) if rs_mom else 0  # Scale ~0.1 → 1.0
+            sniper_score = round(
+                rs_norm * 0.5 + sqs_norm * 0.3 + rs_mom_norm * 0.2, 4
+            )
+
+            # 6. Sector
+            sector = get_stock_sector(code, level=1)
+
+            # 7. Entry details
+            entry_type = bold.get("entry_type", "")
+            confidence = bold.get("confidence", 0)
+
+            results.append({
+                "code": code,
+                "name": info.get("name", code),
+                "sector": sector,
+                "price": round(price, 2),
+                "change_pct": round(float(df["close"].pct_change().iloc[-1]) * 100, 2),
+                "avg_volume_lots": round(avg_vol, 0),
+                "has_signal": has_signal,
+                "entry_type": entry_type,
+                "confidence": round(confidence, 2) if confidence else 0,
+                "rs_rating": round(rs_rating, 1) if rs_rating else None,
+                "rs_grade": rs_grade,
+                "rs_momentum": round(rs_mom, 4) if rs_mom else None,
+                "vcp_score": vcp_score,
+                "vcp_breakout": vcp_result.is_breakout if vcp_result else False,
+                "sqs_score": round(sqs_score, 1) if sqs_score else None,
+                "sniper_score": round(sniper_score * 100, 1),
+            })
+
+        except Exception as e:
+            errors.append({"code": code, "error": str(e)})
+            continue
+
+    # Sort by sniper_score descending
+    results.sort(key=lambda x: x["sniper_score"], reverse=True)
+
+    return make_serializable({
+        "scan_date": __import__("datetime").date.today().isoformat(),
+        "total_scanned": len(SCAN_STOCKS),
+        "results_count": len(results),
+        "error_count": len(errors),
+        "results": results,
+    })

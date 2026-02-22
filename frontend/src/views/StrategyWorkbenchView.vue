@@ -12,6 +12,7 @@ import { analysisApi } from '../api/analysis'
 import { useAppStore } from '../stores/app'
 import FitnessView from './FitnessView.vue'
 import BacktestView from './BacktestView.vue'
+import SniperScannerTab from '../components/SniperScannerTab.vue'
 
 const msg = useMessage()
 const app = useAppStore()
@@ -481,6 +482,10 @@ onMounted(async () => {
 
       <NTabPane name="fitness" tab="策略適配" display-directive="if">
         <FitnessView />
+      </NTabPane>
+
+      <NTabPane name="sniper" tab="狙擊名單" display-directive="if">
+        <SniperScannerTab />
       </NTabPane>
     </NTabs>
 
