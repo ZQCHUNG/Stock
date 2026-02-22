@@ -915,6 +915,18 @@ class BacktestEngine:
         parabolic_slope_filter = p.get("parabolic_slope_filter", True)
         parabolic_slope_threshold = p.get("parabolic_slope_threshold", 0.02)
 
+        # [PLACEHOLDER: RS_DROP_ALERT] Phase 11C: RS Drop Alert (Gemini R13 + Architect APPROVED)
+        # 3-tier defense: RS<75 stop pyramid, RS<70 soft exit, RS<60 hard exit
+        # Architect mandate: consecutive 3 days below threshold to trigger (anti-chatter)
+        rs_drop_enabled = p.get("rs_drop_alert_enabled", True) and pit_rs_series is not None
+        rs_no_pyramid_threshold = p.get("rs_no_pyramid_threshold", 75)    # [PLACEHOLDER]
+        rs_soft_exit_threshold = p.get("rs_soft_exit_threshold", 70)      # [PLACEHOLDER]
+        rs_hard_exit_threshold = p.get("rs_hard_exit_threshold", 60)      # [PLACEHOLDER]
+        rs_drop_consecutive_days = p.get("rs_drop_consecutive_days", 3)   # Architect mandate
+        _rs_below_soft_count = 0  # Consecutive days RS < soft threshold
+        _rs_below_hard_count = 0  # Consecutive days RS < hard threshold
+        _rs_no_pyramid = False    # Flag: stop adding to position
+
         cash = self.initial_capital
         position = 0
         trades: list[Trade] = []
@@ -1020,6 +1032,45 @@ class BacktestEngine:
                     else:
                         exit_price = price
 
+                # [PLACEHOLDER: RS_DROP_ALERT] Phase 11C: RS Drop Alert
+                # Check RS at current bar — if dropping, trigger defense
+                if rs_drop_enabled and not force_sell:
+                    _bar_rs_val = None
+                    if date in pit_rs_series.index:
+                        _bar_rs_val = pit_rs_series.loc[date]
+                    else:
+                        _nearest_idx = pit_rs_series.index.get_indexer([date], method="ffill")
+                        if _nearest_idx[0] >= 0:
+                            _bar_rs_val = pit_rs_series.iloc[_nearest_idx[0]]
+                    if _bar_rs_val is not None and not np.isnan(_bar_rs_val):
+                        # Track consecutive days below thresholds
+                        if _bar_rs_val < rs_hard_exit_threshold:
+                            _rs_below_hard_count += 1
+                        else:
+                            _rs_below_hard_count = 0
+                        if _bar_rs_val < rs_soft_exit_threshold:
+                            _rs_below_soft_count += 1
+                        else:
+                            _rs_below_soft_count = 0
+                        # RS < 75: no pyramid flag
+                        _rs_no_pyramid = _bar_rs_val < rs_no_pyramid_threshold
+
+                        # Hard Exit: RS < 60 for 3 consecutive days
+                        if _rs_below_hard_count >= rs_drop_consecutive_days:
+                            force_sell = True
+                            exit_reason = "rs_hard_exit"
+                            exit_price = price
+                        # Soft Exit: RS < 70 for 3 consecutive days → tighten trail
+                        elif _rs_below_soft_count >= rs_drop_consecutive_days:
+                            # Tighten trailing stop to max(swing_low=prev_day_low, MA10)
+                            soft_trail = price * 0.97  # fallback: 3% below current
+                            if _ma10 is not None:
+                                soft_trail = max(soft_trail, _ma10)
+                            if price <= soft_trail:
+                                force_sell = True
+                                exit_reason = "rs_soft_exit"
+                                exit_price = price
+
             if force_sell and position > 0 and current_trade is not None:
                 cash += self._close_position(position, exit_price, current_trade, date, exit_reason)
                 trades.append(current_trade)
@@ -1040,6 +1091,10 @@ class BacktestEngine:
                     }
                 position, current_trade, hold_days, peak_price = 0, None, 0, 0.0
                 entry_low, prev_day_low = None, None  # Phase 1：清除進場日資訊
+                # Phase 11C: Reset RS drop counters on position close
+                _rs_below_soft_count = 0
+                _rs_below_hard_count = 0
+                _rs_no_pyramid = False
 
             if position == 0 and cash > 0:
                 cash *= (1 + self._rf_daily)

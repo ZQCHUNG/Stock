@@ -111,6 +111,25 @@ STRATEGY_BOLD_PARAMS = {
     # 共用: Track B 部位係數 (Trader R9: 資金權重偏好強勢)
     "bold_rs_trackb_position_mult": 0.7,     # [PLACEHOLDER: TRACK_B_SIZE_MULTIPLIER = 0.7]
 
+    # --- [PLACEHOLDER: VCP_HARD_GATE] Phase 11A: RS + VCP Hard Gate ---
+    # Gemini R13 + Architect APPROVED 2026-02-23: Track A = RS>=80 AND VCP compressed
+    # If RS>=80 but VCP not ready → downgrade to Track B (0.7x position)
+    "vcp_hard_gate_enabled": True,           # [PLACEHOLDER: VCP_HARD_GATE_ENABLED]
+    "vcp_hard_gate_tightness": 0.6,          # [PLACEHOLDER: VCP_HARD_GATE_TIGHTNESS = 0.6]
+
+    # --- [PLACEHOLDER: RS_ROC_GATE] Phase 11B: RS ROC Acceleration Gate ---
+    # Gemini R13 + Architect APPROVED: RS ROC > 0 required for entry
+    "rs_roc_gate_enabled": True,             # [PLACEHOLDER: RS_ROC_GATE_ENABLED]
+
+    # --- [PLACEHOLDER: RS_DROP_ALERT] Phase 11C: RS Drop Alert (Exit Defense) ---
+    # Gemini R13 + Architect APPROVED: 3-tier RS defense during holding
+    # Architect mandate: consecutive 3 days below threshold (anti-chatter)
+    "rs_drop_alert_enabled": True,           # [PLACEHOLDER: RS_DROP_ALERT_ENABLED]
+    "rs_no_pyramid_threshold": 75,           # [PLACEHOLDER: RS_NO_PYRAMID = 75]
+    "rs_soft_exit_threshold": 70,            # [PLACEHOLDER: RS_SOFT_EXIT = 70]
+    "rs_hard_exit_threshold": 60,            # [PLACEHOLDER: RS_HARD_EXIT = 60]
+    "rs_drop_consecutive_days": 3,           # Architect mandate: 3 consecutive days
+
     # --- [PLACEHOLDER: PARABOLIC_HOLD] Phase 7B: Parabolic Hold（Level 4 Trail）---
     # 華爾街交易員 R6 + Architect Critic APPROVED 2026-02-22
     # 「Trade #8 抓到了 473，但股價去了 1985」— 超強趨勢需要更寬的出場
@@ -622,14 +641,45 @@ def generate_bold_signals(
         elif rs_rating is not None:
             _bar_rs = rs_rating  # Static mode (backward compatible)
 
+        # [PLACEHOLDER: RS_ROC_GATE] Phase 11B: RS ROC Acceleration Gate
+        # Gemini R13 + Architect APPROVED: entry requires RS_ROC_20d > 0
+        # Only check when rs_roc_series is available (PIT mode)
+        if p.get("rs_roc_gate_enabled", True) and rs_roc_series is not None:
+            bar_date = result.index[i]
+            _bar_roc = None
+            if bar_date in rs_roc_series.index:
+                _bar_roc = rs_roc_series.loc[bar_date]
+            else:
+                _nearest_roc = rs_roc_series.index.get_indexer([bar_date], method="ffill")
+                if _nearest_roc[0] >= 0:
+                    _bar_roc = rs_roc_series.iloc[_nearest_roc[0]]
+            if _bar_roc is not None and not np.isnan(_bar_roc) and _bar_roc <= 0:
+                continue  # RS decelerating → skip entry
+
         if p.get("bold_rs_filter_enabled", True) and _bar_rs is not None:
             rs_min_a = p.get("bold_rs_filter_min", 80)
             rs_min_b = p.get("bold_rs_trackb_min", 40)
             rs_b1_min = p.get("bold_rs_b1_min", 60)
             trackb_on = p.get("bold_rs_trackb_enabled", True)
 
+            # [PLACEHOLDER: VCP_HARD_GATE] Phase 11A: RS + VCP Hard Gate
+            # Gemini R13 + Architect APPROVED: Track A requires RS>=80 AND VCP check
+            # If RS>=80 but VCP not ready (ATR not compressed), downgrade to Track B
+            _vcp_gate_enabled = p.get("vcp_hard_gate_enabled", True)
+            _vcp_gate_tightness = p.get("vcp_hard_gate_tightness", 0.6)  # [PLACEHOLDER]
+
             if _bar_rs >= rs_min_a:
-                pass  # 軌道 A: Power Play — 直接通過
+                # Check VCP Hard Gate for Track A
+                if _vcp_gate_enabled:
+                    _at = vcp_atr_tightness.iloc[i]
+                    if not np.isnan(_at) and _at < _vcp_gate_tightness:
+                        pass  # 軌道 A: RS>=80 AND VCP compressed → full position
+                    elif trackb_on:
+                        # RS>=80 but VCP not ready → downgrade to Track B (0.7x)
+                        pos_multipliers.iloc[i] = p.get("bold_rs_trackb_position_mult", 0.7)
+                    # else: VCP gate not met, no Track B → still pass at full (backward compat)
+                else:
+                    pass  # VCP gate disabled → 軌道 A: Power Play — 直接通過
             elif trackb_on and _bar_rs >= rs_b1_min:
                 # 軌道 B1 (RS 60-79): 準龍頭模式 — Vol > 1.5x AND ATR < 0.6
                 _b1_pass = True
