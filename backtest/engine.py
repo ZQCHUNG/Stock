@@ -852,7 +852,9 @@ class BacktestEngine:
 
     def run_bold(self, df: pd.DataFrame, params: dict | None = None,
                  ultra_wide: bool = False,
-                 rs_rating: float | None = None) -> BacktestResult:
+                 rs_rating: float | None = None,
+                 pit_rs_series: "pd.Series | None" = None,
+                 rs_roc_series: "pd.Series | None" = None) -> BacktestResult:
         """執行 Bold 大膽策略回測（能量擠壓突破 + 階梯式停利）
 
         Bold 策略專為爆發性波段設計：
@@ -878,7 +880,10 @@ class BacktestEngine:
 
         # R63/R93: rs_rating (percentile) 或 rs_momentum (斜率)
         # RS Momentum 現在在 generate_bold_signals 內 per-bar 計算
-        signals_df = generate_bold_signals(df, params=p, rs_rating=rs_rating)
+        signals_df = generate_bold_signals(
+            df, params=p, rs_rating=rs_rating,
+            pit_rs_series=pit_rs_series, rs_roc_series=rs_roc_series,
+        )
 
         sl_pct = p.get("stop_loss_pct", 0.15)
         max_hold = p.get("max_hold_days", 120)
@@ -1535,6 +1540,8 @@ def run_backtest_bold(
     tax_rate: float | None = None,
     slippage: float | None = None,
     rs_rating: float | None = None,
+    pit_rs_series: "pd.Series | None" = None,
+    rs_roc_series: "pd.Series | None" = None,
 ) -> BacktestResult:
     """便捷函式：執行 Bold 大膽策略回測
 
@@ -1547,6 +1554,8 @@ def run_backtest_bold(
         tax_rate: 交易稅率
         slippage: 滑價率
         rs_rating: RS 排名百分位 (0-100)，需從全市場排名計算後傳入
+        pit_rs_series: Per-bar PIT RS percentile Series (indexed by date)
+        rs_roc_series: Per-bar RS ROC Series (indexed by date)
 
     Returns:
         BacktestResult
@@ -1557,7 +1566,10 @@ def run_backtest_bold(
         tax_rate=tax_rate,
         slippage=slippage,
     )
-    return engine.run_bold(df, params=params, ultra_wide=ultra_wide, rs_rating=rs_rating)
+    return engine.run_bold(
+        df, params=params, ultra_wide=ultra_wide, rs_rating=rs_rating,
+        pit_rs_series=pit_rs_series, rs_roc_series=rs_roc_series,
+    )
 
 
 def run_backtest_aggressive(

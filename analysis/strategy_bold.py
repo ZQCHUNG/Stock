@@ -369,8 +369,19 @@ def _detect_squeeze_release(squeeze: pd.Series) -> pd.Series:
     return squeeze.shift(1).fillna(False) & ~squeeze
 
 
-def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_rating: float | None = None) -> pd.DataFrame:
+def generate_bold_signals(
+    df: pd.DataFrame,
+    params: dict | None = None,
+    rs_rating: float | None = None,
+    pit_rs_series: "pd.Series | None" = None,
+    rs_roc_series: "pd.Series | None" = None,
+) -> pd.DataFrame:
     """產生 Bold 大膽策略訊號
+
+    Phase 10: PIT RS integration (Gemini R10-R11 + Architect APPROVED 2026-02-22)
+    When pit_rs_series is provided, uses per-bar PIT RS percentile instead of
+    the static rs_rating scalar. This eliminates look-ahead bias in backtests.
+    rs_roc_series provides RS acceleration data for future Gene Mutation Gate.
 
     進場邏輯：
     A) 能量擠壓突破：BB squeeze release + 價格突破 BB 上軌 + 量能 > 2.5x
@@ -585,21 +596,41 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
                     # Neither VCP nor Momentum Pullback → skip
                     continue
 
-        # --- [PLACEHOLDER: BOLD_RS_DUAL_GATE] Phase 9: Tiered Dual-Gate RS Filter ---
-        # 華爾街交易員 R9 + Architect Critic APPROVED 2026-02-22
+        # --- [PLACEHOLDER: BOLD_RS_DUAL_GATE] Phase 9→10: Tiered Dual-Gate RS Filter ---
+        # Phase 9: 華爾街交易員 R9 + Architect Critic APPROVED 2026-02-22
+        # Phase 10: PIT RS integration (Trader R10-R11 APPROVED 2026-02-22)
         # 軌道 A: RS >= 80 → 直接通過
         # 軌道 B1: RS 60-79 (準龍頭) → Vol > 1.5x AND ATR < 0.6
         # 軌道 B2: RS 40-59 (性格改變) → Vol > 2.5x OR 單日漲幅 > 5%
         # RS < 40 → 完全阻擋
-        if p.get("bold_rs_filter_enabled", True) and rs_rating is not None:
+        #
+        # When pit_rs_series is provided, use per-bar PIT RS instead of static scalar.
+        # This eliminates look-ahead bias in backtests.
+        _bar_rs = None
+        if pit_rs_series is not None:
+            # PIT mode: look up per-bar RS percentile by date
+            bar_date = result.index[i]
+            if bar_date in pit_rs_series.index:
+                _bar_rs = pit_rs_series.loc[bar_date]
+            else:
+                # Try nearest date (within 3 days tolerance)
+                _nearest = pit_rs_series.index.get_indexer([bar_date], method="ffill")
+                if _nearest[0] >= 0:
+                    _bar_rs = pit_rs_series.iloc[_nearest[0]]
+            if _bar_rs is not None and np.isnan(_bar_rs):
+                _bar_rs = None
+        elif rs_rating is not None:
+            _bar_rs = rs_rating  # Static mode (backward compatible)
+
+        if p.get("bold_rs_filter_enabled", True) and _bar_rs is not None:
             rs_min_a = p.get("bold_rs_filter_min", 80)
             rs_min_b = p.get("bold_rs_trackb_min", 40)
             rs_b1_min = p.get("bold_rs_b1_min", 60)
             trackb_on = p.get("bold_rs_trackb_enabled", True)
 
-            if rs_rating >= rs_min_a:
+            if _bar_rs >= rs_min_a:
                 pass  # 軌道 A: Power Play — 直接通過
-            elif trackb_on and rs_rating >= rs_b1_min:
+            elif trackb_on and _bar_rs >= rs_b1_min:
                 # 軌道 B1 (RS 60-79): 準龍頭模式 — Vol > 1.5x AND ATR < 0.6
                 _b1_pass = True
                 _vr = vol_ratio.iloc[i]
@@ -613,7 +644,7 @@ def generate_bold_signals(df: pd.DataFrame, params: dict | None = None, rs_ratin
                     continue
                 # B1 pass → mark position multiplier
                 pos_multipliers.iloc[i] = p.get("bold_rs_trackb_position_mult", 0.7)
-            elif trackb_on and rs_rating >= rs_min_b:
+            elif trackb_on and _bar_rs >= rs_min_b:
                 # 軌道 B2 (RS 40-59): 性格改變模式 — Vol > 2.5x OR daily gain > 5%
                 _vr = vol_ratio.iloc[i]
                 _daily_gain = (result["close"].iloc[i] / result["close"].iloc[i - 1] - 1
