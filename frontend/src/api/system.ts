@@ -19,6 +19,8 @@ export const systemApi = {
   omsEfficiency: () => client.get<any, any>('/system/oms-efficiency'),
   performanceAttribution: () => client.get<any, any>('/system/performance-attribution'),
   dashboard: () => client.get<any, any>('/system/dashboard', { timeout: 30000 }),
+  exceptionDashboard: () => client.get<any, any>('/system/exception-dashboard', { timeout: 30000 }),
+  emergencyStop: () => client.post<any, any>('/system/emergency-stop', {}, { timeout: 10000 }),
 
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>

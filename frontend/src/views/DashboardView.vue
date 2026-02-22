@@ -10,6 +10,7 @@ import { useAppStore } from '../stores/app'
 import { systemApi } from '../api/system'
 import { useMarketData } from '../composables/useMarketData'
 import { useResponsive } from '../composables/useResponsive'
+import ExceptionDashboard from '../components/ExceptionDashboard.vue'
 
 const router = useRouter()
 const app = useAppStore()
@@ -199,6 +200,9 @@ function analyzeStock(code: string) {
           </NCard>
         </NGi>
       </NGrid>
+
+      <!-- R89: Exception Monitor -->
+      <ExceptionDashboard style="margin-bottom: 12px" />
 
       <!-- Row 2: Market Regime + OMS + Risk -->
       <NGrid :cols="row2Cols" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">

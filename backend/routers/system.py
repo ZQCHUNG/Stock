@@ -1079,3 +1079,73 @@ def _exception_data_health():
         }
     except Exception as e:
         return {"is_alert": False, "overall": "ERROR", "detail": str(e)}
+
+
+@router.post("/emergency-stop")
+def emergency_stop():
+    """R91: Manual Kill-Switch — one-click stop all automated trading.
+
+    [CONVERGED — Wall Street Trader CTO mandate 2026-02-22]
+    Atomic actions:
+    1. Stop scheduler (all cron jobs)
+    2. Snapshot current state to disk
+    3. Return confirmation
+
+    Joe can trigger this from Dashboard to immediately halt everything.
+    """
+    import json as _json
+    from datetime import datetime
+
+    now = datetime.now()
+    actions = []
+
+    # 1. Stop scheduler
+    try:
+        from backend.scheduler import stop_scheduler, get_health
+        health_before = get_health()
+        stop_scheduler()
+        actions.append({"action": "stop_scheduler", "status": "ok", "detail": "Scheduler stopped"})
+    except Exception as e:
+        actions.append({"action": "stop_scheduler", "status": "error", "detail": str(e)})
+
+    # 2. Snapshot current state to disk
+    try:
+        from backend import db
+        positions = db.get_open_positions()
+        snapshot = {
+            "timestamp": now.isoformat(),
+            "trigger": "manual_emergency_stop",
+            "positions": positions,
+            "position_count": len(positions),
+        }
+        snapshot_path = Path(__file__).resolve().parent.parent.parent / "data" / "emergency_snapshot.json"
+        snapshot_path.write_text(
+            _json.dumps(snapshot, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        actions.append({
+            "action": "snapshot_state",
+            "status": "ok",
+            "detail": f"Saved {len(positions)} positions to {snapshot_path.name}",
+        })
+    except Exception as e:
+        actions.append({"action": "snapshot_state", "status": "error", "detail": str(e)})
+
+    # 3. Send notification
+    try:
+        from backend.scheduler import _send_notification
+        _send_notification(
+            f"\n🚨 EMERGENCY STOP 觸發\n"
+            f"⏰ {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Scheduler 已停止\n"
+            f"所有自動交易已暫停"
+        )
+        actions.append({"action": "notify", "status": "ok", "detail": "Emergency notification sent"})
+    except Exception as e:
+        actions.append({"action": "notify", "status": "error", "detail": str(e)})
+
+    return {
+        "status": "emergency_stop_executed",
+        "timestamp": now.isoformat(),
+        "actions": actions,
+    }
