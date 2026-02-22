@@ -125,9 +125,9 @@ STRATEGY_BOLD_PARAMS = {
     # Gemini R13 + Architect APPROVED: 3-tier RS defense during holding
     # Architect mandate: consecutive 3 days below threshold (anti-chatter)
     "rs_drop_alert_enabled": True,           # [PLACEHOLDER: RS_DROP_ALERT_ENABLED]
-    "rs_no_pyramid_threshold": 75,           # [PLACEHOLDER: RS_NO_PYRAMID = 75]
-    "rs_soft_exit_threshold": 70,            # [PLACEHOLDER: RS_SOFT_EXIT = 70]
-    "rs_hard_exit_threshold": 60,            # [PLACEHOLDER: RS_HARD_EXIT = 60]
+    "rs_no_pyramid_threshold": 75,           # [DEFERRED_TO_PORTFOLIO: RS_NO_PYRAMID] Zero differentiation in single-stock (R14 Group 1)
+    "rs_soft_exit_threshold": 75,            # [DEFERRED_TO_PORTFOLIO: RS_SOFT_EXIT] Zero differentiation in single-stock (R14 Group 1)
+    "rs_hard_exit_threshold": 55,            # [VALIDATED: RS_HARD_EXIT=55, n=200, IS+OOS plateau, R14 Group 1]
     "rs_drop_consecutive_days": 3,           # Architect mandate: 3 consecutive days
 
     # --- [PLACEHOLDER: PARABOLIC_HOLD] Phase 7B: Parabolic Hold（Level 4 Trail）---
@@ -154,14 +154,14 @@ STRATEGY_BOLD_PARAMS = {
     "pts_abandon_threshold": 0.95,    # [HYPOTHESIS] 放棄門檻 (entry * 0.95)
     "pts_max_hold_days": 20,          # [HYPOTHESIS] PTS 最長延長持有天數
     # [PLACEHOLDER: BOLD_STRUCT_STOP] 結構止損：跌破 min(進場日低點, 前一日低點)
-    "structural_stop_enabled": True,  # 啟用結構止損
+    "structural_stop_enabled": False, # [VALIDATED: R14 Group 2] False outperforms True (18.9% early exits when True)
     # [PLACEHOLDER: BOLD_TREND_STOP] 趨勢破位：價格 < MA20 且 MA20 斜率 ≤ 0
     "trend_break_stop_enabled": True, # 啟用趨勢破位止損
     "ma20_slope_lookback": 5,         # MA20 斜率計算窗口（天）
 
     # --- R62 Momentum Lag Stop（取代固定 Time Stop — Gemini + Architect Critic 共識）---
     # [PLACEHOLDER: BOLD_MLS_001] 延長期上限天數
-    "time_stop_extended_days": 8,     # 量縮時可延長至 8 天
+    "time_stop_extended_days": 8,     # [NON-FUNCTIONAL: R14 Group 2] Logic masked by PTS Case 4 contradiction
     # [PLACEHOLDER: BOLD_MLS_002] 量縮判定增益門檻
     "momentum_lag_gain_threshold": 0.01,  # ±1% 內算「不動」
     "momentum_lag_stop_enabled": True,    # 啟用 Momentum Lag Stop
@@ -190,7 +190,7 @@ STRATEGY_BOLD_PARAMS = {
 
     # --- R62 Equity Curve Filter（連續虧損保護 — Gemini + Architect Critic 共識）---
     # [PLACEHOLDER: BOLD_ECF_001] 連續虧損上限
-    "consecutive_loss_cap": 3,        # 連續 3 筆虧損觸發保護
+    "consecutive_loss_cap": 3,        # [VALIDATED: R14 Group 2] clc=3 on plateau, 4-5 degrades
     # [PLACEHOLDER: BOLD_ECF_002] 倉位縮減倍率
     "position_reduction_factor": 0.5, # 觸發後倉位減半
     "equity_curve_filter_enabled": True,  # 啟用 Equity Curve Filter

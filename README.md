@@ -255,6 +255,34 @@ python -m pytest tests/ -q
 | R90 | Pattern Recognition Phase 2-6 — Winner DNA Full Pipeline (Label → Cluster → Perf DB → Matcher → UI) | Done |
 | R93 Phase 10 | **Point-in-Time RS Engine** — eliminates look-ahead bias (1939 stocks, 664 dates, WR 37%→46%) | Done |
 | R93 Phase 11 | **VCP Hard Gate + RS ROC Gate + RS Drop Alert** — RS Decile validated (200 stocks, 928 trades) | Done |
+| R14 Group 1-2 | **Parameter Sweep** — rs_hard=55, structural_stop=False, clc=3 VALIDATED (200 stocks, 32 combos) | Done |
+
+### R14 Parameter Sweep — Bold PLACEHOLDER Cleanup (Gemini R14.1-R14.5)
+
+39 個 PLACEHOLDER/HYPOTHESIS 參數系統性驗證。200 stocks stratified sampling, IS/OOS/Stress 三期驗證。
+
+**Gemini R14 Protocol:**
+- Anchored Sensitivity Analysis (2D/3D grid, not single sweep)
+- Parameter Plateau (neighbors drop >15% = Sharp Peak → discard)
+- Kill Switch: WR<20% OR ER<1.2 OR Outlier Sensitivity fail → ABORT
+- Metric Top 3: Calmar (50%) + ES/CVaR (30%) + Expectancy (20%)
+
+**Group 1 動態防禦組 (COMPLETE):**
+- `rs_hard_exit=55` [VALIDATED] — plateau confirmed (8% drop < 15%), best IS+OOS
+- `rs_soft_exit=75` [DEFERRED_TO_PORTFOLIO] — zero differentiation in single-stock
+- `rs_no_pyramid=75` [DEFERRED_TO_PORTFOLIO] — same, needs portfolio-level test
+
+**Group 2 壓力測試組 (COMPLETE):**
+- `structural_stop=False` [VALIDATED] — True causes 18.9% early exits, CTO accepted data
+- `consecutive_loss_cap=3` [VALIDATED] — plateau at 2-3, CTO predicted correctly
+- `time_stop_extended_days` [NON-FUNCTIONAL] — PTS Case 4 logic contradiction masks parameter
+
+**Key Findings:**
+- Bold WR=26% is NORMAL for momentum breakout (convexity, not win rate)
+- Single-stock Calmar 0.34 = Professional Grade; 0.8 target is portfolio-level
+- Edge Ratio 1.72 > 1.2 = system has edge, outlier-robust (ExpEx2% > 0)
+
+**Group 3 獲利保護組 (PENDING):** parabolic_gain × momentum_lag
 
 ### Phase 11: VCP Hard Gate + RS ROC + RS Drop Alert (R93, Gemini R13 + Architect APPROVED)
 

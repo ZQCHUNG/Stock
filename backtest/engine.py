@@ -919,9 +919,9 @@ class BacktestEngine:
         # 3-tier defense: RS<75 stop pyramid, RS<70 soft exit, RS<60 hard exit
         # Architect mandate: consecutive 3 days below threshold to trigger (anti-chatter)
         rs_drop_enabled = p.get("rs_drop_alert_enabled", True) and pit_rs_series is not None
-        rs_no_pyramid_threshold = p.get("rs_no_pyramid_threshold", 75)    # [PLACEHOLDER]
-        rs_soft_exit_threshold = p.get("rs_soft_exit_threshold", 70)      # [PLACEHOLDER]
-        rs_hard_exit_threshold = p.get("rs_hard_exit_threshold", 60)      # [PLACEHOLDER]
+        rs_no_pyramid_threshold = p.get("rs_no_pyramid_threshold", 75)    # [DEFERRED_TO_PORTFOLIO]
+        rs_soft_exit_threshold = p.get("rs_soft_exit_threshold", 75)      # [DEFERRED_TO_PORTFOLIO]
+        rs_hard_exit_threshold = p.get("rs_hard_exit_threshold", 55)      # [VALIDATED: R14 Group 1]
         rs_drop_consecutive_days = p.get("rs_drop_consecutive_days", 3)   # Architect mandate
         _rs_below_soft_count = 0  # Consecutive days RS < soft threshold
         _rs_below_hard_count = 0  # Consecutive days RS < hard threshold
@@ -940,7 +940,7 @@ class BacktestEngine:
         # R62 Equity Curve Filter：連續虧損計數（策略層級）
         consecutive_loss_count = 0
         ecf_enabled = p.get("equity_curve_filter_enabled", True)
-        ecf_cap = p.get("consecutive_loss_cap", 3)
+        ecf_cap = p.get("consecutive_loss_cap", 3)  # [VALIDATED: R14 Group 2]
         ecf_reduction = p.get("position_reduction_factor", 0.5)
 
         # [HYPOTHESIS: REENTRY_ENGINE] Phase 3+4B: Re-entry Engine (Pivot High Breakout)

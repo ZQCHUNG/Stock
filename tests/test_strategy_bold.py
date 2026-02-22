@@ -247,6 +247,7 @@ class TestPhase1DefenseStops:
         result = compute_bold_exit(
             entry_price=100, current_price=95, peak_price=105,
             current_atr=3.0, hold_days=3,
+            params={"structural_stop_enabled": True},
             entry_low=96.0, prev_day_low=97.0,
         )
         # min(96, 97) = 96, current 95 < 96 → exit
@@ -259,6 +260,7 @@ class TestPhase1DefenseStops:
         result = compute_bold_exit(
             entry_price=100, current_price=94, peak_price=105,
             current_atr=3.0, hold_days=3,
+            params={"structural_stop_enabled": True},
             entry_low=97.0, prev_day_low=95.0,
         )
         # min(97, 95) = 95, current 94 < 95 → exit
@@ -270,6 +272,7 @@ class TestPhase1DefenseStops:
         result = compute_bold_exit(
             entry_price=100, current_price=97, peak_price=105,
             current_atr=3.0, hold_days=3,
+            params={"structural_stop_enabled": True},
             entry_low=96.0, prev_day_low=95.0,
         )
         # min(96, 95) = 95, current 97 > 95 → hold
@@ -280,6 +283,7 @@ class TestPhase1DefenseStops:
         result = compute_bold_exit(
             entry_price=100, current_price=94, peak_price=100,
             current_atr=3.0, hold_days=1,
+            params={"structural_stop_enabled": True},
             entry_low=96.0, prev_day_low=95.0,
         )
         assert result["should_exit"] is True
@@ -301,6 +305,7 @@ class TestPhase1DefenseStops:
         result = compute_bold_exit(
             entry_price=100, current_price=95, peak_price=105,
             current_atr=3.0, hold_days=3,
+            params={"structural_stop_enabled": True},
             entry_low=96.0, prev_day_low=None,
         )
         # floor = 96, current 95 < 96 → exit
@@ -413,6 +418,7 @@ class TestPhase1DefenseStops:
         result = compute_bold_exit(
             entry_price=100, current_price=94, peak_price=105,
             current_atr=3.0, hold_days=6,
+            params={"structural_stop_enabled": True},
             entry_low=96.0, prev_day_low=95.0,
         )
         # Both structural (94 < 95) and time (gain=-6% < 3%) would trigger
