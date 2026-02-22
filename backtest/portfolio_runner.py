@@ -69,8 +69,25 @@ PORTFOLIO_PARAMS = {
 
     # Position sizing mode
     "sizing_mode": "equal_weight",  # "equal_weight" or "vol_adjusted"
-    "risk_per_trade": 0.008,        # [CTO R14.14v2] 0.8% of equity per trade
+    "risk_per_trade": 0.008,        # [CTO R14.14v2] 0.8% of equity per trade (Baseline)
     "risk_per_trade_defensive": 0.004,  # [CTO R14.14v2] 0.4% when TAIEX < MA200
+    # Sniper Mode (R14.17.2 VALIDATED — CTO APPROVED):
+    #   risk_per_trade=0.015, risk_per_trade_defensive=0.005
+    #   OOS: +34.89% Calmar 8.06, MDD -3.97% (efficiency 1.44)
+    #   Pass as "Aggressive Profile" override, keep defense Config B unchanged
+
+    # === R14.17.3 Pyramiding [KILLED — CTO R14.17.3 Final Verdict] ===
+    # Tested: OOS Calmar 8.06→7.46 (WORSE), MDD increased proportionally.
+    # CTO ruling: "TW fast-bull = chasing last leg. KILL."
+    # Code preserved for reference but permanently disabled.
+    "pyramid_enabled": False,        # [KILLED R14.17.3] Never enable — Calmar degrades
+    "pyramid_gain_atr_mult": 1.5,   # gain > 1.5 × ATR to trigger
+    "pyramid_high_lookback": 5,     # Price must be 5-day high
+    "pyramid_volume_gate": True,    # Volume > MA5_Volume required
+    "pyramid_add_pct": 0.50,        # Add 50% of original position
+    "pyramid_max_adds": 1,          # Max 1 add per position
+    "pyramid_max_position_pct": 0.25,  # Max 25% of total equity per stock
+    "pyramid_risk_cap_mult": 1.2,   # Post-pyramid risk ≤ 1.2× initial
 
     # Lunger Filter (CTO R14.14v2 — DISABLED: Vol Gate is sufficient)
     "lunger_filter_enabled": False,     # [CTO APPROVED] Disabled — kills convexity
@@ -571,6 +588,82 @@ class PortfolioBacktester:
                 del positions[code]
                 last_known_price.pop(code, None)
 
+            # --- B2: Pyramid check for held positions (CTO R14.17.3) ---
+            # Breakout-on-Breakout: gain > 1.5×ATR + 5-day high + volume > MA5
+            if p.get("pyramid_enabled", False) and len(positions) > 0:
+                for code, pos in list(positions.items()):
+                    if pos.get("pyramided", False):
+                        continue  # Already pyramided once
+                    if pos.get("pyramid_adds", 0) >= p.get("pyramid_max_adds", 1):
+                        continue
+
+                    df = signals_cache[code]
+                    if date_str not in stock_date_sets.get(code, set()):
+                        continue
+
+                    idx = stock_date_to_idx[code][date_str]
+                    row = df.iloc[idx]
+                    current_price = float(row["close"])
+                    current_high = float(row["high"]) if "high" in row else current_price
+                    current_atr = float(row.get("atr", 0)) if "atr" in df.columns else 0
+
+                    # Condition 1: Gain > 1.5 × ATR
+                    gain = current_price - pos["entry_price"]
+                    if current_atr <= 0 or gain < p.get("pyramid_gain_atr_mult", 1.5) * current_atr:
+                        continue
+
+                    # Condition 2: Price is 5-day high
+                    lookback = p.get("pyramid_high_lookback", 5)
+                    if idx >= lookback:
+                        recent_highs = [float(df["high"].iloc[j]) if "high" in df.columns
+                                        else float(df["close"].iloc[j])
+                                        for j in range(idx - lookback, idx)]
+                        if current_high <= max(recent_highs):
+                            continue
+                    else:
+                        continue
+
+                    # Condition 3: Volume > MA5_Volume
+                    if p.get("pyramid_volume_gate", True) and idx >= 5 and "volume" in df.columns:
+                        _vol_today = float(row.get("volume", 0))
+                        _vol_ma5 = float(df["volume"].iloc[max(0, idx-5):idx].mean())
+                        if _vol_ma5 > 0 and _vol_today <= _vol_ma5:
+                            continue
+
+                    # Max position pct check
+                    current_pos_value = pos["shares"] * current_price
+                    if equity > 0 and current_pos_value / equity >= p.get("pyramid_max_position_pct", 0.25):
+                        continue
+
+                    # Calculate add size: 50% of original shares
+                    original_shares = pos.get("original_shares", pos["shares"])
+                    add_shares = int(original_shares * p.get("pyramid_add_pct", 0.50) / 1000) * 1000
+                    if add_shares <= 0:
+                        continue
+
+                    # Check if adding would exceed max position pct
+                    new_pos_value = (pos["shares"] + add_shares) * current_price
+                    if equity > 0 and new_pos_value / equity > p.get("pyramid_max_position_pct", 0.25):
+                        add_shares = int((equity * p.get("pyramid_max_position_pct", 0.25) / current_price - pos["shares"]) / 1000) * 1000
+                        if add_shares <= 0:
+                            continue
+
+                    add_cost = add_shares * current_price
+                    add_commission = add_cost * (p["commission_rate"] + p["slippage"])
+
+                    if add_cost + add_commission > cash:
+                        continue
+
+                    # Execute pyramid add
+                    cash -= (add_cost + add_commission)
+                    old_total_cost = pos["entry_price"] * pos["shares"]
+                    pos["shares"] += add_shares
+                    # Update average entry price
+                    pos["entry_price"] = (old_total_cost + add_cost) / pos["shares"]
+                    pos["pyramided"] = True
+                    pos["pyramid_adds"] = pos.get("pyramid_adds", 0) + 1
+                    pos["original_shares"] = original_shares
+
             # --- C: Check for end of period ---
             if day_idx == len(all_dates) - 1:
                 # Close all remaining positions
@@ -896,6 +989,7 @@ class PortfolioBacktester:
                 cash -= (actual_cost + entry_commission)
                 positions[cand["code"]] = {
                     "shares": shares,
+                    "original_shares": shares,  # R14.17.3: track for pyramid sizing
                     "entry_price": cand["price"],
                     "entry_date": date_str,
                     "entry_atr": cand["atr_tightness"],
@@ -910,6 +1004,8 @@ class PortfolioBacktester:
                     "rs_rating": cand["rs_rating"],
                     "sqs_score": cand["sqs"],
                     "position_pct": actual_cost / equity if equity > 0 else 0,
+                    "pyramided": False,     # R14.17.3: pyramid status
+                    "pyramid_adds": 0,      # R14.17.3: number of pyramid adds
                 }
                 sector_count[cand_sector] = sector_count.get(cand_sector, 0) + 1
                 sector_exposure[cand_sector] = sector_exposure.get(cand_sector, 0.0) + actual_cost

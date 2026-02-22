@@ -1,26 +1,26 @@
-"""Aggressive Mode（真・大膽模式）— WarriorExitEngine (R88)
+"""[KILLED R14.17] WarriorExitEngine — Aggressive Mode (R88)
 
-ARCHITECTURE NOTE — PHYSICAL ISOLATION:
-This file is the WarriorExitEngine. It is 100% SEPARATE from strategy_bold.py (TimidExitEngine).
-DO NOT import compute_bold_exit or any Bold exit logic into this file.
-DO NOT add any stop-loss tighter than 10% to this file.
+=== KILLED BY CTO R14.17 ACID TEST (2026-02-23) ===
+Kill Switch TRIGGERED in ALL 3 periods (IS/OOS/Stress).
+- Fewer trades (81 vs Bold 110) AND worse returns (+3.00% vs +3.13%)
+- Home Runs: only 3 across 108 stocks × 3 periods
+- Payload Ratio: 0.40 (below 0.50 threshold)
+- 3×ATR trailing bleeds alpha — exits too late, trend already reversed
 
-This module's goal: capture +50% ~ +200% waves (亞翔, 陽明, 光聖, 亞果 class).
-The cost: endure 15-20% drawdowns. This is by design, not a bug.
+ROOT CAUSE (CTO diagnosis):
+- TW stock market convexity = rotation speed, NOT holding time
+- Wider stops → hold losers longer, NOT capture bigger upside
+- Pyramiding (MA20 touchdown) rarely fires in 60-day window
 
-CODE REVIEW RULE:
-Any PR that tightens stops in this file MUST provide "Capture Rate" decline proof.
-If Capture Rate drops, the PR is REJECTED. Period.
+REPLACEMENT: "Sniper Mode" (R14.17.2) — Bold exits + higher sizing (1.5% risk)
+  Sniper B: OOS +34.89% Calmar 8.06 vs baseline +13.88% Calmar 5.61
 
-CTO + Secretary APPROVED parameters:
-- Disaster stop: -20% hard (Secretary override from -25%)
-- ATR 3× trailing from entry (CTO: 2× too tight for TW main-wave volatility)
-- MA20 slope negative + price < last week low → combo stop
-- MA50 death cross → final defense
-- Max hold: 60 days
-- Pyramiding: 20% → +10% → +10% = 40% max, MA20 touchdown only
-- Industry diversification: two stocks must NOT share same sector
-- Liquidity: entry < 2% of 20-day avg volume
+This file is preserved as historical documentation. DO NOT USE.
+CTO conversation: ce94f8a78bb93401
+===
+
+ORIGINAL ARCHITECTURE NOTE — PHYSICAL ISOLATION:
+This file WAS the WarriorExitEngine. It was 100% SEPARATE from strategy_bold.py.
 """
 
 import pandas as pd
