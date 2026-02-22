@@ -41,7 +41,10 @@ Stock/
 │   ├── portfolio_heat.py     # Correlation-Adjusted Heat Map (R86)
 │   ├── sector_correlation.py # Sector Correlation Monitor (R87)
 │   ├── liquidity.py          # Liquidity Score (DTL + Spread + Tick Size) (R69)
-│   └── market_regime.py      # Bull/Bear/Sideways detection
+│   ├── market_regime.py      # Bull/Bear/Sideways detection
+│   ├── market_guard.py       # Market Regime Global Switch — 全局斷路器 (R89)
+│   ├── pattern_labeler.py    # Phase 2: Historical Winner DNA 標記 (R90)
+│   └── winner_dna.py         # Phase 3: UMAP + HDBSCAN Winner Clustering (R90)
 ├── backtest/
 │   ├── engine.py             # Backtest engine (v4/v5/bold/aggressive/portfolio)
 │   ├── risk_manager.py       # VaR + Sizing + Concentration + Circuit Breaker (R60/R80)
@@ -55,7 +58,7 @@ Stock/
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
-├── tests/                    # 400+ tests (pytest, synthetic fixtures)
+├── tests/                    # 450+ tests (pytest, synthetic fixtures)
 └── config.py                 # Strategy params, fee rates
 ```
 
@@ -188,7 +191,7 @@ docker run -d --name stock-redis -p 6379:6379 redis:7-alpine redis-server --appe
 
 ```bash
 python -m pytest tests/ -q
-# 400+ tests, all synthetic fixtures, no network dependency
+# 450+ tests, all synthetic fixtures, no network dependency
 ```
 
 ---
@@ -247,6 +250,8 @@ python -m pytest tests/ -q
 | R88.7P13 | Polarity Divergence Warning + Cross-Source Fuzzy Dedup (Trader R6 CONVERGED) | Done |
 | R88.7P14 | Maiden Voyage: Toxic Volatility + Cold Start + Weekend Effect (Trader R7 CONVERGED) | Done |
 | R88.8 | Aggressive Mode — WarriorExitEngine (ATR 3x Trail + Pyramiding + Regime Gate) | Done |
+| R89 | Market Guard — 全局斷路器 (ADL + Breadth + Gap Detection) | Done |
+| R90 | Pattern Recognition Phase 2-3 — Winner DNA Labeling + HDBSCAN Clustering | Done |
 
 ### RS Rating & Sector Context (R83-R84)
 
@@ -475,6 +480,54 @@ python -m pytest tests/ -q
 
 **41 tests** in `tests/test_strategy_aggressive.py`
 
+### Market Guard — 全局斷路器 (R89)
+
+市場環境全局開關，兩級曝險限制器：
+
+| Level | 條件 | 曝險上限 | 意義 |
+|-------|------|---------|------|
+| **0 Normal** | 無觸發 | 100% | 正常交易 |
+| **1 CAUTION** | ADL 連跌 ≥5 天 OR 市場寬度 <30% | 50% | 減半曝險 |
+| **2 LOCKDOWN** | ADL 連跌 ≥10 天 AND 寬度 <20% AND 缺口 >-3% | 0% | 全面停止進場 |
+
+- ADL (Advance-Decline Line): 上漲家數 - 下跌家數 累積
+- Market Breadth: 收盤 > MA20 的股票比例
+- Gap Detection: 指數開盤跳空幅度
+- 所有閾值標記 `[HYPOTHESIS: MARKET_SENTIMENT_V1]` — 待實證
+- 23 tests in `tests/test_market_guard.py`
+
+### Pattern Recognition Phase 2-3 — Winner DNA (R90)
+
+**Phase 2: Historical Winner DNA Labeling** (`analysis/pattern_labeler.py`)
+
+從 6 年歷史中找出 Super Stock，標記起漲前的 DNA 特徵：
+
+| 步驟 | 說明 | 標記 |
+|------|------|------|
+| 1. 掃描歷史價格 | 3mo >50% AND 1yr >100% | [HYPOTHESIS: SUPER_STOCK_TARGET] |
+| 2. 定位 Epiphany Point | 起漲前 21 天（結構轉變點）| [HYPOTHESIS: EPIPHANY_LOOKBACK_21D] |
+| 3. 提取 65 特徵 DNA | 從 features_all.parquet 快照 | [VERIFIED: GENE_MUTATION_SCANNER] |
+| 4. 計算前瞻報酬 | 7d/21d/30d/60d/90d/180d/365d | — |
+| 5. 建立失敗對照組 | Hot-but-Failed (量價有動靜但 d90<0) | — |
+| 6. Super Stock Flag | Gene Mutation \|Δ_div\| > 2σ | — |
+
+**Phase 3: UMAP + HDBSCAN Winner Clustering** (`analysis/winner_dna.py`)
+
+將標記後的 Winner DNA 降維聚類，建立 DNA 圖書館：
+
+| 步驟 | 說明 |
+|------|------|
+| 1. 降維 | UMAP/PCA: 65 features → 8 components |
+| 2. 聚類 | HDBSCAN: 密度聚類，自動偵測群數 + 噪音過濾 |
+| 3. 群落剖析 | 每群: Centroid + Top Features + Multi-horizon Stats |
+| 4. 自動標籤 | MomentumBreak / VolumeExplosion / Cluster_X |
+| 5. DNA 匹配 | Stage 1 Cosine: 新股 vs Cluster Centroids (>85%) |
+
+- Wall Street Trader APPROVED: DTW limited to top 30 candidates
+- Architect Critic CONDITIONAL APPROVED: 物理一致性 PASS + 參數實證 PASS
+- 25 tests (labeler) + 26 tests (winner_dna) ALL PASSING
+- API: `GET /{code}/winner-dna-match`, `GET /{code}/super-stock-flag`
+
 ### Auto Trail Classifier (R73-R79)
 
 以 Walk-Forward Optimization 驗證的波動率自適應移動停利系統：
@@ -678,12 +731,22 @@ Google Drive / Colab Pro+
 ### 訓練階段（Gemini CTO 建議，先做再驗證）
 
 ```
-Phase 1: 資料蒐集 + 儲存 (8/8 已驗證，R88.2 Dual Block 引擎已完成)
-Phase 2: 標記歷史案例（漲50%+/30%+的股票，標記起漲點 + 失敗對照組）
-Phase 3: Pattern 分群（技術面/基本面/籌碼面 聯合特徵）
+Phase 1: 資料蒐集 + 儲存 (8/8 已驗證，R88.2 Dual Block 引擎已完成) ✅
+Phase 2: 標記歷史案例 — Winner DNA Labeling (R90) ✅
+         → 3mo >50% AND 1yr >100% = Super Stock
+         → Epiphany Point (起漲前 21 天) + 65 特徵 DNA 快照
+         → 失敗對照組: Hot-but-Failed (ma20_ratio>0.5 + vol_ratio>0.5 + d90<0)
+         → Super Stock Flag: Gene Mutation |Δ_div| > 2σ
+Phase 3: Pattern 分群 — UMAP + HDBSCAN Winner Clustering (R90) ✅
+         → UMAP/PCA 降維 (65→8 components)
+         → HDBSCAN 密度聚類 → 5-8 Winner DNA 群落
+         → 每群: Centroid + Top Features + Multi-horizon 勝率/Expectancy/PF
+         → Auto-Label: MomentumBreak / VolumeExplosion / Cluster_X
 Phase 4: 建立 Pattern 績效資料庫
          → 每個 pattern × 持有天數（7d/21d/30d/90d/180d/365d）→ 勝率 + 平均報酬 + Expectancy
 Phase 5: 即時比對引擎（新線型出現 → 匹配 pattern → 顯示歷史勝率）
+         → Stage 1: Cosine Similarity (features >85%) — 已完成 ✅
+         → Stage 2: DTW (price shape, top 30 candidates) — 待整合
 Phase 6: 決策輔助 UI（勝率 > 門檻 → 建議進場）
 ```
 

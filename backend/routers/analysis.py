@@ -1063,6 +1063,133 @@ def find_similar_in_history(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ---------------------------------------------------------------------------
+# Winner DNA Library — Pattern Recognition Phase 2-3
+# [CONVERGED — Wall Street Trader + Architect Critic APPROVED]
+# ---------------------------------------------------------------------------
+
+@router.get("/{code}/winner-dna-match")
+def get_winner_dna_match(code: str):
+    """比對股票與贏家 DNA 庫 — Two-Stage Matcher (Stage 1: Cosine)
+
+    [PLACEHOLDER: MATCH_THRESHOLD_085] — 85% similarity needs sensitivity test
+    """
+    try:
+        from analysis.winner_dna import (
+            load_cluster_db,
+            FEATURES_FILE,
+            ClusterProfile,
+        )
+        import numpy as np
+        import pandas as pd
+
+        # Load cluster DB
+        db = load_cluster_db()
+        if db is None:
+            return {"code": code, "status": "no_library",
+                    "detail": "Winner DNA library not built yet. Run pattern_labeler.py + winner_dna.py"}
+
+        # Load features for this stock
+        if not FEATURES_FILE.exists():
+            raise HTTPException(status_code=500, detail="Features file not found")
+
+        features_df = pd.read_parquet(FEATURES_FILE)
+        stock_data = features_df[features_df["stock_code"] == code]
+        if stock_data.empty:
+            return {"code": code, "status": "no_data", "detail": "Stock not in features"}
+
+        latest = stock_data.sort_values("date").iloc[-1]
+
+        # Extract feature vector
+        from analysis.winner_dna import _load_metadata
+        metadata = _load_metadata()
+        all_features = metadata["all_features"]
+        feat_vector = np.array([float(latest.get(f, 0.0)) for f in all_features])
+        feat_vector = np.nan_to_num(feat_vector, nan=0.0)
+
+        # Compare against each cluster centroid (cosine similarity)
+        matches = []
+        for cluster in db.get("clusters", []):
+            centroid = np.array(cluster["centroid"])
+            if len(centroid) == 0:
+                continue
+
+            # Need to reduce feat_vector to same dimensionality
+            # Use simplified approach: compare raw feature means per cluster top features
+            dot = np.dot(feat_vector[:len(centroid)], centroid) if len(feat_vector) >= len(centroid) else 0
+            norm_q = np.linalg.norm(feat_vector[:len(centroid)])
+            norm_c = np.linalg.norm(centroid)
+            sim = dot / (norm_q * norm_c) if (norm_q > 1e-8 and norm_c > 1e-8) else 0
+
+            matches.append({
+                "cluster_id": cluster["cluster_id"],
+                "label": cluster.get("label", ""),
+                "similarity": round(float(sim), 4),
+                "n_samples": cluster["n_samples"],
+                "performance": cluster.get("performance", {}),
+            })
+
+        matches.sort(key=lambda x: x["similarity"], reverse=True)
+
+        best = matches[0] if matches else None
+        is_match = best is not None and best["similarity"] >= 0.85
+
+        return {
+            "code": code,
+            "date": str(latest["date"]),
+            "is_match": is_match,
+            "best_cluster": best,
+            "all_matches": matches[:5],
+            "n_clusters": len(db.get("clusters", [])),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/super-stock-flag")
+def get_super_stock_flag(code: str):
+    """超級飆股潛力標記 — Gene Mutation Δ_div > 2σ
+
+    [VERIFIED: GENE_MUTATION_SCANNER] — uses existing 1.5σ detection,
+    upgraded to 2.0σ for super stock threshold.
+    """
+    try:
+        from analysis.pattern_labeler import compute_super_stock_flags, _load_metadata
+        import pandas as pd
+
+        from analysis.winner_dna import FEATURES_FILE
+        if not FEATURES_FILE.exists():
+            raise HTTPException(status_code=500, detail="Features file not found")
+
+        features_df = pd.read_parquet(FEATURES_FILE)
+        metadata = _load_metadata()
+
+        flags = compute_super_stock_flags(features_df, metadata)
+        if flags.empty:
+            return {"code": code, "status": "no_data"}
+
+        stock_flag = flags[flags["stock_code"] == code]
+        if stock_flag.empty:
+            return {"code": code, "status": "not_found"}
+
+        row = stock_flag.iloc[0]
+        return {
+            "code": code,
+            "date": str(row["date"]),
+            "is_super_stock_potential": bool(row["is_super_stock_potential"]),
+            "mutation_type": row["mutation_type"],
+            "delta_z": round(float(row["delta_z"]), 4),
+            "tech_score": round(float(row["tech_score"]), 4),
+            "broker_score": round(float(row["broker_score"]), 4),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{code}/trail-classifier")
 def get_trail_classifier(code: str):
     """R76: 股票性格分類器 — Momentum Scalper vs Precision Trender

@@ -742,3 +742,340 @@ def twse_backfill(codes: list[str], months: int = 12, with_dividends: bool = Tru
     bf.add_stocks(codes)
     results = bf.run(months_back=months, with_dividends=with_dividends)
     return {"results": results, "total_stocks": len(codes)}
+
+
+# ---------------------------------------------------------------------------
+# R89: Market Regime Global Switch — 全局市場環境斷路器
+# [CONVERGED — Wall Street Trader + Architect Critic APPROVED]
+# ---------------------------------------------------------------------------
+
+@router.get("/market-guard")
+def market_guard_status():
+    """R89: Get current market guard level (NORMAL / CAUTION / LOCKDOWN).
+
+    Uses TAIEX MA20/MA200, ADL, market breadth, and gap detection
+    to determine maximum allowed portfolio exposure.
+
+    Returns:
+        MarketGuardStatus with level (0/1/2) and exposure_limit (0.0-1.0)
+    """
+    from backend.dependencies import make_serializable
+    from analysis.market_guard import get_market_exposure_limit
+    from data.fetcher import get_taiex_data, get_stock_data
+    from concurrent.futures import ThreadPoolExecutor
+    from config import SCAN_STOCKS
+
+    # Fetch TAIEX data (need 200+ days for MA200)
+    taiex_df = None
+    try:
+        taiex_df = get_taiex_data(period_days=300)
+    except Exception as e:
+        logger.warning("Market guard: failed to fetch TAIEX: %s", e)
+
+    if taiex_df is None or len(taiex_df) < 200:
+        return make_serializable({
+            "level": 0,
+            "level_label": "UNKNOWN",
+            "exposure_limit": 1.0,
+            "detail": "TAIEX data insufficient. Defaulting to NORMAL.",
+            "triggers": [],
+        })
+
+    # Fetch close prices for ADL and breadth (sample of SCAN_STOCKS)
+    # Use a sample to keep response time reasonable
+    sample_codes = list(SCAN_STOCKS.keys())[:50]
+    stock_closes = {}
+
+    def _fetch_close(code):
+        try:
+            df = get_stock_data(code, period_days=60)
+            if df is not None and len(df) >= 25:
+                return code, df["close"]
+        except Exception:
+            pass
+        return code, None
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            for code, close_series in ex.map(_fetch_close, sample_codes):
+                if close_series is not None:
+                    stock_closes[code] = close_series
+    except Exception as e:
+        logger.warning("Market guard: failed to fetch stock closes: %s", e)
+
+    status = get_market_exposure_limit(taiex_df, stock_closes)
+    return make_serializable(status.to_dict())
+
+
+# ---------------------------------------------------------------------------
+# R89: Exception Dashboard — 異常監控面板
+# [CONVERGED — Wall Street Trader + Architect Critic APPROVED]
+# ---------------------------------------------------------------------------
+
+@router.get("/exception-dashboard")
+def exception_dashboard():
+    """R89: Exception-only dashboard for risk monitoring.
+
+    Returns 4 exception cards:
+    1. Portfolio Heat & Concentration (sector >40%, total ATR >6%)
+    2. Signal Drift (Entry SQS vs Current SQS degradation)
+    3. Liquidity Trap (Days to liquidate >3 days)
+    4. Price Gap Alert (Architect Critic addition)
+
+    Plus: market guard status summary.
+    """
+    from backend.dependencies import make_serializable
+
+    result = {
+        "market_guard": _exception_market_guard(),
+        "heat_concentration": _exception_heat(),
+        "signal_drift": _exception_signal_drift(),
+        "liquidity_trap": _exception_liquidity(),
+        "price_gap": _exception_price_gap(),
+        "data_health": _exception_data_health(),
+    }
+    return make_serializable(result)
+
+
+def _exception_market_guard():
+    """Market guard status for exception dashboard."""
+    try:
+        from analysis.market_guard import get_market_exposure_limit
+        from data.fetcher import get_taiex_data
+        taiex_df = get_taiex_data(period_days=300)
+        status = get_market_exposure_limit(taiex_df)
+        return {
+            "level": status.level,
+            "level_label": status.level_label,
+            "exposure_limit": status.exposure_limit,
+            "taiex_close": status.taiex_close,
+            "taiex_ma20": status.taiex_ma20,
+            "taiex_ma200": status.taiex_ma200,
+            "triggers": status.triggers,
+            "detail": status.detail,
+            "is_alert": status.level > 0,
+        }
+    except Exception as e:
+        return {"level": 0, "level_label": "ERROR", "detail": str(e), "is_alert": False}
+
+
+def _exception_heat():
+    """Card 1: Portfolio Heat & Concentration.
+
+    Alert when:
+    - Single sector > 40% [PLACEHOLDER: CONCENTRATION_LIMIT]
+    - Total ATR stop risk > 6% of account [VERIFIED: JOE_RISK_THRESHOLD]
+    """
+    try:
+        from backend import db
+        positions = db.get_open_positions()
+        if not positions:
+            return {"is_alert": False, "detail": "No positions", "sectors": [], "total_risk_pct": 0}
+
+        total_value = sum(
+            p.get("entry_price", 0) * p.get("lots", 0) * 1000
+            for p in positions
+        ) or 1
+
+        # Sector concentration
+        sector_values: dict[str, float] = {}
+        for p in positions:
+            sector = p.get("sector", "未分類") or "未分類"
+            val = p.get("entry_price", 0) * p.get("lots", 0) * 1000
+            sector_values[sector] = sector_values.get(sector, 0) + val
+
+        sector_pcts = {s: round(v / total_value, 4) for s, v in sector_values.items()}
+        max_sector = max(sector_pcts.values()) if sector_pcts else 0
+        max_sector_name = max(sector_pcts, key=sector_pcts.get) if sector_pcts else ""
+
+        # Total ATR stop risk (approximate: SL 7% × position %)
+        total_risk = 0
+        for p in positions:
+            entry = p.get("entry_price", 0)
+            stop = p.get("stop_price", entry * 0.93)
+            lots = p.get("lots", 0)
+            risk_amount = (entry - stop) * lots * 1000 if entry > stop else 0
+            total_risk += risk_amount
+        total_risk_pct = total_risk / total_value if total_value > 0 else 0
+
+        # [PLACEHOLDER: CONCENTRATION_LIMIT] = 0.40
+        # [VERIFIED: JOE_RISK_THRESHOLD] = 0.06
+        sector_alert = max_sector > 0.40
+        risk_alert = total_risk_pct > 0.06
+
+        alerts = []
+        if sector_alert:
+            alerts.append(f"{max_sector_name} 佔比 {max_sector:.0%} > 40% 上限")
+        if risk_alert:
+            alerts.append(f"總 ATR 停損風險 {total_risk_pct:.1%} > 6% 上限")
+
+        return {
+            "is_alert": sector_alert or risk_alert,
+            "sector_alert": sector_alert,
+            "risk_alert": risk_alert,
+            "max_sector_name": max_sector_name,
+            "max_sector_pct": round(max_sector, 4),
+            "total_risk_pct": round(total_risk_pct, 4),
+            "sectors": sector_pcts,
+            "alerts": alerts,
+            "detail": "; ".join(alerts) if alerts else "正常",
+        }
+    except Exception as e:
+        return {"is_alert": False, "detail": str(e)}
+
+
+def _exception_signal_drift():
+    """Card 2: Signal Drift — SQS degradation for held stocks.
+
+    Alert when Entry_SQS - Current_SQS > 25 points.
+    This means fundamentals/chips have deteriorated while price hasn't
+    triggered technical stop-loss yet.
+    """
+    try:
+        from backend import db
+        positions = db.get_open_positions()
+        if not positions:
+            return {"is_alert": False, "drifted": [], "detail": "No positions"}
+
+        drifted = []
+        for p in positions:
+            entry_sqs = p.get("entry_sqs", 0)
+            current_sqs = p.get("current_sqs", entry_sqs)
+            if entry_sqs and current_sqs and (entry_sqs - current_sqs) > 25:
+                drifted.append({
+                    "code": p.get("code", ""),
+                    "name": p.get("name", ""),
+                    "entry_sqs": entry_sqs,
+                    "current_sqs": current_sqs,
+                    "drift": round(entry_sqs - current_sqs, 1),
+                })
+
+        return {
+            "is_alert": len(drifted) > 0,
+            "drifted": drifted,
+            "count": len(drifted),
+            "detail": f"{len(drifted)} 檔持股 SQS 下滑超過 25 分" if drifted else "所有持股 SQS 穩定",
+        }
+    except Exception as e:
+        return {"is_alert": False, "drifted": [], "detail": str(e)}
+
+
+def _exception_liquidity():
+    """Card 3: Liquidity Trap — days to liquidate check.
+
+    If liquidating all positions at 15% of daily volume takes >3 days,
+    this is a warning signal.
+    """
+    try:
+        from backend import db
+        from data.fetcher import get_stock_data
+        from concurrent.futures import ThreadPoolExecutor
+
+        positions = db.get_open_positions()
+        if not positions:
+            return {"is_alert": False, "trapped": [], "detail": "No positions"}
+
+        codes = list({p["code"] for p in positions})
+
+        # Fetch recent volume data
+        volumes = {}
+        def _fetch_vol(code):
+            try:
+                df = get_stock_data(code, period_days=30)
+                if df is not None and len(df) >= 5:
+                    return code, float(df["volume"].tail(20).mean())
+            except Exception:
+                pass
+            return code, 0
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for code, avg_vol in ex.map(_fetch_vol, codes):
+                volumes[code] = avg_vol
+
+        trapped = []
+        for p in positions:
+            code = p.get("code", "")
+            lots = p.get("lots", 0)
+            shares = lots * 1000
+            avg_vol = volumes.get(code, 0)
+
+            if avg_vol > 0:
+                # Assume we can trade 15% of daily volume
+                daily_capacity = avg_vol * 0.15
+                days_to_exit = shares / daily_capacity if daily_capacity > 0 else 99
+            else:
+                days_to_exit = 99
+
+            if days_to_exit > 3:
+                trapped.append({
+                    "code": code,
+                    "name": p.get("name", ""),
+                    "lots": lots,
+                    "avg_volume": round(avg_vol, 0),
+                    "days_to_exit": round(days_to_exit, 1),
+                })
+
+        return {
+            "is_alert": len(trapped) > 0,
+            "trapped": trapped,
+            "count": len(trapped),
+            "detail": f"{len(trapped)} 檔持股退場需 >3 天" if trapped else "所有持股流動性正常",
+        }
+    except Exception as e:
+        return {"is_alert": False, "trapped": [], "detail": str(e)}
+
+
+def _exception_price_gap():
+    """Card 4: Price Gap Alert (Architect Critic addition).
+
+    Gap-down > -3% with abnormal volume → structural damage warning.
+    """
+    try:
+        from analysis.market_guard import detect_price_gap
+        from data.fetcher import get_taiex_data
+
+        taiex_df = get_taiex_data(period_days=30)
+        if taiex_df is None or len(taiex_df) < 21:
+            return {"is_alert": False, "detail": "Insufficient data"}
+
+        alert, gap_pct = detect_price_gap(taiex_df)
+
+        return {
+            "is_alert": alert,
+            "gap_pct": gap_pct,
+            "detail": (
+                f"TAIEX 開盤跳空 {gap_pct:.1%} + 異常量能，結構性損毀風險"
+                if alert else "今日無異常跳空"
+            ),
+        }
+    except Exception as e:
+        return {"is_alert": False, "detail": str(e)}
+
+
+def _exception_data_health():
+    """Card 5: Data Health — Fetcher freshness check.
+
+    Enhanced health check: verify all 10 fetchers have fresh data.
+    [CONVERGED — Architect Critic: resource integrity is highest defense]
+    """
+    try:
+        from data.health_check import run_health_check
+        result = run_health_check()
+
+        any_fail = result["overall"] == "FAIL"
+        checks_summary = []
+        for c in result.get("checks", []):
+            checks_summary.append({
+                "name": c.get("check", ""),
+                "status": c.get("status", "UNKNOWN"),
+                "detail": c.get("detail", ""),
+            })
+
+        return {
+            "is_alert": any_fail,
+            "overall": result["overall"],
+            "checks": checks_summary,
+            "detail": "資料品質異常，SQS 評分可能不可靠" if any_fail else "所有資料來源正常",
+        }
+    except Exception as e:
+        return {"is_alert": False, "overall": "ERROR", "detail": str(e)}
