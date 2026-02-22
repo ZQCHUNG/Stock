@@ -263,6 +263,7 @@ python -m pytest tests/ -q
 | R14.15-16 | **3-Layer Risk Defense** — Sector Cap + Corr Heat + Global Brake, Config B VALIDATED (Zero-cost Insurance) | Done |
 | R14.17 | **Aggressive Mode Acid Test** — WarriorExitEngine KILLED (all 3 periods), Sniper B (1.5%/0.5%) VALIDATED | Done |
 | R14.18 | **Final Production Baseline** — Sniper B + Config B + Bold Exits LOCKED (OOS Calmar 8.06) | Done |
+| R14.18-8B | **Phase 8B: Sniper Scanner Dashboard** — POST /api/screener/bold-scan + SniperScannerTab.vue (CTO P0 priority) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
@@ -290,6 +291,16 @@ R14 參數清洗與系統強化 **階段圓滿結束**。最終生產基線：
 - Sniper Mode replaces it: Bold exits + higher sizing = genuine convexity improvement
 - Pyramiding (R14.17.3): KILLED — OOS Calmar dropped 8.06→7.46, MDD rose proportionally
 - CTO: "TW fast-bull = chasing last leg. Phase 1 (sizing) wins over Phase 2 (pyramiding)."
+
+### Phase 8B: Sniper Scanner Dashboard (CTO R14.18)
+
+每日收盤後全市場掃描工具，整合到策略中心第 4 個 tab「狙擊名單」。
+
+- **Backend**: `POST /api/screener/bold-scan` — 掃描 108 SCAN_STOCKS
+- **Sniper Score** = RS_120D × 0.5 + SQS × 0.3 + RS_Mom × 0.2 (CTO 公式)
+- **Filters**: Min RS (default 60), Min Volume (default 50 張), No Signal toggle
+- **Frontend**: `SniperScannerTab.vue` — Stats cards + DataTable with RS/VCP/SQS/Sniper badges
+- **Next**: Phase 8A (Backtest Equity Curve), Phase 8C (Trade Replay)
 
 ### R14.15-16: 3-Layer Risk Defense (CTO VALIDATED — Config B Locked)
 
