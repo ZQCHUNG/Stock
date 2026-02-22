@@ -48,6 +48,7 @@ Stock/
 │   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
 ├── backtest/
 │   ├── engine.py             # Backtest engine (v4/v5/bold/aggressive/portfolio)
+│   ├── portfolio_runner.py   # Portfolio Backtester — 108 stocks day-by-day (R14.14)
 │   ├── risk_manager.py       # VaR + Sizing + Concentration + Circuit Breaker (R60/R80)
 │   ├── sqs_backtest.py       # SQS effectiveness validation
 │   └── bold_parameter_sweep.py  # Parameter sensitivity analysis (R67)
@@ -258,6 +259,42 @@ python -m pytest tests/ -q
 | R14 Group 1-2 | **Parameter Sweep** — rs_hard=55, structural_stop=False, clc=3 VALIDATED (200 stocks, 32 combos) | Done |
 | R14 Group 3-4 | **Parabolic Refactor + Exit Params** — tl1=0.08, pg=0.10 VALIDATED; Phase A ABORTED → Entry Audit | Done |
 | R14.13 | **VCP Safety Valve + Dynamic PTS** — Entry quality audit complete; PF=4.67, WR=46.7%, 45 trades (CTO APPROVED) | Done |
+| R14.14 | **Phase B: Portfolio Backtester** — 108 stocks, Vol-Adjusted Sizing, Config C APPROVED (CTO R14.14v2) | Done |
+
+### Phase B: Portfolio Backtester (R14.14, CTO R14.14v2 APPROVED)
+
+108 檔 SCAN_STOCKS 全市場日頻投組回測。從 Equal Weight baseline 迭代到 CTO 核准的 Config C。
+
+**Config C (Production Baseline — CTO APPROVED):**
+- Sizing: Vol-Adjusted Fixed Risk — `Shares = (Equity × Risk%) / (Entry × Stop%)`
+- Risk: 0.8% standard, 0.4% defensive (TAIEX < MA200)
+- Lunger Filter: **DISABLED** — kills convexity (8% OOS collapse: +55%→+0.07%)
+- Vol Breakout Gate: breakout volume > MA5 × 1.5 (anti-false breakout)
+- TAIEX Guard: 3-tier (10/5/3 slots) based on MA200
+
+**Config C 回測結果:**
+
+| Period | Return | MaxDD | Sharpe | Calmar | WR | Trades | PF |
+|--------|--------|-------|--------|--------|-----|--------|-----|
+| **OOS (2025-2026)** | +19.24% | -8.02% | 1.51 | 2.21 | 48% | 85 | 2.33 |
+| **IS (2023-2024)** | +35.98% | -8.56% | 1.40 | 2.04 | 37% | 171 | 2.14 |
+| **Stress (2022)** | -3.84% | -4.37% | — | — | 31% | 51 | 0.59 |
+
+**Key Findings:**
+- 2022 Stress: -3.84% (target < -10%) ✅ — Vol-Adjusted Sizing 大幅壓縮損失 (from EW -21.87%)
+- pts_abandon 8-13%: WR=0%, AvgRet=-8% — CTO accepted as "friction cost"
+- Lunger Filter harmful: 殺死右尾報酬 (Config A OOS +12.75% vs Config C +19.24%)
+- Vol Breakout Gate effective: reduces false breakout entries without killing convexity
+
+**3-Way Comparison (A/B/C):**
+
+| Config | OOS Return | OOS MaxDD | Stress Return | Stress MaxDD |
+|--------|-----------|-----------|---------------|-------------|
+| A: Lunger 15% | +12.75% | -5.10% | -3.29% | -3.84% |
+| B: Dynamic Lunger | +16.67% | -5.76% | -3.29% | -3.84% |
+| **C: No Lunger (APPROVED)** | **+19.24%** | **-8.02%** | **-3.84%** | **-4.37%** |
+
+**CTO Next Directive**: Sector Concentration (sub-sector cap 20%) + Correlation Heat
 
 ### R14 Parameter Sweep — Bold PLACEHOLDER Cleanup (Gemini R14.1-R14.5)
 
