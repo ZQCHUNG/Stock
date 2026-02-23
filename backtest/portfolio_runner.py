@@ -64,6 +64,14 @@ PORTFOLIO_PARAMS = {
     "taiex_ma200_defensive_slots": 3, # < 95% MA200: defensive
     "taiex_buffer_pct": 0.05,       # 5% buffer zone
 
+    # Phase 10D: Breadth-based Dynamic Exposure
+    # [VERIFIED: HARMFUL] — CTO approved kill (Calmar 5.10→3.60 when enabled)
+    # TAIEX Guard + PTS already sufficient. Breadth double-counts risk.
+    # Preserved for research; disabled by default.
+    "breadth_exposure_enabled": False,
+    "breadth_threshold": 0.50,      # [PLACEHOLDER: BREADTH_THRESHOLD_50]
+    "breadth_ma_period": 200,
+
     # Crowdedness
     "max_per_sector": 2,            # Max 2 positions per sub-sector
 
@@ -365,6 +373,29 @@ class PortfolioBacktester:
                         "price": float(taiex_close.loc[date]),
                         "ma200": float(taiex_ma200.loc[date]) if not np.isnan(taiex_ma200.loc[date]) else np.nan,
                     }
+
+        # Step 3b: Pre-compute market breadth (% stocks above their own MA200)
+        # Phase 10D: Breadth-based Dynamic Exposure (CTO + Architect APPROVED)
+        # [WARNING: Breadth based on small universe, biased — Architect flagged]
+        breadth_cache = {}  # {date_str: float 0.0~1.0}
+        breadth_ma_period = p.get("breadth_ma_period", 200)
+        if p.get("breadth_exposure_enabled", True):
+            for date_str in all_dates:
+                above_count = 0
+                total_count = 0
+                for code, df in signals_cache.items():
+                    if date_str not in stock_date_sets.get(code, set()):
+                        continue
+                    idx = stock_date_to_idx[code][date_str]
+                    if idx < breadth_ma_period:
+                        continue
+                    close_price = float(df["close"].iloc[idx])
+                    ma200 = float(df["close"].iloc[idx - breadth_ma_period + 1:idx + 1].mean())
+                    total_count += 1
+                    if close_price > ma200:
+                        above_count += 1
+                if total_count > 0:
+                    breadth_cache[date_str] = above_count / total_count
 
         # Step 4: Pre-compute RS for ranking (rolling 120D window)
         print("  Pre-computing RS rankings...")
@@ -721,6 +752,17 @@ class PortfolioBacktester:
                 if max_slots < p["max_positions"]:
                     taiex_guard_count += 1
                 available_slots = min(available_slots, max_slots - len(positions))
+
+            # Phase 10D: Breadth-based Dynamic Exposure (CTO + Architect APPROVED)
+            # MaxSlots_adj = MaxSlots_base × min(1, breadth / threshold)
+            # [PLACEHOLDER: BREADTH_THRESHOLD_50]
+            if p.get("breadth_exposure_enabled", True) and date_str in breadth_cache:
+                breadth = breadth_cache[date_str]
+                threshold = p.get("breadth_threshold", 0.50)
+                if breadth < threshold:
+                    breadth_factor = breadth / threshold  # 0.0 ~ 1.0
+                    breadth_max_slots = max(1, int(p["max_positions"] * breadth_factor))
+                    available_slots = min(available_slots, breadth_max_slots - len(positions))
 
             if available_slots <= 0:
                 continue

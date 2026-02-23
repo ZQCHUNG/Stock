@@ -17,6 +17,7 @@ import BacktestAggressive from '../components/BacktestAggressive.vue'
 import BacktestPerformancePanel from '../components/BacktestPerformancePanel.vue'
 import BacktestSqsValidation from '../components/BacktestSqsValidation.vue'
 import BacktestRollingWfa from '../components/BacktestRollingWfa.vue'
+import BacktestAttribution from '../components/BacktestAttribution.vue'
 import ConfigManager from '../components/ConfigManager.vue'
 import { parseUrlConfig } from '../utils/urlConfig'
 import { systemApi, downloadBlob } from '../api/system'
@@ -104,6 +105,7 @@ onMounted(() => {
       <NTabPane name="meta" tab="Meta策略" />
       <NTabPane name="sqs" tab="SQS驗證" />
       <NTabPane name="drift" tab="Drift Monitor" />
+      <NTabPane name="attribution" tab="Attribution" />
       <NTabPane name="advanced" tab="進階分析" />
       <NTabPane name="history" tab="歷史結果" />
     </NTabs>
@@ -161,6 +163,7 @@ onMounted(() => {
       <BacktestMetaStrategy v-if="mode === 'meta'" :period-days="periodDays" :capital="capital" />
       <BacktestSqsValidation v-if="mode === 'sqs'" />
       <BacktestRollingWfa v-if="mode === 'drift'" />
+      <BacktestAttribution v-if="mode === 'attribution'" />
       <BacktestAdvanced v-if="mode === 'advanced'" :period-days="periodDays" :capital="capital" />
       <BacktestHistory v-if="mode === 'history'" />
     </NSpin>

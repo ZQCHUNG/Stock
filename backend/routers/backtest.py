@@ -1381,3 +1381,234 @@ def run_rolling_wfa(req: RollingWfaRequest | None = None):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/attribution-analysis")
+def run_attribution_analysis(req: RollingWfaRequest | None = None):
+    """Phase 10C: Attribution Analysis — forensic breakdown per WFA window.
+
+    CTO directive: "針對 W1 (2025 Q1) 的 10 筆虧損交易做一個法醫式複盤"
+    Returns per-trade details, exit breakdown, sector heatmap, TAIEX regime,
+    advantage ratio, and SQS distribution per window for cross-window comparison.
+    """
+    from backtest.portfolio_runner import PortfolioBacktester
+    from backtest.engine import TransactionCostCalculator
+    from data.fetcher import get_stock_data, get_taiex_data
+    from data.sector_mapping import get_stock_sector
+    from config import SCAN_STOCKS
+    from backend.dependencies import make_serializable
+    import pandas as pd
+    import numpy as np
+    from datetime import datetime, timedelta
+    from dateutil.relativedelta import relativedelta
+    from collections import Counter
+
+    if req is None:
+        req = RollingWfaRequest()
+
+    try:
+        # Load stock data (full history for signal computation)
+        fetch_days = 365 * 3
+        stock_data = {}
+        stock_sectors = {}
+        for code in SCAN_STOCKS:
+            try:
+                df = get_stock_data(code, period_days=fetch_days)
+                if df is not None and not df.empty and len(df) > 60:
+                    stock_data[code] = df
+                    stock_sectors[code] = get_stock_sector(code, level=1) or ""
+            except Exception:
+                continue
+
+        if not stock_data:
+            raise HTTPException(status_code=400, detail="No stock data loaded")
+
+        taiex_data = None
+        try:
+            taiex_data = get_taiex_data(period_days=fetch_days)
+        except Exception:
+            pass
+
+        # Generate windows (same as rolling-wfa)
+        today = datetime.now().date()
+        window_months = req.window_months
+        oos_start = datetime(2025, 1, 1).date()
+
+        windows = []
+        w_start = oos_start
+        w_num = 1
+        while w_start < today:
+            w_end = w_start + relativedelta(months=window_months) - timedelta(days=1)
+            if w_end > today:
+                w_end = today
+            windows.append({
+                "label": f"W{w_num}",
+                "start": w_start,
+                "end": w_end,
+            })
+            w_start = w_start + relativedelta(months=window_months)
+            w_num += 1
+
+        cost_calc = TransactionCostCalculator(
+            broker_discount=req.broker_discount,
+            use_dynamic_slippage=req.use_dynamic_slippage,
+        )
+
+        # Precompute TAIEX MA200 for regime analysis
+        taiex_regime_data = {}
+        if taiex_data is not None and not taiex_data.empty:
+            taiex_close = taiex_data["close"] if "close" in taiex_data.columns else taiex_data.get("Close")
+            if taiex_close is not None:
+                taiex_ma200 = taiex_close.rolling(200, min_periods=100).mean()
+
+                for w in windows:
+                    mask = (taiex_close.index.date >= w["start"]) & (taiex_close.index.date <= w["end"])
+                    w_taiex = taiex_close[mask]
+                    w_ma200 = taiex_ma200[mask]
+
+                    if len(w_taiex) > 0:
+                        above_count = int((w_taiex > w_ma200).sum())
+                        total_days = len(w_taiex)
+                        taiex_regime_data[w["label"]] = {
+                            "start_price": round(float(w_taiex.iloc[0]), 0),
+                            "end_price": round(float(w_taiex.iloc[-1]), 0),
+                            "return_pct": round((float(w_taiex.iloc[-1]) / float(w_taiex.iloc[0]) - 1) * 100, 2),
+                            "days_above_ma200": above_count,
+                            "total_days": total_days,
+                            "above_ma200_pct": round(above_count / total_days * 100, 1),
+                            "ma200_start": round(float(w_ma200.iloc[0]), 0) if not pd.isna(w_ma200.iloc[0]) else None,
+                            "ma200_end": round(float(w_ma200.iloc[-1]), 0) if not pd.isna(w_ma200.iloc[-1]) else None,
+                        }
+
+        # Run backtest per window and collect trade details
+        window_results = []
+
+        for w in windows:
+            bt = PortfolioBacktester(
+                params={"initial_capital": req.initial_capital},
+                cost_calculator=cost_calc,
+            )
+            result = bt.run(
+                stock_data=stock_data,
+                stock_sectors=stock_sectors,
+                taiex_data=taiex_data,
+                start_date=w["start"].isoformat(),
+                end_date=w["end"].isoformat(),
+            )
+
+            trades = result.trades
+            wins = [t for t in trades if t.return_pct > 0]
+            losses = [t for t in trades if t.return_pct <= 0]
+
+            # Per-trade details with held_days
+            trade_details = []
+            for t in trades:
+                held = (pd.Timestamp(t.date_close) - pd.Timestamp(t.date_open)).days
+                trade_details.append({
+                    "code": t.code,
+                    "sector": t.sector,
+                    "entry_type": t.entry_type,
+                    "date_open": t.date_open,
+                    "date_close": t.date_close,
+                    "held_days": held,
+                    "price_open": round(t.price_open, 2),
+                    "price_close": round(t.price_close, 2),
+                    "return_pct": round(t.return_pct * 100, 2),
+                    "exit_reason": t.exit_reason,
+                    "rs_rating": round(t.rs_rating, 1),
+                    "sqs_score": round(t.sqs_score, 3),
+                    "rank_score": round(t.rank_score, 2),
+                    "pnl": round(t.pnl, 0),
+                    "result": "WIN" if t.return_pct > 0 else "LOSS",
+                })
+
+            # Exit reason breakdown
+            exit_breakdown = dict(Counter(t.exit_reason for t in trades))
+
+            # Sector distribution
+            sector_dist = dict(Counter(t.sector for t in trades))
+
+            # SQS stats
+            all_sqs = [t.sqs_score for t in trades]
+            win_sqs = [t.sqs_score for t in wins]
+            loss_sqs = [t.sqs_score for t in losses]
+            sqs_stats = {
+                "mean": round(float(np.mean(all_sqs)), 3) if all_sqs else 0,
+                "std": round(float(np.std(all_sqs)), 3) if all_sqs else 0,
+                "winners_mean": round(float(np.mean(win_sqs)), 3) if win_sqs else 0,
+                "losers_mean": round(float(np.mean(loss_sqs)), 3) if loss_sqs else 0,
+            }
+
+            # RS stats
+            all_rs = [t.rs_rating for t in trades]
+            rs_stats = {
+                "mean": round(float(np.mean(all_rs)), 1) if all_rs else 0,
+                "std": round(float(np.std(all_rs)), 1) if all_rs else 0,
+            }
+
+            # Advantage Ratio
+            avg_win_pct = float(np.mean([t.return_pct for t in wins])) * 100 if wins else 0
+            avg_loss_pct = float(np.mean([t.return_pct for t in losses])) * 100 if losses else 0
+            advantage_ratio = abs(avg_win_pct / avg_loss_pct) if avg_loss_pct != 0 else 0
+
+            # Expectancy
+            wr = len(wins) / len(trades) if trades else 0
+            expectancy = (wr * avg_win_pct) - ((1 - wr) * abs(avg_loss_pct))
+
+            # Held days stats
+            held_days_list = [(pd.Timestamp(t.date_close) - pd.Timestamp(t.date_open)).days for t in trades]
+            win_held = [(pd.Timestamp(t.date_close) - pd.Timestamp(t.date_open)).days for t in wins]
+            loss_held = [(pd.Timestamp(t.date_close) - pd.Timestamp(t.date_open)).days for t in losses]
+
+            window_results.append({
+                "window": w["label"],
+                "start": w["start"].isoformat(),
+                "end": w["end"].isoformat(),
+                "trades": trade_details,
+                "summary": {
+                    "total_trades": len(trades),
+                    "winners": len(wins),
+                    "losers": len(losses),
+                    "win_rate": round(wr * 100, 1),
+                    "net_return": result.total_return,
+                    "max_drawdown": result.max_drawdown,
+                    "calmar": result.calmar_ratio,
+                    "avg_win_pct": round(avg_win_pct, 2),
+                    "avg_loss_pct": round(avg_loss_pct, 2),
+                    "advantage_ratio": round(advantage_ratio, 2),
+                    "expectancy": round(expectancy, 3),
+                    "profit_factor": result.profit_factor,
+                    "avg_held_days": round(float(np.mean(held_days_list)), 1) if held_days_list else 0,
+                    "avg_held_days_win": round(float(np.mean(win_held)), 1) if win_held else 0,
+                    "avg_held_days_loss": round(float(np.mean(loss_held)), 1) if loss_held else 0,
+                    "avg_rs": rs_stats["mean"],
+                    "avg_sqs": sqs_stats["mean"],
+                },
+                "exit_breakdown": exit_breakdown,
+                "sector_distribution": sector_dist,
+                "sqs_stats": sqs_stats,
+                "rs_stats": rs_stats,
+                "taiex_regime": taiex_regime_data.get(w["label"], {}),
+            })
+
+        # Cross-window comparison
+        advantage_trend = [
+            {"window": wr["window"], "advantage_ratio": wr["summary"]["advantage_ratio"]}
+            for wr in window_results
+        ]
+
+        return make_serializable({
+            "cost_settings": cost_calc.describe(),
+            "window_months": window_months,
+            "stocks_loaded": len(stock_data),
+            "windows": window_results,
+            "cross_window": {
+                "advantage_trend": advantage_trend,
+                "taiex_regimes": taiex_regime_data,
+            },
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
