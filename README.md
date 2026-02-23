@@ -268,6 +268,9 @@ python -m pytest tests/ -q
 | R14.18-8C | **Phase 8C: Trade Replay** — Click-to-zoom + markArea + rich tooltips on CandlestickChart (CTO enhancement) | Done |
 | R14.18-9A | **Phase 9A: TransactionCostCalculator** — Broker discount + Kyle Lambda dynamic slippage + Asymmetric exit (1.5x panic) + Gross vs Net equity + CAR metric + Liquidity Stress Alert in Scanner (CTO 3 amendments) | Done |
 | R14.18-10A | **Phase 10A: Rolling WFA + Drift Monitor** — 3-month rolling windows, per-window Calmar/Sharpe/Expectancy, IS/OOS Efficiency Ratio, Drift Monitor tab (CTO APPROVED) | Done |
+| R14.18-10C | **Phase 10C: Attribution Analysis** — Per-trade forensic breakdown across WFA windows, exit reason evolution, sector/SQS/RS stats, TAIEX regime correlation (CTO directive) | Done |
+| R14.18-10D | **Phase 10D: Breadth-based Dynamic Exposure** — MaxSlots_adj = MaxSlots × (Breadth/50%), [VERIFIED: HARMFUL] Calmar 5.10→3.60, disabled by default | Done |
+| R14.18-11 | **Phase 11: Regime Barometer** — Hunting Index (Parabolic%/(PTS%+Disaster%)), regime classification (Flash Crash/Chop/Hot/Normal), Sector Alpha Drift, gauge+pie UI (CTO directive) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
