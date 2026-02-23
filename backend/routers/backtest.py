@@ -1612,3 +1612,220 @@ def run_attribution_analysis(req: RollingWfaRequest | None = None):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class RegimeBarometerRequest(BaseModel):
+    """Phase 11: Regime Barometer parameters"""
+    lookback_days: int = 180       # How far back to backtest for recent trades
+    trade_window: int = 20         # Analyze last N trades
+
+
+@router.post("/regime-barometer")
+def get_regime_barometer(req: RegimeBarometerRequest | None = None):
+    """Phase 11: Regime Barometer — Exit Type Drift Detection
+
+    CTO directive: "環境氣壓計 — 自動對比最近 20 筆交易的 Exit Type 分佈"
+    Runs a recent portfolio backtest and analyzes the last N trades' exit types.
+
+    Returns:
+    - Exit type distribution (pie chart data)
+    - Hunting Index: Parabolic_Rate / (PTS_Rate + Disaster_Rate)
+    - Regime classification (Chop / Hot / Flash Crash / Normal)
+    - Per-sector exit analysis (Sector Alpha Drift)
+    """
+    from backtest.portfolio_runner import PortfolioBacktester
+    from backtest.engine import TransactionCostCalculator
+    from data.fetcher import get_stock_data, get_taiex_data
+    from data.sector_mapping import get_stock_sector
+    from config import SCAN_STOCKS
+    from backend.dependencies import make_serializable
+    import pandas as pd
+    import numpy as np
+    from collections import Counter
+    from datetime import datetime, timedelta
+
+    if req is None:
+        req = RegimeBarometerRequest()
+
+    try:
+        # Load stock data
+        fetch_days = max(365 * 3, req.lookback_days + 365)
+        stock_data = {}
+        stock_sectors = {}
+        for code in SCAN_STOCKS:
+            try:
+                df = get_stock_data(code, period_days=fetch_days)
+                if df is not None and not df.empty and len(df) > 60:
+                    stock_data[code] = df
+                    stock_sectors[code] = get_stock_sector(code, level=1) or ""
+            except Exception:
+                continue
+
+        if not stock_data:
+            raise HTTPException(status_code=400, detail="No stock data loaded")
+
+        taiex_data = None
+        try:
+            taiex_data = get_taiex_data(period_days=fetch_days)
+        except Exception:
+            pass
+
+        # Run portfolio backtest for recent period
+        cost_calc = TransactionCostCalculator(
+            broker_discount=0.28,
+            use_dynamic_slippage=True,
+        )
+
+        today = datetime.now().date()
+        start_date = (today - timedelta(days=req.lookback_days)).isoformat()
+
+        bt = PortfolioBacktester(
+            params={"initial_capital": 10_000_000},
+            cost_calculator=cost_calc,
+        )
+        result = bt.run(
+            stock_data=stock_data,
+            stock_sectors=stock_sectors,
+            taiex_data=taiex_data,
+            start_date=start_date,
+        )
+
+        trades = result.trades
+        if not trades:
+            return make_serializable({
+                "status": "no_trades",
+                "message": "No completed trades in the lookback period",
+            })
+
+        # Take last N trades
+        recent_trades = trades[-req.trade_window:]
+        total = len(recent_trades)
+
+        # Categorize exit reasons
+        def categorize_exit(reason: str) -> str:
+            if reason.startswith("pts_"):
+                return "PTS"
+            if "trail" in reason:
+                return "Trail"
+            if "parabolic" in reason:
+                return "Parabolic"
+            if "disaster" in reason:
+                return "Disaster"
+            if reason == "end_of_period":
+                return "EndOfPeriod"
+            if "trend_break" in reason:
+                return "TrendBreak"
+            return "Other"
+
+        category_counts = Counter(categorize_exit(t.exit_reason) for t in recent_trades)
+        exit_detail_counts = Counter(t.exit_reason for t in recent_trades)
+
+        # Rates
+        pts_rate = category_counts.get("PTS", 0) / total if total > 0 else 0
+        parabolic_rate = category_counts.get("Parabolic", 0) / total if total > 0 else 0
+        disaster_rate = category_counts.get("Disaster", 0) / total if total > 0 else 0
+        trail_rate = category_counts.get("Trail", 0) / total if total > 0 else 0
+        trend_break_rate = category_counts.get("TrendBreak", 0) / total if total > 0 else 0
+
+        # Hunting Index: Parabolic / (PTS + Disaster) × 100
+        denominator = pts_rate + disaster_rate
+        hunting_index = (parabolic_rate / denominator * 100) if denominator > 0 else 100
+
+        # Regime classification
+        if disaster_rate > 0.10:
+            regime = "flash_crash"
+            regime_label = "Flash Crash"
+            regime_color = "#d03050"
+        elif pts_rate > 0.70:
+            regime = "chop"
+            regime_label = "Chop Market"
+            regime_color = "#f0a020"
+        elif parabolic_rate > 0.30:
+            regime = "hot_momentum"
+            regime_label = "Hot Momentum"
+            regime_color = "#18a058"
+        else:
+            regime = "normal"
+            regime_label = "Normal"
+            regime_color = "#2080f0"
+
+        # Sector Alpha Drift: exit distribution per sector
+        sector_exits = {}
+        for t in recent_trades:
+            sector = t.sector or "Unknown"
+            cat = categorize_exit(t.exit_reason)
+            if sector not in sector_exits:
+                sector_exits[sector] = {"total": 0, "PTS": 0, "Parabolic": 0, "Trail": 0, "Disaster": 0, "Other": 0}
+            sector_exits[sector]["total"] += 1
+            if cat in sector_exits[sector]:
+                sector_exits[sector][cat] += 1
+            else:
+                sector_exits[sector]["Other"] += 1
+
+        # Compute sector-level hunting index
+        sector_alpha = []
+        for sector, exits in sector_exits.items():
+            s_total = exits["total"]
+            s_pts = exits["PTS"] / s_total if s_total > 0 else 0
+            s_parabolic = exits["Parabolic"] / s_total if s_total > 0 else 0
+            s_disaster = exits["Disaster"] / s_total if s_total > 0 else 0
+            s_denom = s_pts + s_disaster
+            s_hunting = (s_parabolic / s_denom * 100) if s_denom > 0 else 100
+            sector_alpha.append({
+                "sector": sector,
+                "trades": s_total,
+                "pts_rate": round(s_pts * 100, 1),
+                "parabolic_rate": round(s_parabolic * 100, 1),
+                "hunting_index": round(s_hunting, 1),
+            })
+        sector_alpha.sort(key=lambda x: x["hunting_index"], reverse=True)
+
+        # Win rate and returns for recent trades
+        recent_wins = [t for t in recent_trades if t.return_pct > 0]
+        avg_return = float(np.mean([t.return_pct for t in recent_trades])) * 100
+        avg_held = float(np.mean([
+            (pd.Timestamp(t.date_close) - pd.Timestamp(t.date_open)).days
+            for t in recent_trades
+        ]))
+
+        return make_serializable({
+            "trade_window": req.trade_window,
+            "actual_trades": total,
+            "period_start": recent_trades[0].date_open if recent_trades else None,
+            "period_end": recent_trades[-1].date_close if recent_trades else None,
+            "all_trades_count": len(trades),
+
+            # Exit distribution
+            "exit_categories": dict(category_counts),
+            "exit_details": dict(exit_detail_counts),
+
+            # Rates
+            "pts_rate": round(pts_rate * 100, 1),
+            "parabolic_rate": round(parabolic_rate * 100, 1),
+            "disaster_rate": round(disaster_rate * 100, 1),
+            "trail_rate": round(trail_rate * 100, 1),
+            "trend_break_rate": round(trend_break_rate * 100, 1),
+
+            # Regime
+            "hunting_index": round(hunting_index, 1),
+            "regime": regime,
+            "regime_label": regime_label,
+            "regime_color": regime_color,
+
+            # Trade summary
+            "win_rate": round(len(recent_wins) / total * 100, 1) if total > 0 else 0,
+            "avg_return_pct": round(avg_return, 2),
+            "avg_held_days": round(avg_held, 1),
+
+            # Sector Alpha Drift
+            "sector_alpha": sector_alpha,
+
+            # Cost settings
+            "cost_settings": cost_calc.describe(),
+            "stocks_loaded": len(stock_data),
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

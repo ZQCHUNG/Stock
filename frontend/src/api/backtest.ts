@@ -98,6 +98,13 @@ export const backtestApi = {
       use_dynamic_slippage: useDynamicSlippage,
     }, { timeout: 600_000 }),
 
+  // Phase 11: Regime Barometer
+  regimeBarometer: (lookbackDays = 180, tradeWindow = 20) =>
+    client.post<any, any>('/backtest/regime-barometer', {
+      lookback_days: lookbackDays,
+      trade_window: tradeWindow,
+    }, { timeout: 300_000 }),
+
   // R59: Forward Testing
   forwardTestSummary: () =>
     client.get<any, any>('/backtest/forward-test/summary'),
