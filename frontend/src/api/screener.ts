@@ -43,6 +43,8 @@ export interface BoldScanResult {
   vcp_breakout: boolean
   sqs_score: number | null
   sniper_score: number
+  predicted_slippage_pct: number
+  liquidity_stress: boolean
 }
 
 export interface BoldScanResponse {

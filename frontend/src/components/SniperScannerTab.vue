@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { h, ref, computed } from 'vue'
 import {
-  NCard, NButton, NSpace, NDataTable, NSpin, NTag, NStatistic,
+  NCard, NButton, NSpace, NDataTable, NSpin, NTag, NStatistic, NTooltip,
   NGrid, NGi, NSwitch, NInputNumber, useMessage,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
@@ -67,6 +67,8 @@ const avgSniperScore = computed(() => {
   if (!scanResults.value.length) return 0
   return scanResults.value.reduce((s, r) => s + r.sniper_score, 0) / scanResults.value.length
 })
+
+const stressCount = computed(() => scanResults.value.filter(r => r.liquidity_stress).length)
 
 const columns: DataTableColumns<BoldScanResult> = [
   {
@@ -156,18 +158,46 @@ const columns: DataTableColumns<BoldScanResult> = [
     },
   },
   {
+    title: 'Slip%',
+    key: 'predicted_slippage_pct',
+    width: 65,
+    sorter: (a, b) => a.predicted_slippage_pct - b.predicted_slippage_pct,
+    render: (row) => {
+      const pct = row.predicted_slippage_pct
+      if (pct > 1.0) {
+        return h(NTooltip, { trigger: 'hover' }, {
+          trigger: () => h(NTag, { size: 'small', type: 'error' }, () => `${pct.toFixed(1)}%`),
+          default: () => `Liquidity Stress: ${pct.toFixed(2)}% predicted slippage (>1% threshold). Sniper Score penalized.`,
+        })
+      }
+      if (pct > 0.5) {
+        return h('span', { style: 'color: #f0a020' }, `${pct.toFixed(1)}%`)
+      }
+      return h('span', { style: 'color: #999' }, `${pct.toFixed(1)}%`)
+    },
+  },
+  {
     title: 'Sniper',
     key: 'sniper_score',
     width: 70,
     defaultSortOrder: 'descend',
     sorter: (a, b) => a.sniper_score - b.sniper_score,
-    render: (row) => h(
-      'span',
-      {
-        style: `font-weight: 700; color: ${sniperScoreColor(row.sniper_score)}`,
-      },
-      row.sniper_score.toFixed(1),
-    ),
+    render: (row) => {
+      const scoreEl = h(
+        'span',
+        {
+          style: `font-weight: 700; color: ${sniperScoreColor(row.sniper_score)}`,
+        },
+        row.sniper_score.toFixed(1),
+      )
+      if (row.liquidity_stress) {
+        return h('span', {}, [
+          scoreEl,
+          h('span', { style: 'color: #d03050; font-size: 10px; margin-left: 2px' }, '*'),
+        ])
+      }
+      return scoreEl
+    },
   },
   {
     title: '',
@@ -209,7 +239,7 @@ const columns: DataTableColumns<BoldScanResult> = [
     </NCard>
 
     <!-- Stats -->
-    <NGrid v-if="scanResults.length" :cols="4" :x-gap="12" style="margin-bottom: 12px">
+    <NGrid v-if="scanResults.length" :cols="5" :x-gap="12" style="margin-bottom: 12px">
       <NGi>
         <NCard size="small">
           <NStatistic label="Targets" :value="scanResults.length" />
@@ -230,6 +260,15 @@ const columns: DataTableColumns<BoldScanResult> = [
           <NStatistic label="Avg Sniper Score">
             <span :style="{ color: sniperScoreColor(avgSniperScore) }">
               {{ avgSniperScore.toFixed(1) }}
+            </span>
+          </NStatistic>
+        </NCard>
+      </NGi>
+      <NGi>
+        <NCard size="small">
+          <NStatistic label="Liquidity Stress">
+            <span :style="{ color: stressCount > 0 ? '#d03050' : '#18a058' }">
+              {{ stressCount }}
             </span>
           </NStatistic>
         </NCard>

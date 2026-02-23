@@ -335,7 +335,9 @@ def run_bold_scan(req: BoldScanRequest | None = None):
     from analysis.strategy_bold import get_bold_analysis, compute_rs_ratio, compute_rs_momentum
     from analysis.rs_scanner import get_stock_rs_rating
     from analysis.vcp_detector import detect_vcp
+    from analysis.liquidity import calculate_market_impact
     from backend.dependencies import make_serializable
+    import numpy as np
 
     if req is None:
         req = BoldScanRequest()
@@ -404,6 +406,28 @@ def run_bold_scan(req: BoldScanRequest | None = None):
                 rs_norm * 0.5 + sqs_norm * 0.3 + rs_mom_norm * 0.2, 4
             )
 
+            # 5b. Phase 9A: Liquidity Stress Alert (CTO directive)
+            # Predict slippage via Kyle Lambda for a 1M NTD position
+            # If predicted slippage > 1%, deduct from Sniper Score
+            predicted_slippage_pct = 0.0
+            liquidity_stress = False
+            try:
+                adv_20_shares = float(df["volume"].iloc[-20:].mean())
+                vol_20 = float(df["close"].pct_change().iloc[-20:].std() * np.sqrt(252))
+                # Position size: 1M NTD worth of shares
+                pos_shares = 1_000_000 / price if price > 0 else 0
+                if adv_20_shares > 0 and pos_shares > 0:
+                    kyle_slip = calculate_market_impact(pos_shares, adv_20_shares, vol_20)
+                    predicted_slippage_pct = round(kyle_slip * 100, 2)
+                    if predicted_slippage_pct > 1.0:
+                        liquidity_stress = True
+                        # Deduction: proportional penalty above 1%
+                        # e.g., 2% slippage → (2-1)/100 = 0.01 deducted from sniper_score
+                        penalty = (predicted_slippage_pct - 1.0) / 100.0
+                        sniper_score = max(0, sniper_score - penalty)
+            except Exception:
+                pass
+
             # 6. Sector
             sector = get_stock_sector(code, level=1)
 
@@ -428,6 +452,8 @@ def run_bold_scan(req: BoldScanRequest | None = None):
                 "vcp_breakout": vcp_result.is_breakout if vcp_result else False,
                 "sqs_score": round(sqs_score, 1) if sqs_score else None,
                 "sniper_score": round(sniper_score * 100, 1),
+                "predicted_slippage_pct": predicted_slippage_pct,
+                "liquidity_stress": liquidity_stress,
             })
 
         except Exception as e:
