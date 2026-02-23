@@ -82,6 +82,14 @@ export const backtestApi = {
       max_workers: 4,
     }, { timeout: 600_000 }),
 
+  // Phase 10A: Rolling WFA
+  rollingWfa: (windowMonths = 3, brokerDiscount = 0.28, useDynamicSlippage = true) =>
+    client.post<any, any>('/backtest/rolling-wfa', {
+      window_months: windowMonths,
+      broker_discount: brokerDiscount,
+      use_dynamic_slippage: useDynamicSlippage,
+    }, { timeout: 600_000 }),
+
   // R59: Forward Testing
   forwardTestSummary: () =>
     client.get<any, any>('/backtest/forward-test/summary'),

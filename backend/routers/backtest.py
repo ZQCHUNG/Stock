@@ -1206,3 +1206,178 @@ def check_circuit_breaker(
         consecutive_losses=consecutive_losses,
     )
     return result.to_dict()
+
+
+# === Phase 10A: Rolling Walk-Forward Analysis (CTO Gemini APPROVED) ===
+
+
+class RollingWfaRequest(BaseModel):
+    """Rolling WFA parameters"""
+    window_months: int = 3       # Window size in months
+    initial_capital: float = 10_000_000
+    broker_discount: float = 0.28   # Default 2.8折
+    use_dynamic_slippage: bool = True
+
+
+@router.post("/rolling-wfa")
+def run_rolling_wfa(req: RollingWfaRequest | None = None):
+    """Phase 10A: 3-Month Rolling Walk-Forward Analysis
+
+    Splits the OOS period into rolling windows and runs portfolio backtest
+    for each window. Returns per-window metrics + expectancy analysis.
+
+    CTO directive: "I want to see which months the Calmar started crashing."
+    """
+    from backtest.portfolio_runner import PortfolioBacktester
+    from backtest.engine import TransactionCostCalculator
+    from data.fetcher import get_stock_data, get_taiex_data
+    from data.sector_mapping import get_stock_sector
+    from config import SCAN_STOCKS
+    from backend.dependencies import make_serializable
+    import pandas as pd
+    import numpy as np
+    from datetime import datetime, timedelta
+    from dateutil.relativedelta import relativedelta
+
+    if req is None:
+        req = RollingWfaRequest()
+
+    try:
+        # Load stock data (full history for signal computation)
+        fetch_days = 365 * 3  # 3 years for signal lookback
+        stock_data = {}
+        stock_sectors = {}
+        for code in SCAN_STOCKS:
+            try:
+                df = get_stock_data(code, period_days=fetch_days)
+                if df is not None and not df.empty and len(df) > 60:
+                    stock_data[code] = df
+                    stock_sectors[code] = get_stock_sector(code, level=1) or ""
+            except Exception:
+                continue
+
+        if not stock_data:
+            raise HTTPException(status_code=400, detail="No stock data loaded")
+
+        taiex_data = None
+        try:
+            taiex_data = get_taiex_data(period_days=fetch_days)
+        except Exception:
+            pass
+
+        # Generate windows: from Jan 2025 to now, step by window_months
+        today = datetime.now().date()
+        window_months = req.window_months
+        oos_start = datetime(2025, 1, 1).date()
+
+        windows = []
+        w_start = oos_start
+        w_num = 1
+        while w_start < today:
+            w_end = w_start + relativedelta(months=window_months) - timedelta(days=1)
+            if w_end > today:
+                w_end = today
+            windows.append({
+                "window": f"W{w_num}",
+                "start": w_start.isoformat(),
+                "end": w_end.isoformat(),
+            })
+            w_start = w_start + relativedelta(months=window_months)
+            w_num += 1
+
+        # Run backtest for each window
+        cost_calc = TransactionCostCalculator(
+            broker_discount=req.broker_discount,
+            use_dynamic_slippage=req.use_dynamic_slippage,
+        )
+
+        results = []
+        all_window_trades = []
+
+        for w in windows:
+            bt = PortfolioBacktester(
+                params={"initial_capital": req.initial_capital},
+                cost_calculator=cost_calc,
+            )
+            result = bt.run(
+                stock_data=stock_data,
+                stock_sectors=stock_sectors,
+                taiex_data=taiex_data,
+                start_date=w["start"],
+                end_date=w["end"],
+            )
+
+            # Phase 10B: Per-window expectancy
+            trades = result.trades
+            wins = [t for t in trades if t.return_pct > 0]
+            losses = [t for t in trades if t.return_pct <= 0]
+            avg_win = np.mean([t.return_pct for t in wins]) * 100 if wins else 0
+            avg_loss = np.mean([t.return_pct for t in losses]) * 100 if losses else 0
+            wr = len(wins) / len(trades) if trades else 0
+            expectancy = (wr * avg_win) - ((1 - wr) * abs(avg_loss))
+
+            all_window_trades.append({
+                "window": w["window"],
+                "trades": trades,
+                "expectancy": expectancy,
+            })
+
+            results.append({
+                "window": w["window"],
+                "start": w["start"],
+                "end": w["end"],
+                "net_return": result.total_return,
+                "max_drawdown": result.max_drawdown,
+                "calmar": result.calmar_ratio,
+                "sharpe": result.sharpe_ratio,
+                "win_rate": result.win_rate,
+                "trades": result.total_trades,
+                "profit_factor": result.profit_factor,
+                "avg_return": result.avg_return,
+                "expectancy": round(expectancy, 3),
+            })
+
+        # Full-period aggregate for comparison
+        bt_full = PortfolioBacktester(
+            params={"initial_capital": req.initial_capital},
+            cost_calculator=cost_calc,
+        )
+        result_full = bt_full.run(
+            stock_data=stock_data,
+            stock_sectors=stock_sectors,
+            taiex_data=taiex_data,
+            start_date=oos_start.isoformat(),
+        )
+
+        # IS/OOS Efficiency: compare first half vs second half
+        mid_idx = len(results) // 2
+        first_half_ret = sum(r["net_return"] for r in results[:mid_idx]) if mid_idx > 0 else 0
+        second_half_ret = sum(r["net_return"] for r in results[mid_idx:]) if mid_idx < len(results) else 0
+        efficiency_ratio = second_half_ret / first_half_ret if first_half_ret != 0 else 0
+
+        # Expectancy trend
+        exp_trend = [{"window": wt["window"], "expectancy": wt["expectancy"]}
+                     for wt in all_window_trades]
+
+        return make_serializable({
+            "cost_settings": cost_calc.describe(),
+            "window_months": window_months,
+            "windows": results,
+            "full_period": {
+                "start": oos_start.isoformat(),
+                "end": today.isoformat(),
+                "net_return": result_full.total_return,
+                "max_drawdown": result_full.max_drawdown,
+                "calmar": result_full.calmar_ratio,
+                "sharpe": result_full.sharpe_ratio,
+                "trades": result_full.total_trades,
+            },
+            "efficiency_ratio": round(efficiency_ratio, 3),
+            "expectancy_trend": exp_trend,
+            "stocks_loaded": len(stock_data),
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

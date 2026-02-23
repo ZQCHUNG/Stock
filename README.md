@@ -267,6 +267,7 @@ python -m pytest tests/ -q
 | R14.18-8A | **Phase 8A: Portfolio Bold Visualization** — Equity curve + TAIEX benchmark + Drawdown + Monthly Heatmap + MDD info | Done |
 | R14.18-8C | **Phase 8C: Trade Replay** — Click-to-zoom + markArea + rich tooltips on CandlestickChart (CTO enhancement) | Done |
 | R14.18-9A | **Phase 9A: TransactionCostCalculator** — Broker discount + Kyle Lambda dynamic slippage + Asymmetric exit (1.5x panic) + Gross vs Net equity + CAR metric + Liquidity Stress Alert in Scanner (CTO 3 amendments) | Done |
+| R14.18-10A | **Phase 10A: Rolling WFA + Drift Monitor** — 3-month rolling windows, per-window Calmar/Sharpe/Expectancy, IS/OOS Efficiency Ratio, Drift Monitor tab (CTO APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
