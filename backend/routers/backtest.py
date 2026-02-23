@@ -942,7 +942,9 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
     and monthly returns for visualization.
     """
     from backtest.portfolio_runner import PortfolioBacktester
-    from data.fetcher import get_taiex_data
+    from data.fetcher import get_stock_data, get_taiex_data
+    from data.sector_mapping import get_stock_sector
+    from config import SCAN_STOCKS
     from backend.dependencies import make_serializable
     import pandas as pd
     import numpy as np
@@ -952,6 +954,30 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
         params.setdefault("initial_capital", req.initial_capital)
         params.setdefault("period_days", req.period_days)
 
+        # Load stock data for all SCAN_STOCKS
+        # Need extra history for signal computation (60 days min)
+        fetch_days = req.period_days + 300
+        stock_data = {}
+        stock_sectors = {}
+        for code in SCAN_STOCKS:
+            try:
+                df = get_stock_data(code, period_days=fetch_days)
+                if df is not None and not df.empty and len(df) > 60:
+                    stock_data[code] = df
+                    stock_sectors[code] = get_stock_sector(code, level=1) or ""
+            except Exception:
+                continue
+
+        if not stock_data:
+            raise HTTPException(status_code=400, detail="No stock data loaded")
+
+        # Load TAIEX for guard
+        taiex_data = None
+        try:
+            taiex_data = get_taiex_data(period_days=fetch_days)
+        except Exception:
+            pass
+
         # Phase 9A: build cost calculator for portfolio backtest
         from backtest.engine import TransactionCostCalculator
         cost_calc = TransactionCostCalculator(
@@ -959,7 +985,11 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
             use_dynamic_slippage=req.use_dynamic_slippage,
         )
         bt = PortfolioBacktester(params=params, cost_calculator=cost_calc)
-        result = bt.run()
+        result = bt.run(
+            stock_data=stock_data,
+            stock_sectors=stock_sectors,
+            taiex_data=taiex_data,
+        )
 
         eq_df = result.equity_curve
         if eq_df.empty:
