@@ -262,9 +262,19 @@ class PortfolioBacktester:
     5. Allocate capital to top-N candidates
     """
 
-    def __init__(self, params: dict | None = None):
+    def __init__(self, params: dict | None = None, cost_calculator=None):
         self.p = {**PORTFOLIO_PARAMS, **(params or {})}
         self.bold_params = {**STRATEGY_BOLD_PARAMS}
+        # Phase 9A: cost calculator for dynamic slippage
+        if cost_calculator is not None:
+            self.cost_calc = cost_calculator
+        else:
+            from backtest.engine import TransactionCostCalculator
+            self.cost_calc = TransactionCostCalculator(
+                commission_rate=self.p["commission_rate"],
+                tax_rate=self.p["tax_rate"],
+                base_slippage=self.p["slippage"],
+            )
 
     def _compute_pairwise_corr(self, code_a: str, code_b: str,
                                 day_idx: int, window: int = 20) -> float:
@@ -556,9 +566,12 @@ class PortfolioBacktester:
                         exit_price = trail_stop
 
                     gross_pnl = (exit_price - pos["entry_price"]) * pos["shares"]
-                    # Costs: commission on both sides + tax on sell + slippage
-                    entry_cost = pos["entry_price"] * pos["shares"] * (p["commission_rate"] + p["slippage"])
-                    exit_cost = exit_price * pos["shares"] * (p["commission_rate"] + p["tax_rate"] + p["slippage"])
+                    # Phase 9A: use cost calculator (supports dynamic slippage + asymmetric exit)
+                    _exit_reason = exit_result["exit_reason"]
+                    _entry_slip = self.cost_calc.entry_slippage(pos["shares"], pos["entry_price"])
+                    _exit_slip = self.cost_calc.exit_slippage(pos["shares"], exit_price, exit_reason=_exit_reason)
+                    entry_cost = pos["entry_price"] * pos["shares"] * (self.cost_calc.effective_commission + _entry_slip)
+                    exit_cost = exit_price * pos["shares"] * (self.cost_calc.effective_commission + self.cost_calc.tax_rate + _exit_slip)
                     net_pnl = gross_pnl - entry_cost - exit_cost
                     return_pct = net_pnl / (pos["entry_price"] * pos["shares"])
 
@@ -649,7 +662,8 @@ class PortfolioBacktester:
                             continue
 
                     add_cost = add_shares * current_price
-                    add_commission = add_cost * (p["commission_rate"] + p["slippage"])
+                    _add_slip = self.cost_calc.entry_slippage(add_shares, current_price)
+                    add_commission = add_cost * (self.cost_calc.effective_commission + _add_slip)
 
                     if add_cost + add_commission > cash:
                         continue
@@ -676,8 +690,11 @@ class PortfolioBacktester:
                         idx_c = stock_date_to_idx[code][date_str]
                         close_price = float(df["close"].iloc[idx_c])
                     gross_pnl = (close_price - pos["entry_price"]) * pos["shares"]
-                    exit_cost = close_price * pos["shares"] * (p["commission_rate"] + p["tax_rate"] + p["slippage"])
-                    entry_cost = pos["entry_price"] * pos["shares"] * (p["commission_rate"] + p["slippage"])
+                    # Phase 9A: end-of-period costs (no panic multiplier)
+                    _entry_slip = self.cost_calc.entry_slippage(pos["shares"], pos["entry_price"])
+                    _exit_slip = self.cost_calc.exit_slippage(pos["shares"], close_price, exit_reason="end_of_period")
+                    exit_cost = close_price * pos["shares"] * (self.cost_calc.effective_commission + self.cost_calc.tax_rate + _exit_slip)
+                    entry_cost = pos["entry_price"] * pos["shares"] * (self.cost_calc.effective_commission + _entry_slip)
                     net_pnl = gross_pnl - entry_cost - exit_cost
                     return_pct = net_pnl / (pos["entry_price"] * pos["shares"])
 
@@ -980,7 +997,9 @@ class PortfolioBacktester:
                     continue
 
                 actual_cost = shares * cand["price"]
-                entry_commission = actual_cost * (p["commission_rate"] + p["slippage"])
+                # Phase 9A: entry costs via cost calculator
+                _entry_slip = self.cost_calc.entry_slippage(shares, cand["price"])
+                entry_commission = actual_cost * (self.cost_calc.effective_commission + _entry_slip)
 
                 if actual_cost + entry_commission > cash:
                     continue

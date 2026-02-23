@@ -22,6 +22,96 @@ from analysis.strategy_aggressive import (
     compute_aggressive_metrics, compute_ulcer_index,
     STRATEGY_AGGRESSIVE_PARAMS,
 )
+from analysis.liquidity import calculate_market_impact
+
+
+# Phase 9A: Panic exit reasons that get asymmetric slippage (1.5x Kyle Lambda)
+PANIC_EXIT_REASONS = frozenset({
+    "disaster_stop_15pct", "stop_loss", "trailing_stop",
+    "ma10_break", "structural_stop", "rs_hard_exit",
+})
+
+
+class TransactionCostCalculator:
+    """Phase 9A: 台股交易成本計算機 (CTO Gemini APPROVED)
+
+    Encapsulates all cost logic:
+    - Commission with broker discount (e.g., 2.8折 = 0.28)
+    - Tax (0.3% on sells)
+    - Dynamic slippage via Kyle's Lambda (volume-dependent)
+    - Asymmetric exit slippage (1.5x for panic exits)
+
+    [PLACEHOLDER_NEEDS_DATA]: Kyle Lambda needs validation against real execution data.
+    """
+
+    def __init__(
+        self,
+        commission_rate: float = 0.001425,
+        tax_rate: float = 0.003,
+        base_slippage: float = 0.001,
+        broker_discount: float = 1.0,  # 1.0 = full price, 0.28 = 2.8折
+        use_dynamic_slippage: bool = False,
+        panic_exit_multiplier: float = 1.5,
+    ):
+        self.commission_rate = commission_rate
+        self.effective_commission = commission_rate * broker_discount
+        self.tax_rate = tax_rate
+        self.base_slippage = base_slippage
+        self.broker_discount = broker_discount
+        self.use_dynamic_slippage = use_dynamic_slippage
+        self.panic_exit_multiplier = panic_exit_multiplier
+
+    def entry_slippage(self, shares: int, price: float,
+                       adv_20: float = 0, volatility_20: float = 0) -> float:
+        """Calculate entry slippage rate (fraction).
+
+        Returns:
+            slippage as fraction (e.g. 0.001 = 0.1%)
+        """
+        if not self.use_dynamic_slippage or adv_20 <= 0:
+            return self.base_slippage
+        kyle_slip = calculate_market_impact(shares, adv_20, volatility_20)
+        # Floor at base_slippage (never less than minimum)
+        return max(self.base_slippage, kyle_slip)
+
+    def exit_slippage(self, shares: int, price: float,
+                      adv_20: float = 0, volatility_20: float = 0,
+                      exit_reason: str = "") -> float:
+        """Calculate exit slippage rate (fraction).
+
+        Panic exits (Disaster Stop, MA10 Break, etc.) get 1.5x multiplier.
+        """
+        base = self.entry_slippage(shares, price, adv_20, volatility_20)
+        if exit_reason in PANIC_EXIT_REASONS:
+            return base * self.panic_exit_multiplier
+        return base
+
+    def entry_cost(self, shares: int, buy_price: float) -> float:
+        """Commission on entry."""
+        return shares * buy_price * self.effective_commission
+
+    def exit_cost(self, shares: int, sell_price: float) -> tuple[float, float]:
+        """Commission + Tax on exit.
+
+        Returns:
+            (commission, tax)
+        """
+        revenue = shares * sell_price
+        return revenue * self.effective_commission, revenue * self.tax_rate
+
+    def round_trip_cost_rate(self) -> float:
+        """Estimated round-trip cost as fraction (for display)."""
+        return (self.effective_commission * 2 + self.tax_rate + self.base_slippage * 2)
+
+    def describe(self) -> str:
+        """Human-readable description of cost settings."""
+        disc_str = f"{self.broker_discount:.0%}" if self.broker_discount < 1.0 else "full"
+        slip_str = "Kyle Lambda" if self.use_dynamic_slippage else f"flat {self.base_slippage:.2%}"
+        return (
+            f"Commission {self.commission_rate:.4%}x{disc_str} | "
+            f"Tax {self.tax_rate:.3%} | Slippage {slip_str} | "
+            f"RT ~{self.round_trip_cost_rate():.3%}"
+        )
 
 
 @dataclass
@@ -39,6 +129,8 @@ class Trade:
     return_pct: float = 0.0
     exit_reason: str = ""  # "signal" / "stop_loss" / "trailing_stop" / "take_profit"
     liquidity_warning: str = ""  # 流動性警告（交易金額佔當日成交額比重過高）
+    slippage_cost: float = 0.0  # Phase 9A: tracked slippage in NTD
+    gross_pnl: float = 0.0  # Phase 9A: P&L before all costs
 
 
 @dataclass
@@ -46,6 +138,7 @@ class BacktestResult:
     """回測結果"""
     trades: list[Trade] = field(default_factory=list)
     equity_curve: pd.Series = field(default_factory=pd.Series)
+    gross_equity_curve: pd.Series = field(default_factory=pd.Series)  # Phase 9A: before costs
     daily_returns: pd.Series = field(default_factory=pd.Series)
 
     # 績效指標
@@ -84,31 +177,45 @@ class BacktestEngine:
         commission_rate: float | None = None,
         tax_rate: float | None = None,
         slippage: float | None = None,
+        cost_calculator: TransactionCostCalculator | None = None,
     ):
         self.initial_capital = initial_capital or BACKTEST_PARAMS["initial_capital"]
         self.commission_rate = commission_rate or BACKTEST_PARAMS["commission_rate"]
         self.tax_rate = tax_rate or BACKTEST_PARAMS["tax_rate"]
         self.slippage = slippage if slippage is not None else BACKTEST_PARAMS.get("slippage", 0.001)
         self._rf_daily = (1 + 0.015) ** (1 / 252) - 1  # 年化 1.5% 無風險利率
+        # Phase 9A: cost calculator (backward compatible — uses flat rates if not provided)
+        self.cost_calc = cost_calculator or TransactionCostCalculator(
+            commission_rate=self.commission_rate,
+            tax_rate=self.tax_rate,
+            base_slippage=self.slippage,
+        )
 
     # ===== 共用交易執行方法（消除 run/run_v4 重複） =====
 
     def _open_position(self, price: float, high: float, volume: float,
                        cash: float, max_pos_pct: float,
-                       date: pd.Timestamp) -> tuple[Trade | None, int, float]:
+                       date: pd.Timestamp,
+                       adv_20: float = 0, volatility_20: float = 0,
+                       ) -> tuple[Trade | None, int, float]:
         """開倉：計算滑價、股數、手續費，建立 Trade
 
         Returns:
             (trade, shares, remaining_cash) — trade 為 None 表示資金不足
         """
-        buy_price = price * (1 + self.slippage)
+        # Phase 9A: estimate shares first for dynamic slippage
         available = cash * max_pos_pct
-        max_shares = int(available / (buy_price * TRADE_UNIT * (1 + self.commission_rate))) * TRADE_UNIT
+        est_shares = int(available / (price * TRADE_UNIT * (1 + self.cost_calc.effective_commission))) * TRADE_UNIT
+        slip_rate = self.cost_calc.entry_slippage(est_shares, price, adv_20, volatility_20)
+        buy_price = price * (1 + slip_rate)
+
+        max_shares = int(available / (buy_price * TRADE_UNIT * (1 + self.cost_calc.effective_commission))) * TRADE_UNIT
         if max_shares < TRADE_UNIT:
             return None, 0, cash
 
         cost = max_shares * buy_price
-        commission = cost * self.commission_rate
+        commission = self.cost_calc.entry_cost(max_shares, buy_price)
+        slippage_cost = max_shares * price * slip_rate  # NTD cost of slippage
         remaining_cash = cash - cost - commission
 
         trade = Trade(
@@ -117,6 +224,7 @@ class BacktestEngine:
             shares=max_shares,
             price_open=buy_price,
             commission=commission,
+            slippage_cost=slippage_cost,
         )
 
         # 流動性警告：交易金額佔當日成交額 > 5%
@@ -131,7 +239,9 @@ class BacktestEngine:
 
     def _close_position(self, position: int, exit_price: float,
                         current_trade: Trade, date: pd.Timestamp,
-                        exit_reason: str) -> float:
+                        exit_reason: str,
+                        adv_20: float = 0, volatility_20: float = 0,
+                        ) -> float:
         """平倉：計算滑價、手續費、稅、損益，完成 Trade 紀錄
 
         Args:
@@ -140,15 +250,21 @@ class BacktestEngine:
         Returns:
             cash_gained: 扣除手續費和稅後的現金
         """
-        actual_exit = exit_price * (1 - self.slippage)
+        # Phase 9A: asymmetric exit slippage (panic exits get 1.5x)
+        slip_rate = self.cost_calc.exit_slippage(
+            position, exit_price, adv_20, volatility_20, exit_reason)
+        actual_exit = exit_price * (1 - slip_rate)
         revenue = position * actual_exit
-        commission = revenue * self.commission_rate
-        tax = revenue * self.tax_rate
+        commission, tax = self.cost_calc.exit_cost(position, actual_exit)
+        exit_slippage_cost = position * exit_price * slip_rate
 
         current_trade.date_close = date
         current_trade.price_close = actual_exit
         current_trade.commission += commission
         current_trade.tax = tax
+        current_trade.slippage_cost += exit_slippage_cost
+        # Phase 9A: gross P&L (before costs)
+        current_trade.gross_pnl = (exit_price - current_trade.price_open) * position
         current_trade.pnl = (
             (actual_exit - current_trade.price_open) * position
             - current_trade.commission
@@ -931,10 +1047,14 @@ class BacktestEngine:
         _rs_no_pyramid = False    # Flag: stop adding to position
 
         cash = self.initial_capital
+        gross_cash = self.initial_capital  # Phase 9A: cash without any costs
         position = 0
+        gross_position = 0  # Phase 9A: mirrors position for gross tracking
+        gross_entry_price = 0.0  # Phase 9A: raw entry price (no slippage)
         trades: list[Trade] = []
         current_trade: Trade | None = None
         equity_history = []
+        gross_equity_history = []  # Phase 9A: equity without costs
         hold_days = 0
         peak_price = 0.0
         entry_low = None       # Phase 1：進場日低點
@@ -1078,6 +1198,9 @@ class BacktestEngine:
 
             if force_sell and position > 0 and current_trade is not None:
                 cash += self._close_position(position, exit_price, current_trade, date, exit_reason)
+                # Phase 9A: gross tracking — exit at raw price, no costs
+                gross_cash += gross_position * exit_price
+                gross_position = 0
                 trades.append(current_trade)
                 # R62 Equity Curve Filter：更新連續虧損計數
                 if ecf_enabled:
@@ -1104,8 +1227,11 @@ class BacktestEngine:
 
             if position == 0 and cash > 0:
                 cash *= (1 + self._rf_daily)
+            if gross_position == 0 and gross_cash > 0:
+                gross_cash *= (1 + self._rf_daily)
 
             equity_history.append({"date": date, "equity": cash + position * price})
+            gross_equity_history.append({"date": date, "equity": gross_cash + gross_position * price})
 
             # ===== Re-entry Watchlist decay =====
             expired_reentries = []
@@ -1153,6 +1279,12 @@ class BacktestEngine:
                     price, high, volume, cash, effective_max_pos, date)
                 if trade is not None:
                     position = shares
+                    # Phase 9A: gross tracking — buy at raw price, no costs
+                    gross_shares = int(gross_cash * effective_max_pos / (price * TRADE_UNIT)) * TRADE_UNIT
+                    if gross_shares >= TRADE_UNIT:
+                        gross_cash -= gross_shares * price
+                        gross_position = gross_shares
+                        gross_entry_price = price
                     current_trade = trade
                     peak_price = high
                     hold_days = 0
@@ -1175,11 +1307,15 @@ class BacktestEngine:
             cash += self._close_position(position, last_price, current_trade,
                                          signals_df.index[-1], "end_of_period")
             trades.append(current_trade)
+            # Phase 9A: gross end-of-period close
+            gross_cash += gross_position * last_price
+            gross_position = 0
 
         mode_label = "Ultra-Wide" if ultra_wide or p.get("ultra_wide") else "Standard"
         result = BacktestResult(
             trades=trades,
             equity_curve=self._build_equity_curve(equity_history),
+            gross_equity_curve=self._build_equity_curve(gross_equity_history),
             params_description=(
                 f"Bold {mode_label} | SL {sl_pct:.0%} | "
                 f"L3 trail {p.get('trail_level3_pct', 0.25):.0%} | "
@@ -1607,6 +1743,7 @@ def run_backtest_bold(
     rs_rating: float | None = None,
     pit_rs_series: "pd.Series | None" = None,
     rs_roc_series: "pd.Series | None" = None,
+    cost_calculator: TransactionCostCalculator | None = None,
 ) -> BacktestResult:
     """便捷函式：執行 Bold 大膽策略回測
 
@@ -1621,6 +1758,7 @@ def run_backtest_bold(
         rs_rating: RS 排名百分位 (0-100)，需從全市場排名計算後傳入
         pit_rs_series: Per-bar PIT RS percentile Series (indexed by date)
         rs_roc_series: Per-bar RS ROC Series (indexed by date)
+        cost_calculator: Phase 9A TransactionCostCalculator instance
 
     Returns:
         BacktestResult
@@ -1630,6 +1768,7 @@ def run_backtest_bold(
         commission_rate=commission_rate,
         tax_rate=tax_rate,
         slippage=slippage,
+        cost_calculator=cost_calculator,
     )
     return engine.run_bold(
         df, params=params, ultra_wide=ultra_wide, rs_rating=rs_rating,

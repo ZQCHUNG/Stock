@@ -69,6 +69,8 @@ class BoldBacktestRequest(BaseModel):
     commission_rate: float | None = None
     tax_rate: float | None = None
     slippage: float | None = None
+    broker_discount: float = 1.0  # Phase 9A: 1.0=full, 0.28=2.8折
+    use_dynamic_slippage: bool = False  # Phase 9A: Kyle Lambda volume-dependent
 
 
 class AggressiveBacktestRequest(BaseModel):
@@ -85,6 +87,8 @@ class PortfolioBoldRequest(BaseModel):
     period_days: int = 1095  # 3 years default
     initial_capital: float = 10_000_000
     params: dict | None = None  # Override PortfolioBacktester params
+    broker_discount: float = 1.0  # Phase 9A
+    use_dynamic_slippage: bool = False  # Phase 9A
 
 
 class SqsBacktestRequest(BaseModel):
@@ -109,12 +113,30 @@ def _serialize_backtest_result(result) -> dict:
             "return_pct": round(t.return_pct, 4),
             "exit_reason": t.exit_reason,
             "liquidity_warning": t.liquidity_warning,
+            "slippage_cost": round(t.slippage_cost, 0),
+            "gross_pnl": round(t.gross_pnl, 0),
         })
 
     total_commission = sum(t.commission for t in result.trades)
     total_tax = sum(t.tax for t in result.trades)
+    total_slippage = sum(t.slippage_cost for t in result.trades)
+    total_costs = total_commission + total_tax + total_slippage
+    total_gross_pnl = sum(t.gross_pnl for t in result.trades)
 
-    return {
+    # Phase 9A: Gross return (from gross equity curve if available)
+    gross_equity = getattr(result, "gross_equity_curve", None)
+    gross_total_return = None
+    if gross_equity is not None and not gross_equity.empty:
+        initial = gross_equity.iloc[0] if len(gross_equity) > 0 else 1
+        if initial > 0:
+            gross_total_return = (gross_equity.iloc[-1] - initial) / initial
+
+    # Phase 9A: Cost-to-Alpha Ratio (CAR) — CTO mandate
+    car = None
+    if gross_total_return and gross_total_return > 0:
+        car = round(total_costs / (gross_total_return * result.equity_curve.iloc[0]) * 100, 2) if result.equity_curve.iloc[0] > 0 else None
+
+    resp = {
         "total_return": result.total_return,
         "annual_return": result.annual_return,
         "max_drawdown": result.max_drawdown,
@@ -133,13 +155,22 @@ def _serialize_backtest_result(result) -> dict:
         "params_description": result.params_description,
         "total_commission": round(total_commission, 0),
         "total_tax": round(total_tax, 0),
-        "total_costs": round(total_commission + total_tax, 0),
+        "total_slippage": round(total_slippage, 0),
+        "total_costs": round(total_costs, 0),
+        "cost_to_alpha_ratio": car,
+        "gross_total_return": round(gross_total_return, 4) if gross_total_return is not None else None,
         "equity_curve": series_to_response(result.equity_curve),
         "daily_returns": series_to_response(result.daily_returns),
         "trades": trades,
         "corporate_action_warnings": getattr(result, "corporate_action_warnings", []),
         "trail_mode_info": getattr(result, "trail_mode_info", {}),
     }
+
+    # Phase 9A: include gross equity curve if available
+    if gross_equity is not None and not gross_equity.empty:
+        resp["gross_equity_curve"] = series_to_response(gross_equity)
+
+    return resp
 
 
 @router.post("/{code}/v4")
@@ -406,17 +437,23 @@ def run_bold_backtest(code: str, req: BoldBacktestRequest):
     - Ultra-Wide: MA200 斜率保護 + 365 天 conviction hold
     """
     from data.fetcher import get_stock_data
-    from backtest.engine import run_backtest_bold
+    from backtest.engine import run_backtest_bold, TransactionCostCalculator
     try:
         df = get_stock_data(code, period_days=req.period_days)
+        # Phase 9A: build cost calculator with broker discount + dynamic slippage
+        cost_calc = TransactionCostCalculator(
+            commission_rate=req.commission_rate or 0.001425,
+            tax_rate=req.tax_rate or 0.003,
+            base_slippage=req.slippage or 0.001,
+            broker_discount=req.broker_discount,
+            use_dynamic_slippage=req.use_dynamic_slippage,
+        )
         result = run_backtest_bold(
             df,
             initial_capital=req.initial_capital,
             params=req.params,
             ultra_wide=req.ultra_wide,
-            commission_rate=req.commission_rate,
-            tax_rate=req.tax_rate,
-            slippage=req.slippage,
+            cost_calculator=cost_calc,
         )
         return _serialize_backtest_result(result)
     except Exception as e:
@@ -915,7 +952,13 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
         params.setdefault("initial_capital", req.initial_capital)
         params.setdefault("period_days", req.period_days)
 
-        bt = PortfolioBacktester(params=params)
+        # Phase 9A: build cost calculator for portfolio backtest
+        from backtest.engine import TransactionCostCalculator
+        cost_calc = TransactionCostCalculator(
+            broker_discount=req.broker_discount,
+            use_dynamic_slippage=req.use_dynamic_slippage,
+        )
+        bt = PortfolioBacktester(params=params, cost_calculator=cost_calc)
         result = bt.run()
 
         eq_df = result.equity_curve

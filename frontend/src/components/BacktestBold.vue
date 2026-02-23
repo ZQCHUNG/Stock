@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { h, ref, reactive, computed, watch } from 'vue'
 import {
-  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NSwitch, NText, NSpin, NTag,
+  NCard, NButton, NGrid, NGi, NTabs, NTabPane, NDataTable, NSpace, NSwitch, NText, NSpin, NTag, NSelect,
 } from 'naive-ui'
 import { use } from 'echarts/core'
 import { LineChart, PieChart, BarChart } from 'echarts/charts'
@@ -33,6 +33,8 @@ const { cols } = useResponsive()
 const metricCols = cols(2, 3, 4)
 
 const ultraWide = ref(true)
+const brokerDiscount = ref(1.0)  // Phase 9A: 1.0=full, 0.28=2.8折
+const dynamicSlippage = ref(false)  // Phase 9A: Kyle Lambda
 const klineData = ref<TimeSeriesData | null>(null)
 const klineLoading = ref(false)
 const liquidityData = ref<any>(null)
@@ -62,6 +64,8 @@ async function runBacktest() {
     period_days: props.periodDays,
     initial_capital: props.capital,
     ultra_wide: ultraWide.value,
+    broker_discount: brokerDiscount.value,
+    use_dynamic_slippage: dynamicSlippage.value,
     ...props.costParams,
   })
   // Load liquidity score alongside backtest
@@ -88,11 +92,26 @@ const expectancy = computed(() => {
   return fmtPct(wr * avgW + (1 - wr) * avgL)
 })
 
+// Phase 9A: CAR (Cost-to-Alpha Ratio) — CTO mandate
+const carLabel = computed(() => {
+  const car = r.value?.cost_to_alpha_ratio
+  if (car == null) return '-'
+  return `${car.toFixed(1)}%`
+})
+const carColor = computed(() => {
+  const car = r.value?.cost_to_alpha_ratio
+  if (car == null) return undefined
+  if (car > 30) return '#e53e3e'  // bloated
+  if (car < 15) return '#38a169'  // high quality
+  return '#dd6b20'  // warning
+})
+
 const equityOption = computed(() => {
   if (!r.value?.equity_curve?.dates?.length) return {}
   const cc = chartColors.value
   const dates = r.value.equity_curve.dates
   const values = r.value.equity_curve.values as number[]
+  const grossValues = r.value?.gross_equity_curve?.values as number[] | undefined
   const trades = r.value.trades || []
   const dateIdx: Record<string, number> = {}
   dates.forEach((d: string, i: number) => { dateIdx[d.slice(0, 10)] = i })
@@ -106,10 +125,19 @@ const equityOption = computed(() => {
     if (oi !== undefined) buyMarks.push([oi, values[oi] as number])
     if (ci !== undefined) sellMarks.push([ci, values[ci] as number])
   })
+  const hasGross = grossValues && grossValues.length > 0
+  const legendData = hasGross ? ['Gross', 'Net', '買入', '賣出'] : ['權益', '買入', '賣出']
+  const series: any[] = []
+  if (hasGross) {
+    series.push({ name: 'Gross', type: 'line', data: grossValues, symbol: 'none', lineStyle: { width: 1.5, color: '#38a169', type: 'dashed' } })
+    series.push({ name: 'Net', type: 'line', data: values, symbol: 'none', areaStyle: { opacity: 0.1, color: '#e53e3e' }, lineStyle: { width: 1.5, color: '#ff6b35' } })
+  } else {
+    series.push({ name: '權益', type: 'line', data: values, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#ff6b35' } })
+  }
   return {
     tooltip: { trigger: 'axis', ...tooltipStyle.value },
     toolbox: { ...toolboxConfig.value, feature: { restore: toolboxConfig.value.feature.restore, saveAsImage: toolboxConfig.value.feature.saveAsImage } },
-    legend: { data: ['權益', '買入', '賣出'], textStyle: { color: cc.legendText, fontSize: 11 }, top: 0 },
+    legend: { data: legendData, textStyle: { color: cc.legendText, fontSize: 11 }, top: 0 },
     grid: { left: 80, right: 20, top: 30, bottom: 50 },
     xAxis: { type: 'category', data: dates, axisLabel: { color: cc.axisLabel } },
     yAxis: { type: 'value', axisLabel: { formatter: (v: number) => fmtNum(v), color: cc.axisLabel }, splitLine: { lineStyle: { color: cc.splitLine } } },
@@ -118,7 +146,7 @@ const equityOption = computed(() => {
       { type: 'slider', start: 0, end: 100, height: 20, bottom: 4, borderColor: 'transparent', backgroundColor: cc.splitLine },
     ],
     series: [
-      { name: '權益', type: 'line', data: values, symbol: 'none', areaStyle: { opacity: 0.15 }, lineStyle: { width: 1.5, color: '#ff6b35' } },
+      ...series,
       { name: '買入', type: 'scatter', data: buyMarks, symbol: 'triangle', symbolSize: 8, itemStyle: { color: '#38a169' }, z: 10 },
       { name: '賣出', type: 'scatter', data: sellMarks, symbol: 'diamond', symbolSize: 8, itemStyle: { color: '#e53e3e' }, z: 10 },
     ],
@@ -212,11 +240,24 @@ const tradeColumns = [
 
 <template>
   <div>
-    <NSpace align="center" style="margin-bottom: 16px">
+    <NSpace align="center" style="margin-bottom: 16px" :wrap="true">
       <NButton type="warning" @click="runBacktest" :loading="bt.isLoading">執行 Bold 回測</NButton>
       <NSpace align="center" :size="4">
         <NSwitch v-model:value="ultraWide" size="small" />
-        <NText depth="3" style="font-size: 12px">Ultra-Wide 模式（長線持有 + Regime Trail）</NText>
+        <NText depth="3" style="font-size: 12px">Ultra-Wide</NText>
+      </NSpace>
+      <NSpace align="center" :size="4">
+        <NText depth="3" style="font-size: 11px">券商折讓</NText>
+        <NSelect v-model:value="brokerDiscount" :options="[
+          { label: '原價 (0.1425%)', value: 1.0 },
+          { label: '5折 (0.071%)', value: 0.5 },
+          { label: '3.5折 (0.050%)', value: 0.35 },
+          { label: '2.8折 (0.040%)', value: 0.28 },
+        ]" size="small" style="width: 140px" />
+      </NSpace>
+      <NSpace align="center" :size="4">
+        <NSwitch v-model:value="dynamicSlippage" size="small" />
+        <NText depth="3" style="font-size: 11px">動態滑價 (Kyle Lambda)</NText>
       </NSpace>
     </NSpace>
 
@@ -257,7 +298,26 @@ const tradeColumns = [
         <NGi><MetricCard title="Calmar" :value="r.calmar_ratio?.toFixed(2) || '-'" /></NGi>
         <NGi><MetricCard title="期望值" :value="expectancy" :color="priceColor(parseFloat(String(expectancy)) || 0)" /></NGi>
         <NGi v-if="r.total_costs"><MetricCard title="總交易成本" :value="'$' + fmtNum(r.total_costs, 0)" color="#e53e3e" /></NGi>
+        <NGi v-if="r.gross_total_return != null"><MetricCard title="Gross Return" :value="fmtPct(r.gross_total_return)" :color="priceColor(r.gross_total_return)" /></NGi>
+        <NGi v-if="r.cost_to_alpha_ratio != null"><MetricCard title="CAR (Cost/Alpha)" :value="carLabel" :color="carColor" /></NGi>
+        <NGi v-if="r.total_slippage"><MetricCard title="滑價成本" :value="'$' + fmtNum(r.total_slippage, 0)" color="#dd6b20" /></NGi>
       </NGrid>
+
+      <!-- Phase 9A: Cost breakdown banner -->
+      <NCard v-if="r.total_costs" size="small" style="margin-bottom: 12px">
+        <NSpace align="center" :size="16" :wrap="true">
+          <NText depth="3" style="font-size: 11px">
+            手續費 ${{ fmtNum(r.total_commission, 0) }} |
+            交易稅 ${{ fmtNum(r.total_tax, 0) }} |
+            滑價 ${{ fmtNum(r.total_slippage || 0, 0) }} |
+            合計 ${{ fmtNum(r.total_costs, 0) }}
+          </NText>
+          <NTag v-if="r.cost_to_alpha_ratio != null" :type="r.cost_to_alpha_ratio > 30 ? 'error' : r.cost_to_alpha_ratio < 15 ? 'success' : 'warning'" size="small">
+            CAR {{ r.cost_to_alpha_ratio?.toFixed(1) }}%
+            {{ r.cost_to_alpha_ratio > 30 ? '(high drag)' : r.cost_to_alpha_ratio < 15 ? '(efficient)' : '' }}
+          </NTag>
+        </NSpace>
+      </NCard>
 
       <NTabs v-model:value="activeTab" type="line">
         <NTabPane name="equity" tab="權益曲線">

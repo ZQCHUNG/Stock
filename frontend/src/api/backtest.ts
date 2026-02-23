@@ -17,6 +17,8 @@ export interface BoldBacktestParams {
   commission_rate?: number
   tax_rate?: number
   slippage?: number
+  broker_discount?: number  // Phase 9A: 1.0=full, 0.28=2.8折
+  use_dynamic_slippage?: boolean  // Phase 9A: Kyle Lambda
 }
 
 export interface AggressiveBacktestParams {
@@ -58,11 +60,13 @@ export const backtestApi = {
     client.post<any, any>(`/backtest/${code}/aggressive`, req, { timeout: 180_000 }),
   strategyComparison: (code: string, req: StrategyComparisonParams = {}) =>
     client.post<any, any>(`/backtest/${code}/strategy-comparison`, req),
-  portfolioBold: (periodDays = 1095, initialCapital = 10_000_000, params?: Record<string, any>) =>
+  portfolioBold: (periodDays = 1095, initialCapital = 10_000_000, params?: Record<string, any>, brokerDiscount = 1.0, useDynamicSlippage = false) =>
     client.post<any, any>('/backtest/portfolio-bold', {
       period_days: periodDays,
       initial_capital: initialCapital,
       params,
+      broker_discount: brokerDiscount,
+      use_dynamic_slippage: useDynamicSlippage,
     }, { timeout: 600_000 }),
   metaStrategy: (stockCodes: string[], periodDays = 730, initialCapital = 1_000_000) =>
     client.post<any, any>('/backtest/meta-strategy', {
