@@ -1625,12 +1625,13 @@ def get_stop_levels_endpoint(
 def get_accumulation_scan(code: str, period_days: int = 365):
     """Wyckoff Accumulation Scanner — 洗盤偵測.
 
-    Detects accumulation (Wyckoff Phase B/C) patterns via 5 quantitative conditions:
+    Detects accumulation (Wyckoff Phase B/C) patterns via 6 quantitative conditions:
     1. Higher Lows (底部遞增)
     2. Volume Test (量能試盤)
     3. Post-test Consolidation (洗盤確認)
     4. Low ADX (能量儲備)
     5. RS Strength (相對強度)
+    6. AQS Smart Money (分點 DNA 品質 — R95.1)
 
     Returns phase (NONE/ALPHA/BETA/INVALIDATED), score 0-100, and condition details.
     """
@@ -1649,7 +1650,7 @@ def get_accumulation_scan(code: str, period_days: int = 365):
         except Exception:
             pass  # RS is optional; skip if unavailable
 
-        result = detect_accumulation(df, rs_rating=rs_rating)
+        result = detect_accumulation(df, rs_rating=rs_rating, stock_code=code)
         output = result.to_dict()
         output["code"] = code
         output["latest_close"] = round(float(df["close"].iloc[-1]), 2)

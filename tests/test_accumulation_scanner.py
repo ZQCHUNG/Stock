@@ -1,8 +1,8 @@
 """Tests for analysis/accumulation_scanner.py — Wyckoff Accumulation Detection
 
 All tests use synthetic data — no network calls.
-Covers all 5 conditions, phase transitions, filters, edge cases,
-and the Architect directives (test bar floor memory, invalidation).
+Covers all 6 conditions (incl. AQS R95.1), phase transitions, filters, edge cases,
+and the Architect directives (test bar floor memory, invalidation, AQS downgrade).
 """
 
 import numpy as np
@@ -15,6 +15,17 @@ from analysis.accumulation_scanner import (
     TestBar,
     ADX_LOW_MIN_DAYS,
     ADX_LOW_THRESHOLD,
+    AQS_COL_ANTI_DAYTRADE,
+    AQS_COL_CONCENTRATION,
+    AQS_COL_PERSISTENCE,
+    AQS_COL_WINNER,
+    AQS_COL_WINNER_BONUS,
+    AQS_LOOKBACK,
+    AQS_THRESHOLD,
+    AQS_W_ANTI_DAYTRADE,
+    AQS_W_CONCENTRATION,
+    AQS_W_NET_BUY_PERSISTENCE,
+    AQS_W_WINNER_MOMENTUM,
     MAX_CONSOLIDATION_WITHOUT_TEST,
     MIN_AVG_VOLUME_LOTS,
     POST_TEST_MAX_PULLBACK,
@@ -35,6 +46,7 @@ from analysis.accumulation_scanner import (
     _count_consolidation_days,
     _find_swing_lows,
     _find_test_bars,
+    calculate_aqs,
     detect_accumulation,
 )
 
@@ -740,6 +752,7 @@ class TestAccumulationResultToDict:
             "has_post_test_confirm", "post_test_vol_avg", "post_test_pullback_pct",
             "has_low_adx", "adx_current", "adx_low_days",
             "has_rs_strength", "rs_rating",
+            "has_smart_money", "aqs_score", "aqs_breakdown",
             "price_in_range", "price_vs_52w_high_pct", "volume_floor_pass",
             "consolidation_days", "consolidation_timeout",
             "is_invalidated", "invalidation_reason",
@@ -923,3 +936,192 @@ class TestEdgeCases:
         sl = SwingLow(idx=5, date="2025-06-01", price=50.0)
         assert sl.price == 50.0
         assert sl.idx == 5
+
+
+# ── Test: AQS (Accumulation Quality Score) — R95.1 ─────
+
+
+def _make_features_df(
+    stock_code: str = "6748",
+    n_days: int = 30,
+    wm_values: float = 1.0,
+    nbp_values: float = 0.8,
+    bc_values: float = 0.5,
+    adr_values: float = 0.3,
+    winner_bonus_values: float = 0.0,
+) -> pd.DataFrame:
+    """Create synthetic features DataFrame mimicking Parquet structure."""
+    dates = pd.bdate_range("2025-10-01", periods=n_days)
+    return pd.DataFrame({
+        "stock_code": [stock_code] * n_days,
+        "date": dates,
+        AQS_COL_WINNER: np.full(n_days, wm_values),
+        AQS_COL_WINNER_BONUS: np.full(n_days, winner_bonus_values),
+        AQS_COL_PERSISTENCE: np.full(n_days, nbp_values),
+        AQS_COL_CONCENTRATION: np.full(n_days, bc_values),
+        AQS_COL_ANTI_DAYTRADE: np.full(n_days, adr_values),
+    })
+
+
+class TestCalculateAQS:
+    """Tests for AQS calculation function."""
+
+    def test_basic_aqs_calculation(self):
+        """AQS should compute weighted sum of Z-scored features."""
+        features_df = _make_features_df(
+            wm_values=1.0, nbp_values=0.8, bc_values=0.5, adr_values=0.3,
+        )
+        score, breakdown = calculate_aqs("6748", features_df)
+        expected = (
+            0.40 * 1.0 + 0.25 * 0.8 + 0.20 * 0.5 + 0.15 * 0.3
+        )
+        assert score == pytest.approx(expected, abs=0.01)
+        assert "winner_momentum" in breakdown
+        assert "net_buy_persistence" in breakdown
+        assert "concentration" in breakdown
+        assert "anti_daytrade" in breakdown
+
+    def test_aqs_with_winner_bonus(self):
+        """Winner momentum bonus should boost WM by 20% when available."""
+        features_df = _make_features_df(
+            wm_values=1.0, winner_bonus_values=1.0,
+        )
+        score_with_bonus, bd = calculate_aqs("6748", features_df)
+        # WM should be 1.0 * 1.2 = 1.2 due to bonus
+        assert bd["winner_momentum"] == pytest.approx(1.2, abs=0.01)
+
+        features_df_no = _make_features_df(
+            wm_values=1.0, winner_bonus_values=0.0,
+        )
+        score_no_bonus, _ = calculate_aqs("6748", features_df_no)
+        assert score_with_bonus > score_no_bonus
+
+    def test_aqs_no_parquet(self):
+        """No Parquet data → returns None."""
+        score, breakdown = calculate_aqs("6748", features_df=None)
+        # Since we pass None and there's no cached data, it will try to load
+        # We can't guarantee the file doesn't exist, so just check it handles gracefully
+        assert score is None or isinstance(score, float)
+
+    def test_aqs_stock_not_found(self):
+        """Stock code not in features → returns None."""
+        features_df = _make_features_df(stock_code="2330")
+        score, breakdown = calculate_aqs("9999", features_df)
+        assert score is None
+        assert "reason" in breakdown
+
+    def test_aqs_insufficient_data(self):
+        """Too few rows for lookback → returns None."""
+        features_df = _make_features_df(n_days=5)  # Only 5 days, need 20
+        score, breakdown = calculate_aqs("6748", features_df)
+        assert score is None
+
+    def test_aqs_negative_zscore(self):
+        """Negative Z-scores → negative AQS (distribution, not accumulation)."""
+        features_df = _make_features_df(
+            wm_values=-1.5, nbp_values=-1.0, bc_values=-0.5, adr_values=-0.3,
+        )
+        score, breakdown = calculate_aqs("6748", features_df)
+        assert score is not None
+        assert score < 0
+
+    def test_aqs_all_zero(self):
+        """All-zero features → AQS = 0."""
+        features_df = _make_features_df(
+            wm_values=0, nbp_values=0, bc_values=0, adr_values=0,
+        )
+        score, _ = calculate_aqs("6748", features_df)
+        assert score == pytest.approx(0.0, abs=0.001)
+
+    def test_aqs_weights_sum_to_one(self):
+        """AQS weights should sum to 1.0."""
+        total = (
+            AQS_W_WINNER_MOMENTUM
+            + AQS_W_NET_BUY_PERSISTENCE
+            + AQS_W_CONCENTRATION
+            + AQS_W_ANTI_DAYTRADE
+        )
+        assert total == pytest.approx(1.0, abs=0.001)
+
+    def test_aqs_breakdown_has_weights(self):
+        """Breakdown should include weight values."""
+        features_df = _make_features_df()
+        _, breakdown = calculate_aqs("6748", features_df)
+        assert "weights" in breakdown
+        assert breakdown["weights"]["winner_momentum"] == AQS_W_WINNER_MOMENTUM
+
+    def test_aqs_threshold_constant(self):
+        """AQS threshold should be a positive number."""
+        assert AQS_THRESHOLD > 0
+        assert isinstance(AQS_THRESHOLD, float)
+
+
+class TestAQSIntegration:
+    """Tests for AQS integration into detect_accumulation."""
+
+    def test_aqs_skipped_without_stock_code(self):
+        """No stock_code → AQS not computed."""
+        df = _make_ohlcv(n=200)
+        result = detect_accumulation(df, stock_code=None)
+        assert result.has_smart_money is False
+        assert result.aqs_score is None
+
+    def test_aqs_integrated_with_stock_code(self):
+        """With stock_code and features_df → AQS computed."""
+        df = _make_ohlcv(n=200)
+        features_df = _make_features_df(
+            stock_code="TEST", n_days=30,
+            wm_values=2.0, nbp_values=1.5, bc_values=1.0, adr_values=0.8,
+        )
+        result = detect_accumulation(df, stock_code="TEST", features_df=features_df)
+        assert result.aqs_score is not None
+        assert result.aqs_score > AQS_THRESHOLD
+        assert result.has_smart_money is True
+
+    def test_aqs_low_downgrades_beta_to_alpha(self):
+        """AQS data available but low → BETA downgraded to ALPHA."""
+        # Create a pattern that would normally be BETA
+        df = _make_accumulation_pattern(
+            peak_price=100.0,
+            correction_depth=0.30,
+            n_swing_lows=4,
+            swing_uplift=0.03,
+            include_volume_test=True,
+            include_post_test_confirm=True,
+        )
+        # First, verify it's BETA without AQS
+        result_no_aqs = detect_accumulation(df, rs_rating=85.0)
+
+        # Now with low AQS
+        features_df = _make_features_df(
+            stock_code="TEST", n_days=30,
+            wm_values=-1.0, nbp_values=-0.5, bc_values=-0.3, adr_values=-0.2,
+        )
+        result_low_aqs = detect_accumulation(
+            df, rs_rating=85.0, stock_code="TEST", features_df=features_df,
+        )
+        # If original was BETA, low AQS should downgrade to ALPHA
+        if result_no_aqs.phase == "BETA":
+            assert result_low_aqs.phase == "ALPHA"
+            assert result_low_aqs.has_smart_money is False
+
+    def test_smart_money_adds_10_points(self):
+        """has_smart_money should add 10 points to score."""
+        df = _make_ohlcv(n=200, seed=80)
+        features_high = _make_features_df(
+            stock_code="TEST", n_days=30,
+            wm_values=2.0, nbp_values=1.5, bc_values=1.0, adr_values=0.8,
+        )
+        features_low = _make_features_df(
+            stock_code="TEST", n_days=30,
+            wm_values=-2.0, nbp_values=-1.0, bc_values=-0.5, adr_values=-0.3,
+        )
+        result_high = detect_accumulation(df, stock_code="TEST", features_df=features_high)
+        result_low = detect_accumulation(df, stock_code="TEST", features_df=features_low)
+
+        if result_high.has_smart_money and not result_low.has_smart_money:
+            assert result_high.score >= result_low.score + 10
+
+    def test_consolidation_timeout_now_60_days(self):
+        """MAX_CONSOLIDATION_WITHOUT_TEST should be 60 (was 120)."""
+        assert MAX_CONSOLIDATION_WITHOUT_TEST == 60

@@ -61,7 +61,7 @@ Stock/
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
-├── tests/                    # 520+ tests (pytest, synthetic fixtures)
+├── tests/                    # 530+ tests (pytest, synthetic fixtures)
 └── config.py                 # Strategy params, fee rates
 ```
 
@@ -273,6 +273,7 @@ python -m pytest tests/ -q
 | R14.18-10D | **Phase 10D: Breadth-based Dynamic Exposure** — MaxSlots_adj = MaxSlots × (Breadth/50%), [VERIFIED: HARMFUL] Calmar 5.10→3.60, disabled by default | Done |
 | R14.18-11 | **Phase 11: Regime Barometer** — Hunting Index (Parabolic%/(PTS%+Disaster%)), regime classification (Flash Crash/Chop/Hot/Normal), Sector Alpha Drift, gauge+pie UI (CTO directive) | Done |
 | R95 | **Accumulation Scanner** — Wyckoff 洗盤偵測 (5 conditions: Higher Lows + Volume Test + Post-test Confirm + Low ADX + RS Strength), 3-phase Alpha/Beta/Invalidated, 57 tests (Wall Street Trader + Architect APPROVED) | Done |
+| R95.1 | **AQS (Accumulation Quality Score)** — Brokerage DNA integration (WM 40% + NBP 25% + BC 20% + ADR 15%), Phase downgrade BETA→ALPHA on low AQS, MAX_CONSOLIDATION 120→60d, 72 tests (Wall Street Trader + Architect APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 

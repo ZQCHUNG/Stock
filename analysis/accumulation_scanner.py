@@ -73,14 +73,50 @@ RS_MIN_RATING = 70  # RS vs 同業 > 70
 PRICE_RANGE_FROM_HIGH_MIN = 0.20  # 距 52W 高至少 -20%
 PRICE_RANGE_FROM_HIGH_MAX = 0.45  # 距 52W 高最多 -45%
 
-# [PLACEHOLDER: ACCUM_CONSOLIDATION_DAYS_120]
-MAX_CONSOLIDATION_WITHOUT_TEST = 120  # 盤整超過 120 天未試盤 → 降權
+# [PLACEHOLDER: ACCUM_CONSOLIDATION_DAYS_060] — 華爾街交易員建議：120→60
+# 「台股 120 天沒動靜通常已經壞掉了」
+MAX_CONSOLIDATION_WITHOUT_TEST = 60  # 盤整超過 60 天未試盤 → 降權
 
 # [PLACEHOLDER: ACCUM_MIN_VOLUME_LOTS_001]
 MIN_AVG_VOLUME_LOTS = 100  # 最低日均量（張），過濾極冷門股
 
 # ADX period
 ADX_PERIOD = 14
+
+# ---------- AQS Parameters (R95.1 — Architect APPROVED 2026-02-24) ----------
+# AQS = Accumulation Quality Score (分點 DNA 品質評分)
+# 華爾街交易員：「如果不是贏家分點在買，後面三個指標再漂亮都是假的」
+# Architect：「請確保四個分項指標在計算前皆已完成標準化處理」
+
+# [PLACEHOLDER: AQS_WEIGHT_WINNER_MOMENTUM]
+AQS_W_WINNER_MOMENTUM = 0.40  # 贏家分點動量 — 核心指標
+
+# [PLACEHOLDER: AQS_WEIGHT_NET_BUY_PERSISTENCE]
+AQS_W_NET_BUY_PERSISTENCE = 0.25  # 淨買超持續性
+
+# [PLACEHOLDER: AQS_WEIGHT_CONCENTRATION]
+AQS_W_CONCENTRATION = 0.20  # 分點集中度趨勢
+
+# [PLACEHOLDER: AQS_WEIGHT_ANTI_DAYTRADE]
+AQS_W_ANTI_DAYTRADE = 0.15  # 反隔日沖比率
+
+# [PLACEHOLDER: AQS_THRESHOLD_BETA]
+AQS_THRESHOLD = 0.5  # AQS >= 0.5 → has_smart_money = True (Z-score scale)
+
+# AQS lookback window (trading days)
+AQS_LOOKBACK = 20
+
+# Parquet feature column mapping (from R88.7P5, already rolling Z-scored)
+# broker_purity_score = Top3 conc × Winner overlap (more robust than sparse winner_momentum)
+# broker_winner_momentum = Tier 1 winner count (0/50/100, sparse)
+AQS_COL_WINNER = "broker_purity_score"       # Primary smart money signal
+AQS_COL_WINNER_BONUS = "broker_winner_momentum"  # Bonus when available
+AQS_COL_PERSISTENCE = "broker_consistency_streak"  # Consecutive net-buy days
+AQS_COL_CONCENTRATION = "broker_top3_pct"    # Top 3 buy broker concentration
+AQS_COL_ANTI_DAYTRADE = "broker_net_buy_ratio"  # Net buy / total (high = less daytrade)
+
+# Parquet file path
+FEATURES_PARQUET = "data/pattern_data/features/features_all.parquet"
 
 
 # ---------- Data Classes ----------
@@ -134,6 +170,10 @@ class AccumulationResult:
     has_rs_strength: bool = False
     rs_rating: float | None = None
 
+    has_smart_money: bool = False
+    aqs_score: float | None = None
+    aqs_breakdown: dict = field(default_factory=dict)
+
     # Filters
     price_in_range: bool = False
     price_vs_52w_high_pct: float | None = None
@@ -163,6 +203,9 @@ class AccumulationResult:
             "adx_low_days": self.adx_low_days,
             "has_rs_strength": self.has_rs_strength,
             "rs_rating": self.rs_rating,
+            "has_smart_money": self.has_smart_money,
+            "aqs_score": self.aqs_score,
+            "aqs_breakdown": self.aqs_breakdown,
             "price_in_range": self.price_in_range,
             "price_vs_52w_high_pct": self.price_vs_52w_high_pct,
             "volume_floor_pass": self.volume_floor_pass,
@@ -463,11 +506,117 @@ def _count_consolidation_days(df: pd.DataFrame) -> int:
     return int(days)
 
 
+# ---------- AQS (Accumulation Quality Score) ----------
+
+_aqs_cache: dict[str, pd.DataFrame | None] = {"df": None}
+
+
+def _load_features_parquet() -> pd.DataFrame | None:
+    """Load features Parquet (lazy, cached). Returns None if unavailable."""
+    if _aqs_cache["df"] is not None:
+        return _aqs_cache["df"]
+
+    import os
+    # Try both relative and absolute paths
+    for path in [FEATURES_PARQUET, os.path.join(os.path.dirname(__file__), "..", FEATURES_PARQUET)]:
+        if os.path.exists(path):
+            try:
+                df = pd.read_parquet(path)
+                df["date"] = pd.to_datetime(df["date"])
+                _aqs_cache["df"] = df
+                return df
+            except Exception as e:
+                _logger.warning("Failed to load features Parquet: %s", e)
+                return None
+    return None
+
+
+def calculate_aqs(
+    stock_code: str,
+    features_df: pd.DataFrame | None = None,
+    lookback: int = AQS_LOOKBACK,
+) -> tuple[float | None, dict]:
+    """Calculate AQS (Accumulation Quality Score) from broker features.
+
+    Uses Z-scored broker features from R88.7P5 Parquet data.
+    AQS = 0.40 × WM + 0.25 × NBP + 0.20 × BC + 0.15 × ADR
+
+    Args:
+        stock_code: Stock code (e.g., "6748")
+        features_df: Pre-loaded features DataFrame (optional, will lazy-load if None)
+        lookback: Number of recent trading days to average
+
+    Returns:
+        (aqs_score, breakdown_dict). Returns (None, {}) if data unavailable.
+    """
+    if features_df is None:
+        features_df = _load_features_parquet()
+
+    if features_df is None:
+        return None, {}
+
+    # Filter to this stock's data
+    stock_data = features_df[features_df["stock_code"] == stock_code]
+    if len(stock_data) < lookback:
+        return None, {"reason": f"Insufficient data: {len(stock_data)} rows < {lookback}"}
+
+    # Get last N rows (most recent)
+    recent = stock_data.sort_values("date").tail(lookback)
+
+    # Extract Z-scored features (already normalized in Parquet build)
+    breakdown = {}
+
+    # 1. Winner Momentum (40%) — broker_purity_score primary, winner_momentum bonus
+    wm_vals = recent[AQS_COL_WINNER].dropna() if AQS_COL_WINNER in recent.columns else pd.Series(dtype=float)
+    wm_mean = float(wm_vals.mean()) if len(wm_vals) > 0 else 0.0
+
+    # Bonus: if broker_winner_momentum is also available and positive, boost
+    if AQS_COL_WINNER_BONUS in recent.columns:
+        wm_bonus = recent[AQS_COL_WINNER_BONUS].dropna()
+        if len(wm_bonus) > 0 and float(wm_bonus.mean()) > 0:
+            wm_mean = wm_mean * 1.2  # 20% bonus for confirmed winner presence
+    breakdown["winner_momentum"] = round(wm_mean, 3)
+
+    # 2. Net Buy Persistence (25%) — broker_consistency_streak
+    nbp_vals = recent[AQS_COL_PERSISTENCE].dropna() if AQS_COL_PERSISTENCE in recent.columns else pd.Series(dtype=float)
+    nbp_mean = float(nbp_vals.mean()) if len(nbp_vals) > 0 else 0.0
+    breakdown["net_buy_persistence"] = round(nbp_mean, 3)
+
+    # 3. Broker Concentration (20%) — broker_top3_pct
+    bc_vals = recent[AQS_COL_CONCENTRATION].dropna() if AQS_COL_CONCENTRATION in recent.columns else pd.Series(dtype=float)
+    bc_mean = float(bc_vals.mean()) if len(bc_vals) > 0 else 0.0
+    breakdown["concentration"] = round(bc_mean, 3)
+
+    # 4. Anti-Daytrade Ratio (15%) — broker_net_buy_ratio
+    adr_vals = recent[AQS_COL_ANTI_DAYTRADE].dropna() if AQS_COL_ANTI_DAYTRADE in recent.columns else pd.Series(dtype=float)
+    adr_mean = float(adr_vals.mean()) if len(adr_vals) > 0 else 0.0
+    breakdown["anti_daytrade"] = round(adr_mean, 3)
+
+    # Weighted AQS score
+    aqs = (
+        AQS_W_WINNER_MOMENTUM * wm_mean
+        + AQS_W_NET_BUY_PERSISTENCE * nbp_mean
+        + AQS_W_CONCENTRATION * bc_mean
+        + AQS_W_ANTI_DAYTRADE * adr_mean
+    )
+
+    breakdown["weights"] = {
+        "winner_momentum": AQS_W_WINNER_MOMENTUM,
+        "net_buy_persistence": AQS_W_NET_BUY_PERSISTENCE,
+        "concentration": AQS_W_CONCENTRATION,
+        "anti_daytrade": AQS_W_ANTI_DAYTRADE,
+    }
+
+    return round(aqs, 3), breakdown
+
+
 # ---------- Main Detection Function ----------
 
 def detect_accumulation(
     df: pd.DataFrame,
     rs_rating: float | None = None,
+    stock_code: str | None = None,
+    features_df: pd.DataFrame | None = None,
 ) -> AccumulationResult:
     """Detect Wyckoff Accumulation pattern in price data.
 
@@ -475,6 +624,8 @@ def detect_accumulation(
         df: OHLCV DataFrame with columns: open, high, low, close, volume
             Index should be datetime.
         rs_rating: Pre-computed RS rating vs sector (0-100). If None, RS check skipped.
+        stock_code: Stock code for AQS lookup (e.g., "6748"). If None, AQS skipped.
+        features_df: Pre-loaded features Parquet DataFrame (optional, lazy-loads if None).
 
     Returns:
         AccumulationResult with phase, score, and condition details.
@@ -569,6 +720,14 @@ def detect_accumulation(
         result.has_rs_strength = rs_rating >= RS_MIN_RATING
         result.rs_rating = round(rs_rating, 1)
 
+    # --- Condition 6: AQS (Accumulation Quality Score) — R95.1 ---
+    if stock_code is not None:
+        aqs_score, aqs_breakdown = calculate_aqs(stock_code, features_df)
+        if aqs_score is not None:
+            result.aqs_score = aqs_score
+            result.aqs_breakdown = aqs_breakdown
+            result.has_smart_money = aqs_score >= AQS_THRESHOLD
+
     # --- Invalidation check (use full df for current price) ---
     invalidated, reason = _check_invalidation(df, result.test_bar_floor)
     result.is_invalidated = invalidated
@@ -599,6 +758,10 @@ def detect_accumulation(
         score += 10
         conditions_met += 1
 
+    if result.has_smart_money:
+        score += 10
+        conditions_met += 1
+
     # Bonus: price in sweet spot
     if result.price_in_range:
         score += 10
@@ -613,10 +776,15 @@ def detect_accumulation(
     result.score = min(100, score)
 
     # Phase determination
+    # Architect directive: AQS low + other conditions pass → downgrade BETA → ALPHA
     if result.is_invalidated:
         result.phase = "INVALIDATED"
     elif conditions_met >= 4 and result.has_post_test_confirm:
-        result.phase = "BETA"   # Ready for trial position
+        if result.aqs_score is not None and not result.has_smart_money:
+            # AQS data available but score too low → downgrade to ALPHA
+            result.phase = "ALPHA"
+        else:
+            result.phase = "BETA"   # Ready for trial position
     elif conditions_met >= 2 and result.has_higher_lows:
         result.phase = "ALPHA"  # Watchlist alert
     else:
@@ -653,7 +821,7 @@ def get_accumulation_analysis(
             "score": 0,
         }
 
-    result = detect_accumulation(df, rs_rating=rs_rating)
+    result = detect_accumulation(df, rs_rating=rs_rating, stock_code=code)
     output = result.to_dict()
     output["code"] = code
     output["latest_close"] = round(float(df["close"].iloc[-1]), 2)
