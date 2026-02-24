@@ -43,6 +43,7 @@ const menuItems = [
   { label: '9  Forward Test', key: 'forward-test' },
   { label: 'A  相似線型', key: 'patterns' },
   { label: 'B  多維度分群', key: 'cluster' },
+  { label: 'C  Pattern 模擬', key: 'pattern-simulator' },
 ]
 
 const activeKey = computed(() => route.name as string)

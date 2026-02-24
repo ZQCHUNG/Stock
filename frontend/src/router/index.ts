@@ -81,6 +81,12 @@ const router = createRouter({
       component: () => import('../views/ClusterView.vue'),
       meta: { title: '多維度分群' },
     },
+    {
+      path: '/pattern-simulator',
+      name: 'pattern-simulator',
+      component: () => import('../views/PatternSimulatorView.vue'),
+      meta: { title: 'Pattern 模擬' },
+    },
   ],
 })
 

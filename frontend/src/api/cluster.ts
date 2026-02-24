@@ -333,6 +333,63 @@ export interface DailySummary {
   narrative: string
 }
 
+// --- Pattern Simulation Types ---
+
+export interface PatternSimulateRequest {
+  stock_code: string
+  query_date?: string | null
+  dimensions?: string[] | null
+  top_k?: number
+}
+
+export interface HorizonStats {
+  count: number
+  win_rate: number | null
+  mean: number | null
+  median: number | null
+  std: number | null
+  min: number | null
+  max: number | null
+  p25: number | null
+  p75: number | null
+  expectancy: number | null
+  avg_win: number | null
+  avg_loss: number | null
+}
+
+export interface PatternCase {
+  stock_code: string
+  date: string
+  similarity: number
+  returns: Record<string, number | null>
+  dim_breakdown: Record<string, number>
+}
+
+export interface PatternSimulateResult {
+  query: {
+    stock_code: string
+    date: string
+    dimensions: string[]
+    total_features: string
+  }
+  cases: PatternCase[]
+  statistics: {
+    sample_count: number
+    small_sample: boolean
+    d3: HorizonStats
+    d5: HorizonStats
+    d7: HorizonStats
+    d14: HorizonStats
+    d21: HorizonStats
+    d30: HorizonStats
+    d90: HorizonStats
+    d180: HorizonStats
+    [key: string]: any
+  }
+  spaghetti: ForwardPath[]
+  sniper_assessment: SniperAssessment
+}
+
 export const clusterApi = {
   /** 雙區塊查詢 (主 API) */
   similarDual: (req: DualSimilarRequest) =>
@@ -364,5 +421,11 @@ export const clusterApi = {
   dailySummary: (regenerate = false) =>
     client.get<any, DailySummary>('/cluster/daily-summary', {
       params: { regenerate },
+    }),
+
+  /** Pattern 模擬 — 多 Horizon 勝率 */
+  patternSimulate: (req: PatternSimulateRequest) =>
+    client.post<any, PatternSimulateResult>('/cluster/pattern-simulate', req, {
+      timeout: 300_000,
     }),
 }

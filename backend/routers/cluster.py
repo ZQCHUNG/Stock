@@ -1,12 +1,13 @@
 """多維度相似股分群路由 — 雙軌引擎 (Facts vs Opinion)
 
 Endpoints:
-  POST /api/cluster/similar-dual  — 雙區塊查詢（主 API）
-  POST /api/cluster/similar       — Legacy 查詢（向後相容）
-  GET  /api/cluster/dimensions    — 取得可用維度清單
-  GET  /api/cluster/feature-status — 特徵資料狀態
-  GET  /api/cluster/mutations     — 基因突變掃描 (R88.7)
-  GET  /api/cluster/daily-summary — 每日自動摘要 (R88.7 Phase 10)
+  POST /api/cluster/similar-dual      — 雙區塊查詢（主 API）
+  POST /api/cluster/similar           — Legacy 查詢（向後相容）
+  POST /api/cluster/pattern-simulate  — Pattern 模擬：多 Horizon 勝率
+  GET  /api/cluster/dimensions        — 取得可用維度清單
+  GET  /api/cluster/feature-status    — 特徵資料狀態
+  GET  /api/cluster/mutations         — 基因突變掃描 (R88.7)
+  GET  /api/cluster/daily-summary     — 每日自動摘要 (R88.7 Phase 10)
 """
 
 from fastapi import APIRouter, HTTPException
@@ -147,6 +148,44 @@ def scan_mutations(
         if "error" in result:
             raise HTTPException(status_code=503, detail=result["error"])
         return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Pattern Simulation (Phase 1: multi-horizon win rates) ───────
+
+class PatternSimulateRequest(BaseModel):
+    stock_code: str = Field(..., min_length=4, max_length=6, description="目標股票代碼")
+    query_date: str | None = Field(default=None, description="查詢日期 (YYYY-MM-DD)")
+    dimensions: list[str] | None = Field(default=None, description="維度 (None=全部6維)")
+    top_k: int = Field(default=30, ge=5, le=100, description="相似案例數")
+
+
+@router.post("/pattern-simulate")
+def pattern_simulate(req: PatternSimulateRequest):
+    """Pattern 模擬 — 找相似歷史案例，計算 d3/d5/d7/d14/d21/d30/d90/d180 勝率。
+
+    回傳：
+      - cases: 相似案例清單（含各 horizon forward return）
+      - statistics: 每個 horizon 的 win_rate, mean, expectancy
+      - spaghetti: 90 天前瞻價格線（用於圖表）
+      - sniper_assessment: Sniper 信心分級
+    """
+    from analysis.pattern_simulator import simulate_pattern
+    from backend.dependencies import make_serializable
+
+    try:
+        result = simulate_pattern(
+            stock_code=req.stock_code,
+            query_date=req.query_date,
+            dimensions=req.dimensions,
+            top_k=req.top_k,
+        )
+        return make_serializable(result)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
