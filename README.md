@@ -44,6 +44,7 @@ Stock/
 │   ├── liquidity.py          # Liquidity Score (DTL + Spread + Tick Size) (R69)
 │   ├── market_regime.py      # Bull/Bear/Sideways detection
 │   ├── accumulation_scanner.py # Wyckoff Accumulation Scanner — 洗盤偵測 (R95)
+│   ├── financial_screener.py  # 財報狗-style Screener V2 — SQLite snapshot engine (Phase 1)
 │   ├── market_guard.py       # Market Regime Global Switch — 全局斷路器 (R89)
 │   ├── pattern_labeler.py    # Phase 2: Historical Winner DNA 標記 (R90)
 │   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
@@ -277,6 +278,7 @@ python -m pytest tests/ -q
 | R95.1 | **AQS (Accumulation Quality Score)** — Brokerage DNA integration (WM 40% + NBP 25% + BC 20% + ADR 15%), Phase downgrade BETA→ALPHA on low AQS, MAX_CONSOLIDATION 120→60d, 72 tests (Wall Street Trader + Architect APPROVED) | Done |
 | R95.1 P0.2 | **Accumulation Backtest** — TTB (Time to Breakout) 4-condition validation, 5 Kill Switches (WR≥45%/PF≥1.5/TTB≤30d/D21>0/Alpha Decay), Busted 3-day Hysteresis, AQS Stratification, Year Stress Test, Consistency Guard, 31 tests (Wall Street Trader + Architect APPROVED) | Done |
 | R95.2 | **Velocity Protocol** — 20d Time-Stop as ONLY hard gate (PF 0.90→3.28, WR 44.9%→71.2%), Spring/VCP/ATR as ranking metadata, TAIEX>MA200 macro filter [HYPOTHESIS], 50M TWD liquidity filter [HYPOTHESIS], 41 tests (Wall Street Trader R4 + Architect OFFICIALLY APPROVED) | Done |
+| Phase 1 | **Financial Screener V2** — 財報狗-style instant screening (SQLite snapshot, 7 categories, 27 conditions, 6.8ms/query, 2361 stocks, range+ranking, V2 frontend w/ presets) (CTO/PM Gemini APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
