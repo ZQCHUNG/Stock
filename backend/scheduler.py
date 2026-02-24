@@ -478,6 +478,16 @@ def start_scheduler(interval_minutes: int = 5):
         replace_existing=True,
         max_instances=1,
     )
+    # Phase 3: Daily Pattern Update at 20:15 (Mon-Fri, after parquet rebuild)
+    # Extends close matrix + recomputes RS + refreshes screener DB
+    _scheduler.add_job(
+        _run_daily_pattern_update,
+        trigger=CronTrigger(hour=20, minute=15, day_of_week="mon-fri"),
+        id="daily_pattern_update",
+        name="Daily Pattern Update (Phase 3)",
+        replace_existing=True,
+        max_instances=1,
+    )
     # R88.7: Weekly Winner Registry recalculation (Saturday 02:00)
     # [CONVERGED — Wall Street Trader 2026-02-18]
     # "每週末自動重算一次 Winner Registry，讓 Tier 2 有機會向上流動"
@@ -948,6 +958,54 @@ def _run_parquet_rebuild():
             f"Error: {str(e)}\n"
             f"Traceback:\n{tb[-500:]}"
         )
+
+
+def _run_daily_pattern_update():
+    """Phase 3: Daily pattern update — close matrix + RS + screener refresh.
+
+    Runs at 20:15 Mon-Fri, after the 20:00 Parquet feature rebuild.
+    Extends pit_close_matrix with latest trading day(s),
+    recomputes PIT RS matrices, and refreshes the screener snapshot.
+    """
+    try:
+        from datetime import datetime
+
+        today = datetime.now()
+        if today.weekday() >= 5:
+            logger.debug("Daily pattern update: weekend, skipping")
+            return
+
+        from data.daily_update import run_daily_update
+
+        logger.info("Daily pattern update: starting ...")
+        result = run_daily_update()
+
+        # Check for errors
+        errors = [k for k, v in result.items() if isinstance(v, dict) and "error" in v]
+        total_s = result.get("total_elapsed_s", 0)
+
+        if errors:
+            _send_notification(
+                f"\n⚠️ Daily Pattern Update 部分失敗\n"
+                f"失敗步驟: {', '.join(errors)}\n"
+                f"總耗時: {total_s:.1f}s"
+            )
+            logger.warning("Daily pattern update: %d errors: %s", len(errors), errors)
+        else:
+            cm = result.get("close_matrix", {})
+            rs = result.get("rs_matrices", {})
+            sc = result.get("screener", {})
+            logger.info(
+                "Daily pattern update: completed in %.1fs "
+                "(close +%d dates, RS %d×%d, screener %d stocks)",
+                total_s,
+                cm.get("new_dates", 0),
+                rs.get("rs_dates", 0),
+                rs.get("rs_stocks", 0),
+                sc.get("stocks_updated", 0),
+            )
+    except Exception as e:
+        logger.error("Daily pattern update failed: %s", e, exc_info=True)
 
 
 def stop_scheduler():

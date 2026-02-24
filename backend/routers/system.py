@@ -1,6 +1,7 @@
 """系統路由 — 快取狀態、最近股票、健康檢查、備份"""
 
 import json
+from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import Response
@@ -1079,6 +1080,57 @@ def _exception_data_health():
         }
     except Exception as e:
         return {"is_alert": False, "overall": "ERROR", "detail": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Daily Pattern Update — manual trigger + status
+# ---------------------------------------------------------------------------
+
+@router.post("/pattern-daily-update")
+def trigger_daily_pattern_update():
+    """Phase 3: Manually trigger the daily pattern update pipeline.
+
+    Runs: close matrix extend → RS recompute → screener refresh.
+    This normally runs at 20:15 via cron, but can be triggered manually.
+    """
+    from fastapi import HTTPException
+    from data.daily_update import run_daily_update
+
+    try:
+        result = run_daily_update()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/pattern-daily-status")
+def pattern_daily_status():
+    """Phase 3: Check freshness of close matrix, RS matrices, and screener DB."""
+    import os
+
+    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
+    files = {
+        "pit_close_matrix": data_dir / "pit_close_matrix.parquet",
+        "pit_rs_matrix": data_dir / "pit_rs_matrix.parquet",
+        "pit_rs_percentile": data_dir / "pit_rs_percentile.parquet",
+        "screener_db": data_dir / "screener.db",
+        "features_all": data_dir / "pattern_data" / "features" / "features_all.parquet",
+    }
+
+    status = {}
+    for name, path in files.items():
+        if path.exists():
+            mtime = os.path.getmtime(path)
+            size_mb = os.path.getsize(path) / (1024 * 1024)
+            status[name] = {
+                "exists": True,
+                "last_modified": datetime.fromtimestamp(mtime).isoformat(),
+                "size_mb": round(size_mb, 1),
+            }
+        else:
+            status[name] = {"exists": False}
+
+    return status
 
 
 @router.post("/emergency-stop")
