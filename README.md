@@ -282,6 +282,7 @@ python -m pytest tests/ -q
 | R95.2 | **Velocity Protocol** — 20d Time-Stop as ONLY hard gate (PF 0.90→3.28, WR 44.9%→71.2%), Spring/VCP/ATR as ranking metadata, TAIEX>MA200 macro filter [HYPOTHESIS], 50M TWD liquidity filter [HYPOTHESIS], 41 tests (Wall Street Trader R4 + Architect OFFICIALLY APPROVED) | Done |
 | Phase 1 | **Financial Screener V2** — 財報狗-style instant screening (SQLite snapshot, 7 categories, 27 conditions, 6.8ms/query, 2361 stocks, range+ranking, V2 frontend w/ presets) (CTO/PM Gemini APPROVED) | Done |
 | Phase 2 | **Pattern Simulator** — Multi-horizon win rate analysis (d3/d5/d7/d14/d21/d30/d90/d180), reuses find_similar_dual 65-feature engine, close matrix forward returns, new page "C Pattern 模擬" | Done |
+| Phase 3 | **Daily Pattern Update Pipeline** — 20:15 cron: close matrix extend + RS recompute + screener refresh (66s/day vs 30min full rebuild), manual trigger API, status endpoint | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
