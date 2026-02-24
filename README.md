@@ -43,6 +43,7 @@ Stock/
 │   ├── sector_correlation.py # Sector Correlation Monitor (R87)
 │   ├── liquidity.py          # Liquidity Score (DTL + Spread + Tick Size) (R69)
 │   ├── market_regime.py      # Bull/Bear/Sideways detection
+│   ├── accumulation_scanner.py # Wyckoff Accumulation Scanner — 洗盤偵測 (R95)
 │   ├── market_guard.py       # Market Regime Global Switch — 全局斷路器 (R89)
 │   ├── pattern_labeler.py    # Phase 2: Historical Winner DNA 標記 (R90)
 │   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
@@ -60,7 +61,7 @@ Stock/
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
-├── tests/                    # 470+ tests (pytest, synthetic fixtures)
+├── tests/                    # 520+ tests (pytest, synthetic fixtures)
 └── config.py                 # Strategy params, fee rates
 ```
 
@@ -271,6 +272,7 @@ python -m pytest tests/ -q
 | R14.18-10C | **Phase 10C: Attribution Analysis** — Per-trade forensic breakdown across WFA windows, exit reason evolution, sector/SQS/RS stats, TAIEX regime correlation (CTO directive) | Done |
 | R14.18-10D | **Phase 10D: Breadth-based Dynamic Exposure** — MaxSlots_adj = MaxSlots × (Breadth/50%), [VERIFIED: HARMFUL] Calmar 5.10→3.60, disabled by default | Done |
 | R14.18-11 | **Phase 11: Regime Barometer** — Hunting Index (Parabolic%/(PTS%+Disaster%)), regime classification (Flash Crash/Chop/Hot/Normal), Sector Alpha Drift, gauge+pie UI (CTO directive) | Done |
+| R95 | **Accumulation Scanner** — Wyckoff 洗盤偵測 (5 conditions: Higher Lows + Volume Test + Post-test Confirm + Low ADX + RS Strength), 3-phase Alpha/Beta/Invalidated, 57 tests (Wall Street Trader + Architect APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 

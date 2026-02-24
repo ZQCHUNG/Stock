@@ -1619,3 +1619,44 @@ def get_stop_levels_endpoint(
         return make_serializable(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{code}/accumulation-scan")
+def get_accumulation_scan(code: str, period_days: int = 365):
+    """Wyckoff Accumulation Scanner — 洗盤偵測.
+
+    Detects accumulation (Wyckoff Phase B/C) patterns via 5 quantitative conditions:
+    1. Higher Lows (底部遞增)
+    2. Volume Test (量能試盤)
+    3. Post-test Consolidation (洗盤確認)
+    4. Low ADX (能量儲備)
+    5. RS Strength (相對強度)
+
+    Returns phase (NONE/ALPHA/BETA/INVALIDATED), score 0-100, and condition details.
+    """
+    from data.fetcher import get_stock_data
+    from analysis.accumulation_scanner import detect_accumulation
+    from backend.dependencies import make_serializable
+
+    try:
+        df = get_stock_data(code, period_days=period_days)
+
+        # Try to get RS rating for condition 5
+        rs_rating = None
+        try:
+            from analysis.rs_scanner import get_stock_rs
+            rs_rating = get_stock_rs(code)
+        except Exception:
+            pass  # RS is optional; skip if unavailable
+
+        result = detect_accumulation(df, rs_rating=rs_rating)
+        output = result.to_dict()
+        output["code"] = code
+        output["latest_close"] = round(float(df["close"].iloc[-1]), 2)
+        output["high_52w"] = round(float(df["high"].max()), 2)
+        output["low_52w"] = round(float(df["low"].min()), 2)
+        output["data_points"] = len(df)
+
+        return make_serializable(output)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
