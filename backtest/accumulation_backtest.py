@@ -291,11 +291,19 @@ def _process_stock(
             if len(window_df) < 60:
                 continue
 
+            # Point-in-time AQS: filter features_df to only data <= signal date
+            # This prevents look-ahead bias (Architect CRITICAL CHECK mandate)
+            pit_features = None
+            if features_df is not None:
+                signal_date = df.index[end - 1]
+                if "date" in features_df.columns:
+                    pit_features = features_df[features_df["date"] <= signal_date]
+
             # Run detection — pass stock_code for AQS lookup
             result = detect_accumulation(
                 window_df,
                 stock_code=code,
-                features_df=features_df,
+                features_df=pit_features,
             )
 
             if result.phase not in ("ALPHA", "BETA"):
