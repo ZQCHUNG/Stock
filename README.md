@@ -52,6 +52,7 @@ Stock/
 │   ├── portfolio_runner.py   # Portfolio Backtester — 108 stocks + 3-Layer Defense (R14.14-16)
 │   ├── risk_manager.py       # VaR + Sizing + Concentration + Circuit Breaker (R60/R80)
 │   ├── sqs_backtest.py       # SQS effectiveness validation
+│   ├── accumulation_backtest.py # R95 P0.2: TTB + Kill Switch backtest (R95.1)
 │   └── bold_parameter_sweep.py  # Parameter sensitivity analysis (R67)
 ├── data/
 │   ├── fetcher.py            # yfinance + FinMind + TWSE + Redis cache
@@ -61,7 +62,7 @@ Stock/
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
-├── tests/                    # 530+ tests (pytest, synthetic fixtures)
+├── tests/                    # 560+ tests (pytest, synthetic fixtures)
 └── config.py                 # Strategy params, fee rates
 ```
 
@@ -274,6 +275,7 @@ python -m pytest tests/ -q
 | R14.18-11 | **Phase 11: Regime Barometer** — Hunting Index (Parabolic%/(PTS%+Disaster%)), regime classification (Flash Crash/Chop/Hot/Normal), Sector Alpha Drift, gauge+pie UI (CTO directive) | Done |
 | R95 | **Accumulation Scanner** — Wyckoff 洗盤偵測 (5 conditions: Higher Lows + Volume Test + Post-test Confirm + Low ADX + RS Strength), 3-phase Alpha/Beta/Invalidated, 57 tests (Wall Street Trader + Architect APPROVED) | Done |
 | R95.1 | **AQS (Accumulation Quality Score)** — Brokerage DNA integration (WM 40% + NBP 25% + BC 20% + ADR 15%), Phase downgrade BETA→ALPHA on low AQS, MAX_CONSOLIDATION 120→60d, 72 tests (Wall Street Trader + Architect APPROVED) | Done |
+| R95.1 P0.2 | **Accumulation Backtest** — TTB (Time to Breakout) 4-condition validation, 5 Kill Switches (WR≥45%/PF≥1.5/TTB≤30d/D21>0/Alpha Decay), Busted 3-day Hysteresis, AQS Stratification, Year Stress Test, Consistency Guard, 31 tests (Wall Street Trader + Architect APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
