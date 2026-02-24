@@ -15,7 +15,7 @@ Stock/
 │   └── dependencies.py       # DataFrame→JSON helpers
 ├── frontend/                 # Vue 3 + Vite + TypeScript + Naive UI
 │   └── src/
-│       ├── views/            # 12 page components
+│       ├── views/            # 13 page components
 │       ├── components/       # ~30 reusable components
 │       ├── stores/           # Pinia stores
 │       ├── api/              # Axios service layer
@@ -45,6 +45,7 @@ Stock/
 │   ├── market_regime.py      # Bull/Bear/Sideways detection
 │   ├── accumulation_scanner.py # Wyckoff Accumulation Scanner — 洗盤偵測 (R95)
 │   ├── financial_screener.py  # 財報狗-style Screener V2 — SQLite snapshot engine (Phase 1)
+│   ├── pattern_simulator.py   # Pattern Simulator — multi-horizon win rates (Phase 2)
 │   ├── market_guard.py       # Market Regime Global Switch — 全局斷路器 (R89)
 │   ├── pattern_labeler.py    # Phase 2: Historical Winner DNA 標記 (R90)
 │   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
@@ -71,7 +72,7 @@ Stock/
 
 ---
 
-## 功能頁面 (12 Pages)
+## 功能頁面 (13 Pages)
 
 | 頁面 | 路由 | 說明 |
 |------|------|------|
@@ -87,6 +88,7 @@ Stock/
 | **策略適配** | `/fitness` | SQS 分布 + Forward Test 追蹤 |
 | **相似線型** | `/pattern` | DTW 比對 + 概率雲圖 + 勝率統計 |
 | **多維度分群** | `/cluster` | Dual Block + Dimension Lens + Gene Map + Spaghetti Chart |
+| **Pattern 模擬** | `/pattern-simulator` | 8-horizon win rate + similar case table + sniper assessment |
 
 ---
 
@@ -279,6 +281,7 @@ python -m pytest tests/ -q
 | R95.1 P0.2 | **Accumulation Backtest** — TTB (Time to Breakout) 4-condition validation, 5 Kill Switches (WR≥45%/PF≥1.5/TTB≤30d/D21>0/Alpha Decay), Busted 3-day Hysteresis, AQS Stratification, Year Stress Test, Consistency Guard, 31 tests (Wall Street Trader + Architect APPROVED) | Done |
 | R95.2 | **Velocity Protocol** — 20d Time-Stop as ONLY hard gate (PF 0.90→3.28, WR 44.9%→71.2%), Spring/VCP/ATR as ranking metadata, TAIEX>MA200 macro filter [HYPOTHESIS], 50M TWD liquidity filter [HYPOTHESIS], 41 tests (Wall Street Trader R4 + Architect OFFICIALLY APPROVED) | Done |
 | Phase 1 | **Financial Screener V2** — 財報狗-style instant screening (SQLite snapshot, 7 categories, 27 conditions, 6.8ms/query, 2361 stocks, range+ranking, V2 frontend w/ presets) (CTO/PM Gemini APPROVED) | Done |
+| Phase 2 | **Pattern Simulator** — Multi-horizon win rate analysis (d3/d5/d7/d14/d21/d30/d90/d180), reuses find_similar_dual 65-feature engine, close matrix forward returns, new page "C Pattern 模擬" | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
