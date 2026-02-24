@@ -1,10 +1,94 @@
-"""條件選股路由"""
+"""條件選股路由 — Phase 1: 財報狗級篩選系統"""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 router = APIRouter()
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Phase 1: Snapshot-based Screening (instant queries)
+# ═══════════════════════════════════════════════════════════════════
+
+
+class ScreenerFilterV2(BaseModel):
+    """V2 篩選條件 — supports any column from screening_latest."""
+    filters: dict = {}  # {column: {"op": ">=", "value": 30}}
+    sort_by: str = "rs_rating"
+    sort_desc: bool = True
+    limit: int = 100
+    offset: int = 0
+
+
+@router.post("/v2/filter")
+def run_screener_v2(req: ScreenerFilterV2):
+    """V2 篩選：Snapshot-based, <100ms response."""
+    from analysis.financial_screener import screen_stocks
+    filters = dict(req.filters)
+    filters["sort_by"] = req.sort_by
+    filters["sort_desc"] = req.sort_desc
+    filters["limit"] = req.limit
+    filters["offset"] = req.offset
+    results = screen_stocks(filters)
+    return {"count": len(results), "results": results}
+
+
+@router.get("/v2/rankings/{metric}")
+def get_rankings_v2(
+    metric: str,
+    top_n: int = Query(50, ge=1, le=200),
+    ascending: bool = Query(False),
+):
+    """排行榜：Top/Bottom by any metric."""
+    from analysis.financial_screener import get_rankings
+    allowed = {
+        "pe", "pb", "dividend_yield", "roe", "roa", "gross_margin",
+        "operating_margin", "revenue_yoy", "eps_yoy", "rs_rating",
+        "rs_rank_pct", "change_pct", "volume_avg_20d", "market_cap",
+        "revenue_consecutive_up", "debt_ratio", "current_ratio",
+    }
+    if metric not in allowed:
+        raise HTTPException(400, f"Invalid metric: {metric}. Allowed: {sorted(allowed)}")
+    results = get_rankings(metric, top_n, ascending)
+    return {"metric": metric, "ascending": ascending, "count": len(results), "results": results}
+
+
+@router.get("/v2/stock/{code}")
+def get_stock_snapshot_v2(code: str):
+    """Single stock full metrics snapshot."""
+    from analysis.financial_screener import get_stock_snapshot
+    result = get_stock_snapshot(code)
+    if not result:
+        raise HTTPException(404, f"Stock {code} not found in screening data")
+    return result
+
+
+@router.get("/v2/indicators")
+def get_filter_definitions():
+    """Return available filter categories and their conditions."""
+    from analysis.financial_screener import FILTER_DEFINITIONS
+    return FILTER_DEFINITIONS
+
+
+@router.get("/v2/stats")
+def get_screening_stats():
+    """Get screening database stats."""
+    from analysis.financial_screener import get_screening_stats
+    return get_screening_stats()
+
+
+@router.post("/v2/refresh")
+def refresh_screening():
+    """Trigger screening data refresh (call after market close)."""
+    from analysis.financial_screener import refresh_screening_data
+    result = refresh_screening_data()
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Legacy V1 Screener (kept for backward compatibility)
+# ═══════════════════════════════════════════════════════════════════
 
 
 class ScreenerFilter(BaseModel):
