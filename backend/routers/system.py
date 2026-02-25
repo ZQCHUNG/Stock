@@ -1449,6 +1449,16 @@ def daily_review_preview():
     return {"message": msg or "(empty)", "generated_at": __import__("datetime").datetime.now().isoformat()}
 
 
+@router.get("/shake-out-audit")
+def shake_out_audit():
+    """Phase 13 Task 2: Shake-out Detector — Stop-loss quality diagnosis.
+
+    Architect OFFICIALLY APPROVED. CTO: "Joe 最挫折的往往是被洗掉後拉上去"
+    """
+    from analysis.signal_log import detect_shake_outs
+    return detect_shake_outs()
+
+
 @router.get("/slippage-audit")
 def slippage_audit():
     """Phase 12 P0: Slippage Auditor — Real-trade friction analysis.

@@ -22,6 +22,30 @@ logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "signal_log.db"
 
+
+def _get_volume_ratio(stock_code: str) -> float | None:
+    """Phase 13: Get today's volume / 5-day avg volume for fat-tail diagnosis.
+
+    Architect: vol_ratio high → Joe's position impacted market;
+               vol_ratio low → market had fat-tail volatility.
+    """
+    try:
+        import yfinance as yf
+        ticker = f"{stock_code}.TW"
+        data = yf.download(ticker, period="10d", progress=False, auto_adjust=True)
+        if data is None or len(data) < 2:
+            return None
+        vols = data["Volume"] if "Volume" in data.columns else data["volume"]
+        if len(vols) < 2:
+            return None
+        today_vol = float(vols.iloc[-1])
+        avg_vol = float(vols.iloc[-6:-1].mean()) if len(vols) >= 6 else float(vols.iloc[:-1].mean())
+        if avg_vol <= 0:
+            return None
+        return round(today_vol / avg_vol, 2)
+    except Exception:
+        return None
+
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS trade_signals_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -315,6 +339,32 @@ def confirm_live_trade(signal_id: int, actual_price: float) -> dict:
             "Live trade confirmed: id=%d, actual=%.1f, slippage=%.2f%%",
             signal_id, actual_price, slippage_pct or 0,
         )
+
+        # Phase 13 Task 1: Fat-Tail Slippage Alert
+        # [HYPOTHESIS: FAT_TAIL_THRESHOLD_001] = 2% (200bps)
+        FAT_TAIL_THRESHOLD = 2.0  # percent
+        if slippage_pct is not None and abs(slippage_pct) >= FAT_TAIL_THRESHOLD:
+            try:
+                stock_code = row["stock_code"]
+                vol_ratio = _get_volume_ratio(stock_code)
+                cause = "市場流動性不足" if vol_ratio and vol_ratio < 0.8 else "部位衝擊過大" if vol_ratio and vol_ratio > 1.5 else "待觀察"
+                alert_msg = (
+                    f"🚨 磨損過重提醒\n"
+                    f"{stock_code} {row['stock_name'] or ''}\n"
+                    f"滑價: {slippage_pct:+.2f}%\n"
+                    f"系統價: {entry_price:.1f} → 實際: {actual_price:.1f}\n"
+                    f"量能比: {vol_ratio:.2f}x ({cause})" if vol_ratio else
+                    f"🚨 磨損過重提醒\n"
+                    f"{stock_code} {row['stock_name'] or ''}\n"
+                    f"滑價: {slippage_pct:+.2f}%\n"
+                    f"系統價: {entry_price:.1f} → 實際: {actual_price:.1f}"
+                )
+                from backend.scheduler import _send_notification
+                _send_notification(alert_msg)
+                logger.warning("Fat-tail slippage alert sent for %s: %.2f%%", stock_code, slippage_pct)
+            except Exception as e:
+                logger.warning("Fat-tail alert failed: %s", e)
+
         return {
             "id": signal_id,
             "is_live": True,
@@ -323,6 +373,143 @@ def confirm_live_trade(signal_id: int, actual_price: float) -> dict:
         }
     finally:
         conn.close()
+
+
+def detect_shake_outs() -> dict:
+    """Phase 13 Task 2: Shake-out Detector — Stop-loss quality diagnosis.
+
+    Architect MANDATE: Must use batch yfinance download, no single-stock loops.
+    CTO: "Joe 最挫折的往往是「被洗掉後拉上去」"
+
+    Checks realized signals that were stopped out (trailing_phase > 0):
+    - Downloads post-exit 3-day high prices in batch
+    - Shake-out: 3-day high > stop_price × 1.02
+
+    Returns:
+        {
+            "total_stopped_out": int,
+            "shake_out_count": int,
+            "shake_out_rate": float | None,
+            "rate_warning": bool,  # True if rate > 40%
+            "details": [{"stock_code", "exit_date", "stop_price", "post_high", "is_shake_out"}, ...]
+        }
+    """
+    SHAKE_OUT_THRESHOLD = 1.02  # 2% above stop price
+    SHAKE_OUT_RATE_WARNING = 0.40  # 40%
+
+    conn = _get_conn()
+    try:
+        # Get realized signals that were stopped out
+        rows = conn.execute(
+            """SELECT stock_code, stock_name, realized_date, current_stop_price, trailing_phase
+               FROM trade_signals_log
+               WHERE status = 'realized'
+                 AND trailing_phase > 0
+                 AND current_stop_price IS NOT NULL
+                 AND realized_date IS NOT NULL
+               ORDER BY realized_date DESC
+               LIMIT 100"""
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return {
+            "total_stopped_out": 0,
+            "shake_out_count": 0,
+            "shake_out_rate": None,
+            "rate_warning": False,
+            "details": [],
+        }
+
+    # Architect MANDATE: Batch download — collect all unique stock codes
+    import yfinance as yf
+    from datetime import timedelta
+
+    # Build ticker list and date ranges
+    stock_codes = list(set(r["stock_code"] for r in rows))
+    tickers = [f"{c}.TW" for c in stock_codes]
+
+    # Find earliest exit date to determine download range
+    exit_dates = [datetime.strptime(r["realized_date"], "%Y-%m-%d") for r in rows if r["realized_date"]]
+    if not exit_dates:
+        return {"total_stopped_out": 0, "shake_out_count": 0, "shake_out_rate": None, "rate_warning": False, "details": []}
+
+    min_date = min(exit_dates) - timedelta(days=1)
+    max_date = max(exit_dates) + timedelta(days=7)  # 3 trading days ≈ 5 calendar days + buffer
+
+    # Single batch download
+    try:
+        data = yf.download(
+            tickers,
+            start=min_date.strftime("%Y-%m-%d"),
+            end=max_date.strftime("%Y-%m-%d"),
+            progress=False,
+            auto_adjust=True,
+            group_by="ticker" if len(tickers) > 1 else "column",
+        )
+    except Exception as e:
+        logger.error("Shake-out batch download failed: %s", e)
+        return {"total_stopped_out": len(rows), "shake_out_count": 0, "shake_out_rate": None, "rate_warning": False, "details": []}
+
+    if data is None or data.empty:
+        return {"total_stopped_out": len(rows), "shake_out_count": 0, "shake_out_rate": None, "rate_warning": False, "details": []}
+
+    details = []
+    shake_out_count = 0
+
+    for row in rows:
+        stock_code = row["stock_code"]
+        ticker = f"{stock_code}.TW"
+        stop_price = row["current_stop_price"]
+        exit_date = row["realized_date"]
+
+        try:
+            # Extract per-ticker high data
+            if len(tickers) == 1:
+                highs = data["High"] if "High" in data.columns else data["high"]
+            else:
+                highs = data[ticker]["High"] if (ticker, "High") in data.columns or ticker in data.columns.get_level_values(0) else None
+
+            if highs is None or highs.empty:
+                continue
+
+            # Get 3 trading days after exit
+            exit_dt = datetime.strptime(exit_date, "%Y-%m-%d")
+            post_exit = highs[highs.index > exit_dt.strftime("%Y-%m-%d")].head(3)
+
+            if post_exit.empty:
+                continue
+
+            post_high = float(post_exit.max())
+            is_shake_out = post_high > stop_price * SHAKE_OUT_THRESHOLD
+
+            if is_shake_out:
+                shake_out_count += 1
+
+            details.append({
+                "stock_code": stock_code,
+                "stock_name": row["stock_name"],
+                "exit_date": exit_date,
+                "stop_price": round(stop_price, 2),
+                "post_3d_high": round(post_high, 2),
+                "recovery_pct": round((post_high / stop_price - 1) * 100, 2),
+                "is_shake_out": is_shake_out,
+            })
+        except Exception as e:
+            logger.warning("Shake-out check failed for %s: %s", stock_code, e)
+            continue
+
+    total = len(details) if details else len(rows)
+    rate = round(shake_out_count / total, 3) if total > 0 else None
+
+    return {
+        "total_stopped_out": total,
+        "shake_out_count": shake_out_count,
+        "shake_out_rate": rate,
+        "rate_warning": rate is not None and rate > SHAKE_OUT_RATE_WARNING,
+        "details": details,
+    }
 
 
 def realize_signals() -> dict:

@@ -7,7 +7,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData, StressTestResult, AggressiveIndex, SlippageAuditResult } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData, StressTestResult, AggressiveIndex, SlippageAuditResult, ShakeOutResult } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -51,6 +51,9 @@ const aggIndex = ref<AggressiveIndex | null>(null)
 
 // Slippage Audit (Phase 12 P0)
 const slippageAudit = ref<SlippageAuditResult | null>(null)
+
+// Shake-out Detector (Phase 13 Task 2)
+const shakeOut = ref<ShakeOutResult | null>(null)
 
 // --- Loaders ---
 async function loadSignals() {
@@ -157,8 +160,16 @@ async function loadSlippageAudit() {
   }
 }
 
+async function loadShakeOut() {
+  try {
+    shakeOut.value = await systemApi.shakeOutAudit()
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom(), loadStressTest(), loadAggIndex(), loadSlippageAudit()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom(), loadStressTest(), loadAggIndex(), loadSlippageAudit(), loadShakeOut()])
 }
 
 // --- Actions ---
@@ -500,6 +511,62 @@ const drawdownOption = computed(() => {
       itemStyle: { color: '#ef4444' },
     }],
   }
+})
+
+// --- Phase 13 Task 3: Live Portfolio Treemap ---
+const livePositions = computed(() => {
+  return signals.value.filter((s: any) => s.is_live && s.status === 'active')
+})
+
+const treemapOption = computed(() => {
+  const positions = livePositions.value
+  if (!positions.length) return null
+
+  const data = positions.map((s: any) => {
+    const ret = s.actual_return_d21 != null ? s.actual_return_d21 * 100 : 0
+    const posValue = s.entry_price ? s.entry_price * 1000 : 10000 // approximate
+    return {
+      name: `${s.stock_code}\n${s.stock_name || ''}`,
+      value: posValue,
+      returnPct: ret,
+      itemStyle: {
+        color: ret > 5 ? '#166534' : ret > 2 ? '#22c55e' : ret > 0 ? '#86efac' :
+               ret > -2 ? '#fca5a5' : ret > -5 ? '#ef4444' : '#991b1b',
+      },
+    }
+  })
+
+  return {
+    tooltip: {
+      formatter: (info: any) => {
+        const r = info.data?.returnPct ?? 0
+        return `${info.name}<br/>Return: ${r > 0 ? '+' : ''}${r.toFixed(1)}%`
+      },
+    },
+    series: [{
+      type: 'treemap',
+      width: '100%',
+      height: '100%',
+      roam: false,
+      nodeClick: false,
+      breadcrumb: { show: false },
+      label: { show: true, fontSize: 12, color: '#fff' },
+      data,
+    }],
+  }
+})
+
+const netExposure = computed(() => {
+  const positions = livePositions.value
+  if (!positions.length) return 0
+  const totalValue = positions.reduce((sum: number, s: any) => sum + (s.entry_price || 0) * 1000, 0)
+  const equity = warRoom.value?.initial_equity || 3000000
+  return Math.round(totalValue / equity * 100)
+})
+
+const exposureWarning = computed(() => {
+  if (!aggIndex.value) return false
+  return netExposure.value > aggIndex.value.score
 })
 
 // --- Init ---
@@ -882,6 +949,79 @@ onMounted(loadAll)
                 </tbody>
               </table>
             </div>
+          </NCard>
+
+          <!-- Phase 13 Task 2: Stop Quality (Shake-out Detector) -->
+          <NCard title="Stop Quality — Shake-out Detector" size="small" style="margin-top: 16px">
+            <template v-if="shakeOut && shakeOut.total_stopped_out > 0">
+              <NGrid :cols="3" :x-gap="12" style="margin-bottom: 12px">
+                <NGi>
+                  <NStatistic label="Stopped Out" :value="shakeOut.total_stopped_out" />
+                </NGi>
+                <NGi>
+                  <NStatistic label="Shake-outs">
+                    <template #default>
+                      <span :style="{ color: shakeOut.rate_warning ? '#ef4444' : '#22c55e' }">
+                        {{ shakeOut.shake_out_count }}
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NGi>
+                <NGi>
+                  <NStatistic label="Shake-out Rate">
+                    <template #default>
+                      <span :style="{ color: shakeOut.rate_warning ? '#ef4444' : '#22c55e', fontWeight: '700' }">
+                        {{ shakeOut.shake_out_rate != null ? (shakeOut.shake_out_rate * 100).toFixed(0) + '%' : 'N/A' }}
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NGi>
+              </NGrid>
+
+              <NAlert v-if="shakeOut.rate_warning" type="error" style="margin-bottom: 12px">
+                Shake-out rate > 40% — Stop-loss may be too tight. Consider widening ATR multiplier.
+              </NAlert>
+
+              <table v-if="shakeOut.details.length > 0" style="width: 100%; border-collapse: collapse; font-size: 13px">
+                <thead>
+                  <tr style="border-bottom: 2px solid #e5e7eb; text-align: left">
+                    <th style="padding: 6px 8px">Code</th>
+                    <th style="padding: 6px 8px">Exit Date</th>
+                    <th style="padding: 6px 8px; text-align: right">Stop Price</th>
+                    <th style="padding: 6px 8px; text-align: right">3D High</th>
+                    <th style="padding: 6px 8px; text-align: right">Recovery %</th>
+                    <th style="padding: 6px 8px; text-align: center">Shake-out?</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="d in shakeOut.details" :key="d.stock_code + d.exit_date"
+                      style="border-bottom: 1px solid #f3f4f6">
+                    <td style="padding: 4px 8px; font-weight: 600">{{ d.stock_code }}</td>
+                    <td style="padding: 4px 8px">{{ d.exit_date }}</td>
+                    <td style="padding: 4px 8px; text-align: right">{{ d.stop_price.toFixed(1) }}</td>
+                    <td style="padding: 4px 8px; text-align: right">{{ d.post_3d_high.toFixed(1) }}</td>
+                    <td style="padding: 4px 8px; text-align: right"
+                        :style="{ color: d.recovery_pct > 2 ? '#ef4444' : '#999' }">
+                      {{ d.recovery_pct > 0 ? '+' : '' }}{{ d.recovery_pct.toFixed(1) }}%
+                    </td>
+                    <td style="padding: 4px 8px; text-align: center">
+                      <NTag v-if="d.is_shake_out" size="small" type="error">SHAKE OUT</NTag>
+                      <span v-else style="color: #22c55e">OK</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <div style="margin-top: 8px; text-align: right">
+                <NButton size="tiny" @click="loadShakeOut()">Refresh</NButton>
+              </div>
+            </template>
+
+            <template v-else>
+              <div style="color: #999; font-size: 12px; text-align: center; padding: 16px">
+                No stopped-out signals yet. Shake-out analysis requires realized signals with trailing stop exits.
+              </div>
+            </template>
           </NCard>
         </NTabPane>
 
@@ -1270,6 +1410,31 @@ onMounted(loadAll)
               <template v-else-if="!stressMode">
                 <div style="color: #999; font-size: 12px; text-align: center; padding: 8px">
                   Toggle "Show Stress Test" to simulate a Flash Crash scenario on current positions.
+                </div>
+              </template>
+            </NCard>
+
+            <!-- Phase 13 Task 3: Live Portfolio Treemap -->
+            <NCard title="Live Portfolio" size="small" style="margin-top: 12px">
+              <template v-if="livePositions.length > 0">
+                <div style="display: flex; align-items: center; gap: 16px; margin-bottom: 8px">
+                  <NStatistic label="Live Positions" :value="livePositions.length" />
+                  <NStatistic label="Net Exposure">
+                    <template #default>
+                      <span :style="{ color: exposureWarning ? '#ef4444' : '#22c55e', fontWeight: '700' }">
+                        {{ netExposure }}%
+                      </span>
+                    </template>
+                  </NStatistic>
+                  <NAlert v-if="exposureWarning" type="warning" style="flex: 1; padding: 4px 12px; font-size: 12px">
+                    Exposure ({{ netExposure }}%) exceeds Aggressive Index ({{ aggIndex?.score || '?' }}) — consider reducing positions
+                  </NAlert>
+                </div>
+                <VChart v-if="treemapOption" :option="treemapOption" style="height: 220px" autoresize />
+              </template>
+              <template v-else>
+                <div style="color: #999; font-size: 12px; text-align: center; padding: 16px">
+                  No live positions. Confirm trades in Signal Log to see the portfolio treemap.
                 </div>
               </template>
             </NCard>

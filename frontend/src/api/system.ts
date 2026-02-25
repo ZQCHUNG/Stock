@@ -87,6 +87,9 @@ export const systemApi = {
   // Phase 12 P0: Slippage Audit
   slippageAudit: () => client.get<any, SlippageAuditResult>('/system/slippage-audit', { timeout: 15000 }),
 
+  // Phase 13 Task 2: Shake-out Audit
+  shakeOutAudit: () => client.get<any, ShakeOutResult>('/system/shake-out-audit', { timeout: 60000 }),
+
   // Phase 9 P0: Industry Success Rates
   industrySuccessRates: (daysBack: number = 90) =>
     client.get<any, any>(`/system/industry-success-rates?days_back=${daysBack}`),
@@ -400,6 +403,25 @@ export interface SlippageAuditResult {
   industries: SlippageIndustry[]
   high_friction_industries: string[]
   virtual_expectancy: number | null
+}
+
+// Phase 13 Task 2: Shake-out Detector
+export interface ShakeOutDetail {
+  stock_code: string
+  stock_name: string
+  exit_date: string
+  stop_price: number
+  post_3d_high: number
+  recovery_pct: number
+  is_shake_out: boolean
+}
+
+export interface ShakeOutResult {
+  total_stopped_out: number
+  shake_out_count: number
+  shake_out_rate: number | null
+  rate_warning: boolean
+  details: ShakeOutDetail[]
 }
 
 /** Trigger browser file download from Blob response */
