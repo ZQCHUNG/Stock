@@ -329,8 +329,14 @@ python -m pytest tests/ -q
 | **V1.1** | **P1: Energy Score Sparkline** — `auto_sim.py` 每日存 `data/daily_reports/YYYY-MM-DD.json` 快照；`GET /system/energy-trend/{code}` 讀取 3 天趨勢；Signal Log 表格新增 SVG 微型趨勢圖 (Architect ADAPTED — 檔案讀取，禁建資料表) | Done |
 | **V1.1** | **P2: SQS Profiling** — cProfile 結果：99.85% I/O Bound（HTTP + rate-limit sleep），0.15% CPU。NumPy 向量化無效。asyncio.gather 需重構整個 data pipeline，暫緩。`benchmarking_results.log` 已提交 (Architect: STRICT PROFILE FIRST → DEFERRED) | Done |
 | **V1.1** | **PM: Secrets Audit + API Quota** — 全程式碼 token 洩漏稽核 PASS；`JOE_TRADING_MANUAL.md` 新增 API 配額管理表（8 數據源）+ Secrets 安全規則 (Architect APPROVED) | Done |
+| **Sprint 15** | **P0-A: Frontend State Reset** — Pinia `clearAll()` 22 refs 強制歸零，消除切股數據殘留 (Architect: FULL PASS) | Done |
+| **Sprint 15** | **P0-B: API Timeout Guard** — Backend `asyncio.wait_for()` 15s/120s 熔斷 + Frontend Axios 20s default + 504 中文提示 | Done |
+| **Sprint 15** | **P1-A: NaN/Null Placeholder** — Skeleton loading + "--" fallback + ECharts RadarChart 全局註冊修復 | Done |
+| **Sprint 15** | **P1-B: On-demand Cache Queue** — `cache_queue.json` + nightly pre-warm via `auto_sim.py` | Done |
 
 > **V1.1-RESILIENCE LTS (2026-02-25)**: 系統正式進入 **Long Term Support 長期維運模式**。所有開發分支已關閉，版本凍結。
+>
+> **Sprint 15 緊急修正 (2026-02-25)**: Playwright UX 實測發現 3 項 P0 Bug（切股數據殘留、推薦頁雪崩、API 120s 空等），CTO 裁定 **【OFFICIALLY APPROVED】** 暫停 LTS 修補。4 項修正全數完成，CTO **【FULL PASS】** 結案，回歸 LTS。
 >
 > **LTS 營運規則**:
 > 1. 「週日儀式」— 22:15 Weekly Report 必讀，確認 Aggressive Index

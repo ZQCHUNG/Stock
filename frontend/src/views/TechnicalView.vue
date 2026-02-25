@@ -183,41 +183,51 @@ function sqsGradeIcon(grade: string): string {
     </h2>
 
     <NSpin :show="tech.isLoading">
-      <NAlert v-if="tech.error" type="error" style="margin-bottom: 16px">{{ tech.error }}</NAlert>
+      <NAlert v-if="tech.error" :type="tech.error.includes('超時') ? 'warning' : 'error'" style="margin-bottom: 16px">
+        {{ tech.error }}
+        <template v-if="tech.error.includes('超時')">
+          <br /><small style="opacity: 0.7">此股票可能尚未被快取，資料將於今晚 20:00 排程計算</small>
+        </template>
+      </NAlert>
 
       <!-- R76: 股票性格分類 Badge -->
       <TrailModeBadge :data="tech.trailClassifier" />
 
-      <!-- V4 訊號摘要 -->
-      <NGrid v-if="tech.v4Enhanced" :cols="signalCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+      <!-- V4 訊號摘要 (Sprint 15: always show grid, use skeleton when loading) -->
+      <NGrid :cols="signalCols" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
         <NGi>
           <MetricCard
             title="V4 訊號"
-            :bg-color="tech.v4Enhanced.signal === 'BUY' ? '#fff5f5' : tech.v4Enhanced.signal === 'SELL' ? '#f0fff4' : undefined"
+            :loading="!tech.v4Enhanced && tech.isLoading"
+            :bg-color="tech.v4Enhanced?.signal === 'BUY' ? '#fff5f5' : tech.v4Enhanced?.signal === 'SELL' ? '#f0fff4' : undefined"
           >
             <template #default>
-              <SignalBadge :signal="tech.v4Enhanced.signal" size="large" />
+              <SignalBadge v-if="tech.v4Enhanced" :signal="tech.v4Enhanced.signal" size="large" />
+              <span v-else style="color: var(--text-dimmed)">--</span>
             </template>
           </MetricCard>
         </NGi>
         <NGi>
           <MetricCard
             title="收盤價"
-            :value="tech.v4Enhanced.close?.toFixed(2) || '-'"
+            :loading="!tech.v4Enhanced && tech.isLoading"
+            :value="tech.v4Enhanced ? (tech.v4Enhanced.close?.toFixed(2) || '-') : '--'"
           />
         </NGi>
         <NGi>
           <MetricCard
             title="上升趨勢天數"
-            :value="tech.v4Enhanced.uptrend_days || 0"
-            :subtitle="tech.v4Enhanced.entry_type || '-'"
+            :loading="!tech.v4Enhanced && tech.isLoading"
+            :value="tech.v4Enhanced ? (tech.v4Enhanced.uptrend_days || 0) : '--'"
+            :subtitle="tech.v4Enhanced?.entry_type || ''"
           />
         </NGi>
         <NGi>
           <MetricCard
             title="信心分數"
-            :value="tech.v4Enhanced.confidence_score?.toFixed(1) || '1.0'"
-            :color="(tech.v4Enhanced.confidence_score || 1) >= 1.5 ? '#e53e3e' : undefined"
+            :loading="!tech.v4Enhanced && tech.isLoading"
+            :value="tech.v4Enhanced ? (tech.v4Enhanced.confidence_score?.toFixed(1) || '1.0') : '--'"
+            :color="(tech.v4Enhanced?.confidence_score || 0) >= 1.5 ? '#e53e3e' : undefined"
           />
         </NGi>
       </NGrid>

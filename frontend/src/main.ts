@@ -7,9 +7,9 @@ import App from './App.vue'
 // Register echarts renderer + common components globally
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { TooltipComponent, GridComponent, LegendComponent, DataZoomComponent, VisualMapComponent } from 'echarts/components'
-import { LineChart, BarChart, PieChart, ScatterChart, HeatmapChart } from 'echarts/charts'
-use([CanvasRenderer, TooltipComponent, GridComponent, LegendComponent, DataZoomComponent, VisualMapComponent, LineChart, BarChart, PieChart, ScatterChart, HeatmapChart])
+import { TooltipComponent, GridComponent, LegendComponent, DataZoomComponent, VisualMapComponent, RadarComponent } from 'echarts/components'
+import { LineChart, BarChart, PieChart, ScatterChart, HeatmapChart, RadarChart } from 'echarts/charts'
+use([CanvasRenderer, TooltipComponent, GridComponent, LegendComponent, DataZoomComponent, VisualMapComponent, RadarComponent, LineChart, BarChart, PieChart, ScatterChart, HeatmapChart, RadarChart])
 
 const app = createApp(App)
 app.use(createPinia())

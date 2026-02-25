@@ -81,23 +81,39 @@ export const useTechnicalStore = defineStore('technical', () => {
     })
   }
 
-  async function loadAll(code: string) {
-    const seq = ++_loadSeq
-
-    // Clear non-blocking data so stale values don't display during stock switch
+  /** Sprint 15 P0: Reset ALL reactive fields to null.
+   *  Prevents stale data from previous stock displaying during load or timeout. */
+  function clearAll() {
+    indicators.value = null
+    v4Signal.value = null
+    v4Enhanced.value = null
     v4SignalsFull.value = null
-    boldStatus.value = null
-    boldSignal.value = null
+    supportResistance.value = null
+    volumePatterns.value = null
+    institutional.value = null
+    stockData.value = null
     adaptiveSignal.value = null
+    boldSignal.value = null
+    boldStatus.value = null
     riskBudget.value = null
     signalSummary.value = null
     sqsData.value = null
     liquidity.value = null
+    fundamentals.value = null
     trailClassifier.value = null
     sectorContext.value = null
     vcpContext.value = null
     stopLevels.value = null
     winnerDna.value = null
+    error.value = ''
+  }
+
+  async function loadAll(code: string) {
+    const seq = ++_loadSeq
+
+    // Sprint 15 P0: Clear ALL data immediately on stock switch to prevent
+    // stale data display. Cache hits restore data instantly (no flash).
+    clearAll()
 
     // Check cache first — instant switch for previously viewed stocks
     const cached = _getCached(code)
@@ -306,6 +322,6 @@ export const useTechnicalStore = defineStore('technical', () => {
   return {
     indicators, v4Signal, v4Enhanced, v4SignalsFull, adaptiveSignal, boldSignal, boldStatus, riskBudget, signalSummary, sqsData, liquidity,
     supportResistance, volumePatterns, institutional, stockData, fundamentals, trailClassifier, sectorContext, vcpContext, stopLevels, winnerDna,
-    isLoading, error, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadBoldStatus, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals, loadTrailClassifier, loadSectorContext, loadVcp, loadStopLevels, loadWinnerDna,
+    isLoading, error, clearAll, loadAll, loadV4SignalsFull, loadAdaptiveSignal, loadBoldSignal, loadBoldStatus, loadRiskBudget, loadSignalSummary, loadSqs, loadLiquidity, loadFundamentals, loadTrailClassifier, loadSectorContext, loadVcp, loadStopLevels, loadWinnerDna,
   }
 })

@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+import asyncio
 import logging
 import time
 from collections import deque
@@ -91,6 +92,41 @@ if API_KEY:
         if key != API_KEY:
             return JSONResponse(status_code=401, content={"error": "Invalid API key"})
         return await call_next(request)
+
+
+# Sprint 15 P0-B: API Timeout Guard — prevent infinite waits for non-cached stocks
+_HEAVY_PATTERNS = ('/recommend/', '/auto-sim', '/batch-sqs', '/strategy-fitness',
+                   '/weekly-audit', '/shake-out', '/failure-analysis',
+                   '/export/', '/rs-scan')
+_TIMEOUT_DEFAULT = 15.0   # 15s for normal endpoints
+_TIMEOUT_HEAVY = 120.0    # 120s for batch/scan endpoints
+
+
+@app.middleware("http")
+async def timeout_guard(request: Request, call_next):
+    """Sprint 15 P0-B: Return 504 instead of letting clients hang forever.
+    CTO directive: 120s wait = system dead. Return error fast."""
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return await call_next(request)
+
+    is_heavy = any(p in path for p in _HEAVY_PATTERNS)
+    timeout = _TIMEOUT_HEAVY if is_heavy else _TIMEOUT_DEFAULT
+
+    try:
+        return await asyncio.wait_for(call_next(request), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning(f"API timeout ({timeout}s): {request.method} {path}")
+        return JSONResponse(
+            status_code=504,
+            content={
+                "error": True,
+                "error_code": "TIMEOUT",
+                "message": f"伺服器回應超時 ({timeout:.0f}s)。此股票可能尚未被快取，將於今晚 20:00 排程計算。",
+                "path": path,
+                "timeout_s": timeout,
+            },
+        )
 
 
 # R49-3: API Performance Monitoring Middleware

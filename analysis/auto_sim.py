@@ -203,6 +203,31 @@ def _format_advice(confidence_score: int) -> str:
     return "觀望 (Low Confidence)"
 
 
+def _precache_on_demand_queue():
+    """Sprint 15 P1-B: Pre-fetch stock data for user-searched stocks.
+    Reads data/cache_queue.json and warms Redis cache, then clears the queue."""
+    queue_file = Path(__file__).resolve().parent.parent / "data" / "cache_queue.json"
+    try:
+        if not queue_file.exists():
+            return
+        import json
+        codes = json.loads(queue_file.read_text(encoding="utf-8"))
+        if not codes:
+            return
+        logger.info("Pre-caching %d on-demand stocks: %s", len(codes), codes[:10])
+        from data.fetcher import get_stock_data
+        for code in codes:
+            try:
+                get_stock_data(code, period_days=365)
+            except Exception as e:
+                logger.warning("Pre-cache failed for %s: %s", code, e)
+        # Clear queue after processing
+        queue_file.write_text("[]", encoding="utf-8")
+        logger.info("On-demand cache queue processed and cleared")
+    except Exception as e:
+        logger.warning("Pre-cache queue error: %s", e)
+
+
 def run_auto_sim(
     rs_threshold: int = RS_THRESHOLD,
     top_n: int = TOP_N,
@@ -221,6 +246,9 @@ def run_auto_sim(
         }
     """
     t0 = time.time()
+
+    # Sprint 15 P1-B: Pre-warm cache for user-searched stocks
+    _precache_on_demand_queue()
 
     # Step 1: Query screener for high RS stocks
     from analysis.financial_screener import screen_stocks

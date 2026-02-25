@@ -52,7 +52,7 @@ def get_recent_stocks():
 
 @router.post("/recent-stocks/{code}")
 def add_recent_stock(code: str):
-    """記錄最近查看的股票"""
+    """記錄最近查看的股票 + Sprint 15 P1-B: 加入 on-demand cache queue"""
     codes = []
     try:
         if RECENT_FILE.exists():
@@ -67,7 +67,29 @@ def add_recent_stock(code: str):
 
     RECENT_FILE.parent.mkdir(parents=True, exist_ok=True)
     RECENT_FILE.write_text(json.dumps(codes, ensure_ascii=False), encoding="utf-8")
+
+    # Sprint 15 P1-B: Add to on-demand cache queue for nightly pre-computation
+    _add_to_cache_queue(code)
+
     return {"ok": True}
+
+
+# Sprint 15 P1-B: On-demand cache queue
+_CACHE_QUEUE_FILE = Path(__file__).resolve().parent.parent.parent / "data" / "cache_queue.json"
+
+
+def _add_to_cache_queue(code: str):
+    """Add stock to nightly pre-computation queue. Deduplicates automatically."""
+    try:
+        queue = []
+        if _CACHE_QUEUE_FILE.exists():
+            queue = json.loads(_CACHE_QUEUE_FILE.read_text(encoding="utf-8"))
+        if code not in queue:
+            queue.append(code)
+            queue = queue[-50:]  # keep last 50
+            _CACHE_QUEUE_FILE.write_text(json.dumps(queue, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass  # non-critical
 
 
 @router.get("/worker-heartbeat")
