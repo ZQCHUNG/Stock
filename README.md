@@ -15,7 +15,7 @@ Stock/
 │   └── dependencies.py       # DataFrame→JSON helpers
 ├── frontend/                 # Vue 3 + Vite + TypeScript + Naive UI
 │   └── src/
-│       ├── views/            # 13 page components
+│       ├── views/            # 14 page components
 │       ├── components/       # ~30 reusable components
 │       ├── stores/           # Pinia stores
 │       ├── api/              # Axios service layer
@@ -77,7 +77,7 @@ Stock/
 
 ---
 
-## 功能頁面 (13 Pages)
+## 功能頁面 (14 Pages)
 
 | 頁面 | 路由 | 說明 |
 |------|------|------|
@@ -94,6 +94,7 @@ Stock/
 | **相似線型** | `/pattern` | DTW 比對 + 概率雲圖 + 勝率統計 |
 | **多維度分群** | `/cluster` | Dual Block + Dimension Lens + Gene Map + Spaghetti Chart |
 | **Pattern 模擬** | `/pattern-simulator` | Spaghetti Chart + Confidence Scoring + 8-horizon win rates + similar cases |
+| **策略控制塔** | `/control-tower` | Signal Log + Drift Detection + Risk Flag + Pipeline Monitor |
 
 ---
 
@@ -293,6 +294,7 @@ python -m pytest tests/ -q
 | Phase 5 | **P2-B: Auto-Sim Pipeline** — Screener (RS>=80) → find_similar_dual → Industry diversify (max 2/sector) → Top 5 → LINE Notify (Score/CI/MeanPath/WorstCase/Advice); daily_update.py step 5/5; POST /api/system/auto-sim manual trigger | Done |
 | Phase 5 | **P3: Signal Log + Drift Detection** — SQLite trade_signals_log (26 fields, auto-log on Auto-Sim); T+5/T+10/T+21 actual returns backfill; Drift Detector: In-Bounds Rate + Z-Score failure (3 consecutive worst-case breaches); Post-mortem analysis (tier/industry/direction bias); Risk circuit breaker (global_risk_on flag); Weekly Saturday 09:00 audit + LINE report; 6 API endpoints (CTO directive: "讓 AI 對自己發出的信號負責") | Done |
 | Phase 5 | **P4: Strategy Control Tower + Weekly Sentinel + Scoring V2** — Frontend "策略控制塔" page (Signal History table with color-coded T+21 results, Drift Dashboard with In-Bounds/Z-Score/Risk Flag, audit actions); Weekly Parameter Scan (Sunday 22:00, Plateau ratio drift alert >15%); Market Context Factor (TAIEX<MA20 → Score -10, RS>90 bonus +5); sidebar menu D | Done |
+| Phase 5 | **P5: Position Sizing V1 + Pipeline Monitor** — Risk-based position sizing: PositionSize = (Equity×2%) / (Entry - WorstCase), MAX 20% per stock, confidence-adjusted (HIGH=full, MEDIUM=70%, LOW=50%), TW lot rounding; LINE message includes "建議倉位: X% (Y 張)"; Pipeline Monitor: 9 data files freshness check (close/RS/screener/features/price/fwd/signal/drift/param), scheduler heartbeat, overall health (healthy/degraded/critical); Control Tower 3rd tab with file freshness table + color indicators | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 

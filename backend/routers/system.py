@@ -1315,3 +1315,121 @@ def set_risk_flag_manual(risk_on: bool = True, reason: str = "manual"):
     """P3: Manually set global risk flag."""
     from analysis.drift_detector import set_risk_flag
     return set_risk_flag(risk_on, reason)
+
+
+# ---------------------------------------------------------------------------
+# Phase 5: Pipeline Monitor — execution health dashboard
+# ---------------------------------------------------------------------------
+
+@router.get("/pipeline-monitor")
+def pipeline_monitor():
+    """Phase 5: Pipeline health monitor — data freshness + scheduler status.
+
+    Returns file freshness, scheduler heartbeat, and cron job status.
+    CTO directive: "Joe 進入控制塔能看到所有定時任務的最後成功執行時間"
+    """
+    import os
+    from backend.dependencies import make_serializable
+
+    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
+
+    # 1. Data file freshness
+    now = datetime.now()
+    files = {
+        "close_matrix": {
+            "path": data_dir / "pit_close_matrix.parquet",
+            "description": "PIT Close Matrix",
+            "max_age_hours": 28,  # ~1 trading day + buffer
+        },
+        "rs_matrix": {
+            "path": data_dir / "pit_rs_matrix.parquet",
+            "description": "PIT RS Percentile",
+            "max_age_hours": 28,
+        },
+        "screener_db": {
+            "path": data_dir / "screener.db",
+            "description": "Screener Snapshot",
+            "max_age_hours": 28,
+        },
+        "features_parquet": {
+            "path": data_dir / "pattern_data" / "features" / "features_all.parquet",
+            "description": "65-Feature Parquet",
+            "max_age_hours": 28,
+        },
+        "price_cache": {
+            "path": data_dir / "pattern_data" / "features" / "price_cache.parquet",
+            "description": "Price Cache",
+            "max_age_hours": 28,
+        },
+        "forward_returns": {
+            "path": data_dir / "pattern_data" / "features" / "forward_returns.parquet",
+            "description": "Forward Returns",
+            "max_age_hours": 28,
+        },
+        "signal_log_db": {
+            "path": data_dir / "signal_log.db",
+            "description": "Signal Log DB (P3)",
+            "max_age_hours": 168,  # weekly
+        },
+        "drift_report": {
+            "path": data_dir / "drift_report.json",
+            "description": "Drift Report (P3)",
+            "max_age_hours": 168,
+        },
+        "param_scan": {
+            "path": data_dir / "parameter_scan_history.json",
+            "description": "Parameter Scan (P4)",
+            "max_age_hours": 168,
+        },
+    }
+
+    file_status = []
+    for key, info in files.items():
+        path = info["path"]
+        if path.exists():
+            mtime = os.path.getmtime(path)
+            mtime_dt = datetime.fromtimestamp(mtime)
+            age_hours = (now - mtime_dt).total_seconds() / 3600
+            size_mb = os.path.getsize(path) / (1024 * 1024)
+            stale = age_hours > info["max_age_hours"]
+            file_status.append({
+                "key": key,
+                "description": info["description"],
+                "exists": True,
+                "last_modified": mtime_dt.isoformat(),
+                "age_hours": round(age_hours, 1),
+                "size_mb": round(size_mb, 2),
+                "stale": stale,
+                "status": "stale" if stale else "fresh",
+            })
+        else:
+            file_status.append({
+                "key": key,
+                "description": info["description"],
+                "exists": False,
+                "status": "missing",
+                "stale": True,
+            })
+
+    # 2. Scheduler heartbeat
+    heartbeat = {}
+    hb_path = data_dir / "scheduler_heartbeat.json"
+    if hb_path.exists():
+        try:
+            heartbeat = json.loads(hb_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    # 3. Summary
+    fresh_count = sum(1 for f in file_status if f.get("status") == "fresh")
+    total_count = len(file_status)
+    overall = "healthy" if fresh_count == total_count else "degraded" if fresh_count > total_count // 2 else "critical"
+
+    return make_serializable({
+        "overall": overall,
+        "fresh_count": fresh_count,
+        "total_count": total_count,
+        "files": file_status,
+        "scheduler": heartbeat,
+        "checked_at": now.isoformat(),
+    })

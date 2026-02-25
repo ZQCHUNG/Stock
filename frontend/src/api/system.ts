@@ -45,6 +45,10 @@ export const systemApi = {
       params: { risk_on: riskOn, reason },
     }),
 
+  // Phase 5: Pipeline Monitor
+  pipelineMonitor: () =>
+    client.get<any, PipelineMonitor>('/system/pipeline-monitor', { timeout: 15000 }),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {
@@ -139,6 +143,27 @@ export interface DriftReport {
   in_bounds: InBoundsResult
   z_score: ZScoreResult
   risk_flag: RiskFlag
+}
+
+// Phase 5: Pipeline Monitor Types
+export interface PipelineFileStatus {
+  key: string
+  description: string
+  exists: boolean
+  last_modified?: string
+  age_hours?: number
+  size_mb?: number
+  stale: boolean
+  status: 'fresh' | 'stale' | 'missing'
+}
+
+export interface PipelineMonitor {
+  overall: 'healthy' | 'degraded' | 'critical'
+  fresh_count: number
+  total_count: number
+  files: PipelineFileStatus[]
+  scheduler: Record<string, any>
+  checked_at: string
 }
 
 /** Trigger browser file download from Blob response */

@@ -23,6 +23,12 @@ TOP_N = 5                  # Max signals per notification
 MAX_PER_INDUSTRY = 2       # Industry diversification cap
 SIM_TOP_K = 20             # find_similar_dual top_k
 
+# Position Sizing V1 (Phase 5)
+# [HYPOTHESIS: RISK_PER_TRADE = 0.02, MAX_POSITION_PCT = 0.20]
+ASSUMED_EQUITY = 3_000_000   # [PLACEHOLDER] Joe's assumed equity (TWD)
+RISK_PER_TRADE = 0.02        # [HYPOTHESIS] 2% of equity per trade
+MAX_POSITION_PCT = 0.20      # Max 20% of equity in single stock
+
 
 def _tier_score(tier: str) -> int:
     """Convert sniper tier to numeric score for sorting."""
@@ -181,6 +187,24 @@ def run_auto_sim(
         if len(top_signals) >= top_n:
             break
 
+    # Step 4.5: Compute position sizing (Phase 5)
+    for s in top_signals:
+        try:
+            from analysis.signal_log import _get_closing_price
+            price = _get_closing_price(s["stock_code"])
+            if price:
+                sizing = _compute_position_size(
+                    entry_price=price,
+                    worst_case_pct=s.get("worst_case_pct"),
+                    confidence_score=s.get("confidence_score", 0),
+                )
+                s["entry_price"] = price
+                s["position_pct"] = sizing["position_pct"]
+                s["position_lots"] = sizing["lots"]
+                s["position_rationale"] = sizing["rationale"]
+        except Exception:
+            pass
+
     # Step 5: Format LINE message
     message = _format_line_message(top_signals)
 
@@ -215,6 +239,75 @@ def run_auto_sim(
         "elapsed_s": elapsed,
         "signals_logged": signals_logged,
         "risk_suppressed": risk_suppressed,
+    }
+
+
+def _compute_position_size(
+    entry_price: float,
+    worst_case_pct: float,
+    confidence_score: int,
+    equity: float = ASSUMED_EQUITY,
+) -> dict:
+    """Phase 5: Risk-based position sizing.
+
+    Formula: PositionSize = (Equity * RiskPerTrade) / (Entry - WorstCasePrice)
+    Capped at MAX_POSITION_PCT of equity.
+
+    CTO directive: "不要讓 Joe 每次都買一樣多"
+
+    Returns:
+        {"position_pct": float, "shares": int, "lots": int, "rationale": str}
+    """
+    if not entry_price or entry_price <= 0:
+        return {"position_pct": 0, "shares": 0, "lots": 0, "rationale": "No entry price"}
+
+    # Compute worst case price from percentage
+    if worst_case_pct is not None and worst_case_pct < 0:
+        worst_case_price = entry_price * (1 + worst_case_pct / 100.0)
+    else:
+        # Default: assume 7% stop loss
+        worst_case_price = entry_price * 0.93
+
+    risk_per_share = entry_price - worst_case_price
+    if risk_per_share <= 0:
+        return {"position_pct": 0, "shares": 0, "lots": 0, "rationale": "Invalid risk"}
+
+    # Risk amount = equity * risk_per_trade
+    risk_amount = equity * RISK_PER_TRADE
+
+    # Shares from risk sizing
+    shares = int(risk_amount / risk_per_share)
+
+    # Position value
+    position_value = shares * entry_price
+    position_pct = position_value / equity if equity > 0 else 0
+
+    # Cap at MAX_POSITION_PCT
+    if position_pct > MAX_POSITION_PCT:
+        position_pct = MAX_POSITION_PCT
+        position_value = equity * MAX_POSITION_PCT
+        shares = int(position_value / entry_price)
+
+    # Round to lots (1 lot = 1000 shares in TW)
+    lots = max(1, shares // 1000)
+    shares = lots * 1000
+    position_pct = (shares * entry_price) / equity if equity > 0 else 0
+
+    # Confidence adjustment: HIGH=full, MEDIUM=70%, LOW=50%
+    if confidence_score < 40:
+        lots = max(1, lots // 2)
+        shares = lots * 1000
+        position_pct = (shares * entry_price) / equity
+    elif confidence_score < 70:
+        lots = max(1, int(lots * 0.7))
+        shares = lots * 1000
+        position_pct = (shares * entry_price) / equity
+
+    return {
+        "position_pct": round(position_pct, 4),
+        "shares": shares,
+        "lots": lots,
+        "rationale": f"Risk {RISK_PER_TRADE:.0%}, Stop {worst_case_pct or -7:.1f}%",
     }
 
 
@@ -293,6 +386,12 @@ def _format_line_message(signals: list[dict]) -> str:
         # Advice
         advice = _format_advice(s["confidence_score"])
         lines.append(f"  💡 {advice}")
+
+        # Position sizing (Phase 5)
+        pos_pct = s.get("position_pct")
+        pos_lots = s.get("position_lots")
+        if pos_pct is not None and pos_lots:
+            lines.append(f"  📊 建議倉位: {pos_pct:.0%} ({pos_lots} 張)")
 
         # Divergence warning
         if s.get("divergence_warning"):

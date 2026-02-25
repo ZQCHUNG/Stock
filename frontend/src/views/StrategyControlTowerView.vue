@@ -6,7 +6,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -22,6 +22,9 @@ const driftReport = ref<DriftReport | null>(null)
 
 // Risk Flag
 const riskFlag = ref<RiskFlag | null>(null)
+
+// Pipeline Monitor
+const pipeline = ref<PipelineMonitor | null>(null)
 
 // --- Loaders ---
 async function loadSignals() {
@@ -54,8 +57,16 @@ async function loadRiskFlag() {
   }
 }
 
+async function loadPipeline() {
+  try {
+    pipeline.value = await systemApi.pipelineMonitor()
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline()])
 }
 
 // --- Actions ---
@@ -457,6 +468,115 @@ onMounted(loadAll)
               </NCard>
             </NGi>
           </NGrid>
+        </NTabPane>
+
+        <!-- Tab 3: Pipeline Monitor -->
+        <NTabPane name="pipeline" tab="Pipeline Monitor" display-directive="show:lazy">
+          <template v-if="pipeline">
+            <!-- Overall Health Banner -->
+            <NAlert
+              :type="pipeline.overall === 'healthy' ? 'success' : pipeline.overall === 'degraded' ? 'warning' : 'error'"
+              style="margin-bottom: 16px"
+            >
+              Pipeline Status: <strong>{{ pipeline.overall.toUpperCase() }}</strong>
+              — {{ pipeline.fresh_count }} / {{ pipeline.total_count }} files fresh
+              <span style="margin-left: 12px; font-size: 12px; color: #999">
+                Checked: {{ pipeline.checked_at?.slice(0, 19) }}
+              </span>
+            </NAlert>
+
+            <!-- File Freshness Table -->
+            <NCard title="Data File Freshness" size="small" style="margin-bottom: 16px">
+              <div style="overflow-x: auto">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                  <thead>
+                    <tr style="border-bottom: 2px solid #e5e7eb; text-align: left">
+                      <th style="padding: 8px 12px">Status</th>
+                      <th style="padding: 8px 12px">File</th>
+                      <th style="padding: 8px 12px">Last Modified</th>
+                      <th style="padding: 8px 12px">Age (hrs)</th>
+                      <th style="padding: 8px 12px">Size</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="f in pipeline.files"
+                      :key="f.key"
+                      style="border-bottom: 1px solid #f3f4f6"
+                    >
+                      <td style="padding: 6px 12px">
+                        <NTag
+                          :type="f.status === 'fresh' ? 'success' : f.status === 'stale' ? 'warning' : 'error'"
+                          size="small"
+                        >
+                          {{ f.status }}
+                        </NTag>
+                      </td>
+                      <td style="padding: 6px 12px">{{ f.description }}</td>
+                      <td style="padding: 6px 12px; font-family: monospace; font-size: 12px">
+                        {{ f.last_modified ? f.last_modified.slice(0, 19).replace('T', ' ') : '-' }}
+                      </td>
+                      <td style="padding: 6px 12px">
+                        <span
+                          :style="{ color: f.stale ? '#ef4444' : '#22c55e', fontWeight: '600' }"
+                        >
+                          {{ f.age_hours != null ? f.age_hours.toFixed(1) : '-' }}
+                        </span>
+                      </td>
+                      <td style="padding: 6px 12px">
+                        {{ f.size_mb != null ? f.size_mb.toFixed(2) + ' MB' : '-' }}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </NCard>
+
+            <!-- Scheduler Heartbeat -->
+            <NCard title="Scheduler Heartbeat" size="small">
+              <template v-if="pipeline.scheduler && Object.keys(pipeline.scheduler).length > 0">
+                <div style="overflow-x: auto">
+                  <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                    <thead>
+                      <tr style="border-bottom: 2px solid #e5e7eb; text-align: left">
+                        <th style="padding: 8px 12px">Job</th>
+                        <th style="padding: 8px 12px">Last Run</th>
+                        <th style="padding: 8px 12px">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr
+                        v-for="(val, key) in pipeline.scheduler"
+                        :key="key"
+                        style="border-bottom: 1px solid #f3f4f6"
+                      >
+                        <td style="padding: 6px 12px; font-weight: 500">{{ key }}</td>
+                        <td style="padding: 6px 12px; font-family: monospace; font-size: 12px">
+                          {{ typeof val === 'string' ? val.slice(0, 19).replace('T', ' ') : val?.last_run?.slice(0, 19)?.replace('T', ' ') || '-' }}
+                        </td>
+                        <td style="padding: 6px 12px">
+                          <NTag
+                            :type="typeof val === 'object' && val?.status === 'error' ? 'error' : 'success'"
+                            size="small"
+                          >
+                            {{ typeof val === 'object' ? (val?.status || 'ok') : 'ok' }}
+                          </NTag>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+              <NEmpty v-else description="No scheduler heartbeat data yet" />
+            </NCard>
+
+            <div style="text-align: right; margin-top: 12px">
+              <NButton size="small" @click="loadPipeline">
+                Refresh Pipeline Status
+              </NButton>
+            </div>
+          </template>
+          <NEmpty v-else description="Loading pipeline status..." />
         </NTabPane>
 
       </NTabs>
