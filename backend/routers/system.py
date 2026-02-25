@@ -1318,6 +1318,24 @@ def set_risk_flag_manual(risk_on: bool = True, reason: str = "manual"):
 
 
 # ---------------------------------------------------------------------------
+# Phase 6 P0: Trailing Stops — Active Signal Protection
+# ---------------------------------------------------------------------------
+
+@router.post("/trailing-stops/update")
+def update_trailing_stops():
+    """Phase 6 P0: Update trailing stop prices for all active signals.
+
+    Wires R86 ATR-based trailing stop to the Signal Log.
+    Architect directive: "將 R86 的 ATR-based stop 數值推送到 Dashboard"
+    """
+    from analysis.signal_log import update_trailing_stops as _update
+    try:
+        return _update()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
 # Phase 5: Pipeline Monitor — execution health dashboard
 # ---------------------------------------------------------------------------
 

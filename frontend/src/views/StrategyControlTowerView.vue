@@ -6,7 +6,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -88,6 +88,18 @@ async function triggerAudit() {
     alert(`Audit complete. In-Bounds Rate: ${result.in_bounds?.in_bounds_rate != null ? (result.in_bounds.in_bounds_rate * 100).toFixed(0) + '%' : 'N/A'}`)
   } catch (e: any) {
     error.value = e?.message || 'Audit failed'
+  }
+  isLoading.value = false
+}
+
+async function triggerTrailingStops() {
+  isLoading.value = true
+  try {
+    const result = await systemApi.updateTrailingStops()
+    await loadSignals()
+    alert(`Trailing stops updated: ${result.updated} signals, ${result.active_stops?.length || 0} active`)
+  } catch (e: any) {
+    error.value = e?.message || 'Trailing stops update failed'
   }
   isLoading.value = false
 }
@@ -179,6 +191,20 @@ const signalColumns = computed<DataTableColumns>(() => [
     ],
     filter: (value: any, row: any) => row.status === value,
   },
+  {
+    title: 'Stop',
+    key: 'current_stop_price',
+    width: 80,
+    render: (row: any) => {
+      const stop = row.current_stop_price
+      if (stop == null || row.status === 'realized') return h('span', { style: 'color: #999' }, '-')
+      const phase = row.trailing_phase || 0
+      const phaseNames: Record<number, string> = { 0: 'Init', 1: 'BE', 2: 'ATR', 3: 'Tight' }
+      const phaseColors: Record<number, string> = { 0: '#94a3b8', 1: '#f59e0b', 2: '#22c55e', 3: '#3b82f6' }
+      return h('span', { style: `color: ${phaseColors[phase] || '#999'}; font-weight: 600` },
+        `${stop.toFixed(1)} (${phaseNames[phase] || '?'})`)
+    },
+  },
   { title: 'Industry', key: 'industry', width: 80 },
 ])
 
@@ -231,6 +257,9 @@ onMounted(loadAll)
 
       <NButton size="small" @click="triggerRealize">
         Realize Signals
+      </NButton>
+      <NButton size="small" type="info" @click="triggerTrailingStops">
+        Update Stops
       </NButton>
       <NButton size="small" type="warning" @click="triggerAudit">
         Run Audit

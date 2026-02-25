@@ -49,6 +49,10 @@ export const systemApi = {
   pipelineMonitor: () =>
     client.get<any, PipelineMonitor>('/system/pipeline-monitor', { timeout: 15000 }),
 
+  // Phase 6 P0: Trailing Stops
+  updateTrailingStops: () =>
+    client.post<any, TrailingStopResult>('/system/trailing-stops/update', {}, { timeout: 60000 }),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {
@@ -164,6 +168,25 @@ export interface PipelineMonitor {
   files: PipelineFileStatus[]
   scheduler: Record<string, any>
   checked_at: string
+}
+
+// Phase 6 P0: Trailing Stops
+export interface ActiveStop {
+  stock_code: string
+  stock_name: string
+  entry_price: number
+  current_price: number
+  current_stop: number
+  trailing_phase: number
+  phase_reason: string
+  return_pct: number
+  stop_distance_pct: number
+}
+
+export interface TrailingStopResult {
+  updated: number
+  errors: number
+  active_stops: ActiveStop[]
 }
 
 /** Trigger browser file download from Blob response */

@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS trade_signals_log (
     actual_return_d21 REAL,
     in_bounds_d21 INTEGER,
     realized_date TEXT,
+    initial_stop_price REAL,
+    current_stop_price REAL,
+    trailing_phase INTEGER DEFAULT 0,
+    highest_since_entry REAL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(signal_date, stock_code)
 );
@@ -56,13 +60,34 @@ CREATE INDEX IF NOT EXISTS idx_sig_status ON trade_signals_log(status);
 CREATE INDEX IF NOT EXISTS idx_sig_code ON trade_signals_log(stock_code);
 """
 
+# Schema migration for existing DBs (columns added in Phase 6 P0)
+_MIGRATE_COLUMNS = [
+    ("initial_stop_price", "REAL"),
+    ("current_stop_price", "REAL"),
+    ("trailing_phase", "INTEGER DEFAULT 0"),
+    ("highest_since_entry", "REAL"),
+]
+
 
 def _get_conn() -> sqlite3.Connection:
     """Get or create SQLite connection."""
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.executescript(_CREATE_TABLE)
+    _ensure_migration(conn)
     return conn
+
+
+def _ensure_migration(conn: sqlite3.Connection):
+    """Add new columns to existing DBs if missing (Phase 6 P0)."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(trade_signals_log)")}
+    for col_name, col_type in _MIGRATE_COLUMNS:
+        if col_name not in existing:
+            try:
+                conn.execute(f"ALTER TABLE trade_signals_log ADD COLUMN {col_name} {col_type}")
+                logger.info("Migrated signal_log: added column %s", col_name)
+            except Exception:
+                pass  # already exists or other issue
 
 
 def log_signal(signal: dict) -> int:
@@ -261,6 +286,147 @@ def _get_closing_price(stock_code: str) -> Optional[float]:
     except Exception:
         pass
     return None
+
+
+def update_trailing_stops() -> dict:
+    """Phase 6 P0: Update trailing stop prices for all active signals.
+
+    Wires R86's compute_trailing_stop() to active signals in the trade log.
+    For each active signal:
+      1. Fetch current price + highest since entry
+      2. Compute ATR(14) from recent data
+      3. Run 4-phase trailing stop logic
+      4. Update DB with current_stop_price, trailing_phase, highest_since_entry
+
+    Returns:
+        {"updated": int, "errors": int, "active_stops": list[dict]}
+    """
+    import pandas as pd
+    from analysis.stop_loss import compute_trailing_stop
+
+    conn = _get_conn()
+    updated = errors = 0
+    active_stops = []
+
+    try:
+        active = conn.execute(
+            "SELECT * FROM trade_signals_log WHERE status = 'active'"
+        ).fetchall()
+
+        for row in active:
+            code = row["stock_code"]
+            entry_price = row["entry_price"]
+            if not entry_price or entry_price <= 0:
+                continue
+
+            try:
+                from data.fetcher import get_stock_data
+                df = get_stock_data(code, period_days=60)
+                if df is None or df.empty:
+                    continue
+
+                df.index = pd.to_datetime(df.index)
+                current_price = float(df["close"].iloc[-1])
+
+                # Highest price since entry
+                sig_date = pd.Timestamp(row["signal_date"])
+                since_entry = df[df.index >= sig_date]
+                highest = float(since_entry["high"].max()) if not since_entry.empty else current_price
+
+                # Keep max of stored vs computed
+                stored_highest = row["highest_since_entry"]
+                if stored_highest and stored_highest > highest:
+                    highest = stored_highest
+
+                # Initial stop: use stored or derive from worst_case_pct
+                initial_stop = row["initial_stop_price"]
+                if not initial_stop:
+                    worst = row["worst_case_pct"]
+                    if worst and worst < 0:
+                        initial_stop = entry_price * (1 + worst / 100.0)
+                    else:
+                        initial_stop = entry_price * 0.93  # default 7% stop
+
+                # Compute ATR(14)
+                high = df["high"]
+                low = df["low"]
+                close = df["close"]
+                tr = pd.concat([
+                    high - low,
+                    (high - close.shift(1)).abs(),
+                    (low - close.shift(1)).abs(),
+                ], axis=1).max(axis=1)
+                current_atr = float(tr.rolling(14).mean().dropna().iloc[-1])
+
+                r_value = entry_price - initial_stop
+
+                trail = compute_trailing_stop(
+                    entry_price=entry_price,
+                    current_price=current_price,
+                    highest_price=highest,
+                    initial_stop=initial_stop,
+                    current_atr=current_atr,
+                    r_value=r_value,
+                )
+
+                conn.execute(
+                    """UPDATE trade_signals_log SET
+                       current_stop_price = ?, trailing_phase = ?,
+                       highest_since_entry = ?, initial_stop_price = ?
+                       WHERE id = ?""",
+                    (trail["current_stop"], trail["phase"], highest, initial_stop, row["id"]),
+                )
+                updated += 1
+
+                active_stops.append({
+                    "stock_code": code,
+                    "stock_name": row["stock_name"] or "",
+                    "entry_price": entry_price,
+                    "current_price": current_price,
+                    "current_stop": trail["current_stop"],
+                    "trailing_phase": trail["phase"],
+                    "phase_reason": trail["reason"],
+                    "return_pct": round((current_price / entry_price - 1) * 100, 1),
+                    "stop_distance_pct": round((current_price - trail["current_stop"]) / current_price * 100, 1),
+                })
+            except Exception as e:
+                logger.debug("Trailing stop update failed for %s: %s", code, e)
+                errors += 1
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    logger.info("Trailing stops: %d updated, %d errors", updated, errors)
+    return {"updated": updated, "errors": errors, "active_stops": active_stops}
+
+
+def format_active_signals_line(active_stops: list[dict]) -> str:
+    """Format active signals with trailing stops for LINE Notify.
+
+    Architect directive: "🛡️ 當前移動止盈價: {current_stop_price}"
+    """
+    if not active_stops:
+        return ""
+
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    phase_names = {0: "Initial", 1: "Breakeven", 2: "ATR Trail", 3: "Tight Trail"}
+    lines = [f"\n🛡️ Active Signals Update ({now})"]
+    lines.append(f"追蹤中: {len(active_stops)} 檔\n")
+
+    for s in active_stops:
+        ret = s["return_pct"]
+        icon = "🟢" if ret > 0 else "🔴"
+        phase = phase_names.get(s["trailing_phase"], "?")
+        lines.append(f"{icon} {s['stock_code']} {s['stock_name']}")
+        lines.append(f"  Entry: {s['entry_price']:.1f} → Now: {s['current_price']:.1f} ({ret:+.1f}%)")
+        lines.append(f"  🛡️ 移動止盈價: {s['current_stop']:.1f} ({phase})")
+        lines.append(f"  距離止盈: {s['stop_distance_pct']:.1f}%")
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def _compute_actual_returns(
