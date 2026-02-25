@@ -292,6 +292,7 @@ python -m pytest tests/ -q
 | Phase 5 | **P2-A: Parameter Sensitivity Heatmap** — Grid-search Bold Entry D params across 20-stock sample; 2 presets (Near-High×MA20 Slope, RSI×Volume); Zone classification (Plateau/Island/Desert); echarts heatmap + tooltip + summary stats; "策略中心 → 參數熱圖" tab (CTO directive: "Entry D 容錯空間") | Done |
 | Phase 5 | **P2-B: Auto-Sim Pipeline** — Screener (RS>=80) → find_similar_dual → Industry diversify (max 2/sector) → Top 5 → LINE Notify (Score/CI/MeanPath/WorstCase/Advice); daily_update.py step 5/5; POST /api/system/auto-sim manual trigger | Done |
 | Phase 5 | **P3: Signal Log + Drift Detection** — SQLite trade_signals_log (26 fields, auto-log on Auto-Sim); T+5/T+10/T+21 actual returns backfill; Drift Detector: In-Bounds Rate + Z-Score failure (3 consecutive worst-case breaches); Post-mortem analysis (tier/industry/direction bias); Risk circuit breaker (global_risk_on flag); Weekly Saturday 09:00 audit + LINE report; 6 API endpoints (CTO directive: "讓 AI 對自己發出的信號負責") | Done |
+| Phase 5 | **P4: Strategy Control Tower + Weekly Sentinel + Scoring V2** — Frontend "策略控制塔" page (Signal History table with color-coded T+21 results, Drift Dashboard with In-Bounds/Z-Score/Risk Flag, audit actions); Weekly Parameter Scan (Sunday 22:00, Plateau ratio drift alert >15%); Market Context Factor (TAIEX<MA20 → Score -10, RS>90 bonus +5); sidebar menu D | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 

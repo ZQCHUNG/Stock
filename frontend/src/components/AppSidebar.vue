@@ -44,6 +44,7 @@ const menuItems = [
   { label: 'A  相似線型', key: 'patterns' },
   { label: 'B  多維度分群', key: 'cluster' },
   { label: 'C  Pattern 模擬', key: 'pattern-simulator' },
+  { label: 'D  策略控制塔', key: 'control-tower' },
 ]
 
 const activeKey = computed(() => route.name as string)

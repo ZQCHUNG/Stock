@@ -500,6 +500,17 @@ def start_scheduler(interval_minutes: int = 5):
         max_instances=1,
     )
 
+    # Phase 4: Weekly Parameter Scan (Sunday 22:00)
+    # CTO directive: "每週末跑一次，監控策略是否因市場環境改變而產生參數漂移"
+    _scheduler.add_job(
+        _run_weekly_parameter_scan,
+        trigger=CronTrigger(hour=22, minute=0, day_of_week="sun"),
+        id="weekly_parameter_scan",
+        name="Weekly Parameter Scan (Phase 4)",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
 
@@ -1006,6 +1017,105 @@ def _run_daily_pattern_update():
             )
     except Exception as e:
         logger.error("Daily pattern update failed: %s", e, exc_info=True)
+
+
+def _run_weekly_parameter_scan():
+    """Phase 4: Weekly parameter scan — detect parameter drift.
+
+    Runs Sunday 22:00. Executes P2-A heatmap with default preset,
+    saves results, and alerts if Plateau ratio drops >15% vs last week.
+    CTO directive: "每週末跑一次即可，監控策略是否因市場環境改變而產生參數漂移"
+    """
+    import json as _json
+    from pathlib import Path
+
+    scan_history_path = Path(__file__).resolve().parent.parent / "data" / "parameter_scan_history.json"
+
+    try:
+        from backtest.parameter_heatmap import run_heatmap, DEFAULT_PRESETS
+        from data.fetcher import get_stock_data
+        from config import SCAN_STOCKS
+        import random
+
+        logger.info("Weekly parameter scan: starting ...")
+
+        # Sample 20 stocks
+        codes = list(SCAN_STOCKS.keys())
+        sample = random.sample(codes, min(20, len(codes)))
+
+        # Use first preset (threshold vs lookback)
+        preset = DEFAULT_PRESETS["entry_d_threshold_vs_lookback"]
+
+        # Fetch stock data
+        stock_data = {}
+        for code in sample:
+            try:
+                df = get_stock_data(code, period_days=1095)
+                if df is not None and len(df) >= 200:
+                    stock_data[code] = df
+            except Exception:
+                pass
+
+        if len(stock_data) < 5:
+            logger.warning("Weekly parameter scan: insufficient stock data (%d)", len(stock_data))
+            return
+
+        result = run_heatmap(
+            stock_data=stock_data,
+            x_param=preset["x_param"],
+            x_values=preset["x_values"],
+            y_param=preset["y_param"],
+            y_values=preset["y_values"],
+            metric="sharpe_ratio",
+        )
+
+        # Count zones
+        zones = result.get("zones", {})
+        total_cells = len(result.get("x_values", [])) * len(result.get("y_values", []))
+        plateau_count = sum(1 for v in zones.values() if v == "plateau")
+        plateau_ratio = plateau_count / total_cells if total_cells > 0 else 0
+
+        # Load previous scan
+        prev_ratio = None
+        if scan_history_path.exists():
+            try:
+                prev = _json.loads(scan_history_path.read_text(encoding="utf-8"))
+                prev_ratio = prev.get("plateau_ratio")
+            except Exception:
+                pass
+
+        # Save current scan
+        scan_record = {
+            "scan_date": datetime.now().isoformat(),
+            "plateau_ratio": round(plateau_ratio, 4),
+            "plateau_count": plateau_count,
+            "total_cells": total_cells,
+            "stocks_used": len(stock_data),
+        }
+        scan_history_path.parent.mkdir(parents=True, exist_ok=True)
+        scan_history_path.write_text(
+            _json.dumps(scan_record, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        # Alert if plateau dropped >15%
+        if prev_ratio is not None and prev_ratio > 0:
+            drop = prev_ratio - plateau_ratio
+            if drop > 0.15:
+                _send_notification(
+                    f"\n⚠️ Parameter Drift Alert\n"
+                    f"Plateau Ratio: {plateau_ratio:.0%} (was {prev_ratio:.0%})\n"
+                    f"Drop: {drop:.0%} > 15% threshold\n"
+                    f"Entry D parameters may be losing robustness"
+                )
+                logger.warning("Parameter drift alert: plateau %.0f%% → %.0f%%",
+                               prev_ratio * 100, plateau_ratio * 100)
+
+        logger.info("Weekly parameter scan: plateau %.0f%% (%d/%d cells), %d stocks",
+                     plateau_ratio * 100, plateau_count, total_cells, len(stock_data))
+
+    except Exception as e:
+        logger.error("Weekly parameter scan failed: %s", e, exc_info=True)
 
 
 def stop_scheduler():

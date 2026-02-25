@@ -87,6 +87,12 @@ const router = createRouter({
       component: () => import('../views/PatternSimulatorView.vue'),
       meta: { title: 'Pattern 模擬' },
     },
+    {
+      path: '/control-tower',
+      name: 'control-tower',
+      component: () => import('../views/StrategyControlTowerView.vue'),
+      meta: { title: '策略控制塔' },
+    },
   ],
 })
 

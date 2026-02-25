@@ -150,6 +150,22 @@ def run_auto_sim(
 
     logger.info("Auto-Sim: %d/%d stocks simulated", len(sim_results), len(candidates))
 
+    # Step 2.5: Market Context Factor (Phase 4 Scoring V2)
+    # CTO directive: "在空頭市場頻繁開火是多頭策略最容易死掉的地方"
+    # TAIEX < MA20 → Score -10, TAIEX > MA20 + RS > 90 → Score +5
+    market_adj = _get_market_context_adjustment()
+    if market_adj != 0:
+        for s in sim_results:
+            adj = market_adj
+            # Extra bonus for RS > 90 in bull market
+            if market_adj > 0 and s["rs_rating"] >= 90:
+                adj += 5
+            s["confidence_score"] = max(0, min(100, s["confidence_score"] + adj))
+            # Re-grade
+            score = s["confidence_score"]
+            s["confidence_grade"] = "HIGH" if score >= 70 else "MEDIUM" if score >= 40 else "LOW"
+        logger.info("Auto-Sim: Market Context adjustment=%+d applied", market_adj)
+
     # Step 3: Sort by tier_score desc → confidence_score desc
     sim_results.sort(key=lambda x: (x["tier_score"], x["confidence_score"]), reverse=True)
 
@@ -200,6 +216,35 @@ def run_auto_sim(
         "signals_logged": signals_logged,
         "risk_suppressed": risk_suppressed,
     }
+
+
+def _get_market_context_adjustment() -> int:
+    """Phase 4 Scoring V2: Market Context Factor.
+
+    CTO directive:
+    - TAIEX < MA20 → all scores -10 (bear filter)
+    - TAIEX > MA20 → base +0 (neutral, RS>90 gets extra +5 in caller)
+
+    [HYPOTHESIS: MARKET_CONTEXT_PENALTY = -10, MARKET_CONTEXT_BONUS = 0]
+    """
+    try:
+        from data.fetcher import get_taiex_data
+        import pandas as pd
+
+        taiex = get_taiex_data(period_days=60)
+        if taiex is None or len(taiex) < 25:
+            return 0
+
+        close = taiex["close"]
+        ma20 = close.rolling(20).mean()
+        latest_close = float(close.iloc[-1])
+        latest_ma20 = float(ma20.iloc[-1])
+
+        if latest_close < latest_ma20:
+            return -10  # Bear filter
+        return 0  # Neutral (RS>90 bonus handled by caller)
+    except Exception:
+        return 0  # Default: no adjustment
 
 
 def _format_line_message(signals: list[dict]) -> str:
