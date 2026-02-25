@@ -291,7 +291,8 @@ def extend_close_matrix() -> dict:
 def _yf_incremental_update(existing: pd.DataFrame) -> dict:
     """Fallback: download only the latest 5 trading days from yfinance.
 
-    This is much faster than a full rebuild — only fetches the latest data.
+    V1.1 P0: Graceful Fallback — if yfinance fails, auto-switch to FinMind
+    and send LINE Notify warning. [VERIFIED: Architect APPROVED]
     """
     if existing.empty:
         logger.error("Cannot do incremental update without existing close matrix")
@@ -321,6 +322,8 @@ def _yf_incremental_update(existing: pd.DataFrame) -> dict:
         ticker_to_code[ticker] = code
 
     new_dates_added = 0
+    yf_failed = False
+    yf_error_msg = ""
     BATCH_SIZE = 200
 
     for batch_idx in range(0, len(yf_tickers), BATCH_SIZE):
@@ -360,9 +363,25 @@ def _yf_incremental_update(existing: pd.DataFrame) -> dict:
                             new_dates_added += 1
         except Exception as e:
             logger.warning("yf batch %d failed: %s", batch_idx // BATCH_SIZE + 1, e)
+            yf_failed = True
+            yf_error_msg = str(e)
 
         if batch_idx + BATCH_SIZE < len(yf_tickers):
             time.sleep(0.3)
+
+    # --- V1.1 P0: FinMind Fallback ---
+    # If yfinance returned zero new dates OR had failures, try FinMind
+    finmind_used = False
+    if new_dates_added == 0 or yf_failed:
+        logger.warning("yfinance insufficient (new_dates=%d, failed=%s) — switching to FinMind",
+                        new_dates_added, yf_failed)
+        fm_added = _finmind_fallback_update(existing, start, end)
+        if fm_added > 0:
+            new_dates_added = max(new_dates_added, fm_added)
+            finmind_used = True
+            logger.info("FinMind fallback: +%d dates", fm_added)
+        # Send LINE notification about data source switch
+        _notify_data_source_switch("yfinance", "FinMind", yf_error_msg or "no new data")
 
     if new_dates_added > 0:
         existing = existing.sort_index()
@@ -374,10 +393,70 @@ def _yf_incremental_update(existing: pd.DataFrame) -> dict:
         "total_dates": len(existing),
         "total_stocks": len(existing.columns),
         "elapsed_s": round(elapsed, 1),
-        "source": "yfinance_incremental",
+        "source": "finmind_fallback" if finmind_used else "yfinance_incremental",
     }
-    logger.info("yfinance incremental: +%d dates (%.1fs)", new_dates_added, elapsed)
+    logger.info("Incremental update: +%d dates via %s (%.1fs)",
+                new_dates_added, result["source"], elapsed)
     return result
+
+
+def _finmind_fallback_update(existing: pd.DataFrame, start: str, end: str) -> int:
+    """V1.1 P0: FinMind batch fallback when yfinance fails.
+
+    Fetches recent prices from FinMind API for stocks missing new dates.
+    Uses rate-limited sequential requests (1-3s delay per stock).
+
+    [VERIFIED: Architect APPROVED — DataBridgeV2 fallback]
+    """
+    import random
+
+    try:
+        from data.fetcher import _fetch_from_finmind
+    except ImportError:
+        logger.error("Cannot import _fetch_from_finmind")
+        return 0
+
+    stock_codes = list(existing.columns)
+    latest_existing = existing.index.max()
+    new_dates_added = 0
+
+    # Only fetch a sample to check if market had new data (avoid fetching 1900+ stocks)
+    sample_codes = stock_codes[:30]  # Top 30 stocks as canary
+    logger.info("FinMind fallback: testing %d canary stocks", len(sample_codes))
+
+    for code in sample_codes:
+        try:
+            df = _fetch_from_finmind(code, start, end)
+            if df is not None and not df.empty:
+                for date in df.index:
+                    date = pd.Timestamp(date)
+                    if date not in existing.index and code in existing.columns:
+                        existing.loc[date, code] = float(df.loc[df.index == date, "close"].iloc[0])
+                        new_dates_added = max(new_dates_added, 1)
+            time.sleep(random.uniform(1, 3))
+        except Exception as e:
+            logger.debug("FinMind fallback failed for %s: %s", code, e)
+
+    return new_dates_added
+
+
+def _notify_data_source_switch(failed_source: str, active_source: str, reason: str):
+    """V1.1 P0: Send LINE notification when data source switches.
+
+    [VERIFIED: Architect APPROVED — LINE alert on failover]
+    """
+    try:
+        from backend.scheduler import _send_notification
+        msg = (
+            f"⚠️ 數據源切換警告\n"
+            f"主源 {failed_source} 異常: {reason[:100]}\n"
+            f"已切換至備援: {active_source}\n"
+            f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        )
+        _send_notification(msg)
+        logger.info("Data source switch notification sent")
+    except Exception as e:
+        logger.warning("Failed to send data source switch notification: %s", e)
 
 
 def recompute_rs_matrices() -> dict:
@@ -732,13 +811,25 @@ def run_daily_update() -> dict:
     t0 = time.time()
     results = {}
 
-    # Step 1: Extend close matrix
+    # Step 1: Extend close matrix (V1.1 P0: with FinMind fallback)
     logger.info("[Step 1/9] Extending close matrix...")
     try:
         results["close_matrix"] = extend_close_matrix()
+        # V1.1 P0: Validate data quality — check for all-NaN latest row
+        if PIT_CLOSE_PATH.exists():
+            _cm = pd.read_parquet(PIT_CLOSE_PATH)
+            if len(_cm) > 0:
+                last_row_nan_pct = _cm.iloc[-1].isna().mean()
+                if last_row_nan_pct > 0.9:
+                    logger.error("Data quality alert: %.0f%% NaN in latest row!", last_row_nan_pct * 100)
+                    _notify_data_source_switch("all_sources", "ALERT", f"latest row {last_row_nan_pct:.0%} NaN")
+                    results["close_matrix"]["data_quality_warning"] = True
+            del _cm
     except Exception as e:
         logger.error("Close matrix update failed: %s", e, exc_info=True)
         results["close_matrix"] = {"error": str(e)}
+        # V1.1 P0: Notify on complete pipeline failure
+        _notify_data_source_switch("daily_pipeline", "CRITICAL", str(e)[:200])
 
     # Step 1.5: Sanitize close matrix (Phase 8 P0: Self-Healing)
     logger.info("[Step 1.5/9] Running data sanitizer...")

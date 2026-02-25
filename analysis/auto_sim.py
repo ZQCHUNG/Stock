@@ -19,6 +19,7 @@ Daily at 20:30 after screener refresh:
 
 import logging
 import time
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -513,6 +514,10 @@ def run_auto_sim(
         pass
 
     elapsed = round(time.time() - t0, 1)
+
+    # V1.1 P1: Save daily report snapshot for Energy Score sparkline
+    _save_daily_report_snapshot(top_signals)
+
     return {
         "candidates_found": len(candidates),
         "simulated": len(sim_results),
@@ -819,3 +824,101 @@ def send_auto_sim_notification(result: dict) -> bool:
     except Exception as e:
         logger.warning("Auto-Sim: Notification failed: %s", e)
         return False
+
+
+# ============================================================
+# V1.1 P1: Daily Report Snapshots for Energy Score Sparkline
+# Architect APPROVED: File-based, NO new DB table
+# ============================================================
+
+_DAILY_REPORTS_DIR = Path(__file__).resolve().parent.parent / "data" / "daily_reports"
+
+
+def _save_daily_report_snapshot(top_signals: list[dict]):
+    """Save daily Auto-Sim snapshot for Energy Score sparkline.
+
+    Writes a lightweight JSON file per day containing signal energy data.
+    Architect mandate: file-based, no heavy DB writes.
+    """
+    import json
+    from datetime import datetime
+
+    if not top_signals:
+        return
+
+    _DAILY_REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    snapshot = {
+        "date": today,
+        "signals": [
+            {
+                "stock_code": s.get("stock_code", ""),
+                "stock_name": s.get("name", ""),
+                "energy_tr_ratio": s.get("energy_tr_ratio"),
+                "energy_vol_ratio": s.get("energy_vol_ratio"),
+                "energy_overheat": s.get("energy_overheat", False),
+                "energy_weak_volume": s.get("energy_weak_volume", False),
+                "confidence_score": s.get("confidence_score", 0),
+                "rs_rating": s.get("rs_rating", 0),
+                "tier": s.get("tier", ""),
+            }
+            for s in top_signals
+        ],
+    }
+
+    filepath = _DAILY_REPORTS_DIR / f"{today}.json"
+    try:
+        filepath.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.debug("Daily report snapshot saved: %s (%d signals)", filepath.name, len(top_signals))
+    except Exception as e:
+        logger.warning("Failed to save daily report snapshot: %s", e)
+
+    # Cleanup: keep only last 30 days of reports
+    try:
+        reports = sorted(_DAILY_REPORTS_DIR.glob("*.json"))
+        if len(reports) > 30:
+            for old in reports[:-30]:
+                old.unlink()
+    except Exception:
+        pass
+
+
+def get_energy_trend(stock_code: str, days_back: int = 3) -> list[dict]:
+    """Read Energy Score trend for a stock from daily report snapshots.
+
+    Returns list of {date, energy_tr_ratio, energy_vol_ratio, confidence_score}
+    for the last N days. Used by the Sparkline UI component.
+
+    Architect mandate: read from daily_reports/*.json, no DB queries.
+    """
+    import json
+    from datetime import datetime, timedelta
+
+    result = []
+    if not _DAILY_REPORTS_DIR.exists():
+        return result
+
+    today = datetime.now().date()
+    for i in range(days_back):
+        date = today - timedelta(days=i)
+        filepath = _DAILY_REPORTS_DIR / f"{date.isoformat()}.json"
+        if not filepath.exists():
+            continue
+        try:
+            data = json.loads(filepath.read_text(encoding="utf-8"))
+            for s in data.get("signals", []):
+                if s.get("stock_code") == stock_code:
+                    result.append({
+                        "date": date.isoformat(),
+                        "energy_tr_ratio": s.get("energy_tr_ratio"),
+                        "energy_vol_ratio": s.get("energy_vol_ratio"),
+                        "confidence_score": s.get("confidence_score", 0),
+                    })
+                    break
+        except Exception:
+            continue
+
+    # Sort oldest first
+    result.sort(key=lambda x: x["date"])
+    return result

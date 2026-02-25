@@ -98,6 +98,10 @@ export const systemApi = {
   paramRecommendations: (daysBack: number = 90) =>
     client.get<any, ParamRecommendations>(`/system/param-recommendations?days_back=${daysBack}`, { timeout: 30000 }),
 
+  // V1.1 P1: Energy Score Sparkline
+  energyTrend: (stockCode: string, daysBack: number = 3) =>
+    client.get<any, EnergyTrendPoint[]>(`/system/energy-trend/${stockCode}?days_back=${daysBack}`),
+
   // Phase 9 P0: Industry Success Rates
   industrySuccessRates: (daysBack: number = 90) =>
     client.get<any, any>(`/system/industry-success-rates?days_back=${daysBack}`),
@@ -458,6 +462,14 @@ export interface ParamRecommendations {
   in_bounds_rate: number | null
   analysis_period: string
   generated_at: string
+}
+
+// V1.1 P1: Energy Score Sparkline
+export interface EnergyTrendPoint {
+  date: string
+  energy_tr_ratio: number | null
+  energy_vol_ratio: number | null
+  confidence_score: number
 }
 
 /** Trigger browser file download from Blob response */

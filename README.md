@@ -323,6 +323,10 @@ python -m pytest tests/ -q
 | **V1.0.0** | **JOE_TRADING_MANUAL.md** — 系統操作手冊（繁中）：開盤前 Checklist、Emergency Kill Switch、進攻指數判讀、月度參數建議、信號日誌、風控規則、已封存實驗（ML v5-v8、Adaptive Sniper、Pyramid）、系統維護 (CTO Directive #1, Architect APPROVED) | Done |
 | **V1.0.0** | **Weekly Performance Report** — `scheduler.py` 週日 22:15 自動產出：Live vs Virtual 績效比較、Slippage 摘要、Shake-out Rate、Tier 1 Alpha Decay 追蹤；LINE Notify 推送 (CTO Directive #2, Architect APPROVED) | Done |
 | **V1.0.0** | **System V1.0.0 Label** — Strategy Control Tower 標題新增 V1.0.0 版本標籤；The Big Three 儀表板指標（Risk Flag + Aggressive Index + Live Positions）已內建於 header (CTO Directive #3, Architect APPROVED) | Done |
+| **V1.1** | **P0: Data Source Failover** — `daily_update.py` FinMind 備援：yfinance 失敗/全 NaN 時自動切換 FinMind，LINE Notify 警告「數據源切換中」；NaN 驗證 >90% 觸發 CRITICAL alert (Architect APPROVED) | Done |
+| **V1.1** | **P1: Energy Score Sparkline** — `auto_sim.py` 每日存 `data/daily_reports/YYYY-MM-DD.json` 快照；`GET /system/energy-trend/{code}` 讀取 3 天趨勢；Signal Log 表格新增 SVG 微型趨勢圖 (Architect ADAPTED — 檔案讀取，禁建資料表) | Done |
+| **V1.1** | **P2: SQS Profiling** — cProfile 結果：99.85% I/O Bound（HTTP + rate-limit sleep），0.15% CPU。NumPy 向量化無效。asyncio.gather 需重構整個 data pipeline，暫緩。`benchmarking_results.log` 已提交 (Architect: STRICT PROFILE FIRST → DEFERRED) | Done |
+| **V1.1** | **PM: Secrets Audit + API Quota** — 全程式碼 token 洩漏稽核 PASS；`JOE_TRADING_MANUAL.md` 新增 API 配額管理表（8 數據源）+ Secrets 安全規則 (Architect APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 

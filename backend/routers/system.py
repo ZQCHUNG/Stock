@@ -1481,6 +1481,17 @@ def param_recommendations(days_back: int = 90):
     return generate_recommendations(days_back=days_back)
 
 
+@router.get("/energy-trend/{stock_code}")
+def energy_trend(stock_code: str, days_back: int = 3):
+    """V1.1 P1: Energy Score Sparkline data from daily report snapshots.
+
+    Architect APPROVED: File-based read, no DB queries.
+    Returns list of {date, energy_tr_ratio, energy_vol_ratio, confidence_score}.
+    """
+    from analysis.auto_sim import get_energy_trend
+    return get_energy_trend(stock_code, days_back=days_back)
+
+
 @router.post("/ai-comment/{stock_code}")
 def ai_comment(stock_code: str):
     """Phase 14 Task 1: AI Signal Commentator — on-demand for single stock.

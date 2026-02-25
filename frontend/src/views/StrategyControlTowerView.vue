@@ -58,6 +58,18 @@ const shakeOut = ref<ShakeOutResult | null>(null)
 // Parameter Recommendations (Phase 14 Task 3)
 const paramRecs = ref<ParamRecommendations | null>(null)
 
+// V1.1 P1: Energy Score Sparkline
+const energyTrends = ref<Record<string, any[]>>({})
+async function loadEnergyTrend(code: string) {
+  energyTrends.value[code] = [] // mark as loading
+  try {
+    const data = await systemApi.energyTrend(code, 3)
+    energyTrends.value[code] = data
+  } catch {
+    energyTrends.value[code] = []
+  }
+}
+
 // --- Loaders ---
 async function loadSignals() {
   isLoading.value = true
@@ -432,6 +444,40 @@ const signalColumns = computed<DataTableColumns>(() => [
         loading: aiCommentLoading.value === row.stock_code,
         onClick: () => askAiComment(row),
       }, () => 'Ask AI')
+    },
+  },
+  {
+    title: 'Energy',
+    key: 'energy_trend',
+    width: 70,
+    render: (row: any) => {
+      const trend = energyTrends.value[row.stock_code]
+      if (!trend || trend.length === 0) {
+        // Auto-fetch if not loaded
+        if (!energyTrends.value[row.stock_code]) {
+          loadEnergyTrend(row.stock_code)
+        }
+        return h('span', { style: 'color: #999; font-size: 11px' }, '...')
+      }
+      // Render inline SVG sparkline
+      const scores = trend.map((t: any) => t.confidence_score || 0)
+      const max = Math.max(...scores, 1)
+      const min = Math.min(...scores, 0)
+      const range = max - min || 1
+      const w = 50
+      const ht = 18
+      const points = scores.map((s: number, i: number) =>
+        `${(i / Math.max(scores.length - 1, 1)) * w},${ht - ((s - min) / range) * ht}`
+      ).join(' ')
+      const lastVal = scores[scores.length - 1]
+      const prevVal = scores.length > 1 ? scores[scores.length - 2] : lastVal
+      const color = lastVal >= prevVal ? '#22c55e' : '#ef4444'
+      return h('span', { style: 'display: inline-flex; align-items: center; gap: 2px' }, [
+        h('svg', { width: w, height: ht, style: 'vertical-align: middle' }, [
+          h('polyline', { points, fill: 'none', stroke: color, 'stroke-width': '1.5' }),
+        ]),
+        h('span', { style: `color: ${color}; font-size: 10px; font-weight: 600` }, lastVal),
+      ])
     },
   },
   { title: 'Industry', key: 'industry', width: 80 },

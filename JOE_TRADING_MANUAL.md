@@ -75,7 +75,33 @@ List of experiments that were tested and deliberately NOT adopted:
 - 原因: 加碼在已有利潤的部位上，增加了集中度風險
 - 教訓: 分散比集中安全
 
-## 7. 系統維護注意事項
+## 7. API 配額管理表
+
+| 數據源 | 用途 | 速率限制 | 延遲策略 | 憑證 | 配額重置 |
+|--------|------|---------|---------|------|---------|
+| **TWSE** | 日線/法人/除權息 (主要) | IP 封鎖風險 | 3-8s random | 無 (公開) | — |
+| **TPEX** | 上櫃股日線/法人 | 同 TWSE | 3-8s random | 無 (公開) | — |
+| **yfinance** | 日線備援 | 隱性限制 (IP 阻斷) | 無 | 無 (公開) | — |
+| **FinMind** | 日線/財報/法人備援 | 429→指數退避; 402→60min 窗口 | 1-3s random | FINMIND_TOKEN (.env) | 滾動 60 分鐘窗口 |
+| **MOPS** | 月營收 | 同 TWSE | 3-8s random | 無 (公開) | — |
+| **Google News** | 新聞 RSS | 429→等 60s | 2-5s random | 無 (公開) | — |
+| **LINE Notify** | 通知推送 | 1000 則/小時 | 4hr 去重 | LINE_NOTIFY_TOKEN (.env) | 每小時重置 |
+| **Telegram Bot** | 通知推送 (選用) | 30 則/秒 | 無 | telegram_bot_token (config) | — |
+
+注意事項:
+- FinMind 402 錯誤 = 配額耗盡，系統自動等待 60 分鐘後重試
+- TWSE/TPEX 如遭 IP 封鎖，等待 1 小時或更換網路
+- yfinance 偶爾對台股 IP 阻斷，系統會自動 fallback 至 FinMind
+- 所有 token 存放在 `.env` 檔案中，絕不 commit 到 Git
+
+## 8. Secrets 安全規則
+- 所有 API token 從環境變數載入 (`os.environ.get`)
+- `.env` 已在 `.gitignore` 中排除
+- Frontend API 回傳時自動遮蔽 token (`token[:8] + "***"`)
+- Log 中不會出現任何 token 內容
+- 如需更換 token: 修改 `.env` 後重啟 backend
+
+## 9. 系統維護注意事項
 - 數據更新: 每日 20:00 自動重建 Parquet 特徵
 - Scheduler: 啟動時自動運行所有排程任務
 - Backup: Control Tower → Run Backup
