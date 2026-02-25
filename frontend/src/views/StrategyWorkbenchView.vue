@@ -13,6 +13,7 @@ import { useAppStore } from '../stores/app'
 import FitnessView from './FitnessView.vue'
 import BacktestView from './BacktestView.vue'
 import SniperScannerTab from '../components/SniperScannerTab.vue'
+import ParameterHeatmap from '../components/ParameterHeatmap.vue'
 
 const msg = useMessage()
 const app = useAppStore()
@@ -486,6 +487,10 @@ onMounted(async () => {
 
       <NTabPane name="sniper" tab="狙擊名單" display-directive="if">
         <SniperScannerTab />
+      </NTabPane>
+
+      <NTabPane name="heatmap" tab="參數熱圖" display-directive="if">
+        <ParameterHeatmap />
       </NTabPane>
     </NTabs>
 

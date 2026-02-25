@@ -105,6 +105,15 @@ export const backtestApi = {
       trade_window: tradeWindow,
     }, { timeout: 300_000 }),
 
+  // Phase 12: Adaptive Sniper A/B Comparison
+  adaptiveSniperAB: (periodDays = 1095, brokerDiscount = 0.28, useDynamicSlippage = true) =>
+    client.post<any, any>('/backtest/adaptive-sniper-ab', {
+      period_days: periodDays,
+      initial_capital: 10_000_000,
+      broker_discount: brokerDiscount,
+      use_dynamic_slippage: useDynamicSlippage,
+    }, { timeout: 600_000 }),
+
   // R59: Forward Testing
   forwardTestSummary: () =>
     client.get<any, any>('/backtest/forward-test/summary'),
@@ -149,4 +158,50 @@ export const backtestApi = {
     monthly_pnl?: number
     consecutive_losses?: number
   }) => client.post<any, any>('/backtest/risk/circuit-breaker', null, { params }),
+
+  // P2-A: Parameter Sensitivity Heatmap
+  parameterHeatmap: (params: {
+    preset?: string
+    x_param?: string
+    x_values?: number[]
+    y_param?: string
+    y_values?: number[]
+    metric?: string
+    stock_codes?: string[]
+    sample_size?: number
+    period_days?: number
+  } = {}) =>
+    client.post<any, HeatmapResult>('/backtest/parameter-heatmap', params, {
+      timeout: 600_000,
+    }),
+
+  parameterHeatmapPresets: () =>
+    client.get<any, Record<string, HeatmapPreset>>('/backtest/parameter-heatmap/presets'),
+}
+
+// P2-A: Heatmap Types
+export interface HeatmapResult {
+  x_param: string
+  x_values: number[]
+  x_label: string
+  y_param: string
+  y_values: number[]
+  y_label: string
+  metric: string
+  matrix: (number | null)[][]
+  zones: string[][]
+  all_metrics: Record<string, (number | null)[][]>
+  stocks_used: number
+  compute_time_sec: number
+  default_x: number
+  default_y: number
+}
+
+export interface HeatmapPreset {
+  x_param: string
+  x_values: number[]
+  x_label: string
+  y_param: string
+  y_values: number[]
+  y_label: string
 }

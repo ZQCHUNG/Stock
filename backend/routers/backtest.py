@@ -98,6 +98,19 @@ class SqsBacktestRequest(BaseModel):
     thresholds: list[float] = [40, 60, 80]
 
 
+class ParameterHeatmapRequest(BaseModel):
+    """P2-A: Parameter sensitivity heatmap for Bold Entry D."""
+    preset: str | None = None  # Use a named preset (overrides x/y params)
+    x_param: str = "momentum_high_pct"
+    x_values: list[float] = [0.93, 0.94, 0.95, 0.96, 0.97, 0.98, 0.99]
+    y_param: str = "momentum_ma20_slope_days"
+    y_values: list[float] = [5, 10, 15, 20, 25, 30, 35, 40]
+    metric: str = "sharpe_ratio"
+    stock_codes: list[str] | None = None  # None → use SCAN_STOCKS sample
+    sample_size: int = 20  # How many stocks from SCAN_STOCKS to sample
+    period_days: int = 1825  # 5 years
+
+
 def _serialize_backtest_result(result) -> dict:
     """BacktestResult → JSON-safe dict"""
     from backend.dependencies import series_to_response, make_serializable
@@ -1829,3 +1842,259 @@ def get_regime_barometer(req: RegimeBarometerRequest | None = None):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# Phase 12: Adaptive Sniper A/B Comparison
+# ============================================================
+
+class AdaptiveSniperRequest(BaseModel):
+    period_days: int = 1095
+    initial_capital: float = 10_000_000
+    broker_discount: float = 0.28
+    use_dynamic_slippage: bool = True
+
+
+@router.post("/adaptive-sniper-ab")
+async def adaptive_sniper_ab(req: AdaptiveSniperRequest):
+    """Phase 12: A/B comparison — Fixed Weight vs Dynamic Weight (Adaptive Sniper)
+
+    Runs the portfolio backtest twice:
+    A) Baseline: adaptive_sniper_enabled=False (current production)
+    B) Adaptive: adaptive_sniper_enabled=True (omega-weighted by regime)
+
+    Returns both results side-by-side for CTO review.
+    """
+    try:
+        from config import SCAN_STOCKS
+        from data.fetcher import get_stock_data, get_taiex_data
+        from data.sector_mapping import get_stock_sector
+        from backtest.portfolio_runner import PortfolioBacktester, PORTFOLIO_PARAMS
+        from backtest.engine import TransactionCostCalculator
+        from collections import Counter
+
+        # Use Sniper B config (production)
+        base_params = {
+            **PORTFOLIO_PARAMS,
+            "sizing_mode": "vol_adjusted",
+            "risk_per_trade": 0.015,
+            "risk_per_trade_defensive": 0.005,
+        }
+
+        cost_calc = TransactionCostCalculator(
+            broker_discount=req.broker_discount,
+            use_dynamic_slippage=req.use_dynamic_slippage,
+        )
+
+        # Fetch stock data (same pattern as portfolio-bold)
+        fetch_days = req.period_days + 400
+        stock_data = {}
+        stock_sectors = {}
+        for code in SCAN_STOCKS:
+            try:
+                df = get_stock_data(code, period_days=fetch_days)
+                if df is not None and not df.empty and len(df) > 200:
+                    stock_data[code] = df
+                    stock_sectors[code] = get_stock_sector(code, level=1) or ""
+            except Exception:
+                continue
+
+        # Fetch TAIEX
+        taiex_data = None
+        try:
+            taiex_data = get_taiex_data(period_days=fetch_days)
+        except Exception:
+            pass
+
+        print(f"Phase 12 A/B: {len(stock_data)} stocks loaded")
+        if len(stock_data) < 10:
+            raise HTTPException(status_code=400, detail="Not enough stock data")
+
+        all_results = {}
+
+        # --- A: Baseline (Fixed Weight) ---
+        print("\n  [A] Running BASELINE (Fixed Weight)...")
+        params_a = {**base_params, "adaptive_sniper_enabled": False}
+        bt_a = PortfolioBacktester(params=params_a, cost_calculator=cost_calc)
+        result_a = bt_a.run(stock_data, stock_sectors, taiex_data, start_str, end_str)
+
+        all_results["baseline"] = {
+            "label": "A: Fixed Weight (Baseline)",
+            "adaptive_enabled": False,
+            "total_return": result_a.total_return,
+            "annual_return": result_a.annual_return,
+            "max_drawdown": result_a.max_drawdown,
+            "sharpe_ratio": result_a.sharpe_ratio,
+            "calmar_ratio": result_a.calmar_ratio,
+            "profit_factor": result_a.profit_factor,
+            "win_rate": result_a.win_rate,
+            "total_trades": result_a.total_trades,
+            "avg_return": result_a.avg_return,
+            "avg_holding_days": result_a.avg_holding_days,
+        }
+
+        # --- B: Adaptive Sniper (Dynamic Weight) ---
+        print("  [B] Running ADAPTIVE SNIPER (Dynamic Weight)...")
+        params_b = {**base_params, "adaptive_sniper_enabled": True}
+        bt_b = PortfolioBacktester(params=params_b, cost_calculator=cost_calc)
+        result_b = bt_b.run(stock_data, stock_sectors, taiex_data, start_str, end_str)
+
+        all_results["adaptive"] = {
+            "label": "B: Adaptive Sniper (Dynamic Weight)",
+            "adaptive_enabled": True,
+            "total_return": result_b.total_return,
+            "annual_return": result_b.annual_return,
+            "max_drawdown": result_b.max_drawdown,
+            "sharpe_ratio": result_b.sharpe_ratio,
+            "calmar_ratio": result_b.calmar_ratio,
+            "profit_factor": result_b.profit_factor,
+            "win_rate": result_b.win_rate,
+            "total_trades": result_b.total_trades,
+            "avg_return": result_b.avg_return,
+            "avg_holding_days": result_b.avg_holding_days,
+        }
+
+        # Delta analysis
+        delta = {
+            "total_return_delta": round(result_b.total_return - result_a.total_return, 2),
+            "calmar_delta": round(result_b.calmar_ratio - result_a.calmar_ratio, 2),
+            "sharpe_delta": round(result_b.sharpe_ratio - result_a.sharpe_ratio, 2),
+            "max_drawdown_delta": round(result_b.max_drawdown - result_a.max_drawdown, 2),
+            "win_rate_delta": round(result_b.win_rate - result_a.win_rate, 1),
+            "verdict": "ADAPTIVE_WINS" if result_b.calmar_ratio > result_a.calmar_ratio else "BASELINE_WINS",
+        }
+
+        # Entry type and exit reason breakdowns
+        for key, result in [("baseline", result_a), ("adaptive", result_b)]:
+            entry_dist = {}
+            for etype, count in Counter(t.entry_type for t in result.trades).items():
+                type_trades = [t for t in result.trades if t.entry_type == etype]
+                wr = sum(1 for t in type_trades if t.return_pct > 0) / len(type_trades) * 100
+                avg = sum(t.return_pct for t in type_trades) / len(type_trades) * 100
+                entry_dist[etype or "unknown"] = {
+                    "count": count, "win_rate": round(wr, 1), "avg_return_pct": round(avg, 2),
+                }
+            all_results[key]["entry_type_distribution"] = entry_dist
+
+            exit_dist = {}
+            for reason, count in Counter(t.exit_reason for t in result.trades).items():
+                reason_trades = [t for t in result.trades if t.exit_reason == reason]
+                wr = sum(1 for t in reason_trades if t.return_pct > 0) / len(reason_trades) * 100
+                avg = sum(t.return_pct for t in reason_trades) / len(reason_trades) * 100
+                exit_dist[reason] = {
+                    "count": count, "win_rate": round(wr, 1), "avg_return_pct": round(avg, 2),
+                }
+            all_results[key]["exit_reason_distribution"] = exit_dist
+
+        return {
+            "status": "ok",
+            "period": f"{start_str} ~ {end_str}",
+            "stocks_loaded": len(stock_data),
+            "cost_settings": cost_calc.describe(),
+            "omega_params": {
+                "breakout": {
+                    "hot": base_params.get("omega_breakout_hot"),
+                    "chop": base_params.get("omega_breakout_chop"),
+                    "flash": base_params.get("omega_breakout_flash"),
+                    "normal": base_params.get("omega_breakout_normal"),
+                },
+                "bounce": {
+                    "hot": base_params.get("omega_bounce_hot"),
+                    "chop": base_params.get("omega_bounce_chop"),
+                    "flash": base_params.get("omega_bounce_flash"),
+                    "normal": base_params.get("omega_bounce_normal"),
+                },
+            },
+            **all_results,
+            "delta": delta,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# P2-A: Parameter Sensitivity Heatmap (CTO Gemini directive)
+# ---------------------------------------------------------------------------
+
+@router.post("/parameter-heatmap")
+def run_parameter_heatmap(req: ParameterHeatmapRequest):
+    """P2-A: Parameter sensitivity heatmap for Bold Entry D.
+
+    Grid-searches two parameters, runs backtests across a stock sample,
+    and returns a matrix of aggregate metrics for heatmap visualization.
+
+    Identifies "Profit Plateau" (robust) vs "Parameter Islands" (overfitting).
+    """
+    from data.fetcher import get_stock_data
+    from backtest.parameter_heatmap import run_heatmap, get_presets
+    from config import SCAN_STOCKS
+    from backend.dependencies import make_serializable
+    import random
+
+    try:
+        # Apply preset if specified
+        x_param, x_values = req.x_param, req.x_values
+        y_param, y_values = req.y_param, req.y_values
+        if req.preset:
+            presets = get_presets()
+            if req.preset not in presets:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unknown preset: {req.preset}. Available: {list(presets.keys())}",
+                )
+            p = presets[req.preset]
+            x_param = p["x_param"]
+            x_values = p["x_values"]
+            y_param = p["y_param"]
+            y_values = p["y_values"]
+
+        # Determine stock universe
+        if req.stock_codes:
+            codes = req.stock_codes
+        else:
+            all_codes = list(SCAN_STOCKS.keys())
+            sample_n = min(req.sample_size, len(all_codes))
+            codes = random.sample(all_codes, sample_n)
+
+        # Load stock data
+        fetch_days = req.period_days + 300  # extra for warm-up
+        stock_data = {}
+        for code in codes:
+            try:
+                df = get_stock_data(code, period_days=fetch_days)
+                if df is not None and not df.empty and len(df) > 120:
+                    stock_data[code] = df
+            except Exception:
+                continue
+
+        if len(stock_data) < 3:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Not enough stock data loaded ({len(stock_data)}/{len(codes)})",
+            )
+
+        result = run_heatmap(
+            stock_data=stock_data,
+            x_param=x_param,
+            x_values=x_values,
+            y_param=y_param,
+            y_values=y_values,
+            metric=req.metric,
+        )
+
+        return make_serializable(result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/parameter-heatmap/presets")
+def get_heatmap_presets():
+    """Return available preset sweep configurations."""
+    from backtest.parameter_heatmap import get_presets
+    return get_presets()
