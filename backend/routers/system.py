@@ -1201,3 +1201,28 @@ def emergency_stop():
         "timestamp": now.isoformat(),
         "actions": actions,
     }
+
+
+# ---------------------------------------------------------------------------
+# P2-B: Auto-Sim Pipeline — manual trigger
+# ---------------------------------------------------------------------------
+
+@router.post("/auto-sim")
+def trigger_auto_sim(send_notify: bool = True):
+    """P2-B: Run Auto-Sim Pipeline — screener → find_similar_dual → LINE Notify.
+
+    Finds RS >= 80 stocks, runs similarity analysis, sends top 5 diversified
+    signals to LINE Notify.
+    """
+    from fastapi import HTTPException
+    from analysis.auto_sim import run_auto_sim, send_auto_sim_notification
+
+    try:
+        result = run_auto_sim()
+        if send_notify and result.get("top_signals"):
+            result["notification_sent"] = send_auto_sim_notification(result)
+        else:
+            result["notification_sent"] = False
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

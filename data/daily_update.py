@@ -394,6 +394,7 @@ def run_daily_update() -> dict:
       2. Recompute RS matrices
       3. Refresh screener DB
       4. Rollover forward returns (backfill NaN with new close data)
+      5. Auto-Sim: screener → find_similar_dual → LINE Notify (P2-B)
 
     Returns:
         Summary dict with results from each step.
@@ -406,7 +407,7 @@ def run_daily_update() -> dict:
     results = {}
 
     # Step 1: Extend close matrix
-    logger.info("[Step 1/4] Extending close matrix...")
+    logger.info("[Step 1/5] Extending close matrix...")
     try:
         results["close_matrix"] = extend_close_matrix()
     except Exception as e:
@@ -414,7 +415,7 @@ def run_daily_update() -> dict:
         results["close_matrix"] = {"error": str(e)}
 
     # Step 2: Recompute RS matrices
-    logger.info("[Step 2/4] Recomputing RS matrices...")
+    logger.info("[Step 2/5] Recomputing RS matrices...")
     try:
         results["rs_matrices"] = recompute_rs_matrices()
     except Exception as e:
@@ -422,7 +423,7 @@ def run_daily_update() -> dict:
         results["rs_matrices"] = {"error": str(e)}
 
     # Step 3: Refresh screener DB
-    logger.info("[Step 3/4] Refreshing screener DB...")
+    logger.info("[Step 3/5] Refreshing screener DB...")
     try:
         results["screener"] = refresh_screener_db()
     except Exception as e:
@@ -430,12 +431,31 @@ def run_daily_update() -> dict:
         results["screener"] = {"error": str(e)}
 
     # Step 4: Rollover forward returns
-    logger.info("[Step 4/4] Rolling forward returns...")
+    logger.info("[Step 4/5] Rolling forward returns...")
     try:
         results["forward_returns"] = rollover_forward_returns()
     except Exception as e:
         logger.error("Forward returns rollover failed: %s", e, exc_info=True)
         results["forward_returns"] = {"error": str(e)}
+
+    # Step 5: Auto-Sim Pipeline (P2-B: screener → find_similar_dual → LINE Notify)
+    logger.info("[Step 5/5] Running Auto-Sim Pipeline...")
+    try:
+        from analysis.auto_sim import run_auto_sim, send_auto_sim_notification
+        sim_result = run_auto_sim()
+        results["auto_sim"] = {
+            "candidates_found": sim_result["candidates_found"],
+            "simulated": sim_result["simulated"],
+            "signals_sent": len(sim_result["top_signals"]),
+            "elapsed_s": sim_result["elapsed_s"],
+        }
+        # Send LINE notification if there are signals
+        if sim_result["top_signals"]:
+            sent = send_auto_sim_notification(sim_result)
+            results["auto_sim"]["notification_sent"] = sent
+    except Exception as e:
+        logger.error("Auto-Sim failed: %s", e, exc_info=True)
+        results["auto_sim"] = {"error": str(e)}
 
     total_elapsed = time.time() - t0
     results["total_elapsed_s"] = round(total_elapsed, 1)

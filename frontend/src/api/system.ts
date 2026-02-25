@@ -22,6 +22,13 @@ export const systemApi = {
   exceptionDashboard: () => client.get<any, any>('/system/exception-dashboard', { timeout: 30000 }),
   emergencyStop: () => client.post<any, any>('/system/emergency-stop', {}, { timeout: 10000 }),
 
+  // P2-B: Auto-Sim Pipeline
+  autoSim: (sendNotify = true) =>
+    client.post<any, AutoSimResult>('/system/auto-sim', null, {
+      params: { send_notify: sendNotify },
+      timeout: 600_000,
+    }),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {
@@ -53,6 +60,35 @@ export const systemApi = {
     client.get(`/system/export/backtest/pdf/${code}?period=${period}`, {
       responseType: 'blob' as any, timeout: 120000,
     }),
+}
+
+// P2-B: Auto-Sim Types
+export interface AutoSimSignal {
+  stock_code: string
+  name: string
+  rs_rating: number
+  industry: string
+  tier: 'sniper' | 'tactical' | 'avoid'
+  mean_similarity: number
+  confidence_score: number
+  confidence_grade: 'HIGH' | 'MEDIUM' | 'LOW'
+  d21_win_rate: number | null
+  d21_mean: number | null
+  d21_expectancy: number | null
+  ci_low: number | null
+  ci_high: number | null
+  worst_case_pct: number | null
+  sample_count: number
+  divergence_warning: boolean
+}
+
+export interface AutoSimResult {
+  candidates_found: number
+  simulated: number
+  top_signals: AutoSimSignal[]
+  message: string
+  elapsed_s: number
+  notification_sent?: boolean
 }
 
 /** Trigger browser file download from Blob response */
