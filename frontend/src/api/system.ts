@@ -73,6 +73,13 @@ export const systemApi = {
   // Phase 9 P1: War Room (Virtual Portfolio Equity Curve)
   warRoom: () => client.get<any, WarRoomData>('/system/war-room', { timeout: 30000 }),
 
+  // Phase 10 P0: Stress Test
+  stressTest: (stressDays: number = 3, slippage: number = 0.95) =>
+    client.get<any, StressTestResult>(`/system/stress-test?stress_days=${stressDays}&slippage=${slippage}`, { timeout: 30000 }),
+
+  // Phase 10 P1: Aggressive Index
+  aggressiveIndex: () => client.get<any, AggressiveIndex>('/system/aggressive-index', { timeout: 15000 }),
+
   // Phase 9 P0: Industry Success Rates
   industrySuccessRates: (daysBack: number = 90) =>
     client.get<any, any>(`/system/industry-success-rates?days_back=${daysBack}`),
@@ -318,6 +325,55 @@ export interface WarRoomData {
   equity_curve: WarRoomEquityPoint[]
   active_count: number
   realized_count: number
+}
+
+// Phase 10 P1: Aggressive Index
+export interface AggressiveIndexBreakdown {
+  score: number
+  max: number
+  label: string
+}
+
+export interface AggressiveIndex {
+  score: number
+  regime: 'aggressive' | 'normal' | 'defensive'
+  advice: string
+  color: string
+  breakdown: Record<string, AggressiveIndexBreakdown>
+  label: string
+}
+
+// Phase 10 P0: Stress Test
+export interface StressTestPosition {
+  stock_code: string
+  stock_name: string
+  entry_price: number
+  position_pct: number
+  position_value: number
+  stressed_value: number
+  loss: number
+  loss_pct: number
+}
+
+export interface StressTestResult {
+  scenario: string
+  initial_equity: number
+  current_equity: number
+  stressed_equity: number
+  stressed_mdd_pct: number
+  total_loss_pct: number
+  total_loss: number
+  is_bust: boolean
+  bust_threshold_pct: number
+  positions_at_risk: number
+  total_exposure: number
+  exposure_pct: number
+  per_position_details: StressTestPosition[]
+  stress_days: number
+  slippage_multiplier: number
+  crash_factor: number
+  exit_factor: number
+  recovery_needed_pct: number
 }
 
 /** Trigger browser file download from Blob response */

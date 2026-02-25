@@ -1407,6 +1407,166 @@ def missed_opportunities(days_back: int = 30, limit: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/aggressive-index")
+def aggressive_index():
+    """Phase 10 P1: Aggressive Index — System Temperature Gauge.
+
+    Architect approved: [HYPOTHESIS: AGGRESSIVE_INDEX_WEIGHTS_V1]
+    Combines Market Context (30) + Sector RS (25) + In-Bounds Rate (25) + Signal Quality (20).
+    0-40: Defensive (blue), 40-70: Normal (green), 70-100: Aggressive (red).
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    score = 0
+    breakdown = {}
+
+    # 1. Market Context (max 30)
+    try:
+        from data.fetcher import get_taiex_data
+        taiex = get_taiex_data(period_days=60)
+        if taiex is not None and len(taiex) >= 25:
+            close = taiex["close"]
+            ma20 = close.rolling(20).mean()
+            latest = float(close.iloc[-1])
+            ma20_val = float(ma20.iloc[-1])
+            if latest > ma20_val:
+                market_score = 30
+                market_label = "Bull (TAIEX > MA20)"
+            else:
+                market_score = 10
+                market_label = "Bear (TAIEX < MA20)"
+        else:
+            market_score = 15
+            market_label = "No data"
+    except Exception:
+        market_score = 15
+        market_label = "Error"
+
+    score += market_score
+    breakdown["market_context"] = {"score": market_score, "max": 30, "label": market_label}
+
+    # 2. Sector RS Distribution (max 25)
+    try:
+        from analysis.sector_rs import compute_sector_rs_table
+        sector_table = compute_sector_rs_table()
+        if sector_table:
+            sorted_sectors = sorted(sector_table.items(), key=lambda x: x[1].get("median_rs", 0), reverse=True)
+            top3_median = [v.get("median_rs", 0) for _, v in sorted_sectors[:3]]
+            avg_top3 = sum(top3_median) / len(top3_median) if top3_median else 0
+
+            if avg_top3 > 70:
+                sector_score = 25
+                sector_label = f"Strong (Top3 avg={avg_top3:.0f})"
+            elif avg_top3 > 50:
+                sector_score = 15
+                sector_label = f"Moderate (Top3 avg={avg_top3:.0f})"
+            else:
+                sector_score = 5
+                sector_label = f"Weak (Top3 avg={avg_top3:.0f})"
+        else:
+            sector_score = 10
+            sector_label = "No data"
+    except Exception:
+        sector_score = 10
+        sector_label = "Error"
+
+    score += sector_score
+    breakdown["sector_rs"] = {"score": sector_score, "max": 25, "label": sector_label}
+
+    # 3. In-Bounds Rate (max 25)
+    try:
+        from analysis.drift_detector import compute_in_bounds_rate
+        ib = compute_in_bounds_rate(days_back=90)
+        rate = ib.get("in_bounds_rate")
+
+        if rate is None:
+            ib_score = 15  # No data = neutral
+            ib_label = "No realized signals"
+        elif rate > 0.70:
+            ib_score = 25
+            ib_label = f"Excellent ({rate:.0%})"
+        elif rate > 0.60:
+            ib_score = 20
+            ib_label = f"Good ({rate:.0%})"
+        elif rate > 0.50:
+            ib_score = 15
+            ib_label = f"Fair ({rate:.0%})"
+        else:
+            ib_score = 5
+            ib_label = f"Poor ({rate:.0%})"
+    except Exception:
+        ib_score = 10
+        ib_label = "Error"
+
+    score += ib_score
+    breakdown["in_bounds_rate"] = {"score": ib_score, "max": 25, "label": ib_label}
+
+    # 4. Signal Quality — recent 5 signals avg confidence (max 20)
+    try:
+        from analysis.signal_log import get_all_signals
+        recent = get_all_signals(limit=5)
+        if recent:
+            avg_conf = sum(s.get("sim_score", 0) for s in recent) / len(recent)
+            if avg_conf >= 60:
+                sq_score = 20
+                sq_label = f"High (avg={avg_conf:.0f})"
+            elif avg_conf >= 40:
+                sq_score = 12
+                sq_label = f"Medium (avg={avg_conf:.0f})"
+            else:
+                sq_score = 5
+                sq_label = f"Low (avg={avg_conf:.0f})"
+        else:
+            sq_score = 10
+            sq_label = "No signals"
+    except Exception:
+        sq_score = 10
+        sq_label = "Error"
+
+    score += sq_score
+    breakdown["signal_quality"] = {"score": sq_score, "max": 20, "label": sq_label}
+
+    # Determine regime
+    if score >= 70:
+        regime = "aggressive"
+        advice = "資金效率最大化"
+        color = "#ef4444"  # red/hot
+    elif score >= 40:
+        regime = "normal"
+        advice = "正常操作"
+        color = "#22c55e"  # green/warm
+    else:
+        regime = "defensive"
+        advice = "建議防禦，縮減倉位"
+        color = "#3b82f6"  # blue/cold
+
+    return {
+        "score": score,
+        "regime": regime,
+        "advice": advice,
+        "color": color,
+        "breakdown": breakdown,
+        "label": "[HYPOTHESIS: AGGRESSIVE_INDEX_WEIGHTS_V1]",
+    }
+
+
+@router.get("/stress-test")
+def stress_test(stress_days: int = 3, slippage: float = 0.95):
+    """Phase 10 P0: Flash Crash Stress Test.
+
+    Architect approved: 3-day limit-down lock + 5% slippage.
+    Secretary: "最好的防禦，是在黑天鵝還沒起飛前，就已經在模擬器中殺死它一百次"
+    """
+    from analysis.stress_tester import run_stress_test
+
+    try:
+        return run_stress_test(stress_days=stress_days, slippage=slippage)
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/war-room")
 def war_room():
     """Phase 9 P1: Virtual Portfolio Equity Curve (War Room View).

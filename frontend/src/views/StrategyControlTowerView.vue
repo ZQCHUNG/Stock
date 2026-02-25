@@ -7,7 +7,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData, StressTestResult, AggressiveIndex } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -41,6 +41,13 @@ const sectorData = ref<SectorHeatmapData | null>(null)
 
 // War Room (Phase 9 P1)
 const warRoom = ref<WarRoomData | null>(null)
+
+// Stress Test (Phase 10 P0)
+const stressTest = ref<StressTestResult | null>(null)
+const stressMode = ref(false)
+
+// Aggressive Index (Phase 10 P1)
+const aggIndex = ref<AggressiveIndex | null>(null)
 
 // --- Loaders ---
 async function loadSignals() {
@@ -123,8 +130,24 @@ async function loadWarRoom() {
   }
 }
 
+async function loadStressTest() {
+  try {
+    stressTest.value = await systemApi.stressTest()
+  } catch {
+    // silent
+  }
+}
+
+async function loadAggIndex() {
+  try {
+    aggIndex.value = await systemApi.aggressiveIndex()
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom(), loadStressTest(), loadAggIndex()])
 }
 
 // --- Actions ---
@@ -299,6 +322,38 @@ const inBoundsHealthy = computed(() => driftReport.value?.in_bounds?.healthy ?? 
 const zScoreAlarm = computed(() => driftReport.value?.z_score?.alarm ?? false)
 const riskOn = computed(() => riskFlag.value?.global_risk_on ?? true)
 
+// --- Stress Test Columns (Phase 10 P0) ---
+const stressColumns = computed<DataTableColumns>(() => [
+  { title: 'Code', key: 'stock_code', width: 70 },
+  { title: 'Name', key: 'stock_name', width: 90 },
+  {
+    title: 'Position %',
+    key: 'position_pct',
+    width: 80,
+    render: (row: any) => (row.position_pct * 100).toFixed(1) + '%',
+  },
+  {
+    title: 'Position $',
+    key: 'position_value',
+    width: 100,
+    render: (row: any) => '$' + Math.round(row.position_value).toLocaleString(),
+  },
+  {
+    title: 'Stressed $',
+    key: 'stressed_value',
+    width: 100,
+    render: (row: any) => h('span', { style: 'color: #ef4444; font-weight: 600' },
+      '$' + Math.round(row.stressed_value).toLocaleString()),
+  },
+  {
+    title: 'Loss %',
+    key: 'loss_pct',
+    width: 70,
+    render: (row: any) => h('span', { style: 'color: #ef4444; font-weight: 600' },
+      '-' + row.loss_pct.toFixed(1) + '%'),
+  },
+])
+
 // --- War Room Charts (Phase 9 P1) ---
 const equityCurveOption = computed(() => {
   if (!warRoom.value?.equity_curve?.length) return null
@@ -379,6 +434,26 @@ onMounted(loadAll)
       >
         {{ riskOn ? 'RISK ON' : 'RISK OFF' }}
       </NTag>
+
+      <!-- Aggressive Index Badge (Phase 10 P1) -->
+      <NTooltip v-if="aggIndex" trigger="hover">
+        <template #trigger>
+          <NTag
+            size="medium"
+            round
+            :color="{ color: aggIndex.color, textColor: '#fff' }"
+          >
+            {{ aggIndex.score }} {{ aggIndex.regime === 'aggressive' ? 'HOT' : aggIndex.regime === 'defensive' ? 'COLD' : 'WARM' }}
+          </NTag>
+        </template>
+        <div style="max-width: 240px">
+          <div style="font-weight: 600; margin-bottom: 4px">Aggressive Index: {{ aggIndex.score }}/100</div>
+          <div style="margin-bottom: 4px">{{ aggIndex.advice }}</div>
+          <div v-for="(v, k) in aggIndex.breakdown" :key="k" style="font-size: 12px; color: #ccc">
+            {{ k }}: {{ v.score }}/{{ v.max }} — {{ v.label }}
+          </div>
+        </div>
+      </NTooltip>
 
       <!-- Z-Score Alarm -->
       <NTag v-if="zScoreAlarm" type="error" size="small">
@@ -1022,6 +1097,85 @@ onMounted(loadAll)
             <NCard title="Drawdown Analysis" size="small" style="margin-bottom: 16px">
               <VChart v-if="drawdownOption" :option="drawdownOption" style="height: 200px" autoresize />
               <NEmpty v-else description="No drawdown data" />
+            </NCard>
+
+            <!-- Stress Test Overlay (Phase 10 P0) -->
+            <NCard size="small" style="margin-bottom: 16px">
+              <template #header>
+                <div style="display: flex; align-items: center; gap: 12px">
+                  <span>Stress Test — Black Swan Scenario</span>
+                  <NButton
+                    size="tiny"
+                    :type="stressMode ? 'error' : 'default'"
+                    @click="stressMode = !stressMode; if (stressMode && !stressTest) loadStressTest()"
+                  >
+                    {{ stressMode ? 'Hide Stress Test' : 'Show Stress Test' }}
+                  </NButton>
+                </div>
+              </template>
+
+              <template v-if="stressMode && stressTest">
+                <!-- Bust Warning -->
+                <NAlert v-if="stressTest.is_bust" type="error" style="margin-bottom: 12px">
+                  BUST ALERT: Under this scenario, portfolio drops below {{ stressTest.bust_threshold_pct }}% of initial capital.
+                  Recovery requires +{{ stressTest.recovery_needed_pct }}% gain.
+                </NAlert>
+
+                <div style="margin-bottom: 8px; color: #999; font-size: 12px">
+                  {{ stressTest.scenario }}
+                </div>
+
+                <NGrid :cols="4" :x-gap="12" :y-gap="12" style="margin-bottom: 12px">
+                  <NGi>
+                    <div style="text-align: center">
+                      <div style="color: #999; font-size: 11px">Positions at Risk</div>
+                      <div style="font-size: 18px; font-weight: 600">{{ stressTest.positions_at_risk }}</div>
+                    </div>
+                  </NGi>
+                  <NGi>
+                    <div style="text-align: center">
+                      <div style="color: #999; font-size: 11px">Total Exposure</div>
+                      <div style="font-size: 18px; font-weight: 600">{{ stressTest.exposure_pct }}%</div>
+                    </div>
+                  </NGi>
+                  <NGi>
+                    <div style="text-align: center">
+                      <div style="color: #999; font-size: 11px">Stressed Equity</div>
+                      <div :style="{ fontSize: '18px', fontWeight: '600', color: stressTest.is_bust ? '#ef4444' : '#f59e0b' }">
+                        ${{ (stressTest.stressed_equity / 10000).toFixed(0) }}W
+                      </div>
+                    </div>
+                  </NGi>
+                  <NGi>
+                    <div style="text-align: center">
+                      <div style="color: #999; font-size: 11px">Max Loss</div>
+                      <div :style="{ fontSize: '18px', fontWeight: '600', color: stressTest.total_loss_pct > 15 ? '#ef4444' : '#f59e0b' }">
+                        -{{ stressTest.total_loss_pct }}%
+                      </div>
+                    </div>
+                  </NGi>
+                </NGrid>
+
+                <!-- Per-Position Stress Details -->
+                <NDataTable
+                  v-if="stressTest.per_position_details.length > 0"
+                  :columns="stressColumns"
+                  :data="stressTest.per_position_details"
+                  size="small"
+                  :max-height="200"
+                  striped
+                />
+
+                <div style="margin-top: 8px; text-align: right">
+                  <NButton size="tiny" @click="loadStressTest()">Refresh Stress Test</NButton>
+                </div>
+              </template>
+
+              <template v-else-if="!stressMode">
+                <div style="color: #999; font-size: 12px; text-align: center; padding: 8px">
+                  Toggle "Show Stress Test" to simulate a Flash Crash scenario on current positions.
+                </div>
+              </template>
             </NCard>
 
             <div style="text-align: right">

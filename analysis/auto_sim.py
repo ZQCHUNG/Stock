@@ -598,6 +598,81 @@ def _get_market_context_adjustment() -> int:
         return 0  # Default: no adjustment
 
 
+def _get_aggressive_index_summary() -> tuple:
+    """Phase 10 P1: Quick Aggressive Index for LINE message header.
+
+    Returns: (score: int, advice: str)
+    """
+    score = 0
+
+    # 1. Market Context (max 30)
+    try:
+        from data.fetcher import get_taiex_data
+        taiex = get_taiex_data(period_days=60)
+        if taiex is not None and len(taiex) >= 25:
+            close = taiex["close"]
+            ma20 = close.rolling(20).mean()
+            if float(close.iloc[-1]) > float(ma20.iloc[-1]):
+                score += 30
+            else:
+                score += 10
+        else:
+            score += 15
+    except Exception:
+        score += 15
+
+    # 2. Sector RS (max 25)
+    try:
+        from analysis.sector_rs import compute_sector_rs_table
+        table = compute_sector_rs_table()
+        if table:
+            sorted_s = sorted(table.items(), key=lambda x: x[1].get("median_rs", 0), reverse=True)
+            top3 = [v.get("median_rs", 0) for _, v in sorted_s[:3]]
+            avg = sum(top3) / len(top3) if top3 else 0
+            score += 25 if avg > 70 else 15 if avg > 50 else 5
+        else:
+            score += 10
+    except Exception:
+        score += 10
+
+    # 3. In-Bounds Rate (max 25)
+    try:
+        from analysis.drift_detector import compute_in_bounds_rate
+        ib = compute_in_bounds_rate(days_back=90)
+        rate = ib.get("in_bounds_rate")
+        if rate is None:
+            score += 15
+        elif rate > 0.70:
+            score += 25
+        elif rate > 0.60:
+            score += 20
+        elif rate > 0.50:
+            score += 15
+        else:
+            score += 5
+    except Exception:
+        score += 10
+
+    # 4. Signal Quality (max 20)
+    try:
+        from analysis.signal_log import get_all_signals
+        recent = get_all_signals(limit=5)
+        if recent:
+            avg_conf = sum(s.get("sim_score", 0) for s in recent) / len(recent)
+            score += 20 if avg_conf >= 60 else 12 if avg_conf >= 40 else 5
+        else:
+            score += 10
+    except Exception:
+        score += 10
+
+    if score >= 70:
+        return (score, "建議積極")
+    elif score >= 40:
+        return (score, "正常操作")
+    else:
+        return (score, "建議防禦")
+
+
 def _format_line_message(signals: list[dict]) -> str:
     """Format CTO-mandated LINE Notify message.
 
@@ -616,6 +691,16 @@ def _format_line_message(signals: list[dict]) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     lines = [f"\n📊 Auto-Sim Daily Report ({now})"]
+
+    # Phase 10 P1: Aggressive Index header
+    try:
+        agg_score, agg_advice = _get_aggressive_index_summary()
+        if agg_score is not None:
+            icon = "🔥" if agg_score >= 70 else "🌡️" if agg_score >= 40 else "🧊"
+            lines.append(f"{icon} 今日市場熱度：{agg_score} ({agg_advice})")
+    except Exception:
+        pass
+
     lines.append(f"共 {len(signals)} 檔高信心標的:\n")
 
     for s in signals:
