@@ -1226,3 +1226,92 @@ def trigger_auto_sim(send_notify: bool = True):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# P3: Signal Log + Drift Detection
+# ---------------------------------------------------------------------------
+
+@router.get("/signal-log")
+def get_signal_log(status: str = "all", limit: int = 100):
+    """P3: Get trade signal log entries.
+
+    status: 'all', 'active', or 'realized'
+    """
+    from analysis.signal_log import get_all_signals, get_active_signals, get_realized_signals
+    from backend.dependencies import make_serializable
+
+    if status == "active":
+        signals = get_active_signals(days_back=90)
+    elif status == "realized":
+        signals = get_realized_signals(days_back=90)
+    else:
+        signals = get_all_signals(limit=limit)
+
+    return make_serializable(signals)
+
+
+@router.post("/signal-log/realize")
+def realize_signals_now():
+    """P3: Manually trigger signal realization (backfill actual returns)."""
+    from fastapi import HTTPException
+    from analysis.signal_log import realize_signals
+
+    try:
+        result = realize_signals()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/drift-report")
+def drift_report():
+    """P3: Get drift detection report (In-Bounds Rate + Z-Score).
+
+    Returns current drift metrics without running full audit.
+    """
+    from backend.dependencies import make_serializable
+    from analysis.drift_detector import (
+        compute_in_bounds_rate,
+        detect_z_score_failure,
+        get_risk_flag,
+    )
+
+    bounds = compute_in_bounds_rate(days_back=90)
+    z_score = detect_z_score_failure(days_back=90)
+    risk_flag = get_risk_flag()
+
+    return make_serializable({
+        "in_bounds": bounds,
+        "z_score": z_score,
+        "risk_flag": risk_flag,
+    })
+
+
+@router.post("/weekly-audit")
+def trigger_weekly_audit():
+    """P3: Manually trigger weekly drift audit + LINE notification."""
+    from fastapi import HTTPException
+    from analysis.drift_detector import run_weekly_audit, send_weekly_audit_notification
+
+    try:
+        report = run_weekly_audit()
+        sent = send_weekly_audit_notification(report)
+        report["notification_sent"] = sent
+        return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/risk-flag")
+def get_risk_flag_status():
+    """P3: Get global risk flag status."""
+    from analysis.drift_detector import get_risk_flag
+    return get_risk_flag()
+
+
+@router.post("/risk-flag")
+def set_risk_flag_manual(risk_on: bool = True, reason: str = "manual"):
+    """P3: Manually set global risk flag."""
+    from analysis.drift_detector import set_risk_flag
+    return set_risk_flag(risk_on, reason)

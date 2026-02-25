@@ -168,6 +168,28 @@ def run_auto_sim(
     # Step 5: Format LINE message
     message = _format_line_message(top_signals)
 
+    # Step 6: Log signals to trade log (P3: signal accountability)
+    signals_logged = 0
+    if top_signals:
+        try:
+            from analysis.signal_log import log_signals_batch
+            signals_logged = log_signals_batch(top_signals)
+            logger.info("Auto-Sim: %d signals logged to trade log", signals_logged)
+        except Exception as e:
+            logger.warning("Auto-Sim: Failed to log signals: %s", e)
+
+    # Step 7: Check risk flag — suppress recommendations if risk-off
+    risk_suppressed = False
+    try:
+        from analysis.drift_detector import get_risk_flag
+        flag = get_risk_flag()
+        if not flag.get("global_risk_on", True):
+            message = _format_risk_off_message(flag)
+            risk_suppressed = True
+            logger.info("Auto-Sim: Risk flag OFF — suppressing recommendations")
+    except Exception:
+        pass
+
     elapsed = round(time.time() - t0, 1)
     return {
         "candidates_found": len(candidates),
@@ -175,6 +197,8 @@ def run_auto_sim(
         "top_signals": top_signals,
         "message": message,
         "elapsed_s": elapsed,
+        "signals_logged": signals_logged,
+        "risk_suppressed": risk_suppressed,
     }
 
 
@@ -233,6 +257,19 @@ def _format_line_message(signals: list[dict]) -> str:
 
     lines.append(f"(n={signals[0].get('sample_count', '?')} similar cases)")
     return "\n".join(lines)
+
+
+def _format_risk_off_message(flag: dict) -> str:
+    """Format risk-off message when global_risk_on is False."""
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    reason = flag.get("reason", "模型信心不足")
+    return (
+        f"\n⚠️ 系統維護中 ({now})\n"
+        f"模型信心不足，建議觀望\n"
+        f"原因: {reason}\n"
+        f"待週報確認模型恢復後自動重啟"
+    )
 
 
 def send_auto_sim_notification(result: dict) -> bool:

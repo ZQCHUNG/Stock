@@ -29,6 +29,22 @@ export const systemApi = {
       timeout: 600_000,
     }),
 
+  // P3: Signal Log + Drift Detection
+  signalLog: (status: string = 'all', limit: number = 100) =>
+    client.get<any, any[]>(`/system/signal-log?status=${status}&limit=${limit}`),
+  realizeSignals: () =>
+    client.post<any, any>('/system/signal-log/realize'),
+  driftReport: () =>
+    client.get<any, DriftReport>('/system/drift-report'),
+  weeklyAudit: () =>
+    client.post<any, any>('/system/weekly-audit', {}, { timeout: 120000 }),
+  riskFlag: () =>
+    client.get<any, RiskFlag>('/system/risk-flag'),
+  setRiskFlag: (riskOn: boolean, reason: string = 'manual') =>
+    client.post<any, RiskFlag>('/system/risk-flag', null, {
+      params: { risk_on: riskOn, reason },
+    }),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {
@@ -89,6 +105,40 @@ export interface AutoSimResult {
   message: string
   elapsed_s: number
   notification_sent?: boolean
+}
+
+// P3: Drift Detection Types
+export interface RiskFlag {
+  global_risk_on: boolean
+  reason: string
+  updated_at: string
+}
+
+export interface InBoundsResult {
+  total_realized: number
+  in_bounds_count: number
+  in_bounds_rate: number | null
+  above_ci: number
+  below_ci: number
+  healthy: boolean
+}
+
+export interface ZScoreResult {
+  consecutive_breaches: number
+  max_consecutive: number
+  breach_signals: Array<{
+    stock_code: string
+    signal_date: string
+    actual: number
+    worst_case: number
+  }>
+  alarm: boolean
+}
+
+export interface DriftReport {
+  in_bounds: InBoundsResult
+  z_score: ZScoreResult
+  risk_flag: RiskFlag
 }
 
 /** Trigger browser file download from Blob response */

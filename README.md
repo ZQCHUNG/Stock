@@ -47,6 +47,8 @@ Stock/
 │   ├── financial_screener.py  # 財報狗-style Screener V2 — SQLite snapshot engine (Phase 1)
 │   ├── pattern_simulator.py   # Pattern Simulator — multi-horizon win rates (Phase 2)
 │   ├── auto_sim.py            # Auto-Sim Pipeline — screener→dual-sim→LINE (P2-B)
+│   ├── signal_log.py          # Trade Signal Log — SQLite accountability (P3)
+│   ├── drift_detector.py      # Drift Detection — In-Bounds Rate + Z-Score + Post-mortem (P3)
 │   ├── market_guard.py       # Market Regime Global Switch — 全局斷路器 (R89)
 │   ├── pattern_labeler.py    # Phase 2: Historical Winner DNA 標記 (R90)
 │   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
@@ -64,7 +66,7 @@ Stock/
 │   ├── fetch_google_news.py  # Google News RSS fetcher (6 TW finance sites) (R88.7P12)
 │   ├── build_features.py     # 8 sources → 65 features Parquet (R88)
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
-│   ├── daily_update.py       # Daily Pipeline V2: close matrix + RS + screener + fwd returns rollover
+│   ├── daily_update.py       # Daily Pipeline V3: 7-step (close matrix + RS + screener + fwd + realize + auto-sim + weekly audit)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
 ├── tests/                    # 560+ tests (pytest, synthetic fixtures)
@@ -289,6 +291,7 @@ python -m pytest tests/ -q
 | Phase 4 | **Spaghetti Chart + Confidence Scoring + Forward Returns Rollover** — P0: auto-backfill NaN forward returns (193K cells filled); P1: Spaghetti Chart (T+90 overlay, mean/median/worst/best paths, P25-P75 band); Confidence scoring (3-factor: sample+consistency+direction, 95% CI) (Gemini CTO roadmap P0-P4) | Done |
 | Phase 5 | **P2-A: Parameter Sensitivity Heatmap** — Grid-search Bold Entry D params across 20-stock sample; 2 presets (Near-High×MA20 Slope, RSI×Volume); Zone classification (Plateau/Island/Desert); echarts heatmap + tooltip + summary stats; "策略中心 → 參數熱圖" tab (CTO directive: "Entry D 容錯空間") | Done |
 | Phase 5 | **P2-B: Auto-Sim Pipeline** — Screener (RS>=80) → find_similar_dual → Industry diversify (max 2/sector) → Top 5 → LINE Notify (Score/CI/MeanPath/WorstCase/Advice); daily_update.py step 5/5; POST /api/system/auto-sim manual trigger | Done |
+| Phase 5 | **P3: Signal Log + Drift Detection** — SQLite trade_signals_log (26 fields, auto-log on Auto-Sim); T+5/T+10/T+21 actual returns backfill; Drift Detector: In-Bounds Rate + Z-Score failure (3 consecutive worst-case breaches); Post-mortem analysis (tier/industry/direction bias); Risk circuit breaker (global_risk_on flag); Weekly Saturday 09:00 audit + LINE report; 6 API endpoints (CTO directive: "讓 AI 對自己發出的信號負責") | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 

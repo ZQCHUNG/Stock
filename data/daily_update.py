@@ -394,7 +394,9 @@ def run_daily_update() -> dict:
       2. Recompute RS matrices
       3. Refresh screener DB
       4. Rollover forward returns (backfill NaN with new close data)
-      5. Auto-Sim: screener → find_similar_dual → LINE Notify (P2-B)
+      5. Realize active signals (P3: backfill actual T+5/T+10/T+21 returns)
+      6. Auto-Sim: screener → find_similar_dual → LINE Notify (P2-B)
+      7. Weekly audit (Saturday only): drift detection + LINE report (P3)
 
     Returns:
         Summary dict with results from each step.
@@ -407,7 +409,7 @@ def run_daily_update() -> dict:
     results = {}
 
     # Step 1: Extend close matrix
-    logger.info("[Step 1/5] Extending close matrix...")
+    logger.info("[Step 1/7] Extending close matrix...")
     try:
         results["close_matrix"] = extend_close_matrix()
     except Exception as e:
@@ -415,7 +417,7 @@ def run_daily_update() -> dict:
         results["close_matrix"] = {"error": str(e)}
 
     # Step 2: Recompute RS matrices
-    logger.info("[Step 2/5] Recomputing RS matrices...")
+    logger.info("[Step 2/7] Recomputing RS matrices...")
     try:
         results["rs_matrices"] = recompute_rs_matrices()
     except Exception as e:
@@ -423,7 +425,7 @@ def run_daily_update() -> dict:
         results["rs_matrices"] = {"error": str(e)}
 
     # Step 3: Refresh screener DB
-    logger.info("[Step 3/5] Refreshing screener DB...")
+    logger.info("[Step 3/7] Refreshing screener DB...")
     try:
         results["screener"] = refresh_screener_db()
     except Exception as e:
@@ -431,15 +433,24 @@ def run_daily_update() -> dict:
         results["screener"] = {"error": str(e)}
 
     # Step 4: Rollover forward returns
-    logger.info("[Step 4/5] Rolling forward returns...")
+    logger.info("[Step 4/7] Rolling forward returns...")
     try:
         results["forward_returns"] = rollover_forward_returns()
     except Exception as e:
         logger.error("Forward returns rollover failed: %s", e, exc_info=True)
         results["forward_returns"] = {"error": str(e)}
 
-    # Step 5: Auto-Sim Pipeline (P2-B: screener → find_similar_dual → LINE Notify)
-    logger.info("[Step 5/5] Running Auto-Sim Pipeline...")
+    # Step 5: Realize active signals (P3: backfill actual returns)
+    logger.info("[Step 5/7] Realizing active signals...")
+    try:
+        from analysis.signal_log import realize_signals
+        results["signal_realization"] = realize_signals()
+    except Exception as e:
+        logger.error("Signal realization failed: %s", e, exc_info=True)
+        results["signal_realization"] = {"error": str(e)}
+
+    # Step 6: Auto-Sim Pipeline (P2-B: screener → find_similar_dual → LINE Notify)
+    logger.info("[Step 6/7] Running Auto-Sim Pipeline...")
     try:
         from analysis.auto_sim import run_auto_sim, send_auto_sim_notification
         sim_result = run_auto_sim()
@@ -456,6 +467,25 @@ def run_daily_update() -> dict:
     except Exception as e:
         logger.error("Auto-Sim failed: %s", e, exc_info=True)
         results["auto_sim"] = {"error": str(e)}
+
+    # Step 7: Weekly audit (Saturday only — P3: drift detection)
+    if datetime.now().weekday() == 5:  # Saturday
+        logger.info("[Step 7/7] Running weekly drift audit (Saturday)...")
+        try:
+            from analysis.drift_detector import run_weekly_audit, send_weekly_audit_notification
+            audit = run_weekly_audit()
+            results["weekly_audit"] = {
+                "in_bounds_rate": audit.get("in_bounds", {}).get("in_bounds_rate"),
+                "z_score_alarm": audit.get("z_score", {}).get("alarm", False),
+                "risk_flag_changed": audit.get("risk_flag_changed", False),
+                "post_mortem_needed": audit.get("post_mortem", {}).get("needed", False),
+            }
+            send_weekly_audit_notification(audit)
+        except Exception as e:
+            logger.error("Weekly audit failed: %s", e, exc_info=True)
+            results["weekly_audit"] = {"error": str(e)}
+    else:
+        logger.info("[Step 7/7] Skipping weekly audit (not Saturday)")
 
     total_elapsed = time.time() - t0
     results["total_elapsed_s"] = round(total_elapsed, 1)
