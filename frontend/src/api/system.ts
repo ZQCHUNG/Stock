@@ -70,6 +70,13 @@ export const systemApi = {
   // Phase 8 P1: Sector Heatmap
   sectorHeatmap: () => client.get<any, SectorHeatmapData>('/system/sector-heatmap'),
 
+  // Phase 9 P1: War Room (Virtual Portfolio Equity Curve)
+  warRoom: () => client.get<any, WarRoomData>('/system/war-room', { timeout: 30000 }),
+
+  // Phase 9 P0: Industry Success Rates
+  industrySuccessRates: (daysBack: number = 90) =>
+    client.get<any, any>(`/system/industry-success-rates?days_back=${daysBack}`),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {
@@ -127,6 +134,10 @@ export interface AutoSimSignal {
   energy_tr_ratio?: number | null
   energy_vol_ratio?: number | null
   energy_warnings?: string[]
+  // Phase 9 P0: Success Rate Back-weighting
+  success_rate_adj?: number
+  industry_success_rate?: number | null
+  industry_signal_count?: number
 }
 
 export interface AutoSimResult {
@@ -283,6 +294,30 @@ export interface SectorHeatmapData {
   }>
   top3: string[]
   total_sectors: number
+}
+
+// Phase 9 P1: War Room Data
+export interface WarRoomEquityPoint {
+  date: string
+  equity: number
+  drawdown_pct: number
+  stock_code?: string
+  return_pct?: number
+}
+
+export interface WarRoomData {
+  label: string
+  initial_equity: number
+  final_equity: number
+  total_return_pct: number
+  total_trades: number
+  win_rate: number
+  expectancy: number
+  max_drawdown_pct: number
+  mdd_warning: boolean
+  equity_curve: WarRoomEquityPoint[]
+  active_count: number
+  realized_count: number
 }
 
 /** Trigger browser file download from Blob response */

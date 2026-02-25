@@ -5,6 +5,8 @@ Daily at 20:30 after screener refresh:
   1. Query screener for RS > 80 stocks
   2. Run find_similar_dual on candidates
   2.3. Energy Quality Filter (Phase 7 P0)
+  2.4. Sector RS Bonus (Phase 8 P1)
+  2.6. History Success Rate Back-weighting (Phase 9 P0)
   2.5. Market Context adjustment
   3. Rank by sniper_assessment + confidence
   4. Diversify: max 2 per L1 industry
@@ -12,6 +14,7 @@ Daily at 20:30 after screener refresh:
 
 [HYPOTHESIS: AUTOSIM_RS_THRESHOLD = 80, MAX_PER_INDUSTRY = 2, TOP_N = 5]
 [HYPOTHESIS: SIGNAL_QUALITY_V1 — TR>2.5xATR=overheat, Vol<1.5xAvg=weak]
+[HYPOTHESIS: INDUSTRY_EXPERIENCE_WEIGHTS_V1 — WinRate>70%=+3, <40%=-5]
 """
 
 import logging
@@ -38,6 +41,14 @@ ENERGY_OVERHEAT_TR_MULT = 2.5   # TR > 2.5x ATR20 → climax / momentum exhausti
 ENERGY_WEAK_VOL_MULT = 1.5      # Vol < 1.5x 5-day avg → weak breakout
 ENERGY_OVERHEAT_PENALTY = 0.8   # Confidence × 0.8
 ENERGY_WEAK_VOL_PENALTY = 0.9   # Confidence × 0.9
+
+# History Success Rate (Phase 9 P0) — [HYPOTHESIS: INDUSTRY_EXPERIENCE_WEIGHTS_V1]
+# Architect approved: "避開陷阱比追逐更高勝率對淨值貢獻更直接"
+SUCCESS_RATE_HIGH_THRESHOLD = 0.70  # In-Bounds Rate > 70% → bonus
+SUCCESS_RATE_LOW_THRESHOLD = 0.40   # In-Bounds Rate < 40% → penalty
+SUCCESS_RATE_BONUS = 3              # +3 for high-success industries
+SUCCESS_RATE_PENALTY = -5           # -5 for low-success industries
+SUCCESS_RATE_MIN_SAMPLES = 3        # Minimum signals to compute rate
 
 
 def _tier_score(tier: str) -> int:
@@ -126,6 +137,58 @@ def _compute_energy_score(stock_code: str) -> dict:
 
     except Exception as e:
         logger.debug("Energy score failed for %s: %s", stock_code, e)
+
+    return result
+
+
+def _compute_industry_success_rates(days_back: int = 90) -> dict:
+    """Phase 9 P0: Industry-level In-Bounds Rate from signal history.
+
+    Architect approved: "成功往往吸引更多資金 (Positive Feedback)，90天回看窗口
+    能有效過濾雜訊並捕捉板塊強弱轉換"
+
+    [HYPOTHESIS: INDUSTRY_EXPERIENCE_WEIGHTS_V1]
+
+    Returns:
+        {industry_name: {"rate": float, "count": int, "adjustment": int}, ...}
+    """
+    result = {}
+    try:
+        from analysis.signal_log import get_realized_signals
+
+        realized = get_realized_signals(days_back=days_back)
+        if not realized:
+            return result
+
+        # Group by industry
+        industry_signals: dict[str, list] = {}
+        for sig in realized:
+            ind = sig.get("industry") or "其他"
+            industry_signals.setdefault(ind, []).append(sig)
+
+        for ind, sigs in industry_signals.items():
+            # Only count signals with in_bounds_d21 data
+            bounded = [s for s in sigs if s.get("in_bounds_d21") is not None]
+            count = len(bounded)
+
+            if count < SUCCESS_RATE_MIN_SAMPLES:
+                result[ind] = {"rate": None, "count": count, "adjustment": 0}
+                continue
+
+            in_bounds = sum(1 for s in bounded if s["in_bounds_d21"] == 1)
+            rate = in_bounds / count
+
+            if rate > SUCCESS_RATE_HIGH_THRESHOLD:
+                adj = SUCCESS_RATE_BONUS
+            elif rate < SUCCESS_RATE_LOW_THRESHOLD:
+                adj = SUCCESS_RATE_PENALTY
+            else:
+                adj = 0
+
+            result[ind] = {"rate": round(rate, 3), "count": count, "adjustment": adj}
+
+    except Exception as e:
+        logger.debug("Industry success rate computation failed: %s", e)
 
     return result
 
@@ -319,6 +382,37 @@ def run_auto_sim(
                 logger.info("Auto-Sim: Sector RS bonus +5 applied to %d signals", sector_bonus_applied)
     except Exception as e:
         logger.debug("Sector RS bonus skipped: %s", e)
+
+    # Step 2.6: History Success Rate Back-weighting (Phase 9 P0)
+    # Architect approved: [HYPOTHESIS: INDUSTRY_EXPERIENCE_WEIGHTS_V1]
+    # "避開陷阱比追逐更高勝率對淨值貢獻更直接" — +3 bonus / -5 penalty
+    success_rate_applied = 0
+    industry_rates = _compute_industry_success_rates(days_back=90)
+    if industry_rates:
+        for s in sim_results:
+            ind = s["industry"]
+            ind_data = industry_rates.get(ind, {})
+            adj = ind_data.get("adjustment", 0)
+            if adj != 0:
+                s["confidence_score"] = max(0, min(100, s["confidence_score"] + adj))
+                # Re-grade
+                score = s["confidence_score"]
+                s["confidence_grade"] = "HIGH" if score >= 70 else "MEDIUM" if score >= 40 else "LOW"
+                s["success_rate_adj"] = adj
+                success_rate_applied += 1
+            else:
+                s["success_rate_adj"] = 0
+
+            # Store rate for display
+            s["industry_success_rate"] = ind_data.get("rate")
+            s["industry_signal_count"] = ind_data.get("count", 0)
+
+        if success_rate_applied:
+            logger.info(
+                "Auto-Sim: Success Rate adjusted %d signals (rates: %s)",
+                success_rate_applied,
+                {k: v for k, v in industry_rates.items() if v.get("adjustment", 0) != 0},
+            )
 
     # Step 2.5: Market Context Factor (Phase 4 Scoring V2)
     # CTO directive: "在空頭市場頻繁開火是多頭策略最容易死掉的地方"
@@ -560,6 +654,14 @@ def _format_line_message(signals: list[dict]) -> str:
         # Sector RS bonus (Phase 8 P1)
         if s.get("sector_bonus"):
             lines.append(f"  🔥 強勢產業加成 (+5)")
+
+        # Success Rate adjustment (Phase 9 P0)
+        sr_adj = s.get("success_rate_adj", 0)
+        sr_rate = s.get("industry_success_rate")
+        if sr_adj > 0 and sr_rate is not None:
+            lines.append(f"  📈 產業勝率加成 (+{sr_adj}, {sr_rate:.0%} In-Bounds)")
+        elif sr_adj < 0 and sr_rate is not None:
+            lines.append(f"  ⚠️ 產業勝率警示 ({sr_adj}, {sr_rate:.0%} In-Bounds)")
 
         # Energy quality warnings (Phase 7 P0)
         energy_warns = s.get("energy_warnings", [])

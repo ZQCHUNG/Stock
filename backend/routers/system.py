@@ -1407,6 +1407,132 @@ def missed_opportunities(days_back: int = 30, limit: int = 50):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/war-room")
+def war_room():
+    """Phase 9 P1: Virtual Portfolio Equity Curve (War Room View).
+
+    Architect approved: "Joe 的虛擬分身 — 24 小時不休息地執行所有指令"
+    [VIRTUAL: ALL_SIGNALS_TRACKED] — assumes every recommendation was followed.
+
+    Uses signal_log position_pct for vol-adjusted sizing.
+    Architect directive: "固定 10% 會抹殺掉系統對風險管理的靈魂"
+    """
+    from analysis.signal_log import get_realized_signals, get_all_signals
+
+    try:
+        # Get all signals (both active and realized)
+        all_signals = get_all_signals(limit=9999)
+        realized = [s for s in all_signals if s.get("status") == "realized"]
+
+        # Sort by signal_date ascending for equity curve computation
+        realized.sort(key=lambda s: s.get("signal_date", ""))
+
+        # Compute equity curve
+        INITIAL_EQUITY = 3_000_000  # [PLACEHOLDER] Joe's assumed capital
+        equity = INITIAL_EQUITY
+        equity_curve = [{"date": "", "equity": equity, "drawdown_pct": 0}]
+        peak = equity
+        max_dd = 0
+        total_trades = 0
+        wins = 0
+        total_pnl = 0
+
+        for sig in realized:
+            ret_d21 = sig.get("actual_return_d21")
+            if ret_d21 is None:
+                continue
+
+            # Use position_pct from signal_log; fallback to 10%
+            # Architect: "position_pct 包含系統在進場當下的波動率補償"
+            pos_pct = 0.10  # Default fallback
+            # position_pct is not stored in signal_log currently;
+            # compute from entry_price + confidence_score
+            entry_price = sig.get("entry_price", 0)
+            worst_case = sig.get("worst_case_pct")
+            conf_score = sig.get("sim_score", 0)
+
+            if entry_price and worst_case and worst_case < 0:
+                risk_per_share = entry_price * abs(worst_case) / 100.0
+                if risk_per_share > 0:
+                    risk_amount = equity * 0.02  # 2% risk per trade
+                    shares = int(risk_amount / risk_per_share)
+                    pos_value = shares * entry_price
+                    pos_pct = min(0.20, pos_value / equity if equity > 0 else 0)
+
+                    # Confidence adjustment
+                    if conf_score < 40:
+                        pos_pct *= 0.5
+                    elif conf_score < 70:
+                        pos_pct *= 0.7
+
+            # PnL for this trade
+            trade_pnl = equity * pos_pct * ret_d21
+            equity += trade_pnl
+            total_trades += 1
+            total_pnl += trade_pnl
+
+            if ret_d21 > 0:
+                wins += 1
+
+            # Track drawdown
+            if equity > peak:
+                peak = equity
+            dd_pct = (equity - peak) / peak if peak > 0 else 0
+            if dd_pct < max_dd:
+                max_dd = dd_pct
+
+            equity_curve.append({
+                "date": sig.get("signal_date", ""),
+                "equity": round(equity, 0),
+                "drawdown_pct": round(dd_pct * 100, 2),
+                "stock_code": sig.get("stock_code", ""),
+                "return_pct": round(ret_d21 * 100, 2),
+            })
+
+        # Summary stats
+        win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+        total_return_pct = ((equity - INITIAL_EQUITY) / INITIAL_EQUITY * 100) if INITIAL_EQUITY > 0 else 0
+        expectancy = (total_pnl / total_trades) if total_trades > 0 else 0
+
+        # MDD warning (Architect: >15% → volatility warning)
+        mdd_warning = abs(max_dd) > 0.15
+
+        return {
+            "label": "[VIRTUAL: ALL_SIGNALS_TRACKED]",
+            "initial_equity": INITIAL_EQUITY,
+            "final_equity": round(equity, 0),
+            "total_return_pct": round(total_return_pct, 2),
+            "total_trades": total_trades,
+            "win_rate": round(win_rate, 1),
+            "expectancy": round(expectancy, 0),
+            "max_drawdown_pct": round(max_dd * 100, 2),
+            "mdd_warning": mdd_warning,
+            "equity_curve": equity_curve,
+            "active_count": sum(1 for s in all_signals if s.get("status") == "active"),
+            "realized_count": len(realized),
+        }
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/industry-success-rates")
+def industry_success_rates(days_back: int = 90):
+    """Phase 9 P0: Industry-level In-Bounds Rate for success rate back-weighting.
+
+    Architect approved: [HYPOTHESIS: INDUSTRY_EXPERIENCE_WEIGHTS_V1]
+    "成功往往吸引更多資金 (Positive Feedback)"
+    """
+    from analysis.auto_sim import _compute_industry_success_rates
+
+    try:
+        rates = _compute_industry_success_rates(days_back=days_back)
+        return {"rates": rates, "days_back": days_back}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/trailing-stops/update")
 def update_trailing_stops():
     """Phase 6 P0: Update trailing stop prices for all active signals.

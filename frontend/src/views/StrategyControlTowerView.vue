@@ -5,8 +5,9 @@ import {
   NAlert, NEmpty, NDataTable, NTabs, NTabPane, NTooltip,
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
+import VChart from 'vue-echarts'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -37,6 +38,9 @@ const healedEvents = ref<SelfHealedEvents | null>(null)
 
 // Sector Heatmap (Phase 8 P1)
 const sectorData = ref<SectorHeatmapData | null>(null)
+
+// War Room (Phase 9 P1)
+const warRoom = ref<WarRoomData | null>(null)
 
 // --- Loaders ---
 async function loadSignals() {
@@ -111,8 +115,16 @@ async function loadSectorHeatmap() {
   }
 }
 
+async function loadWarRoom() {
+  try {
+    warRoom.value = await systemApi.warRoom()
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom()])
 }
 
 // --- Actions ---
@@ -286,6 +298,67 @@ const inBoundsRate = computed(() => {
 const inBoundsHealthy = computed(() => driftReport.value?.in_bounds?.healthy ?? true)
 const zScoreAlarm = computed(() => driftReport.value?.z_score?.alarm ?? false)
 const riskOn = computed(() => riskFlag.value?.global_risk_on ?? true)
+
+// --- War Room Charts (Phase 9 P1) ---
+const equityCurveOption = computed(() => {
+  if (!warRoom.value?.equity_curve?.length) return null
+  const curve = warRoom.value.equity_curve.filter((p: any) => p.date)
+  if (!curve.length) return null
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: any) => {
+        const p = params[0]
+        const d = curve[p.dataIndex]
+        let tip = `${d.date}<br/>Equity: $${(d.equity / 10000).toFixed(1)}W`
+        if (d.stock_code) tip += `<br/>${d.stock_code}: ${d.return_pct > 0 ? '+' : ''}${d.return_pct}%`
+        return tip
+      },
+    },
+    grid: { top: 30, right: 20, bottom: 30, left: 60 },
+    xAxis: { type: 'category', data: curve.map((p: any) => p.date), axisLabel: { rotate: 45, fontSize: 10 } },
+    yAxis: { type: 'value', name: 'Equity (TWD)', axisLabel: { formatter: (v: number) => `${(v / 10000).toFixed(0)}W` } },
+    series: [{
+      name: 'Equity',
+      type: 'line',
+      data: curve.map((p: any) => p.equity),
+      smooth: true,
+      lineStyle: { color: '#3b82f6', width: 2 },
+      areaStyle: { color: 'rgba(59,130,246,0.08)' },
+      itemStyle: { color: '#3b82f6' },
+    }],
+  }
+})
+
+const drawdownOption = computed(() => {
+  if (!warRoom.value?.equity_curve?.length) return null
+  const curve = warRoom.value.equity_curve.filter((p: any) => p.date)
+  if (!curve.length) return null
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: any) => {
+        const p = params[0]
+        const d = curve[p.dataIndex]
+        return `${d.date}<br/>Drawdown: ${d.drawdown_pct.toFixed(2)}%`
+      },
+    },
+    grid: { top: 30, right: 20, bottom: 30, left: 60 },
+    xAxis: { type: 'category', data: curve.map((p: any) => p.date), axisLabel: { rotate: 45, fontSize: 10 } },
+    yAxis: { type: 'value', name: 'Drawdown %', max: 0 },
+    series: [{
+      name: 'Drawdown',
+      type: 'line',
+      data: curve.map((p: any) => p.drawdown_pct),
+      smooth: true,
+      lineStyle: { color: '#ef4444', width: 2 },
+      areaStyle: { color: 'rgba(239,68,68,0.15)' },
+      itemStyle: { color: '#ef4444' },
+    }],
+  }
+})
 
 // --- Init ---
 onMounted(loadAll)
@@ -847,6 +920,117 @@ onMounted(loadAll)
             </div>
           </template>
           <NEmpty v-else description="Loading sector data..." />
+        </NTabPane>
+
+        <!-- Tab 5: War Room (Phase 9 P1) -->
+        <NTabPane name="warroom" tab="War Room" display-directive="show:lazy">
+          <template v-if="warRoom">
+            <!-- Virtual Label -->
+            <NAlert type="info" style="margin-bottom: 12px">
+              {{ warRoom.label }} — Assumes every Auto-Sim recommendation was followed with system-computed position sizing.
+            </NAlert>
+
+            <!-- MDD Warning -->
+            <NAlert v-if="warRoom.mdd_warning" type="error" style="margin-bottom: 12px">
+              Max Drawdown exceeds 15% threshold — system volatility is high. Consider reducing position sizes.
+            </NAlert>
+
+            <!-- Summary Cards -->
+            <NGrid :cols="4" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Total Signals" :value="warRoom.total_trades">
+                    <template #suffix>
+                      <span style="color: #999; font-size: 12px"> ({{ warRoom.active_count }} active)</span>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="System Win Rate" :value="warRoom.win_rate + '%'">
+                    <template #prefix>
+                      <span :style="{ color: warRoom.win_rate >= 50 ? '#22c55e' : '#ef4444' }">
+                        {{ warRoom.win_rate >= 50 ? '' : '' }}
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <NStatistic
+                    label="Virtual Expectancy"
+                    :value="'$' + Math.abs(warRoom.expectancy).toLocaleString()"
+                  >
+                    <template #prefix>
+                      <span :style="{ color: warRoom.expectancy >= 0 ? '#22c55e' : '#ef4444' }">
+                        {{ warRoom.expectancy >= 0 ? '+' : '-' }}
+                      </span>
+                    </template>
+                    <template #suffix>
+                      <span style="color: #999; font-size: 12px"> /trade</span>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <NStatistic label="Max Drawdown" :value="warRoom.max_drawdown_pct + '%'">
+                    <template #prefix>
+                      <span :style="{ color: warRoom.mdd_warning ? '#ef4444' : '#f59e0b' }">
+                        {{ warRoom.mdd_warning ? '' : '' }}
+                      </span>
+                    </template>
+                  </NStatistic>
+                </NCard>
+              </NGi>
+            </NGrid>
+
+            <!-- Return Summary -->
+            <NGrid :cols="2" :x-gap="12" :y-gap="12" style="margin-bottom: 16px">
+              <NGi>
+                <NCard size="small">
+                  <div style="text-align: center">
+                    <div style="color: #999; font-size: 12px">Initial Capital</div>
+                    <div style="font-size: 20px; font-weight: 600">
+                      ${{ (warRoom.initial_equity / 10000).toFixed(0) }}W
+                    </div>
+                  </div>
+                </NCard>
+              </NGi>
+              <NGi>
+                <NCard size="small">
+                  <div style="text-align: center">
+                    <div style="color: #999; font-size: 12px">Virtual Final Equity</div>
+                    <div :style="{ fontSize: '20px', fontWeight: '600', color: warRoom.total_return_pct >= 0 ? '#22c55e' : '#ef4444' }">
+                      ${{ (warRoom.final_equity / 10000).toFixed(0) }}W
+                      <span style="font-size: 14px">({{ warRoom.total_return_pct >= 0 ? '+' : '' }}{{ warRoom.total_return_pct }}%)</span>
+                    </div>
+                  </div>
+                </NCard>
+              </NGi>
+            </NGrid>
+
+            <!-- Equity Curve Chart -->
+            <NCard title="Cumulative Equity Curve" size="small" style="margin-bottom: 16px">
+              <VChart v-if="equityCurveOption" :option="equityCurveOption" style="height: 320px" autoresize />
+              <NEmpty v-else description="Not enough realized signals for equity curve" />
+            </NCard>
+
+            <!-- Drawdown Chart -->
+            <NCard title="Drawdown Analysis" size="small" style="margin-bottom: 16px">
+              <VChart v-if="drawdownOption" :option="drawdownOption" style="height: 200px" autoresize />
+              <NEmpty v-else description="No drawdown data" />
+            </NCard>
+
+            <div style="text-align: right">
+              <NButton size="small" @click="loadWarRoom()">
+                Refresh War Room
+              </NButton>
+            </div>
+          </template>
+          <NEmpty v-else description="Loading war room data..." />
         </NTabPane>
 
       </NTabs>
