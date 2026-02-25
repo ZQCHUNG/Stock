@@ -55,6 +55,7 @@ Stock/
 │   ├── risk_manager.py       # VaR + Sizing + Concentration + Circuit Breaker (R60/R80)
 │   ├── sqs_backtest.py       # SQS effectiveness validation
 │   ├── accumulation_backtest.py # R95.2 Velocity Protocol: 20d Time-Stop + metadata ranking
+│   ├── parameter_heatmap.py    # P2-A: 2D Parameter Sensitivity Heatmap (Phase 5)
 │   └── bold_parameter_sweep.py  # Parameter sensitivity analysis (R67)
 ├── data/
 │   ├── fetcher.py            # yfinance + FinMind + TWSE + Redis cache
@@ -285,6 +286,7 @@ python -m pytest tests/ -q
 | Phase 2 | **Pattern Simulator** — Multi-horizon win rate analysis (d3/d5/d7/d14/d21/d30/d90/d180), reuses find_similar_dual 65-feature engine, close matrix forward returns, new page "C Pattern 模擬" | Done |
 | Phase 3 | **Daily Pattern Update Pipeline** — 20:15 cron: close matrix extend + RS recompute + screener refresh (66s/day vs 30min full rebuild), manual trigger API, status endpoint | Done |
 | Phase 4 | **Spaghetti Chart + Confidence Scoring + Forward Returns Rollover** — P0: auto-backfill NaN forward returns (193K cells filled); P1: Spaghetti Chart (T+90 overlay, mean/median/worst/best paths, P25-P75 band); Confidence scoring (3-factor: sample+consistency+direction, 95% CI) (Gemini CTO roadmap P0-P4) | Done |
+| Phase 5 | **P2-A: Parameter Sensitivity Heatmap** — Grid-search Bold Entry D params across 20-stock sample; 2 presets (Near-High×MA20 Slope, RSI×Volume); Zone classification (Plateau/Island/Desert); echarts heatmap + tooltip + summary stats; "策略中心 → 參數熱圖" tab (CTO directive: "Entry D 容錯空間") | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
