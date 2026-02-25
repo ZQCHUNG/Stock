@@ -1338,6 +1338,59 @@ def failure_analysis(days_back: int = 90):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/sector-heatmap")
+def sector_heatmap():
+    """Phase 8 P1: Sector RS Ranking Heatmap data.
+
+    Reuses R84 sector_rs.py — Architect mandate: "嚴禁新建模組"
+    Returns sector-level RS rankings for treemap visualization.
+    """
+    from backend.dependencies import make_serializable
+
+    try:
+        from analysis.sector_rs import compute_sector_rs_table
+        table = compute_sector_rs_table()
+
+        sectors = []
+        for name, info in table.items():
+            sectors.append({
+                "name": name,
+                "median_rs": info.get("median_rs", 0),
+                "count": info.get("count", 0),
+                "diamond_count": info.get("diamond_count", 0),
+                "diamond_pct": info.get("diamond_pct", 0),
+            })
+
+        # Sort by median_rs descending
+        sectors.sort(key=lambda x: x["median_rs"], reverse=True)
+        top3 = [s["name"] for s in sectors[:3]]
+
+        return make_serializable({
+            "sectors": sectors,
+            "top3": top3,
+            "total_sectors": len(sectors),
+        })
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/self-healed-events")
+def self_healed_events():
+    """Phase 8 P0: Self-healed data anomaly events.
+
+    Returns counter + recent events from the pipeline sanitizer.
+    """
+    import json
+    events_file = Path(__file__).resolve().parent.parent.parent / "data" / "self_healed_events.json"
+    if events_file.exists():
+        try:
+            return json.loads(events_file.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {"total_healed": 0, "total_flagged": 0, "events": []}
+
+
 @router.get("/missed-opportunities")
 def missed_opportunities(days_back: int = 30, limit: int = 50):
     """Phase 7 P2: Signals penalized by Energy Score.

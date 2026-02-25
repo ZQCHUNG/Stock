@@ -6,7 +6,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -31,6 +31,12 @@ const failures = ref<FailureAnalysis[]>([])
 
 // Missed Opportunities (Phase 7 P2)
 const missedOpps = ref<FilteredSignal[]>([])
+
+// Self-Healed Events (Phase 8 P0)
+const healedEvents = ref<SelfHealedEvents | null>(null)
+
+// Sector Heatmap (Phase 8 P1)
+const sectorData = ref<SectorHeatmapData | null>(null)
 
 // --- Loaders ---
 async function loadSignals() {
@@ -89,8 +95,24 @@ async function loadMissedOpps() {
   }
 }
 
+async function loadHealedEvents() {
+  try {
+    healedEvents.value = await systemApi.selfHealedEvents()
+  } catch {
+    // silent
+  }
+}
+
+async function loadSectorHeatmap() {
+  try {
+    sectorData.value = await systemApi.sectorHeatmap()
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap()])
 }
 
 // --- Actions ---
@@ -719,6 +741,38 @@ onMounted(loadAll)
               <NEmpty v-else description="No scheduler heartbeat data yet" />
             </NCard>
 
+            <!-- Self-Healed Events (Phase 8 P0) -->
+            <NCard v-if="healedEvents && (healedEvents.total_healed > 0 || healedEvents.total_flagged > 0)" title="Self-Healed Events" size="small" style="margin-top: 16px">
+              <NGrid :cols="3" :x-gap="12" style="margin-bottom: 12px">
+                <NGi>
+                  <NStatistic label="Total Healed" :value="healedEvents.total_healed" />
+                </NGi>
+                <NGi>
+                  <NStatistic label="Total Flagged" :value="healedEvents.total_flagged" />
+                </NGi>
+                <NGi>
+                  <div style="font-size: 12px; color: #999">
+                    Last Run: {{ healedEvents.last_run?.slice(0, 19).replace('T', ' ') || 'N/A' }}
+                  </div>
+                </NGi>
+              </NGrid>
+              <div v-if="healedEvents.events.length > 0" style="font-size: 12px">
+                <div
+                  v-for="(ev, i) in healedEvents.events.slice(-10)"
+                  :key="i"
+                  style="padding: 2px 0; border-bottom: 1px solid #f3f4f6"
+                >
+                  <NTag :type="ev.action === 'healed' ? 'success' : 'warning'" size="tiny">{{ ev.action }}</NTag>
+                  <strong style="margin-left: 6px">{{ ev.stock_code }}</strong>
+                  <span style="color: #999; margin-left: 4px">{{ ev.date }}</span>
+                  <span :style="{ color: '#ef4444', marginLeft: '4px' }">{{ ev.original_change_pct }}%</span>
+                  <span v-if="ev.healed_price" style="color: #22c55e; margin-left: 4px">
+                    → {{ ev.healed_price.toFixed(1) }}
+                  </span>
+                </div>
+              </div>
+            </NCard>
+
             <div style="text-align: right; margin-top: 12px">
               <NButton size="small" @click="loadPipeline">
                 Refresh Pipeline Status
@@ -726,6 +780,73 @@ onMounted(loadAll)
             </div>
           </template>
           <NEmpty v-else description="Loading pipeline status..." />
+        </NTabPane>
+
+        <!-- Tab 4: Sector Heatmap -->
+        <NTabPane name="sector" tab="Sector Rotation" display-directive="show:lazy">
+          <template v-if="sectorData && sectorData.sectors.length > 0">
+            <!-- Top 3 Banner -->
+            <NAlert type="info" style="margin-bottom: 16px">
+              Top 3 Sectors (Auto-Sim +5 bonus):
+              <strong v-for="(s, i) in sectorData.top3" :key="s">
+                {{ s }}{{ i < 2 ? ' | ' : '' }}
+              </strong>
+            </NAlert>
+
+            <!-- Sector Bar Chart -->
+            <NCard title="Sector RS Ranking" size="small">
+              <div v-for="sector in sectorData.sectors" :key="sector.name" style="margin-bottom: 6px">
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <div style="width: 100px; font-size: 12px; text-align: right; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                    {{ sector.name }}
+                  </div>
+                  <div style="flex: 1; height: 22px; background: #f3f4f6; border-radius: 4px; overflow: hidden; position: relative">
+                    <div
+                      :style="{
+                        width: Math.min(sector.median_rs, 100) + '%',
+                        height: '100%',
+                        borderRadius: '4px',
+                        background: sector.median_rs >= 70 ? 'linear-gradient(90deg, #22c55e, #16a34a)' :
+                                    sector.median_rs >= 50 ? 'linear-gradient(90deg, #f59e0b, #d97706)' :
+                                    sector.median_rs >= 30 ? 'linear-gradient(90deg, #94a3b8, #64748b)' :
+                                    'linear-gradient(90deg, #ef4444, #dc2626)',
+                        transition: 'width 0.3s',
+                      }"
+                    />
+                    <span style="position: absolute; top: 2px; left: 8px; font-size: 11px; font-weight: 600; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.5)">
+                      RS {{ sector.median_rs.toFixed(0) }}
+                    </span>
+                  </div>
+                  <div style="width: 60px; font-size: 11px; color: #999; flex-shrink: 0">
+                    {{ sector.count }} stocks
+                  </div>
+                  <div style="width: 50px; flex-shrink: 0">
+                    <NTag v-if="sectorData.top3.includes(sector.name)" type="success" size="tiny">TOP</NTag>
+                  </div>
+                </div>
+              </div>
+            </NCard>
+
+            <!-- Diamond Distribution -->
+            <NCard title="Diamond Concentration" size="small" style="margin-top: 16px">
+              <NGrid :cols="4" :x-gap="8" :y-gap="8">
+                <NGi v-for="sector in sectorData.sectors.filter(s => s.diamond_count > 0)" :key="sector.name">
+                  <div style="text-align: center; padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px">
+                    <div style="font-size: 11px; color: #999; margin-bottom: 2px">{{ sector.name }}</div>
+                    <div style="font-size: 18px; font-weight: 700; color: #a855f7">{{ sector.diamond_count }}</div>
+                    <div style="font-size: 10px; color: #666">{{ (sector.diamond_pct * 100).toFixed(0) }}% Diamond</div>
+                  </div>
+                </NGi>
+              </NGrid>
+            </NCard>
+
+            <div style="text-align: right; margin-top: 12px">
+              <NButton size="small" @click="loadSectorHeatmap">
+                Refresh Sector Data
+              </NButton>
+            </div>
+          </template>
+          <NEmpty v-else description="Loading sector data..." />
         </NTabPane>
 
       </NTabs>

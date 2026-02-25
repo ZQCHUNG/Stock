@@ -291,6 +291,35 @@ def run_auto_sim(
     if energy_penalized:
         logger.info("Auto-Sim: Energy Score penalized %d/%d signals", energy_penalized, len(sim_results))
 
+    # Step 2.4: Sector RS Bonus (Phase 8 P1)
+    # Architect approved: [HYPOTHESIS: SECTOR_MOMENTUM_BONUS_V1]
+    # "Top 3 強勢產業 → Confidence +5"
+    sector_bonus_applied = 0
+    try:
+        from analysis.sector_rs import compute_sector_rs_table
+        sector_table = compute_sector_rs_table()
+        if sector_table:
+            # Get top 3 sectors by median_rs
+            sorted_sectors = sorted(sector_table.items(), key=lambda x: x[1].get("median_rs", 0), reverse=True)
+            top3_sectors = {name for name, _ in sorted_sectors[:3]}
+            logger.info("Auto-Sim: Top 3 sectors = %s", top3_sectors)
+
+            for s in sim_results:
+                if s["industry"] in top3_sectors:
+                    s["confidence_score"] = min(100, s["confidence_score"] + 5)
+                    # Re-grade
+                    score = s["confidence_score"]
+                    s["confidence_grade"] = "HIGH" if score >= 70 else "MEDIUM" if score >= 40 else "LOW"
+                    s["sector_bonus"] = True
+                    sector_bonus_applied += 1
+                else:
+                    s["sector_bonus"] = False
+
+            if sector_bonus_applied:
+                logger.info("Auto-Sim: Sector RS bonus +5 applied to %d signals", sector_bonus_applied)
+    except Exception as e:
+        logger.debug("Sector RS bonus skipped: %s", e)
+
     # Step 2.5: Market Context Factor (Phase 4 Scoring V2)
     # CTO directive: "在空頭市場頻繁開火是多頭策略最容易死掉的地方"
     # TAIEX < MA20 → Score -10, TAIEX > MA20 + RS > 90 → Score +5
@@ -527,6 +556,10 @@ def _format_line_message(signals: list[dict]) -> str:
         pos_lots = s.get("position_lots")
         if pos_pct is not None and pos_lots:
             lines.append(f"  📊 建議倉位: {pos_pct:.0%} ({pos_lots} 張)")
+
+        # Sector RS bonus (Phase 8 P1)
+        if s.get("sector_bonus"):
+            lines.append(f"  🔥 強勢產業加成 (+5)")
 
         # Energy quality warnings (Phase 7 P0)
         energy_warns = s.get("energy_warnings", [])

@@ -2,6 +2,7 @@
 
 Runs at 20:15 Mon-Fri (after the 20:00 features rebuild):
   1. Extend pit_close_matrix with latest trading day(s) from yfinance
+  1.5. Self-Healing: Sanitize close matrix (Phase 8 P0)
   2. Recompute PIT RS matrices from extended close matrix
   3. Refresh screener DB snapshot
   4. Rollover forward returns (backfill NaN horizons now that future data exists)
@@ -34,6 +35,173 @@ PIT_PCTILE_PATH = DATA_DIR / "pit_rs_percentile.parquet"
 # Forward returns path
 FWD_RETURNS_PATH = DATA_DIR / "pattern_data" / "features" / "forward_returns.parquet"
 FWD_HORIZONS = {"d3": 3, "d7": 7, "d21": 21, "d90": 90, "d180": 180}
+
+# Phase 8 P0: Self-Healing Pipeline
+ANOMALY_THRESHOLD = 0.15  # [HYPOTHESIS] |daily_change| > 15% → anomaly (excludes ex-div/IPO)
+HEALED_EVENTS_FILE = DATA_DIR / "self_healed_events.json"
+
+
+def sanitize_close_matrix(close_matrix: pd.DataFrame) -> dict:
+    """Phase 8 P0: Detect and fix anomalies in close matrix.
+
+    Architect directive:
+    - |Change| > 15% AND NOT (ex-dividend or IPO) → MARK_ANOMALY
+    - Retry yfinance 1x for anomalous data
+    - Pipeline Monitor: "Self-Healed Events" counter
+
+    [HYPOTHESIS: ANOMALY_THRESHOLD = 15%]
+
+    Returns:
+        {"anomalies_found": int, "healed": int, "flagged": int, "details": list}
+    """
+    import json
+
+    if close_matrix is None or close_matrix.empty:
+        return {"anomalies_found": 0, "healed": 0, "flagged": 0, "details": []}
+
+    # Compute daily returns
+    returns = close_matrix.pct_change()
+    last_row = returns.iloc[-1] if len(returns) > 1 else pd.Series(dtype=float)
+
+    anomalies = []
+    healed = 0
+    flagged = 0
+
+    for stock_code in last_row.index:
+        change = last_row[stock_code]
+        if pd.isna(change):
+            continue
+
+        if abs(change) <= ANOMALY_THRESHOLD:
+            continue
+
+        # Potential anomaly detected
+        is_legit = _check_legitimate_move(stock_code, change)
+
+        if is_legit:
+            logger.debug("Sanitizer: %s moved %.1f%% — legitimate (ex-div/IPO/limit)", stock_code, change * 100)
+            continue
+
+        # Try to heal: re-fetch from yfinance
+        logger.warning("Sanitizer: %s anomaly detected (%.1f%%), attempting heal...", stock_code, change * 100)
+        healed_price = _attempt_heal(stock_code)
+
+        detail = {
+            "stock_code": stock_code,
+            "date": str(close_matrix.index[-1].date()) if hasattr(close_matrix.index[-1], 'date') else str(close_matrix.index[-1]),
+            "original_change_pct": round(change * 100, 1),
+            "action": "unknown",
+        }
+
+        if healed_price is not None:
+            old_price = float(close_matrix[stock_code].iloc[-1])
+            new_change = (healed_price / float(close_matrix[stock_code].iloc[-2]) - 1) if len(close_matrix) > 1 else 0
+
+            if abs(new_change) <= ANOMALY_THRESHOLD:
+                # Healed: update the matrix
+                close_matrix.at[close_matrix.index[-1], stock_code] = healed_price
+                healed += 1
+                detail["action"] = "healed"
+                detail["healed_price"] = healed_price
+                logger.info("Sanitizer: %s healed (%.1f → %.1f)", stock_code, old_price, healed_price)
+            else:
+                # Same anomalous value after retry → real dramatic move, flag for review
+                flagged += 1
+                detail["action"] = "flagged"
+                logger.info("Sanitizer: %s confirmed dramatic move (%.1f%%), flagging", stock_code, new_change * 100)
+        else:
+            flagged += 1
+            detail["action"] = "flagged"
+            logger.warning("Sanitizer: %s heal failed, flagging for review", stock_code)
+
+        anomalies.append(detail)
+
+    # Save healed events counter
+    if anomalies:
+        _update_healed_counter(anomalies)
+
+    total = len(anomalies)
+    logger.info("Sanitizer: %d anomalies found, %d healed, %d flagged", total, healed, flagged)
+    return {"anomalies_found": total, "healed": healed, "flagged": flagged, "details": anomalies}
+
+
+def _check_legitimate_move(stock_code: str, change: float) -> bool:
+    """Check if a large price move is legitimate (ex-dividend, IPO, limit).
+
+    Architect: "If |Change|>15% AND Not (IPO or Ex-dividend) → MARK_ANOMALY"
+    """
+    # TW stock limit: ±10% for regular stocks. IPO first 5 days no limit.
+    # Ex-dividend can cause >10% gap
+
+    try:
+        # Check 1: Is it at/near the limit? (9.5% to 10.5% range = likely limit hit)
+        if 0.095 <= abs(change) <= 0.105:
+            return True  # Likely at limit up/down
+
+        # Check 2: Check for recent dividend (ex-dividend causes gap)
+        from data.fetcher import get_stock_data
+        df = get_stock_data(stock_code, period_days=10)
+        if df is not None and len(df) >= 2:
+            # If volume is normal and the drop matches typical dividend patterns
+            # Dividends in TW typically cause 2-8% drops
+            if -0.20 < change < -0.02:
+                # Could be ex-dividend — check if volume is normal (not panic)
+                avg_vol = float(df["volume"].iloc[-5:].mean()) if len(df) >= 5 else float(df["volume"].mean())
+                last_vol = float(df["volume"].iloc[-1])
+                if last_vol < avg_vol * 3:  # Not a panic dump
+                    return True  # Likely ex-dividend
+
+        return False
+    except Exception:
+        return False  # Can't verify → treat as anomaly
+
+
+def _attempt_heal(stock_code: str) -> float | None:
+    """Re-fetch latest price from yfinance as heal attempt (max 1 retry).
+
+    Architect: "Retry = 1, 防止無限循環"
+    """
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(f"{stock_code}.TW")
+        hist = ticker.history(period="5d", auto_adjust=True)
+        if hist is not None and not hist.empty:
+            return float(hist["Close"].iloc[-1])
+
+        # Try TPEX suffix
+        ticker = yf.Ticker(f"{stock_code}.TWO")
+        hist = ticker.history(period="5d", auto_adjust=True)
+        if hist is not None and not hist.empty:
+            return float(hist["Close"].iloc[-1])
+    except Exception:
+        pass
+    return None
+
+
+def _update_healed_counter(anomalies: list[dict]):
+    """Update the self-healed events JSON counter for Pipeline Monitor."""
+    import json
+
+    counter = {"total_healed": 0, "total_flagged": 0, "events": []}
+    if HEALED_EVENTS_FILE.exists():
+        try:
+            counter = json.loads(HEALED_EVENTS_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+
+    for a in anomalies:
+        if a["action"] == "healed":
+            counter["total_healed"] = counter.get("total_healed", 0) + 1
+        elif a["action"] == "flagged":
+            counter["total_flagged"] = counter.get("total_flagged", 0) + 1
+
+    # Keep last 50 events
+    counter.setdefault("events", [])
+    counter["events"].extend(anomalies)
+    counter["events"] = counter["events"][-50:]
+    counter["last_run"] = datetime.now().isoformat()
+
+    HEALED_EVENTS_FILE.write_text(json.dumps(counter, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def extend_close_matrix() -> dict:
@@ -391,6 +559,7 @@ def run_daily_update() -> dict:
 
     Steps (sequential, each depends on the previous):
       1. Extend close matrix with latest prices
+      1.5. Self-Healing: Sanitize close matrix (Phase 8 P0)
       2. Recompute RS matrices
       3. Refresh screener DB
       4. Rollover forward returns (backfill NaN with new close data)
@@ -410,15 +579,37 @@ def run_daily_update() -> dict:
     results = {}
 
     # Step 1: Extend close matrix
-    logger.info("[Step 1/8] Extending close matrix...")
+    logger.info("[Step 1/9] Extending close matrix...")
     try:
         results["close_matrix"] = extend_close_matrix()
     except Exception as e:
         logger.error("Close matrix update failed: %s", e, exc_info=True)
         results["close_matrix"] = {"error": str(e)}
 
+    # Step 1.5: Sanitize close matrix (Phase 8 P0: Self-Healing)
+    logger.info("[Step 1.5/9] Running data sanitizer...")
+    try:
+        if PIT_CLOSE_PATH.exists():
+            cm = pd.read_parquet(PIT_CLOSE_PATH)
+            cm.index = pd.to_datetime(cm.index)
+            sanitize_result = sanitize_close_matrix(cm)
+            results["sanitizer"] = {
+                "anomalies_found": sanitize_result["anomalies_found"],
+                "healed": sanitize_result["healed"],
+                "flagged": sanitize_result["flagged"],
+            }
+            # If any data was healed, re-save the matrix
+            if sanitize_result["healed"] > 0:
+                cm.to_parquet(PIT_CLOSE_PATH)
+                logger.info("Close matrix re-saved after %d heals", sanitize_result["healed"])
+        else:
+            results["sanitizer"] = {"skipped": "no close matrix"}
+    except Exception as e:
+        logger.error("Data sanitizer failed: %s", e, exc_info=True)
+        results["sanitizer"] = {"error": str(e)}
+
     # Step 2: Recompute RS matrices
-    logger.info("[Step 2/8] Recomputing RS matrices...")
+    logger.info("[Step 2/9] Recomputing RS matrices...")
     try:
         results["rs_matrices"] = recompute_rs_matrices()
     except Exception as e:
@@ -426,7 +617,7 @@ def run_daily_update() -> dict:
         results["rs_matrices"] = {"error": str(e)}
 
     # Step 3: Refresh screener DB
-    logger.info("[Step 3/8] Refreshing screener DB...")
+    logger.info("[Step 3/9] Refreshing screener DB...")
     try:
         results["screener"] = refresh_screener_db()
     except Exception as e:
@@ -434,7 +625,7 @@ def run_daily_update() -> dict:
         results["screener"] = {"error": str(e)}
 
     # Step 4: Rollover forward returns
-    logger.info("[Step 4/8] Rolling forward returns...")
+    logger.info("[Step 4/9] Rolling forward returns...")
     try:
         results["forward_returns"] = rollover_forward_returns()
     except Exception as e:
@@ -442,7 +633,7 @@ def run_daily_update() -> dict:
         results["forward_returns"] = {"error": str(e)}
 
     # Step 5: Realize active signals (P3: backfill actual returns)
-    logger.info("[Step 5/8] Realizing active signals...")
+    logger.info("[Step 5/9] Realizing active signals...")
     try:
         from analysis.signal_log import realize_signals
         results["signal_realization"] = realize_signals()
@@ -451,7 +642,7 @@ def run_daily_update() -> dict:
         results["signal_realization"] = {"error": str(e)}
 
     # Step 6: Update trailing stops for active signals (P6-P0: R86 integration)
-    logger.info("[Step 6/8] Updating trailing stops...")
+    logger.info("[Step 6/9] Updating trailing stops...")
     try:
         from analysis.signal_log import update_trailing_stops, format_active_signals_line
         trail_result = update_trailing_stops()
@@ -475,7 +666,7 @@ def run_daily_update() -> dict:
         results["trailing_stops"] = {"error": str(e)}
 
     # Step 7: Auto-Sim Pipeline (P2-B: screener → find_similar_dual → LINE Notify)
-    logger.info("[Step 7/8] Running Auto-Sim Pipeline...")
+    logger.info("[Step 7/9] Running Auto-Sim Pipeline...")
     try:
         from analysis.auto_sim import run_auto_sim, send_auto_sim_notification
         sim_result = run_auto_sim()
@@ -495,7 +686,7 @@ def run_daily_update() -> dict:
 
     # Step 8: Weekly audit (Saturday only — P3: drift detection)
     if datetime.now().weekday() == 5:  # Saturday
-        logger.info("[Step 8/8] Running weekly drift audit (Saturday)...")
+        logger.info("[Step 8/9] Running weekly drift audit (Saturday)...")
         try:
             from analysis.drift_detector import run_weekly_audit, send_weekly_audit_notification
             audit = run_weekly_audit()
@@ -510,7 +701,7 @@ def run_daily_update() -> dict:
             logger.error("Weekly audit failed: %s", e, exc_info=True)
             results["weekly_audit"] = {"error": str(e)}
     else:
-        logger.info("[Step 8/8] Skipping weekly audit (not Saturday)")
+        logger.info("[Step 8/9] Skipping weekly audit (not Saturday)")
 
     total_elapsed = time.time() - t0
     results["total_elapsed_s"] = round(total_elapsed, 1)

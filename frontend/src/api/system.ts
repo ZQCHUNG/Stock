@@ -64,6 +64,12 @@ export const systemApi = {
   missedOpportunities: (daysBack: number = 30, limit: number = 50) =>
     client.get<any, MissedOppsResult>(`/system/missed-opportunities?days_back=${daysBack}&limit=${limit}`),
 
+  // Phase 8 P0: Self-Healed Events
+  selfHealedEvents: () => client.get<any, SelfHealedEvents>('/system/self-healed-events'),
+
+  // Phase 8 P1: Sector Heatmap
+  sectorHeatmap: () => client.get<any, SectorHeatmapData>('/system/sector-heatmap'),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {
@@ -250,6 +256,33 @@ export interface FilteredSignal {
 export interface MissedOppsResult {
   filtered: FilteredSignal[]
   count: number
+}
+
+// Phase 8 P0: Self-Healed Events
+export interface SelfHealedEvents {
+  total_healed: number
+  total_flagged: number
+  events: Array<{
+    stock_code: string
+    date: string
+    original_change_pct: number
+    action: 'healed' | 'flagged'
+    healed_price?: number
+  }>
+  last_run?: string
+}
+
+// Phase 8 P1: Sector Heatmap
+export interface SectorHeatmapData {
+  sectors: Array<{
+    name: string
+    median_rs: number
+    count: number
+    diamond_count: number
+    diamond_pct: number
+  }>
+  top3: string[]
+  total_sectors: number
 }
 
 /** Trigger browser file download from Blob response */

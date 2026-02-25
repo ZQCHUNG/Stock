@@ -67,7 +67,7 @@ Stock/
 │   ├── fetch_google_news.py  # Google News RSS fetcher (6 TW finance sites) (R88.7P12)
 │   ├── build_features.py     # 8 sources → 65 features Parquet (R88)
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
-│   ├── daily_update.py       # Daily Pipeline V4: 8-step (close + RS + screener + fwd + realize + trailing stops + auto-sim + weekly audit)
+│   ├── daily_update.py       # Daily Pipeline V5: 9-step (close + sanitizer + RS + screener + fwd + realize + trailing stops + auto-sim + weekly audit)
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
 ├── tests/                    # 560+ tests (pytest, synthetic fixtures)
@@ -302,6 +302,8 @@ python -m pytest tests/ -q
 | Phase 7 | **P0: Energy Score** — Signal quality filter in auto_sim: TR>2.5×ATR20 "overheat" (Conf×0.8) + Vol<1.5×5d avg "weak breakout" (Conf×0.9); penalty factors stack; LINE "⚠️ 訊號品質警示 (過熱/量縮)" annotation; [HYPOTHESIS: SIGNAL_QUALITY_V1] (Architect OFFICIALLY APPROVED) | Done |
 | Phase 7 | **P1: Scale-out +1R Notice** — target_1r = Entry + (Entry - Stop); scale_out_triggered boolean in signal_log; LINE Notify "💎 建議動作：利潤鎖定" when Price ≥ +1R; "利潤保護期" status; Control Tower +1R column (Architect: "[INCREMENTAL INTEGRATION]") | Done |
 | Phase 7 | **P2: Missed Opportunities Log** — SQLite filtered_signals table (code/date/raw_score/final_score/filter_reason/tr_ratio/vol_ratio); auto-log when Energy Score penalizes; GET /system/missed-opportunities; Drift Detection tab table with color-coded TR/Vol ratios (Secretary: "子彈還是炸彈？") | Done |
+| Phase 8 | **P0: Self-Healing Pipeline** — Outlier Sanitizer in daily_update Step 1.5: \|Change\|>15% + exclude ex-div/IPO → auto-retry yfinance 1x; healed/flagged events counter (JSON); Pipeline Monitor "Self-Healed Events" card; Pipeline V4→V5 (9-step); [HYPOTHESIS: ANOMALY_THRESHOLD=15%] (Architect OFFICIALLY APPROVED) | Done |
+| Phase 8 | **P1: Sector RS Heatmap + Auto-Sim Bonus** — Reuse R84 sector_rs.py; Top 3 sectors → Confidence +5 in auto_sim Step 2.4; Control Tower 4th tab "Sector Rotation": RS bar chart (color-coded gradient) + Diamond Concentration grid; LINE "🔥 強勢產業加成" annotation; GET /system/sector-heatmap endpoint; [HYPOTHESIS: SECTOR_MOMENTUM_BONUS_V1] (Architect OFFICIALLY APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
