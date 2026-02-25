@@ -62,6 +62,7 @@ Stock/
 │   ├── fetch_google_news.py  # Google News RSS fetcher (6 TW finance sites) (R88.7P12)
 │   ├── build_features.py     # 8 sources → 65 features Parquet (R88)
 │   ├── sector_mapping.py     # 108 stocks → 14 L1 sectors (R82)
+│   ├── daily_update.py       # Daily Pipeline V2: close matrix + RS + screener + fwd returns rollover
 │   └── stock_list.py         # 2300+ stock list (TWSE/TPEX API)
 ├── simulation/               # Trade simulation
 ├── tests/                    # 560+ tests (pytest, synthetic fixtures)
@@ -88,7 +89,7 @@ Stock/
 | **策略適配** | `/fitness` | SQS 分布 + Forward Test 追蹤 |
 | **相似線型** | `/pattern` | DTW 比對 + 概率雲圖 + 勝率統計 |
 | **多維度分群** | `/cluster` | Dual Block + Dimension Lens + Gene Map + Spaghetti Chart |
-| **Pattern 模擬** | `/pattern-simulator` | 8-horizon win rate + similar case table + sniper assessment |
+| **Pattern 模擬** | `/pattern-simulator` | Spaghetti Chart + Confidence Scoring + 8-horizon win rates + similar cases |
 
 ---
 
@@ -283,6 +284,7 @@ python -m pytest tests/ -q
 | Phase 1 | **Financial Screener V2** — 財報狗-style instant screening (SQLite snapshot, 7 categories, 27 conditions, 6.8ms/query, 2361 stocks, range+ranking, V2 frontend w/ presets) (CTO/PM Gemini APPROVED) | Done |
 | Phase 2 | **Pattern Simulator** — Multi-horizon win rate analysis (d3/d5/d7/d14/d21/d30/d90/d180), reuses find_similar_dual 65-feature engine, close matrix forward returns, new page "C Pattern 模擬" | Done |
 | Phase 3 | **Daily Pattern Update Pipeline** — 20:15 cron: close matrix extend + RS recompute + screener refresh (66s/day vs 30min full rebuild), manual trigger API, status endpoint | Done |
+| Phase 4 | **Spaghetti Chart + Confidence Scoring + Forward Returns Rollover** — P0: auto-backfill NaN forward returns (193K cells filled); P1: Spaghetti Chart (T+90 overlay, mean/median/worst/best paths, P25-P75 band); Confidence scoring (3-factor: sample+consistency+direction, 95% CI) (Gemini CTO roadmap P0-P4) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
