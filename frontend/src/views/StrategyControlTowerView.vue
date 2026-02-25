@@ -628,6 +628,7 @@ onMounted(loadAll)
   <div>
     <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px">
       <h2 style="margin: 0">Strategy Control Tower</h2>
+      <NTag type="info" size="small" round :bordered="false" style="opacity: 0.7">V1.0.0</NTag>
 
       <!-- Risk Flag Badge -->
       <NTag

@@ -135,7 +135,182 @@ PORTFOLIO_PARAMS = {
     "commission_rate": 0.001425,    # 0.1425% per side
     "tax_rate": 0.003,              # 0.3% sell tax
     "slippage": 0.001,              # 0.1% per side
+
+    # === Phase 12: Adaptive Sniper — Regime-based Weight Adjustment ===
+    # CTO directive + Architect CONDITIONALLY APPROVED
+    # Disabled by default until validated by A/B backtest
+    "adaptive_sniper_enabled": False,  # [PLACEHOLDER: ADAPTIVE_SNIPER_V1]
+    "adaptive_sniper_trade_window": 20,  # Last N trades for regime detection
+    "adaptive_sniper_smoothing_days": 3,  # 3D-SMA of Hunting Index (CTO mandate)
+
+    # Regime thresholds (same as Phase 11 Regime Barometer)
+    "adaptive_sniper_flash_crash_disaster_pct": 0.10,  # Disaster > 10% → Flash Crash
+    "adaptive_sniper_chop_pts_pct": 0.70,              # PTS > 70% → Chop Market
+    "adaptive_sniper_hot_parabolic_pct": 0.30,         # Parabolic > 30% → Hot Momentum
+
+    # Omega weights per regime × strategy type
+    # [PLACEHOLDER: OMEGA_STRATEGY_V1] — all values need sensitivity sweep
+    "omega_breakout_hot": 1.5,       # [PLACEHOLDER: OMEGA_BREAKOUT_HOT_1.5]
+    "omega_breakout_chop": 0.5,      # [PLACEHOLDER: OMEGA_BREAKOUT_CHOP_0.5]
+    "omega_breakout_flash": 0.2,     # [PLACEHOLDER: OMEGA_BREAKOUT_FLASH_0.2]
+    "omega_breakout_normal": 1.0,    # Baseline
+
+    "omega_bounce_hot": 0.8,         # [PLACEHOLDER: OMEGA_BOUNCE_HOT_0.8]
+    "omega_bounce_chop": 1.2,        # [PLACEHOLDER: OMEGA_BOUNCE_CHOP_1.2]
+    "omega_bounce_flash": 1.5,       # [PLACEHOLDER: OMEGA_BOUNCE_FLASH_1.5]
+    "omega_bounce_normal": 1.0,      # Baseline
 }
+
+
+# ============================================================
+# Phase 12: Adaptive Sniper — WeightController
+# CTO directive + Architect CONDITIONALLY APPROVED
+# ============================================================
+
+class WeightController:
+    """Regime-based strategy weight adjustment
+
+    Uses historical completed trades to classify current market regime,
+    then adjusts priority scores for different entry types.
+
+    Regime detection uses ONLY past trades (no look-ahead bias).
+    Hunting Index smoothed with 3D-SMA per CTO mandate.
+    """
+
+    # Entry type classification
+    BREAKOUT_TYPES = {"A", "C"}   # A=Squeeze Breakout, C=Volume Ramp
+    BOUNCE_TYPES = {"B"}           # B=Oversold Bounce
+
+    # Exit reason classification (matching Phase 11 categories)
+    PTS_REASONS = {"pts_no_synergy", "pts_abandon", "pts_ma5_break"}
+    PARABOLIC_REASONS = {"parabolic_ma10_break"}
+    DISASTER_REASONS = {"disaster_stop_15pct"}
+
+    def __init__(self, params: dict | None = None):
+        self.params = params or PORTFOLIO_PARAMS
+        self.hunting_index_history: list[float] = []  # For 3D-SMA smoothing
+
+    def classify_exit(self, exit_reason: str) -> str:
+        """Classify exit reason into category"""
+        if exit_reason in self.PTS_REASONS:
+            return "PTS"
+        elif exit_reason in self.PARABOLIC_REASONS:
+            return "Parabolic"
+        elif exit_reason in self.DISASTER_REASONS:
+            return "Disaster"
+        elif exit_reason.startswith("trail_"):
+            return "Trail"
+        elif exit_reason in ("trend_break", "structural_stop"):
+            return "TrendBreak"
+        else:
+            return "Other"
+
+    def compute_regime(self, completed_trades: list[dict]) -> dict:
+        """Compute current regime from recent completed trades
+
+        Args:
+            completed_trades: List of trade dicts with 'exit_reason' key,
+                              ordered chronologically (newest last).
+                              MUST only contain trades completed BEFORE current date.
+
+        Returns:
+            dict with: regime, hunting_index, pts_rate, parabolic_rate, disaster_rate
+        """
+        p = self.params
+        window = p.get("adaptive_sniper_trade_window", 20)
+
+        # Take last N trades
+        recent = completed_trades[-window:] if len(completed_trades) >= window else completed_trades
+
+        if len(recent) < 5:
+            # Not enough data — default to Normal
+            return {
+                "regime": "normal",
+                "hunting_index": 50.0,
+                "pts_rate": 0.0,
+                "parabolic_rate": 0.0,
+                "disaster_rate": 0.0,
+                "trade_count": len(recent),
+            }
+
+        # Count exit categories
+        n = len(recent)
+        pts_count = sum(1 for t in recent if self.classify_exit(t.get("exit_reason", "")) == "PTS")
+        parabolic_count = sum(1 for t in recent if self.classify_exit(t.get("exit_reason", "")) == "Parabolic")
+        disaster_count = sum(1 for t in recent if self.classify_exit(t.get("exit_reason", "")) == "Disaster")
+
+        pts_rate = pts_count / n
+        parabolic_rate = parabolic_count / n
+        disaster_rate = disaster_count / n
+
+        # Hunting Index: Parabolic / (PTS + Disaster), scaled 0-100
+        denom = pts_rate + disaster_rate
+        hunting_index = min(100.0, (parabolic_rate / denom * 100.0)) if denom > 0 else 50.0
+
+        # Apply 3D-SMA smoothing (CTO mandate: no hard switching)
+        self.hunting_index_history.append(hunting_index)
+        sma_days = p.get("adaptive_sniper_smoothing_days", 3)
+        if len(self.hunting_index_history) >= sma_days:
+            smoothed = sum(self.hunting_index_history[-sma_days:]) / sma_days
+        else:
+            smoothed = sum(self.hunting_index_history) / len(self.hunting_index_history)
+
+        # Classify regime (priority: Flash Crash > Chop > Hot > Normal)
+        flash_threshold = p.get("adaptive_sniper_flash_crash_disaster_pct", 0.10)
+        chop_threshold = p.get("adaptive_sniper_chop_pts_pct", 0.70)
+        hot_threshold = p.get("adaptive_sniper_hot_parabolic_pct", 0.30)
+
+        if disaster_rate > flash_threshold:
+            regime = "flash_crash"
+        elif pts_rate > chop_threshold:
+            regime = "chop"
+        elif parabolic_rate > hot_threshold:
+            regime = "hot_momentum"
+        else:
+            regime = "normal"
+
+        return {
+            "regime": regime,
+            "hunting_index": round(smoothed, 1),
+            "hunting_index_raw": round(hunting_index, 1),
+            "pts_rate": round(pts_rate, 3),
+            "parabolic_rate": round(parabolic_rate, 3),
+            "disaster_rate": round(disaster_rate, 3),
+            "trade_count": n,
+        }
+
+    def get_omega(self, entry_type: str, regime: str) -> float:
+        """Get omega multiplier for given entry_type and regime
+
+        Args:
+            entry_type: "A", "B", "C" etc from bold strategy
+            regime: "hot_momentum", "chop", "flash_crash", "normal"
+
+        Returns:
+            Omega multiplier (1.0 = no change)
+        """
+        p = self.params
+
+        # Determine strategy class
+        if entry_type in self.BOUNCE_TYPES:
+            strategy = "bounce"
+        else:
+            strategy = "breakout"  # Default: treat unknown as breakout
+
+        # Map regime to omega
+        regime_map = {
+            "hot_momentum": f"omega_{strategy}_hot",
+            "chop": f"omega_{strategy}_chop",
+            "flash_crash": f"omega_{strategy}_flash",
+            "normal": f"omega_{strategy}_normal",
+        }
+
+        key = regime_map.get(regime, f"omega_{strategy}_normal")
+        return p.get(key, 1.0)
+
+    def reset(self):
+        """Reset state for new backtest run"""
+        self.hunting_index_history.clear()
 
 
 @dataclass
@@ -503,6 +678,13 @@ class PortfolioBacktester:
         adv_floor = p.get("adv_hard_floor_lots", 100)
         max_per_sector = p.get("max_per_sector", 2)
 
+        # Phase 12: Adaptive Sniper — regime-based weight adjustment
+        weight_ctrl = WeightController(p)
+        adaptive_enabled = p.get("adaptive_sniper_enabled", False)
+        completed_trades_history = []  # For regime detection (exit_reason dicts)
+        current_regime = "normal"
+        regime_history = []  # Track regime per day for reporting
+
         # Track last known price per held stock
         last_known_price = {}  # {code: float}
 
@@ -625,12 +807,29 @@ class PortfolioBacktester:
                         position_pct=pos.get("position_pct", 0),
                     )
                     all_trades.append(trade)
+                    # Phase 12: Track completed trade for regime detection
+                    completed_trades_history.append({
+                        "exit_reason": exit_result["exit_reason"],
+                        "date_close": date_str,
+                        "entry_type": pos.get("entry_type", ""),
+                        "return_pct": return_pct,
+                    })
                     cash += exit_price * pos["shares"] - exit_cost
                     codes_to_close.append(code)
 
             for code in codes_to_close:
                 del positions[code]
                 last_known_price.pop(code, None)
+
+            # --- Phase 12: Update regime from completed trades ---
+            # Uses ONLY trades completed BEFORE this point (no look-ahead)
+            if adaptive_enabled and len(completed_trades_history) >= 5:
+                regime_info = weight_ctrl.compute_regime(completed_trades_history)
+                current_regime = regime_info["regime"]
+                regime_history.append({
+                    "date": date_str,
+                    **regime_info,
+                })
 
             # --- B2: Pyramid check for held positions (CTO R14.17.3) ---
             # Breakout-on-Breakout: gain > 1.5×ATR + 5-day high + volume > MA5
@@ -900,6 +1099,11 @@ class PortfolioBacktester:
                 rank = compute_rank_score(rs_rating, sqs, rs_momentum, p)
 
                 entry_type = str(row.get("bold_entry_type", ""))
+
+                # Phase 12: Apply regime-based omega to rank score
+                if adaptive_enabled:
+                    omega = weight_ctrl.get_omega(entry_type, current_regime)
+                    rank *= omega
                 # Use L1 sector from precise mapping, fallback to passed-in sectors
                 sector_l1 = get_stock_sector(code, level=1)
                 if sector_l1 == "未分類":

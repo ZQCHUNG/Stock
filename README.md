@@ -52,7 +52,9 @@ Stock/
 │   ├── failure_analyst.py     # Rule-based Failure Post-Mortem — 4 categories (Phase 6 P2)
 │   ├── market_guard.py       # Market Regime Global Switch — 全局斷路器 (R89)
 │   ├── pattern_labeler.py    # Phase 2: Historical Winner DNA 標記 (R90)
-│   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
+│   ├── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
+│   ├── ai_commentator.py     # AI Signal Commentator — Playwright + Gemini Web UI (Phase 14)
+│   └── param_recommender.py  # Parameter Recommendation Engine — monthly read-only scan (Phase 14)
 ├── backtest/
 │   ├── engine.py             # Backtest engine (v4/v5/bold/aggressive/portfolio)
 │   ├── portfolio_runner.py   # Portfolio Backtester — 108 stocks + 3-Layer Defense (R14.14-16)
@@ -318,6 +320,9 @@ python -m pytest tests/ -q
 | Phase 14 | **Task 1: AI Signal Commentator** — `analysis/ai_commentator.py`: Playwright + Gemini Web UI for one-line stock comments; deterministic fallback (Energy + RS + Tier logic); ai_comment column in signal_log; LINE [AI] section in Auto-Sim; "Ask AI" button in Signal Log table; POST /system/ai-comment/{code} (Architect OFFICIALLY APPROVED) | Done |
 | Phase 14 | **Task 2: Adaptive Sniper A/B Test** — Validated Fixed Weight vs Dynamic Weight (omega-weighted by regime); OOS Calmar delta = 0% (threshold: +5%); **VERDICT: BASELINE_WINS** — adaptive_sniper_enabled stays False; code deferred (Architect OFFICIALLY APPROVED) | Done |
 | Phase 14 | **Task 3: Parameter Recommendation Engine** — `analysis/param_recommender.py`: Read-only monthly scan; stop-loss, sizing, entry, trailing analysis from recent trade performance; severity levels (info/warning/critical); GET /system/param-recommendations; Signal Log notification card; monthly cron (1st of month 10:00) with LINE alert for warnings (Architect OFFICIALLY APPROVED) | Done |
+| **V1.0.0** | **JOE_TRADING_MANUAL.md** — 系統操作手冊（繁中）：開盤前 Checklist、Emergency Kill Switch、進攻指數判讀、月度參數建議、信號日誌、風控規則、已封存實驗（ML v5-v8、Adaptive Sniper、Pyramid）、系統維護 (CTO Directive #1, Architect APPROVED) | Done |
+| **V1.0.0** | **Weekly Performance Report** — `scheduler.py` 週日 22:15 自動產出：Live vs Virtual 績效比較、Slippage 摘要、Shake-out Rate、Tier 1 Alpha Decay 追蹤；LINE Notify 推送 (CTO Directive #2, Architect APPROVED) | Done |
+| **V1.0.0** | **System V1.0.0 Label** — Strategy Control Tower 標題新增 V1.0.0 版本標籤；The Big Three 儀表板指標（Risk Flag + Aggressive Index + Live Positions）已內建於 header (CTO Directive #3, Architect APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 

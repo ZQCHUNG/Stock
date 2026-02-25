@@ -522,6 +522,17 @@ def start_scheduler(interval_minutes: int = 5):
         max_instances=1,
     )
 
+    # Maintenance: Weekly Performance Report (Live vs Virtual)
+    # Architect: "Performance Gap 診斷", runs after parameter scan
+    _scheduler.add_job(
+        _run_weekly_performance_report,
+        trigger=CronTrigger(hour=22, minute=15, day_of_week="sun"),
+        id="weekly_performance_report",
+        name="Weekly Performance Report (V1.0)",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
 
@@ -1166,6 +1177,111 @@ def _run_monthly_param_recommendations():
         )
     except Exception as e:
         logger.error("Monthly param recommendations failed: %s", e, exc_info=True)
+
+
+def _run_weekly_performance_report():
+    """Maintenance: Weekly Live vs Virtual performance comparison.
+
+    Runs Sunday 22:15 (after parameter scan at 22:00).
+    Architect APPROVED: "Performance Gap 診斷"
+
+    Compares:
+      - Live Equity (is_live=1 signals) vs Virtual Equity (all signals)
+      - Slippage summary from live trades
+      - Shake-out rate trend
+      - Tier 1 signal performance (Alpha Decay monitoring)
+    """
+    try:
+        from analysis.signal_log import get_realized_signals, get_active_signals
+        from analysis.slippage_auditor import run_slippage_audit
+        from analysis.signal_log import detect_shake_outs
+
+        now = datetime.now()
+        lines = [
+            f"\nWeekly Performance Report",
+            f"{now.strftime('%Y-%m-%d %H:%M')}",
+            "",
+        ]
+
+        # --- Virtual vs Live performance ---
+        realized = get_realized_signals(days_back=7)
+        if realized:
+            # All signals
+            all_returns = [s.get("actual_return_d21", 0) or 0 for s in realized if s.get("actual_return_d21") is not None]
+            live_signals = [s for s in realized if s.get("is_live")]
+            live_returns = [s.get("actual_return_d21", 0) or 0 for s in live_signals if s.get("actual_return_d21") is not None]
+
+            virtual_avg = sum(all_returns) / len(all_returns) * 100 if all_returns else 0
+            live_avg = sum(live_returns) / len(live_returns) * 100 if live_returns else 0
+            gap = live_avg - virtual_avg
+
+            lines.append(f"[Virtual] Avg Return: {virtual_avg:+.2f}% ({len(all_returns)} trades)")
+            lines.append(f"[Live] Avg Return: {live_avg:+.2f}% ({len(live_returns)} trades)")
+
+            if live_returns:
+                gap_icon = "OK" if abs(gap) < 1.0 else "!!"
+                lines.append(f"Performance Gap: {gap:+.2f}% {gap_icon}")
+                if gap < -2.0:
+                    lines.append("!! Execution Gap > 2%")
+            lines.append("")
+        else:
+            lines.append("No realized signals this week")
+            lines.append("")
+
+        # --- Slippage Summary ---
+        try:
+            slippage = run_slippage_audit()
+            avg_bps = slippage.get("avg_slippage_bps", 0)
+            high_friction = slippage.get("high_friction_industries", [])
+            lines.append(f"Avg Slippage: {avg_bps:.0f} bps")
+            if high_friction:
+                lines.append(f"High Friction: {', '.join(high_friction[:3])}")
+            lines.append("")
+        except Exception:
+            pass
+
+        # --- Shake-out Rate ---
+        try:
+            shake = detect_shake_outs()
+            rate = shake.get("shake_out_rate")
+            if rate is not None:
+                icon = "!!" if shake.get("rate_warning") else "OK"
+                lines.append(f"Shake-out Rate: {rate:.0%} {icon}")
+                lines.append("")
+        except Exception:
+            pass
+
+        # --- Tier 1 (Sniper) Performance (Alpha Decay) ---
+        all_realized = get_realized_signals(days_back=30)
+        if all_realized:
+            tier1 = [s for s in all_realized if s.get("sniper_tier") == "sniper"]
+            if tier1:
+                tier1_returns = [s.get("actual_return_d21", 0) or 0 for s in tier1 if s.get("actual_return_d21") is not None]
+                if tier1_returns:
+                    tier1_avg = sum(tier1_returns) / len(tier1_returns) * 100
+                    tier1_wr = sum(1 for r in tier1_returns if r > 0) / len(tier1_returns) * 100
+                    lines.append(f"[Tier 1 Sniper] 30d: Avg {tier1_avg:+.1f}%, WR {tier1_wr:.0f}% (n={len(tier1_returns)})")
+                    if tier1_avg < 0:
+                        lines.append("!! Alpha Decay: Sniper tier underperforming")
+                    lines.append("")
+
+        # --- Parameter Recommendations (if any) ---
+        try:
+            from analysis.param_recommender import generate_recommendations
+            recs = generate_recommendations(days_back=30)
+            warnings = [r for r in recs.get("recommendations", []) if r["severity"] in ("warning", "critical")]
+            if warnings:
+                lines.append("Param Alerts:")
+                for r in warnings[:3]:
+                    lines.append(f"  {r['title']}")
+        except Exception:
+            pass
+
+        _send_notification("\n".join(lines))
+        logger.info("Weekly performance report sent")
+
+    except Exception as e:
+        logger.error("Weekly performance report failed: %s", e, exc_info=True)
 
 
 def stop_scheduler():
