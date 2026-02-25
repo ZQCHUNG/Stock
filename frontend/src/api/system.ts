@@ -53,6 +53,9 @@ export const systemApi = {
   updateTrailingStops: () =>
     client.post<any, TrailingStopResult>('/system/trailing-stops/update', {}, { timeout: 60000 }),
 
+  // Phase 6 P1: Daily Summary (Ask My System)
+  dailySummary: () => client.get<any, any>('/system/daily-summary', { timeout: 15000 }),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {

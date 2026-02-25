@@ -1451,3 +1451,125 @@ def pipeline_monitor():
         "scheduler": heartbeat,
         "checked_at": now.isoformat(),
     })
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 P1: Daily Summary — "Ask My System" API
+# ---------------------------------------------------------------------------
+
+@router.get("/daily-summary")
+def daily_summary():
+    """Phase 6 P1: Structured daily summary for Gemini Live / external consumers.
+
+    Returns system health, top active signals with stops, pipeline status,
+    and risk flag in a single JSON payload designed for natural language conversion.
+
+    CTO directive: Joe 問 "Gemini，今天系統健康嗎？有哪些高分標的？" → 回答
+    Architect: "[INFRA] 安全的唯讀 endpoint"
+    """
+    from backend.dependencies import make_serializable
+
+    result = {}
+
+    # 1. System health summary
+    try:
+        result["health"] = _get_health_summary()
+    except Exception:
+        result["health"] = {"status": "unknown"}
+
+    # 2. Active signals with trailing stops
+    try:
+        from analysis.signal_log import get_active_signals
+        active = get_active_signals(days_back=30)
+        result["active_signals"] = {
+            "count": len(active),
+            "signals": [
+                {
+                    "code": s.get("stock_code"),
+                    "name": s.get("stock_name"),
+                    "entry_price": s.get("entry_price"),
+                    "current_stop": s.get("current_stop_price"),
+                    "trailing_phase": s.get("trailing_phase", 0),
+                    "score": s.get("sim_score"),
+                    "grade": s.get("confidence_grade"),
+                    "tier": s.get("sniper_tier"),
+                    "signal_date": s.get("signal_date"),
+                }
+                for s in active[:10]  # top 10
+            ],
+        }
+    except Exception:
+        result["active_signals"] = {"count": 0, "signals": []}
+
+    # 3. Risk flag
+    try:
+        from analysis.drift_detector import get_risk_flag
+        result["risk_flag"] = get_risk_flag()
+    except Exception:
+        result["risk_flag"] = {"global_risk_on": True, "reason": "default"}
+
+    # 4. Pipeline freshness (lightweight)
+    try:
+        import os
+        data_dir = Path(__file__).resolve().parent.parent.parent / "data"
+        now = datetime.now()
+        key_files = {
+            "close_matrix": data_dir / "pit_close_matrix.parquet",
+            "screener": data_dir / "screener.db",
+        }
+        pipeline_ok = True
+        for key, path in key_files.items():
+            if path.exists():
+                age_h = (now - datetime.fromtimestamp(os.path.getmtime(path))).total_seconds() / 3600
+                if age_h > 28:
+                    pipeline_ok = False
+            else:
+                pipeline_ok = False
+        result["pipeline_healthy"] = pipeline_ok
+    except Exception:
+        result["pipeline_healthy"] = None
+
+    # 5. Recent auto-sim results (latest signals sent)
+    try:
+        from analysis.signal_log import get_all_signals
+        recent = get_all_signals(limit=5)
+        result["latest_signals"] = [
+            {
+                "code": s.get("stock_code"),
+                "name": s.get("stock_name"),
+                "score": s.get("sim_score"),
+                "grade": s.get("confidence_grade"),
+                "date": s.get("signal_date"),
+            }
+            for s in recent
+        ]
+    except Exception:
+        result["latest_signals"] = []
+
+    result["generated_at"] = datetime.now().isoformat()
+    return make_serializable(result)
+
+
+def _get_health_summary() -> dict:
+    """Build lightweight health summary from pipeline-monitor data."""
+    import os
+    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
+    now = datetime.now()
+
+    key_checks = [
+        ("close_matrix", data_dir / "pit_close_matrix.parquet", 28),
+        ("rs_matrix", data_dir / "pit_rs_matrix.parquet", 28),
+        ("screener", data_dir / "screener.db", 28),
+    ]
+
+    issues = []
+    for name, path, max_age in key_checks:
+        if not path.exists():
+            issues.append(f"{name}: missing")
+        else:
+            age_h = (now - datetime.fromtimestamp(os.path.getmtime(path))).total_seconds() / 3600
+            if age_h > max_age:
+                issues.append(f"{name}: stale ({age_h:.0f}h)")
+
+    status = "healthy" if not issues else "degraded"
+    return {"status": status, "issues": issues}
