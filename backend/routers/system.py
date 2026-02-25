@@ -1321,6 +1321,23 @@ def set_risk_flag_manual(risk_on: bool = True, reason: str = "manual"):
 # Phase 6 P0: Trailing Stops — Active Signal Protection
 # ---------------------------------------------------------------------------
 
+@router.get("/failure-analysis")
+def failure_analysis(days_back: int = 90):
+    """Phase 6 P2: Rule-based failure attribution for signals exceeding worst case.
+
+    Architect mandate: "Rule-based 第一, AI 第二"
+    Physical data (Entry/Exit/ATR) always included.
+    """
+    from backend.dependencies import make_serializable
+    from analysis.failure_analyst import analyze_all_failures
+
+    try:
+        results = analyze_all_failures(days_back=days_back)
+        return make_serializable({"failures": results, "count": len(results)})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/trailing-stops/update")
 def update_trailing_stops():
     """Phase 6 P0: Update trailing stop prices for all active signals.

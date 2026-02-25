@@ -56,6 +56,10 @@ export const systemApi = {
   // Phase 6 P1: Daily Summary (Ask My System)
   dailySummary: () => client.get<any, any>('/system/daily-summary', { timeout: 15000 }),
 
+  // Phase 6 P2: Failure Analysis
+  failureAnalysis: (daysBack: number = 90) =>
+    client.get<any, FailureAnalysisResult>(`/system/failure-analysis?days_back=${daysBack}`, { timeout: 30000 }),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {
@@ -190,6 +194,29 @@ export interface TrailingStopResult {
   updated: number
   errors: number
   active_stops: ActiveStop[]
+}
+
+// Phase 6 P2: Failure Analysis
+export interface FailureAnalysis {
+  stock_code: string
+  signal_date: string
+  category: 'EARNINGS' | 'SYSTEMIC' | 'NEWS' | 'TECHNICAL'
+  summary: string
+  physical_data: {
+    entry_price: number
+    exit_price: number
+    atr_at_entry: number | null
+    actual_pct: number
+    worst_case_pct: number
+    excess_loss_pct: number
+  }
+  evidence: string[]
+  ai_opinion: string | null
+}
+
+export interface FailureAnalysisResult {
+  failures: FailureAnalysis[]
+  count: number
 }
 
 /** Trigger browser file download from Blob response */

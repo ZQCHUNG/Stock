@@ -6,7 +6,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -25,6 +25,9 @@ const riskFlag = ref<RiskFlag | null>(null)
 
 // Pipeline Monitor
 const pipeline = ref<PipelineMonitor | null>(null)
+
+// Failure Analysis
+const failures = ref<FailureAnalysis[]>([])
 
 // --- Loaders ---
 async function loadSignals() {
@@ -65,8 +68,17 @@ async function loadPipeline() {
   }
 }
 
+async function loadFailures() {
+  try {
+    const result = await systemApi.failureAnalysis(90)
+    failures.value = result.failures || []
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures()])
 }
 
 // --- Actions ---
@@ -492,11 +504,39 @@ onMounted(loadAll)
                 </NSpace>
                 <div style="margin-top: 12px; font-size: 12px; color: #999">
                   Weekly audit runs automatically every Saturday 09:00.
-                  Realize runs daily as part of the 7-step pipeline.
+                  Realize runs daily as part of the 8-step pipeline.
                 </div>
               </NCard>
             </NGi>
           </NGrid>
+
+          <!-- Failure Analysis Section (P6-P2) -->
+          <NCard v-if="failures.length > 0" title="Failure Post-Mortem (Worst Case Breaches)" size="small" style="margin-top: 16px">
+            <div v-for="f in failures" :key="f.stock_code + f.signal_date" style="margin-bottom: 12px; padding: 8px; border: 1px solid #e5e7eb; border-radius: 6px">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px">
+                <NTag
+                  :type="f.category === 'SYSTEMIC' ? 'error' : f.category === 'EARNINGS' ? 'warning' : f.category === 'NEWS' ? 'info' : 'default'"
+                  size="small"
+                >
+                  {{ f.category }}
+                </NTag>
+                <strong>{{ f.stock_code }}</strong>
+                <span style="color: #999; font-size: 12px">{{ f.signal_date }}</span>
+              </div>
+              <div style="font-size: 13px; margin-bottom: 4px">{{ f.summary }}</div>
+              <div style="font-size: 12px; color: #666; font-family: monospace">
+                Entry: {{ f.physical_data.entry_price.toFixed(1) }} |
+                Exit: {{ f.physical_data.exit_price.toFixed(1) }} |
+                Actual: {{ f.physical_data.actual_pct.toFixed(1) }}% |
+                Worst: {{ f.physical_data.worst_case_pct.toFixed(1) }}% |
+                Excess: {{ f.physical_data.excess_loss_pct.toFixed(1) }}pp
+                <span v-if="f.physical_data.atr_at_entry">| ATR: {{ f.physical_data.atr_at_entry.toFixed(2) }}</span>
+              </div>
+              <div v-if="f.evidence.length > 0" style="margin-top: 4px; font-size: 12px; color: #ef4444">
+                <div v-for="(ev, i) in f.evidence" :key="i">{{ ev }}</div>
+              </div>
+            </div>
+          </NCard>
         </NTabPane>
 
         <!-- Tab 3: Pipeline Monitor -->
