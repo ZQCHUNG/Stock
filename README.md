@@ -1,6 +1,8 @@
-# 台股技術分析系統
+# 台股技術分析系統 `V1.1-RESILIENCE` · LTS
 
 Vue 3 + FastAPI 全端台股技術分析與量化回測系統。支援所有上市（TWSE）與上櫃（TPEX）股票，共 2300+ 檔。
+
+> **Status: Long Term Support (LTS)** — 所有開發分支已關閉，系統進入穩定維運模式。
 
 ## 架構
 
@@ -328,7 +330,14 @@ python -m pytest tests/ -q
 | **V1.1** | **P2: SQS Profiling** — cProfile 結果：99.85% I/O Bound（HTTP + rate-limit sleep），0.15% CPU。NumPy 向量化無效。asyncio.gather 需重構整個 data pipeline，暫緩。`benchmarking_results.log` 已提交 (Architect: STRICT PROFILE FIRST → DEFERRED) | Done |
 | **V1.1** | **PM: Secrets Audit + API Quota** — 全程式碼 token 洩漏稽核 PASS；`JOE_TRADING_MANUAL.md` 新增 API 配額管理表（8 數據源）+ Secrets 安全規則 (Architect APPROVED) | Done |
 
-> **V1.1 CTO Sign-off (2026-02-25)**: 系統進入「實戰堡壘」穩定維運期。數據備援已到位，動能趨勢已視覺化，秘密金鑰已安全加固。**目前無後續開發指令，系統處於最高穩定等級，隨時待命。** `daily_reports/` 30 天自動清理已驗證通過。
+> **V1.1-RESILIENCE LTS (2026-02-25)**: 系統正式進入 **Long Term Support 長期維運模式**。所有開發分支已關閉，版本凍結。
+>
+> **LTS 營運規則**:
+> 1. 「週日儀式」— 22:15 Weekly Report 必讀，確認 Aggressive Index
+> 2. 「月度優化」— 每月 1 號 Parameter Recommendation，每季末參數微調
+> 3. 「版本凍結」— 禁止實戰期間功能擴張，除非重大 API 變動或系統崩潰
+>
+> **LTS Toolkit**: `LINE Notify` 每日 20:30 健康監控 · `daily_reports/` 30 天歸檔 · `JOE_TRADING_MANUAL.md` 戰場指南
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
