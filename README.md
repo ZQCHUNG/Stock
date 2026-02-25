@@ -46,6 +46,7 @@ Stock/
 │   ├── accumulation_scanner.py # Wyckoff Accumulation Scanner — 洗盤偵測 (R95)
 │   ├── financial_screener.py  # 財報狗-style Screener V2 — SQLite snapshot engine (Phase 1)
 │   ├── pattern_simulator.py   # Pattern Simulator — multi-horizon win rates (Phase 2)
+│   ├── auto_sim.py            # Auto-Sim Pipeline — screener→dual-sim→LINE (P2-B)
 │   ├── market_guard.py       # Market Regime Global Switch — 全局斷路器 (R89)
 │   ├── pattern_labeler.py    # Phase 2: Historical Winner DNA 標記 (R90)
 │   └── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
@@ -287,6 +288,7 @@ python -m pytest tests/ -q
 | Phase 3 | **Daily Pattern Update Pipeline** — 20:15 cron: close matrix extend + RS recompute + screener refresh (66s/day vs 30min full rebuild), manual trigger API, status endpoint | Done |
 | Phase 4 | **Spaghetti Chart + Confidence Scoring + Forward Returns Rollover** — P0: auto-backfill NaN forward returns (193K cells filled); P1: Spaghetti Chart (T+90 overlay, mean/median/worst/best paths, P25-P75 band); Confidence scoring (3-factor: sample+consistency+direction, 95% CI) (Gemini CTO roadmap P0-P4) | Done |
 | Phase 5 | **P2-A: Parameter Sensitivity Heatmap** — Grid-search Bold Entry D params across 20-stock sample; 2 presets (Near-High×MA20 Slope, RSI×Volume); Zone classification (Plateau/Island/Desert); echarts heatmap + tooltip + summary stats; "策略中心 → 參數熱圖" tab (CTO directive: "Entry D 容錯空間") | Done |
+| Phase 5 | **P2-B: Auto-Sim Pipeline** — Screener (RS>=80) → find_similar_dual → Industry diversify (max 2/sector) → Top 5 → LINE Notify (Score/CI/MeanPath/WorstCase/Advice); daily_update.py step 5/5; POST /api/system/auto-sim manual trigger | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 
