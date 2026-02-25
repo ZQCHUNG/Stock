@@ -3,9 +3,10 @@ import { h, ref, computed } from 'vue'
 import {
   NCard, NButton, NGrid, NGi, NInput, NDatePicker,
   NCheckbox, NCheckboxGroup, NTag, NText, NSpin,
-  NDataTable, NSpace, NAlert, NProgress, NTooltip
+  NDataTable, NSpace, NAlert, NProgress, NTooltip, NBadge
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
+import VChart from 'vue-echarts'
 import { clusterApi, type PatternSimulateResult } from '../api/cluster'
 import { useAppStore } from '../stores/app'
 import { fmtPct, priceColor } from '../utils/format'
@@ -61,6 +62,149 @@ const winRateBarData = computed(() => {
     value: s.win_rate != null ? Math.round(s.win_rate * 100) : 0,
     count: s.count || 0,
   }))
+})
+
+// ─── Confidence ──────────────────────────────────────────────────
+
+const confidence = computed(() => result.value?.statistics?.confidence)
+
+const confidenceColor = computed(() => {
+  const g = confidence.value?.grade
+  return g === 'HIGH' ? '#d03050' : g === 'MEDIUM' ? '#f0a020' : '#999'
+})
+
+// ─── Spaghetti Chart ─────────────────────────────────────────────
+
+const spaghettiOption = computed(() => {
+  const sp = result.value?.spaghetti
+  if (!sp?.paths?.length || !sp?.stats) return null
+
+  const { paths, stats } = sp
+  const series: any[] = []
+
+  // Individual paths (thin, semi-transparent)
+  for (const p of paths) {
+    series.push({
+      type: 'line',
+      data: p.path.map((v: number, i: number) => [i, v]),
+      lineStyle: { width: 1, opacity: 0.25, color: '#999' },
+      symbol: 'none',
+      silent: true,
+    })
+  }
+
+  // P25-P75 confidence band (area)
+  if (stats.p25_path && stats.p75_path) {
+    series.push({
+      type: 'line',
+      data: stats.p25_path.map((v: number, i: number) => [i, v]),
+      lineStyle: { width: 0 },
+      areaStyle: { color: 'rgba(24, 160, 88, 0.1)' },
+      symbol: 'none',
+      silent: true,
+      stack: 'band',
+    })
+    series.push({
+      type: 'line',
+      data: stats.p75_path.map((v: number, i: number) => [i, v - stats.p25_path[i]]),
+      lineStyle: { width: 0 },
+      areaStyle: { color: 'rgba(24, 160, 88, 0.15)' },
+      symbol: 'none',
+      silent: true,
+      stack: 'band',
+    })
+  }
+
+  // Mean path (bold blue)
+  if (stats.mean_path) {
+    series.push({
+      name: '平均走勢',
+      type: 'line',
+      data: stats.mean_path.map((v: number, i: number) => [i, v]),
+      lineStyle: { width: 2.5, color: '#2080f0' },
+      symbol: 'none',
+    })
+  }
+
+  // Median path (bold green)
+  if (stats.median_path) {
+    series.push({
+      name: '中位數',
+      type: 'line',
+      data: stats.median_path.map((v: number, i: number) => [i, v]),
+      lineStyle: { width: 2, color: '#18a058', type: 'dashed' },
+      symbol: 'none',
+    })
+  }
+
+  // Worst case (red)
+  if (stats.worst_path) {
+    series.push({
+      name: `最差 (${stats.worst_case?.stock_code})`,
+      type: 'line',
+      data: stats.worst_path.map((v: number, i: number) => [i, v]),
+      lineStyle: { width: 1.5, color: '#d03050', type: 'dotted' },
+      symbol: 'none',
+    })
+  }
+
+  // Best case (orange)
+  if (stats.best_path) {
+    series.push({
+      name: `最佳 (${stats.best_case?.stock_code})`,
+      type: 'line',
+      data: stats.best_path.map((v: number, i: number) => [i, v]),
+      lineStyle: { width: 1.5, color: '#f0a020', type: 'dotted' },
+      symbol: 'none',
+    })
+  }
+
+  // Breakeven line
+  const maxDays = stats.days?.length || 91
+  series.push({
+    name: '損益平衡',
+    type: 'line',
+    data: [[0, 1.0], [maxDays - 1, 1.0]],
+    lineStyle: { width: 1, color: '#666', type: 'dashed' },
+    symbol: 'none',
+    silent: true,
+  })
+
+  return {
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params: any[]) => {
+        const named = params.filter((p: any) => p.seriesName && !p.seriesName.startsWith('series'))
+        if (!named.length) return ''
+        const day = named[0].data[0]
+        let html = `<b>T+${day}天</b><br/>`
+        for (const p of named) {
+          const val = ((p.data[1] - 1) * 100).toFixed(2)
+          html += `${p.marker} ${p.seriesName}: ${val}%<br/>`
+        }
+        return html
+      },
+    },
+    legend: {
+      data: ['平均走勢', '中位數', stats.worst_case ? `最差 (${stats.worst_case.stock_code})` : '', stats.best_case ? `最佳 (${stats.best_case.stock_code})` : '', '損益平衡'].filter(Boolean),
+      bottom: 0,
+      textStyle: { fontSize: 11 },
+    },
+    grid: { top: 20, right: 20, bottom: 50, left: 50 },
+    xAxis: {
+      type: 'value',
+      name: '交易日',
+      nameLocation: 'end',
+      min: 0,
+      max: maxDays - 1,
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { formatter: (v: number) => `${((v - 1) * 100).toFixed(0)}%` },
+      splitLine: { lineStyle: { type: 'dashed', opacity: 0.3 } },
+    },
+    series,
+  }
 })
 
 // ─── Actions ─────────────────────────────────────────────────────
@@ -180,15 +324,38 @@ const caseColumns = computed<DataTableColumns>(() => [
     <!-- Results -->
     <NSpin :show="isLoading">
       <template v-if="result">
-        <!-- Query info -->
+        <!-- Query info + Confidence -->
         <NSpace style="margin-bottom: 8px" align="center">
           <NTag type="info" size="small">{{ result.query.stock_code }}</NTag>
           <NText depth="3">@ {{ result.query.date }}</NText>
           <NText depth="3">| {{ result.statistics.sample_count }} 個相似案例</NText>
+          <NTag v-if="confidence" :type="confidence.grade === 'HIGH' ? 'error' : confidence.grade === 'MEDIUM' ? 'warning' : 'default'" size="small" round>
+            信心 {{ confidence.score }}
+          </NTag>
+          <NTooltip v-if="confidence?.expected_return_range?.low != null">
+            <template #trigger>
+              <NTag size="small" :bordered="false">
+                95% CI: {{ (confidence.expected_return_range.low * 100).toFixed(1) }}% ~ {{ (confidence.expected_return_range.high * 100).toFixed(1) }}%
+              </NTag>
+            </template>
+            樣本{{ confidence.factors.sample_size.toFixed(0) }}分 / 一致性{{ confidence.factors.consistency.toFixed(0) }}分 / 方向{{ confidence.factors.direction.toFixed(0) }}分
+          </NTooltip>
           <NTag v-if="result.sniper_assessment?.tier === 'sniper'" type="error" size="small" :bordered="false">Sniper</NTag>
           <NTag v-else-if="result.sniper_assessment?.tier === 'tactical'" type="warning" size="small" :bordered="false">Tactical</NTag>
           <NTag v-if="result.statistics.small_sample" type="warning" size="small">小樣本</NTag>
         </NSpace>
+
+        <!-- Spaghetti Chart -->
+        <NCard v-if="spaghettiOption" title="走勢分佈圖 (Spaghetti Chart)" size="small" style="margin-bottom: 12px">
+          <VChart :option="spaghettiOption" style="height: 350px" autoresize />
+          <NSpace v-if="result.spaghetti?.stats" size="small" style="margin-top: 4px">
+            <NText depth="3" style="font-size: 11px">
+              {{ result.spaghetti.stats.path_count }} 條走勢線 |
+              最差: {{ result.spaghetti.stats.worst_case?.stock_code }} ({{ ((result.spaghetti.stats.worst_path?.[result.spaghetti.stats.worst_path.length-1] - 1) * 100).toFixed(1) }}%) |
+              最佳: {{ result.spaghetti.stats.best_case?.stock_code }} ({{ ((result.spaghetti.stats.best_path?.[result.spaghetti.stats.best_path.length-1] - 1) * 100).toFixed(1) }}%)
+            </NText>
+          </NSpace>
+        </NCard>
 
         <!-- Win Rate Visual Bar -->
         <NCard title="多期間勝率" size="small" style="margin-bottom: 12px">

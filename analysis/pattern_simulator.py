@@ -76,6 +76,101 @@ def compute_forward_returns(stock_code: str, date: str, horizons: list[int] = No
     return result
 
 
+def compute_forward_paths(cases: list[dict], max_days: int = 90) -> list[dict]:
+    """Compute normalized forward price paths for spaghetti chart.
+
+    For each case, returns the price trajectory from T=0 to T+max_days,
+    normalized to start at 1.0.
+
+    Returns:
+        [{stock_code, date, path: [1.0, 1.02, ...], days: [0, 1, 2, ...]}, ...]
+    """
+    cm = _load_close_matrix()
+    if cm.empty:
+        return []
+
+    paths = []
+    for case in cases:
+        code = case.get("stock_code", "")
+        date = case.get("date", "")
+
+        if code not in cm.columns:
+            continue
+
+        prices = cm[code].dropna().sort_index()
+        target_date = pd.Timestamp(date)
+
+        valid = prices.index[prices.index <= target_date]
+        if len(valid) == 0:
+            continue
+
+        base_idx = prices.index.get_loc(valid[-1])
+        base_price = float(prices.iloc[base_idx])
+        if base_price <= 0:
+            continue
+
+        # Extract forward prices normalized to 1.0
+        end_idx = min(base_idx + max_days + 1, len(prices))
+        fwd_prices = prices.iloc[base_idx:end_idx]
+
+        if len(fwd_prices) < 2:
+            continue
+
+        normalized = (fwd_prices / base_price).values.tolist()
+        days = list(range(len(normalized)))
+
+        paths.append({
+            "stock_code": code,
+            "date": str(target_date.date()),
+            "path": [round(v, 4) for v in normalized],
+            "days": days,
+        })
+
+    return paths
+
+
+def compute_path_statistics(paths: list[dict]) -> dict:
+    """Compute mean, median, worst case paths from spaghetti data.
+
+    Returns:
+        {mean_path, median_path, worst_path, best_path, p25_path, p75_path, days}
+    """
+    if not paths:
+        return {}
+
+    max_len = max(len(p["path"]) for p in paths)
+    # Pad shorter paths with NaN
+    matrix = np.full((len(paths), max_len), np.nan)
+    for i, p in enumerate(paths):
+        matrix[i, :len(p["path"])] = p["path"]
+
+    days = list(range(max_len))
+    # Compute statistics ignoring NaN
+    with np.errstate(all="ignore"):
+        mean_path = [round(float(np.nanmean(matrix[:, d])), 4) for d in range(max_len)]
+        median_path = [round(float(np.nanmedian(matrix[:, d])), 4) for d in range(max_len)]
+        p25_path = [round(float(np.nanpercentile(matrix[:, d], 25)), 4) for d in range(max_len)]
+        p75_path = [round(float(np.nanpercentile(matrix[:, d], 75)), 4) for d in range(max_len)]
+
+    # Worst = path with lowest final value
+    finals = [p["path"][-1] if p["path"] else 1.0 for p in paths]
+    worst_idx = int(np.argmin(finals))
+    best_idx = int(np.argmax(finals))
+
+    return {
+        "days": days,
+        "mean_path": mean_path,
+        "median_path": median_path,
+        "p25_path": p25_path,
+        "p75_path": p75_path,
+        "worst_path": paths[worst_idx]["path"],
+        "worst_case": {"stock_code": paths[worst_idx]["stock_code"], "date": paths[worst_idx]["date"]},
+        "best_path": paths[best_idx]["path"],
+        "best_case": {"stock_code": paths[best_idx]["stock_code"], "date": paths[best_idx]["date"]},
+        "path_count": len(paths),
+    }
+
+
 def _compute_multi_horizon_stats(cases: list[dict]) -> dict:
     """Compute statistics for all RETURN_HORIZONS.
 
@@ -120,6 +215,72 @@ def _compute_multi_horizon_stats(cases: list[dict]) -> dict:
         }
 
     return stats
+
+
+def _compute_confidence(cases: list[dict], statistics: dict) -> dict:
+    """Compute confidence scoring for pattern simulation results.
+
+    Factors:
+      1. Sample Size Factor: more cases = higher confidence (capped at 30)
+      2. Consistency Factor: low std/mean ratio = cases agree
+      3. Directional Agreement: what % of cases point the same direction
+
+    Returns:
+        {score: 0-100, grade: "HIGH"/"MEDIUM"/"LOW", factors: {...},
+         expected_return_range: {low, high}}
+    """
+    n = len(cases)
+    if n == 0:
+        return {"score": 0, "grade": "LOW", "factors": {}}
+
+    # 1. Sample size (0-30 points): linear scale, caps at 30 cases
+    size_score = min(n / 30.0, 1.0) * 30
+
+    # 2. Consistency at d21 horizon (0-40 points): lower CV = more consistent
+    d21_stats = statistics.get("d21", {})
+    if d21_stats and d21_stats.get("std") is not None and d21_stats.get("mean") is not None:
+        std = abs(d21_stats["std"])
+        mean = abs(d21_stats["mean"])
+        cv = std / mean if mean > 0.001 else 10.0
+        # CV < 0.5 = very consistent (40pts), CV > 3 = no consistency (0pts)
+        consistency_score = max(0, min(1, (3.0 - cv) / 2.5)) * 40
+    else:
+        consistency_score = 0
+
+    # 3. Directional agreement at d21 (0-30 points)
+    d21_vals = [c["returns"].get("d21") for c in cases if c["returns"].get("d21") is not None]
+    if d21_vals:
+        positive = sum(1 for v in d21_vals if v > 0)
+        agreement = max(positive, len(d21_vals) - positive) / len(d21_vals)
+        direction_score = agreement * 30
+    else:
+        direction_score = 0
+
+    total = round(size_score + consistency_score + direction_score)
+    grade = "HIGH" if total >= 65 else "MEDIUM" if total >= 40 else "LOW"
+
+    # Expected return range (95% CI) at d21
+    expected_range = {}
+    if d21_vals:
+        arr = np.array(d21_vals) - TRANSACTION_COST
+        se = float(np.std(arr)) / max(np.sqrt(len(arr)), 1)
+        mean_net = float(np.mean(arr))
+        expected_range = {
+            "low": round(mean_net - 1.96 * se, 4),
+            "high": round(mean_net + 1.96 * se, 4),
+            "horizon": "d21",
+        }
+
+    return {
+        "score": total,
+        "grade": grade,
+        "factors": {
+            "sample_size": round(size_score, 1),
+            "consistency": round(consistency_score, 1),
+            "direction": round(direction_score, 1),
+        },
+        "expected_return_range": expected_range,
+    }
 
 
 def simulate_pattern(
@@ -205,8 +366,12 @@ def simulate_pattern(
     # Compute multi-horizon statistics
     statistics = _compute_multi_horizon_stats(enriched_cases)
 
-    # Spaghetti chart data (reuse from dual result)
-    spaghetti = raw_block.get("forward_paths", [])
+    # Confidence scoring
+    statistics["confidence"] = _compute_confidence(enriched_cases, statistics)
+
+    # Spaghetti chart: compute normalized forward price paths
+    spaghetti_paths = compute_forward_paths(enriched_cases, max_days=90)
+    spaghetti_stats = compute_path_statistics(spaghetti_paths)
 
     return {
         "query": {
@@ -217,7 +382,10 @@ def simulate_pattern(
         },
         "cases": enriched_cases,
         "statistics": statistics,
-        "spaghetti": spaghetti,
+        "spaghetti": {
+            "paths": spaghetti_paths,
+            "stats": spaghetti_stats,
+        },
         "sniper_assessment": dual.get("sniper_assessment", {}),
     }
 

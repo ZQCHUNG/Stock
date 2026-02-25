@@ -386,8 +386,48 @@ export interface PatternSimulateResult {
     d180: HorizonStats
     [key: string]: any
   }
-  spaghetti: ForwardPath[]
+  spaghetti: SpaghettiData
   sniper_assessment: SniperAssessment
+}
+
+export interface SpaghettiPath {
+  stock_code: string
+  date: string
+  path: number[]
+  days: number[]
+}
+
+export interface SpaghettiStats {
+  days: number[]
+  mean_path: number[]
+  median_path: number[]
+  p25_path: number[]
+  p75_path: number[]
+  worst_path: number[]
+  worst_case: { stock_code: string; date: string }
+  best_path: number[]
+  best_case: { stock_code: string; date: string }
+  path_count: number
+}
+
+export interface SpaghettiData {
+  paths: SpaghettiPath[]
+  stats: SpaghettiStats
+}
+
+export interface ConfidenceScore {
+  score: number
+  grade: 'HIGH' | 'MEDIUM' | 'LOW'
+  factors: {
+    sample_size: number
+    consistency: number
+    direction: number
+  }
+  expected_return_range: {
+    low: number
+    high: number
+    horizon: string
+  }
 }
 
 export const clusterApi = {

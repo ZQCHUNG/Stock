@@ -1,14 +1,15 @@
-"""Daily Pattern Update Pipeline — incremental close matrix + RS + screener refresh.
+"""Daily Pattern Update Pipeline — incremental close matrix + RS + screener + fwd returns.
 
 Runs at 20:15 Mon-Fri (after the 20:00 features rebuild):
   1. Extend pit_close_matrix with latest trading day(s) from yfinance
   2. Recompute PIT RS matrices from extended close matrix
   3. Refresh screener DB snapshot
+  4. Rollover forward returns (backfill NaN horizons now that future data exists)
 
 Uses the existing price_cache.parquet (built by build_features.py) as the primary
 data source, with yfinance incremental download as fallback for new dates.
 
-[VERIFIED: PIPELINE_V1] — designed to run after nightly Parquet rebuild
+[VERIFIED: PIPELINE_V2] — designed to run after nightly Parquet rebuild
 """
 
 import logging
@@ -29,6 +30,10 @@ PRICE_CACHE_PATH = DATA_DIR / "pattern_data" / "features" / "price_cache.parquet
 PIT_CLOSE_PATH = DATA_DIR / "pit_close_matrix.parquet"
 PIT_RS_PATH = DATA_DIR / "pit_rs_matrix.parquet"
 PIT_PCTILE_PATH = DATA_DIR / "pit_rs_percentile.parquet"
+
+# Forward returns path
+FWD_RETURNS_PATH = DATA_DIR / "pattern_data" / "features" / "forward_returns.parquet"
+FWD_HORIZONS = {"d3": 3, "d7": 7, "d21": 21, "d90": 90, "d180": 180}
 
 
 def extend_close_matrix() -> dict:
@@ -275,6 +280,112 @@ def refresh_screener_db() -> dict:
         return {"error": str(e), "elapsed_s": round(time.time() - t0, 1)}
 
 
+def rollover_forward_returns() -> dict:
+    """Backfill NaN forward returns using the updated close matrix.
+
+    forward_returns.parquet has horizons {d3, d7, d21, d90, d180} but many
+    recent dates have NaN because future prices didn't exist at build time.
+    Now that pit_close_matrix is extended, we can fill those gaps.
+
+    Optimization: only scans rows from the last 250 trading days (covers d180
+    horizon with margin). Computes fresh returns from close matrix, then fills
+    NaN cells via vectorized merge. Typical daily run: <5s.
+
+    Returns:
+        {"filled": int, "total_nan_before": int, "elapsed_s": float}
+    """
+    t0 = time.time()
+
+    if not FWD_RETURNS_PATH.exists():
+        logger.warning("forward_returns.parquet not found — skipping rollover")
+        return {"error": "no_forward_returns_file"}
+
+    if not PIT_CLOSE_PATH.exists():
+        logger.warning("pit_close_matrix not found — skipping rollover")
+        return {"error": "no_close_matrix"}
+
+    # Load forward returns (long format: date, stock_code, d3, d7, d21, d90, d180)
+    fwd = pd.read_parquet(FWD_RETURNS_PATH)
+    fwd["date"] = pd.to_datetime(fwd["date"])
+    horizon_cols = [c for c in fwd.columns if c.startswith("d") and c in FWD_HORIZONS]
+
+    # Only scan rows whose returns could have newly matured.
+    # d180 is the longest horizon, so only dates within last 200 trading days
+    # (~280 calendar days) could possibly have new data.
+    cutoff = fwd["date"].max() - pd.Timedelta(days=280)
+    recent_mask = fwd["date"] >= cutoff
+    recent_nan_mask = recent_mask & fwd[horizon_cols].isna().any(axis=1)
+    nan_count = int(fwd.loc[recent_nan_mask, horizon_cols].isna().sum().sum())
+
+    if nan_count == 0:
+        logger.info("No recent NaN forward returns to fill")
+        return {"filled": 0, "total_nan_before": 0, "elapsed_s": 0.0}
+
+    # Load close matrix (wide: date × stock)
+    cm = pd.read_parquet(PIT_CLOSE_PATH)
+    cm.index = pd.to_datetime(cm.index)
+    cm = cm.sort_index()
+
+    # Compute fresh forward returns from close matrix for all stocks at once
+    # Build a long-format DataFrame matching fwd structure
+    fresh_rows = []
+    cm_stocks = set(cm.columns)
+    target_stocks = fwd.loc[recent_nan_mask, "stock_code"].unique()
+    logger.info("Rolling forward returns: %d NaN cells across %d stocks", nan_count, len(target_stocks))
+
+    for code in target_stocks:
+        if code not in cm_stocks:
+            continue
+        prices = cm[code].dropna().sort_index()
+        if len(prices) < 5:
+            continue
+
+        for col, days in FWD_HORIZONS.items():
+            returns = prices.shift(-days) / prices - 1.0
+            valid = returns.dropna()
+            for date, val in valid.items():
+                fresh_rows.append((date, code, col, val))
+
+    if not fresh_rows:
+        logger.info("No fresh returns computed")
+        return {"filled": 0, "total_nan_before": nan_count, "elapsed_s": round(time.time() - t0, 1)}
+
+    # Build lookup: (date, stock_code) → {col: val}
+    lookup = {}
+    for date, code, col, val in fresh_rows:
+        key = (date, code)
+        if key not in lookup:
+            lookup[key] = {}
+        lookup[key][col] = val
+
+    # Fill NaN cells
+    filled = 0
+    nan_indices = fwd.index[recent_nan_mask].tolist()
+    for idx in nan_indices:
+        row = fwd.loc[idx]
+        key = (row["date"], row["stock_code"])
+        if key not in lookup:
+            continue
+        fresh = lookup[key]
+        for col in horizon_cols:
+            if pd.isna(row[col]) and col in fresh:
+                fwd.at[idx, col] = fresh[col]
+                filled += 1
+
+    if filled > 0:
+        fwd.to_parquet(FWD_RETURNS_PATH, index=False)
+
+    elapsed = time.time() - t0
+    result = {
+        "filled": filled,
+        "total_nan_scanned": nan_count,
+        "elapsed_s": round(elapsed, 1),
+    }
+    logger.info("Forward returns rollover: filled %d of %d NaN cells (%.1fs)",
+                filled, nan_count, elapsed)
+    return result
+
+
 def run_daily_update() -> dict:
     """Run the complete daily update pipeline.
 
@@ -282,6 +393,7 @@ def run_daily_update() -> dict:
       1. Extend close matrix with latest prices
       2. Recompute RS matrices
       3. Refresh screener DB
+      4. Rollover forward returns (backfill NaN with new close data)
 
     Returns:
         Summary dict with results from each step.
@@ -294,7 +406,7 @@ def run_daily_update() -> dict:
     results = {}
 
     # Step 1: Extend close matrix
-    logger.info("[Step 1/3] Extending close matrix...")
+    logger.info("[Step 1/4] Extending close matrix...")
     try:
         results["close_matrix"] = extend_close_matrix()
     except Exception as e:
@@ -302,7 +414,7 @@ def run_daily_update() -> dict:
         results["close_matrix"] = {"error": str(e)}
 
     # Step 2: Recompute RS matrices
-    logger.info("[Step 2/3] Recomputing RS matrices...")
+    logger.info("[Step 2/4] Recomputing RS matrices...")
     try:
         results["rs_matrices"] = recompute_rs_matrices()
     except Exception as e:
@@ -310,12 +422,20 @@ def run_daily_update() -> dict:
         results["rs_matrices"] = {"error": str(e)}
 
     # Step 3: Refresh screener DB
-    logger.info("[Step 3/3] Refreshing screener DB...")
+    logger.info("[Step 3/4] Refreshing screener DB...")
     try:
         results["screener"] = refresh_screener_db()
     except Exception as e:
         logger.error("Screener refresh failed: %s", e, exc_info=True)
         results["screener"] = {"error": str(e)}
+
+    # Step 4: Rollover forward returns
+    logger.info("[Step 4/4] Rolling forward returns...")
+    try:
+        results["forward_returns"] = rollover_forward_returns()
+    except Exception as e:
+        logger.error("Forward returns rollover failed: %s", e, exc_info=True)
+        results["forward_returns"] = {"error": str(e)}
 
     total_elapsed = time.time() - t0
     results["total_elapsed_s"] = round(total_elapsed, 1)
