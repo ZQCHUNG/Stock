@@ -463,7 +463,7 @@ def run_auto_sim(
         except Exception:
             pass
 
-    # Step 5: Format LINE message
+    # Step 5: Format LINE message (ai_comments added in Step 6.5 below)
     message = _format_line_message(top_signals)
 
     # Step 6: Log signals to trade log (P3: signal accountability)
@@ -475,6 +475,30 @@ def run_auto_sim(
             logger.info("Auto-Sim: %d signals logged to trade log", signals_logged)
         except Exception as e:
             logger.warning("Auto-Sim: Failed to log signals: %s", e)
+
+    # Step 6.5: AI Signal Commentator (Phase 14 Task 1)
+    # CTO: "讓 AI 用一句話戳穿信號的本質"
+    ai_comments: dict[str, str] = {}
+    if top_signals:
+        try:
+            from analysis.ai_commentator import get_ai_comments, update_signal_comments
+            ai_comments = get_ai_comments(top_signals)
+            if ai_comments:
+                update_signal_comments(ai_comments)
+                logger.info("Auto-Sim: AI comments generated for %d signals", len(ai_comments))
+        except Exception as e:
+            logger.warning("Auto-Sim: AI Commentator failed: %s", e)
+
+    # Step 6.8: Append AI comments to LINE message (Phase 14)
+    if ai_comments:
+        ai_lines = ["\n💬 AI 戰友點評"]
+        for s in top_signals:
+            code = s.get("stock_code", "")
+            comment = ai_comments.get(code, "")
+            if comment:
+                ai_lines.append(f"  {code}: {comment}")
+        if len(ai_lines) > 1:
+            message += "\n" + "\n".join(ai_lines)
 
     # Step 7: Check risk flag — suppress recommendations if risk-off
     risk_suppressed = False
@@ -497,6 +521,7 @@ def run_auto_sim(
         "elapsed_s": elapsed,
         "signals_logged": signals_logged,
         "risk_suppressed": risk_suppressed,
+        "ai_comments": ai_comments,
     }
 
 

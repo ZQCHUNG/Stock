@@ -7,7 +7,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData, StressTestResult, AggressiveIndex, SlippageAuditResult, ShakeOutResult } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData, StressTestResult, AggressiveIndex, SlippageAuditResult, ShakeOutResult, AiCommentResult, ParamRecommendations } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -54,6 +54,9 @@ const slippageAudit = ref<SlippageAuditResult | null>(null)
 
 // Shake-out Detector (Phase 13 Task 2)
 const shakeOut = ref<ShakeOutResult | null>(null)
+
+// Parameter Recommendations (Phase 14 Task 3)
+const paramRecs = ref<ParamRecommendations | null>(null)
 
 // --- Loaders ---
 async function loadSignals() {
@@ -168,8 +171,16 @@ async function loadShakeOut() {
   }
 }
 
+async function loadParamRecs() {
+  try {
+    paramRecs.value = await systemApi.paramRecommendations()
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom(), loadStressTest(), loadAggIndex(), loadSlippageAudit(), loadShakeOut()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom(), loadStressTest(), loadAggIndex(), loadSlippageAudit(), loadShakeOut(), loadParamRecs()])
 }
 
 // --- Actions ---
@@ -258,6 +269,28 @@ async function confirmLive(row: any) {
   } catch (e: any) {
     error.value = e?.message || 'Confirm live failed'
   }
+}
+
+// Phase 14 Task 3: Parameter Recommendations severity
+const paramRecsSeverity = computed(() => {
+  if (!paramRecs.value) return 'info'
+  const recs = paramRecs.value.recommendations
+  if (recs.some((r: any) => r.severity === 'critical')) return 'critical'
+  if (recs.some((r: any) => r.severity === 'warning')) return 'warning'
+  return 'info'
+})
+
+// Phase 14 Task 1: AI Signal Commentator — "Ask AI" button
+const aiCommentLoading = ref<string>('')
+async function askAiComment(row: any) {
+  aiCommentLoading.value = row.stock_code
+  try {
+    const result = await systemApi.aiComment(row.stock_code)
+    row.ai_comment = result.comment
+  } catch (e: any) {
+    error.value = e?.message || 'AI comment failed'
+  }
+  aiCommentLoading.value = ''
 }
 
 // --- Signal Table Columns ---
@@ -381,6 +414,24 @@ const signalColumns = computed<DataTableColumns>(() => [
       const slip = ((row.actual_entry_price - row.entry_price) / row.entry_price) * 100
       const color = slip > 0 ? '#ef4444' : slip < 0 ? '#22c55e' : '#999'
       return h('span', { style: `color: ${color}; font-weight: 600` }, slip > 0 ? `+${slip.toFixed(2)}%` : `${slip.toFixed(2)}%`)
+    },
+  },
+  {
+    title: 'AI Comment',
+    key: 'ai_comment',
+    width: 160,
+    ellipsis: { tooltip: true },
+    render: (row: any) => {
+      if (row.ai_comment) {
+        return h('span', { style: 'color: #a78bfa; font-size: 12px' }, row.ai_comment)
+      }
+      return h(NButton, {
+        size: 'tiny',
+        quaternary: true,
+        type: 'info',
+        loading: aiCommentLoading.value === row.stock_code,
+        onClick: () => askAiComment(row),
+      }, () => 'Ask AI')
     },
   },
   { title: 'Industry', key: 'industry', width: 80 },
@@ -692,6 +743,26 @@ onMounted(loadAll)
               </NCard>
             </NGi>
           </NGrid>
+
+          <!-- Phase 14: Parameter Recommendations -->
+          <NCard v-if="paramRecs && paramRecs.recommendations.length > 0" size="small" style="margin-bottom: 16px" :bordered="true">
+            <template #header>
+              <span style="font-size: 14px">
+                Parameter Recommendations
+                <NTag :type="paramRecsSeverity === 'critical' ? 'error' : paramRecsSeverity === 'warning' ? 'warning' : 'info'" size="small" style="margin-left: 8px">
+                  {{ paramRecs.summary }}
+                </NTag>
+              </span>
+            </template>
+            <div v-for="(rec, i) in paramRecs.recommendations" :key="i" style="margin-bottom: 8px; padding: 8px; border-radius: 6px; background: #1e1e2e">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px">
+                <NTag :type="rec.severity === 'critical' ? 'error' : rec.severity === 'warning' ? 'warning' : 'info'" size="small">{{ rec.category }}</NTag>
+                <span style="font-weight: 600; font-size: 13px">{{ rec.title }}</span>
+              </div>
+              <div style="font-size: 12px; color: #a0a0b0; margin-bottom: 4px">{{ rec.detail }}</div>
+              <div style="font-size: 12px; color: #a78bfa">{{ rec.suggestion }}</div>
+            </div>
+          </NCard>
 
           <!-- Filter Buttons -->
           <NSpace style="margin-bottom: 12px">

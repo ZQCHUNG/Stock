@@ -120,6 +120,8 @@ _MIGRATE_COLUMNS = [
     ("is_live", "INTEGER DEFAULT 0"),
     ("actual_entry_price", "REAL"),
     ("live_date", "TEXT"),
+    # Phase 14 Task 1: AI Signal Commentator
+    ("ai_comment", "TEXT"),
 ]
 
 

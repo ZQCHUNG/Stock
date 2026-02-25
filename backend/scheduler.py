@@ -511,6 +511,17 @@ def start_scheduler(interval_minutes: int = 5):
         max_instances=1,
     )
 
+    # Phase 14 Task 3: Monthly Parameter Recommendations
+    # CTO: "系統應該能告訴 Joe 哪些參數可能需要調整"
+    _scheduler.add_job(
+        _run_monthly_param_recommendations,
+        trigger=CronTrigger(hour=10, minute=0, day=1),  # 1st of each month
+        id="monthly_param_recommendations",
+        name="Monthly Parameter Recommendations (Phase 14)",
+        replace_existing=True,
+        max_instances=1,
+    )
+
     _scheduler.start()
     logger.info(f"Alert scheduler started (interval={interval_minutes}min)")
 
@@ -1116,6 +1127,45 @@ def _run_weekly_parameter_scan():
 
     except Exception as e:
         logger.error("Weekly parameter scan failed: %s", e, exc_info=True)
+
+
+def _run_monthly_param_recommendations():
+    """Phase 14 Task 3: Monthly parameter recommendations.
+
+    Runs 1st of each month at 10:00. Generates recommendations and
+    sends a LINE notification if there are warning/critical items.
+    Architect APPROVED: Read-only, no auto-modify.
+    """
+    try:
+        from analysis.param_recommender import generate_recommendations
+
+        result = generate_recommendations(days_back=90)
+        recs = result.get("recommendations", [])
+
+        if not recs:
+            logger.info("Monthly param recommendations: no suggestions")
+            return
+
+        # Send notification for warnings/criticals
+        warnings = [r for r in recs if r["severity"] in ("warning", "critical")]
+        if warnings:
+            lines = [
+                "\nParameter Recommendations",
+                f"Trades: {result.get('trade_count', 0)} | WR: {result.get('win_rate', 0):.0%}",
+                "",
+            ]
+            for r in warnings:
+                icon = "!!!" if r["severity"] == "critical" else "!"
+                lines.append(f"{icon} [{r['category']}] {r['title']}")
+                lines.append(f"  {r['suggestion']}")
+            _send_notification("\n".join(lines))
+
+        logger.info(
+            "Monthly param recommendations: %d total, %d warnings",
+            len(recs), len(warnings),
+        )
+    except Exception as e:
+        logger.error("Monthly param recommendations failed: %s", e, exc_info=True)
 
 
 def stop_scheduler():

@@ -315,6 +315,9 @@ python -m pytest tests/ -q
 | Phase 13 | **Task 1: Fat-Tail Slippage Alert** — confirm_live_trade() triggers LINE 🚨 alert when slippage > 2% (200bps); includes vol_ratio (today/5d avg) for cause diagnosis (Joe impact vs market fat-tail); [HYPOTHESIS: FAT_TAIL_THRESHOLD_001] (Architect OFFICIALLY APPROVED) | Done |
 | Phase 13 | **Task 2: Shake-out Detector** — detect_shake_outs() batch yfinance download; 3-day post-exit high vs stop_price × 1.02; shake_out_rate > 40% → ATR multiplier warning; GET /system/shake-out-audit; Drift Detection "Stop Quality" section (Architect OFFICIALLY APPROVED) | Done |
 | Phase 13 | **Task 3: Live Portfolio Treemap** — ECharts treemap in War Room; is_live + active positions color-coded by return (deep green→deep red); Net Exposure vs Aggressive Index comparison with over-exposure warning (Architect OFFICIALLY APPROVED) | Done |
+| Phase 14 | **Task 1: AI Signal Commentator** — `analysis/ai_commentator.py`: Playwright + Gemini Web UI for one-line stock comments; deterministic fallback (Energy + RS + Tier logic); ai_comment column in signal_log; LINE [AI] section in Auto-Sim; "Ask AI" button in Signal Log table; POST /system/ai-comment/{code} (Architect OFFICIALLY APPROVED) | Done |
+| Phase 14 | **Task 2: Adaptive Sniper A/B Test** — Validated Fixed Weight vs Dynamic Weight (omega-weighted by regime); OOS Calmar delta = 0% (threshold: +5%); **VERDICT: BASELINE_WINS** — adaptive_sniper_enabled stays False; code deferred (Architect OFFICIALLY APPROVED) | Done |
+| Phase 14 | **Task 3: Parameter Recommendation Engine** — `analysis/param_recommender.py`: Read-only monthly scan; stop-loss, sizing, entry, trailing analysis from recent trade performance; severity levels (info/warning/critical); GET /system/param-recommendations; Signal Log notification card; monthly cron (1st of month 10:00) with LINE alert for warnings (Architect OFFICIALLY APPROVED) | Done |
 
 ### R14.18: Final Production Baseline (CTO LOCKED)
 

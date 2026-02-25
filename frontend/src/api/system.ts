@@ -90,6 +90,14 @@ export const systemApi = {
   // Phase 13 Task 2: Shake-out Audit
   shakeOutAudit: () => client.get<any, ShakeOutResult>('/system/shake-out-audit', { timeout: 60000 }),
 
+  // Phase 14 Task 1: AI Signal Commentator
+  aiComment: (stockCode: string) =>
+    client.post<any, AiCommentResult>(`/system/ai-comment/${stockCode}`, {}, { timeout: 120000 }),
+
+  // Phase 14 Task 3: Parameter Recommendations
+  paramRecommendations: (daysBack: number = 90) =>
+    client.get<any, ParamRecommendations>(`/system/param-recommendations?days_back=${daysBack}`, { timeout: 30000 }),
+
   // Phase 9 P0: Industry Success Rates
   industrySuccessRates: (daysBack: number = 90) =>
     client.get<any, any>(`/system/industry-success-rates?days_back=${daysBack}`),
@@ -164,6 +172,14 @@ export interface AutoSimResult {
   message: string
   elapsed_s: number
   notification_sent?: boolean
+  ai_comments?: Record<string, string>
+}
+
+// Phase 14 Task 1: AI Signal Commentator
+export interface AiCommentResult {
+  stock_code: string
+  comment: string
+  signal_id?: number
 }
 
 // P3: Drift Detection Types
@@ -422,6 +438,26 @@ export interface ShakeOutResult {
   shake_out_rate: number | null
   rate_warning: boolean
   details: ShakeOutDetail[]
+}
+
+// Phase 14 Task 3: Parameter Recommendations
+export interface ParamRecommendation {
+  category: 'stop_loss' | 'position_sizing' | 'entry' | 'trailing'
+  severity: 'info' | 'warning' | 'critical'
+  title: string
+  detail: string
+  evidence: Record<string, any>
+  suggestion: string
+}
+
+export interface ParamRecommendations {
+  recommendations: ParamRecommendation[]
+  summary: string
+  trade_count: number
+  win_rate: number | null
+  in_bounds_rate: number | null
+  analysis_period: string
+  generated_at: string
 }
 
 /** Trigger browser file download from Blob response */

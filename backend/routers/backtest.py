@@ -1910,13 +1910,19 @@ async def adaptive_sniper_ab(req: AdaptiveSniperRequest):
         if len(stock_data) < 10:
             raise HTTPException(status_code=400, detail="Not enough stock data")
 
+        # Compute date range
+        from datetime import datetime, timedelta
+        today = datetime.now().date()
+        start_str = (today - timedelta(days=req.period_days)).isoformat()
+        end_str = today.isoformat()
+
         all_results = {}
 
         # --- A: Baseline (Fixed Weight) ---
         print("\n  [A] Running BASELINE (Fixed Weight)...")
         params_a = {**base_params, "adaptive_sniper_enabled": False}
         bt_a = PortfolioBacktester(params=params_a, cost_calculator=cost_calc)
-        result_a = bt_a.run(stock_data, stock_sectors, taiex_data, start_str, end_str)
+        result_a = bt_a.run(stock_data, stock_sectors, taiex_data, start_date=start_str, end_date=end_str)
 
         all_results["baseline"] = {
             "label": "A: Fixed Weight (Baseline)",
@@ -1937,7 +1943,7 @@ async def adaptive_sniper_ab(req: AdaptiveSniperRequest):
         print("  [B] Running ADAPTIVE SNIPER (Dynamic Weight)...")
         params_b = {**base_params, "adaptive_sniper_enabled": True}
         bt_b = PortfolioBacktester(params=params_b, cost_calculator=cost_calc)
-        result_b = bt_b.run(stock_data, stock_sectors, taiex_data, start_str, end_str)
+        result_b = bt_b.run(stock_data, stock_sectors, taiex_data, start_date=start_str, end_date=end_str)
 
         all_results["adaptive"] = {
             "label": "B: Adaptive Sniper (Dynamic Weight)",

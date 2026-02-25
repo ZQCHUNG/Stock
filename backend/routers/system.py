@@ -1470,6 +1470,59 @@ def slippage_audit():
     return run_slippage_audit()
 
 
+@router.get("/param-recommendations")
+def param_recommendations(days_back: int = 90):
+    """Phase 14 Task 3: Parameter Recommendation Engine — Read-only suggestions.
+
+    Architect APPROVED: No auto-modify, display only.
+    CTO: "系統應該能告訴 Joe 哪些參數可能需要調整，但不自動修改"
+    """
+    from analysis.param_recommender import generate_recommendations
+    return generate_recommendations(days_back=days_back)
+
+
+@router.post("/ai-comment/{stock_code}")
+def ai_comment(stock_code: str):
+    """Phase 14 Task 1: AI Signal Commentator — on-demand for single stock.
+
+    Architect APPROVED: "冷靜、毒舌但極度看重風險回報比的台股資深交易員"
+    CTO: "讓 AI 用一句話戳穿信號的本質"
+    """
+    from analysis.ai_commentator import get_single_comment
+    from analysis.signal_log import _get_conn
+
+    # Fetch signal context from DB
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            """SELECT * FROM trade_signals_log
+               WHERE stock_code = ?
+               ORDER BY signal_date DESC LIMIT 1""",
+            (stock_code,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        return {"stock_code": stock_code, "comment": "無歷史信號資料"}
+
+    context = dict(row)
+    comment = get_single_comment(stock_code, context)
+
+    # Update DB
+    conn = _get_conn()
+    try:
+        conn.execute(
+            "UPDATE trade_signals_log SET ai_comment = ? WHERE id = ?",
+            (comment, row["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {"stock_code": stock_code, "comment": comment, "signal_id": row["id"]}
+
+
 @router.get("/aggressive-index")
 def aggressive_index():
     """Phase 10 P1: Aggressive Index — System Temperature Gauge.
