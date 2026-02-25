@@ -80,6 +80,10 @@ export const systemApi = {
   // Phase 10 P1: Aggressive Index
   aggressiveIndex: () => client.get<any, AggressiveIndex>('/system/aggressive-index', { timeout: 15000 }),
 
+  // Phase 11 P1: Live Trade Sync
+  confirmLiveTrade: (signalId: number, actualPrice: number) =>
+    client.post<any, any>(`/system/signal/${signalId}/confirm-live?actual_price=${actualPrice}`),
+
   // Phase 9 P0: Industry Success Rates
   industrySuccessRates: (daysBack: number = 90) =>
     client.get<any, any>(`/system/industry-success-rates?days_back=${daysBack}`),

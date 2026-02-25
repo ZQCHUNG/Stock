@@ -196,6 +196,48 @@ async function toggleRiskFlag() {
   }
 }
 
+// Phase 11 P0: Emergency Kill Switch
+async function triggerEmergencyStop() {
+  const confirmed = confirm(
+    'EMERGENCY STOP\n\n' +
+    'This will:\n' +
+    '- Stop all scheduled tasks\n' +
+    '- Set Risk Flag to OFF (LOCKDOWN)\n' +
+    '- Send emergency LINE notification\n\n' +
+    'You must manually re-enable Risk Flag to resume.\n\n' +
+    'Are you sure?'
+  )
+  if (!confirmed) return
+
+  isLoading.value = true
+  try {
+    await systemApi.emergencyStop()
+    // Refresh risk flag state
+    await loadRiskFlag()
+    alert('EMERGENCY STOP executed. System is now in LOCKDOWN mode.')
+  } catch (e: any) {
+    error.value = e?.message || 'Emergency stop failed'
+  }
+  isLoading.value = false
+}
+
+// Phase 11 P1: Confirm Live Trade
+async function confirmLive(row: any) {
+  const priceStr = prompt(`Confirm live trade for ${row.stock_code} ${row.stock_name}\nSystem entry: ${row.entry_price}\n\nEnter actual entry price:`)
+  if (!priceStr) return
+  const price = parseFloat(priceStr)
+  if (isNaN(price) || price <= 0) {
+    alert('Invalid price')
+    return
+  }
+  try {
+    await systemApi.confirmLiveTrade(row.id, price)
+    await loadSignals()
+  } catch (e: any) {
+    error.value = e?.message || 'Confirm live failed'
+  }
+}
+
 // --- Signal Table Columns ---
 const signalColumns = computed<DataTableColumns>(() => [
   { title: 'Date', key: 'signal_date', width: 100, sorter: 'default' },
@@ -299,7 +341,41 @@ const signalColumns = computed<DataTableColumns>(() => [
       return h('span', { style: `color: ${color}; font-weight: ${triggered ? '600' : '400'}` }, label)
     },
   },
+  {
+    title: 'Live',
+    key: 'is_live',
+    width: 55,
+    render: (row: any) => {
+      if (row.is_live) return h('span', { style: 'color: #22c55e; font-weight: 700' }, '✓ Live')
+      return h('span', { style: 'color: #d1d5db' }, '-')
+    },
+  },
+  {
+    title: 'Slippage',
+    key: 'slippage_pct',
+    width: 80,
+    render: (row: any) => {
+      if (!row.is_live || row.actual_entry_price == null || row.entry_price == null) return h('span', { style: 'color: #999' }, '-')
+      const slip = ((row.actual_entry_price - row.entry_price) / row.entry_price) * 100
+      const color = slip > 0 ? '#ef4444' : slip < 0 ? '#22c55e' : '#999'
+      return h('span', { style: `color: ${color}; font-weight: 600` }, slip > 0 ? `+${slip.toFixed(2)}%` : `${slip.toFixed(2)}%`)
+    },
+  },
   { title: 'Industry', key: 'industry', width: 80 },
+  {
+    title: '',
+    key: 'actions',
+    width: 90,
+    render: (row: any) => {
+      if (row.is_live || row.status === 'realized') return null
+      return h(NButton, {
+        size: 'tiny',
+        type: 'primary',
+        ghost: true,
+        onClick: () => confirmLive(row),
+      }, () => 'Confirm Live')
+    },
+  },
 ])
 
 // --- Computed Stats ---
@@ -470,6 +546,15 @@ onMounted(loadAll)
       </NButton>
       <NButton size="small" type="warning" @click="triggerAudit">
         Run Audit
+      </NButton>
+      <NButton
+        size="small"
+        type="error"
+        strong
+        style="animation: pulse-red 2s infinite"
+        @click="triggerEmergencyStop"
+      >
+        EMERGENCY STOP
       </NButton>
     </div>
 
@@ -1191,3 +1276,10 @@ onMounted(loadAll)
     </NSpin>
   </div>
 </template>
+
+<style scoped>
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+</style>

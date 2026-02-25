@@ -1183,6 +1183,15 @@ def emergency_stop():
     except Exception as e:
         actions.append({"action": "snapshot_state", "status": "error", "detail": str(e)})
 
+    # 2.5. Phase 11 P0: Set global_risk_on = False (persistent lockdown)
+    # Architect: "必須具備狀態持久化，即便伺服器重啟也應保持 LOCKDOWN"
+    try:
+        from analysis.drift_detector import set_risk_flag
+        set_risk_flag(risk_on=False, reason="EMERGENCY_STOP — manual kill switch")
+        actions.append({"action": "set_risk_off", "status": "ok", "detail": "global_risk_on = False (persisted)"})
+    except Exception as e:
+        actions.append({"action": "set_risk_off", "status": "error", "detail": str(e)})
+
     # 3. Send notification
     try:
         from backend.scheduler import _send_notification
@@ -1190,7 +1199,9 @@ def emergency_stop():
             f"\n🚨 EMERGENCY STOP 觸發\n"
             f"⏰ {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"Scheduler 已停止\n"
-            f"所有自動交易已暫停"
+            f"Risk Flag: OFF (LOCKDOWN)\n"
+            f"所有自動交易已暫停\n"
+            f"需手動解除 Risk Flag 才能恢復"
         )
         actions.append({"action": "notify", "status": "ok", "detail": "Emergency notification sent"})
     except Exception as e:
@@ -1200,6 +1211,7 @@ def emergency_stop():
         "status": "emergency_stop_executed",
         "timestamp": now.isoformat(),
         "actions": actions,
+        "system_locked": True,
     }
 
 
@@ -1402,6 +1414,25 @@ def missed_opportunities(days_back: int = 30, limit: int = 50):
     try:
         results = get_filtered_signals(days_back=days_back, limit=limit)
         return {"filtered": results, "count": len(results)}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/signal/{signal_id}/confirm-live")
+def confirm_live_trade(signal_id: int, actual_price: float):
+    """Phase 11 P1: Mark a signal as 'live' — Joe confirmed execution.
+
+    Architect: "is_live = True 意味著該標的正式進入資產保衛模式"
+    """
+    from analysis.signal_log import confirm_live_trade as _confirm
+
+    try:
+        result = _confirm(signal_id=signal_id, actual_price=actual_price)
+        if "error" in result:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail=result["error"])
+        return result
     except Exception as e:
         from fastapi import HTTPException
         raise HTTPException(status_code=500, detail=str(e))

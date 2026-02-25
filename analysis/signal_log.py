@@ -92,6 +92,10 @@ _MIGRATE_COLUMNS = [
     ("target_1r_price", "REAL"),
     ("scale_out_triggered", "INTEGER DEFAULT 0"),
     ("scale_out_date", "TEXT"),
+    # Phase 11 P1: Live Trade Sync
+    ("is_live", "INTEGER DEFAULT 0"),
+    ("actual_entry_price", "REAL"),
+    ("live_date", "TEXT"),
 ]
 
 
@@ -275,6 +279,48 @@ def get_all_signals(limit: int = 100) -> list[dict]:
             (limit,),
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def confirm_live_trade(signal_id: int, actual_price: float) -> dict:
+    """Phase 11 P1: Mark a signal as 'live' (Joe confirmed execution).
+
+    Architect directive: "is_live = True 意味著該標的正式進入資產保衛模式"
+
+    Returns:
+        {"id": int, "is_live": True, "slippage_pct": float}
+    """
+    conn = _get_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM trade_signals_log WHERE id = ?", (signal_id,)
+        ).fetchone()
+        if not row:
+            return {"error": f"Signal {signal_id} not found"}
+
+        entry_price = row["entry_price"]
+        slippage_pct = None
+        if entry_price and entry_price > 0 and actual_price > 0:
+            slippage_pct = round((actual_price - entry_price) / entry_price * 100, 2)
+
+        conn.execute(
+            """UPDATE trade_signals_log
+               SET is_live = 1, actual_entry_price = ?, live_date = date('now')
+               WHERE id = ?""",
+            (actual_price, signal_id),
+        )
+        conn.commit()
+        logger.info(
+            "Live trade confirmed: id=%d, actual=%.1f, slippage=%.2f%%",
+            signal_id, actual_price, slippage_pct or 0,
+        )
+        return {
+            "id": signal_id,
+            "is_live": True,
+            "actual_entry_price": actual_price,
+            "slippage_pct": slippage_pct,
+        }
     finally:
         conn.close()
 
