@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS trade_signals_log (
     current_stop_price REAL,
     trailing_phase INTEGER DEFAULT 0,
     highest_since_entry REAL,
+    target_1r_price REAL,
+    scale_out_triggered INTEGER DEFAULT 0,
+    scale_out_date TEXT,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(signal_date, stock_code)
 );
@@ -60,12 +63,35 @@ CREATE INDEX IF NOT EXISTS idx_sig_status ON trade_signals_log(status);
 CREATE INDEX IF NOT EXISTS idx_sig_code ON trade_signals_log(stock_code);
 """
 
-# Schema migration for existing DBs (columns added in Phase 6 P0)
+# Phase 7 P2: Missed Opportunities (filtered signals log)
+_CREATE_FILTERED_TABLE = """
+CREATE TABLE IF NOT EXISTS filtered_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    signal_date TEXT NOT NULL,
+    stock_code TEXT NOT NULL,
+    stock_name TEXT,
+    raw_score INTEGER,
+    final_score INTEGER,
+    filter_reason TEXT,
+    tr_ratio REAL,
+    vol_ratio REAL,
+    rs_rating REAL,
+    tier TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(signal_date, stock_code)
+);
+CREATE INDEX IF NOT EXISTS idx_filt_date ON filtered_signals(signal_date);
+"""
+
+# Schema migration for existing DBs (columns added in Phase 6 P0 + Phase 7 P1)
 _MIGRATE_COLUMNS = [
     ("initial_stop_price", "REAL"),
     ("current_stop_price", "REAL"),
     ("trailing_phase", "INTEGER DEFAULT 0"),
     ("highest_since_entry", "REAL"),
+    ("target_1r_price", "REAL"),
+    ("scale_out_triggered", "INTEGER DEFAULT 0"),
+    ("scale_out_date", "TEXT"),
 ]
 
 
@@ -74,6 +100,7 @@ def _get_conn() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.executescript(_CREATE_TABLE)
+    conn.executescript(_CREATE_FILTERED_TABLE)
     _ensure_migration(conn)
     return conn
 
@@ -157,6 +184,54 @@ def log_signals_batch(signals: list[dict]) -> int:
         except Exception as e:
             logger.warning("Failed to log signal %s: %s", s.get("stock_code"), e)
     return count
+
+
+def log_filtered_signal(signal: dict, raw_score: int, final_score: int, reason: str) -> None:
+    """Phase 7 P2: Log a signal that was penalized by Energy Score.
+
+    Secretary directive: "究竟被過濾掉的是「子彈」還是「炸彈」？"
+    """
+    conn = _get_conn()
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO filtered_signals
+               (signal_date, stock_code, stock_name, raw_score, final_score,
+                filter_reason, tr_ratio, vol_ratio, rs_rating, tier)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                datetime.now().strftime("%Y-%m-%d"),
+                signal.get("stock_code", ""),
+                signal.get("name", ""),
+                raw_score,
+                final_score,
+                reason,
+                signal.get("energy_tr_ratio"),
+                signal.get("energy_vol_ratio"),
+                signal.get("rs_rating", 0),
+                signal.get("tier", ""),
+            ),
+        )
+        conn.commit()
+    except Exception as e:
+        logger.debug("Failed to log filtered signal: %s", e)
+    finally:
+        conn.close()
+
+
+def get_filtered_signals(days_back: int = 30, limit: int = 50) -> list[dict]:
+    """Phase 7 P2: Get recently filtered signals (missed opportunities)."""
+    conn = _get_conn()
+    try:
+        rows = conn.execute(
+            """SELECT * FROM filtered_signals
+               WHERE signal_date >= date('now', ?)
+               ORDER BY signal_date DESC, raw_score DESC
+               LIMIT ?""",
+            (f"-{days_back} days", limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 def get_active_signals(days_back: int = 30) -> list[dict]:
@@ -369,12 +444,28 @@ def update_trailing_stops() -> dict:
                     r_value=r_value,
                 )
 
+                # Phase 7 P1: +1R Scale-out check
+                # Architect: "P_target = Entry + (Entry - Stop)"
+                target_1r = entry_price + r_value
+                already_triggered = bool(row["scale_out_triggered"])
+                scale_out_now = (not already_triggered) and (current_price >= target_1r)
+
                 conn.execute(
                     """UPDATE trade_signals_log SET
                        current_stop_price = ?, trailing_phase = ?,
-                       highest_since_entry = ?, initial_stop_price = ?
+                       highest_since_entry = ?, initial_stop_price = ?,
+                       target_1r_price = ?,
+                       scale_out_triggered = CASE WHEN ? = 1 THEN 1 ELSE scale_out_triggered END,
+                       scale_out_date = CASE WHEN ? = 1 THEN ? ELSE scale_out_date END
                        WHERE id = ?""",
-                    (trail["current_stop"], trail["phase"], highest, initial_stop, row["id"]),
+                    (
+                        trail["current_stop"], trail["phase"], highest, initial_stop,
+                        round(target_1r, 2),
+                        1 if scale_out_now else 0,
+                        1 if scale_out_now else 0,
+                        datetime.now().strftime("%Y-%m-%d") if scale_out_now else None,
+                        row["id"],
+                    ),
                 )
                 updated += 1
 
@@ -388,6 +479,9 @@ def update_trailing_stops() -> dict:
                     "phase_reason": trail["reason"],
                     "return_pct": round((current_price / entry_price - 1) * 100, 1),
                     "stop_distance_pct": round((current_price - trail["current_stop"]) / current_price * 100, 1),
+                    "target_1r_price": round(target_1r, 2),
+                    "scale_out_triggered": already_triggered or scale_out_now,
+                    "scale_out_just_triggered": scale_out_now,
                 })
             except Exception as e:
                 logger.debug("Trailing stop update failed for %s: %s", code, e)
@@ -424,6 +518,16 @@ def format_active_signals_line(active_stops: list[dict]) -> str:
         lines.append(f"  Entry: {s['entry_price']:.1f} → Now: {s['current_price']:.1f} ({ret:+.1f}%)")
         lines.append(f"  🛡️ 移動止盈價: {s['current_stop']:.1f} ({phase})")
         lines.append(f"  距離止盈: {s['stop_distance_pct']:.1f}%")
+
+        # Phase 7 P1: +1R Scale-out advisory
+        target_1r = s.get("target_1r_price")
+        if target_1r:
+            lines.append(f"  🎯 +1R Target: {target_1r:.1f}")
+        if s.get("scale_out_just_triggered"):
+            lines.append(f"  💎 建議動作：利潤鎖定（已達 +1R）")
+        elif s.get("scale_out_triggered"):
+            lines.append(f"  ✅ 已觸發利潤保護")
+
         lines.append("")
 
     return "\n".join(lines)

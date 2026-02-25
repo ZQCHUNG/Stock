@@ -60,6 +60,10 @@ export const systemApi = {
   failureAnalysis: (daysBack: number = 90) =>
     client.get<any, FailureAnalysisResult>(`/system/failure-analysis?days_back=${daysBack}`, { timeout: 30000 }),
 
+  // Phase 7 P2: Missed Opportunities
+  missedOpportunities: (daysBack: number = 30, limit: number = 50) =>
+    client.get<any, MissedOppsResult>(`/system/missed-opportunities?days_back=${daysBack}&limit=${limit}`),
+
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>
     client.post('/system/export/backtest/csv', result, {
@@ -111,6 +115,12 @@ export interface AutoSimSignal {
   worst_case_pct: number | null
   sample_count: number
   divergence_warning: boolean
+  // Phase 7 P0: Energy Score
+  energy_overheat?: boolean
+  energy_weak_volume?: boolean
+  energy_tr_ratio?: number | null
+  energy_vol_ratio?: number | null
+  energy_warnings?: string[]
 }
 
 export interface AutoSimResult {
@@ -188,6 +198,10 @@ export interface ActiveStop {
   phase_reason: string
   return_pct: number
   stop_distance_pct: number
+  // Phase 7 P1: Scale-out
+  target_1r_price?: number
+  scale_out_triggered?: boolean
+  scale_out_just_triggered?: boolean
 }
 
 export interface TrailingStopResult {
@@ -216,6 +230,25 @@ export interface FailureAnalysis {
 
 export interface FailureAnalysisResult {
   failures: FailureAnalysis[]
+  count: number
+}
+
+// Phase 7 P2: Missed Opportunities
+export interface FilteredSignal {
+  signal_date: string
+  stock_code: string
+  stock_name: string
+  raw_score: number
+  final_score: number
+  filter_reason: string
+  tr_ratio: number | null
+  vol_ratio: number | null
+  rs_rating: number
+  tier: string
+}
+
+export interface MissedOppsResult {
+  filtered: FilteredSignal[]
   count: number
 }
 

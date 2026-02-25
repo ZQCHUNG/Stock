@@ -1338,6 +1338,22 @@ def failure_analysis(days_back: int = 90):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/missed-opportunities")
+def missed_opportunities(days_back: int = 30, limit: int = 50):
+    """Phase 7 P2: Signals penalized by Energy Score.
+
+    Secretary directive: "究竟被過濾掉的是「子彈」還是「炸彈」？"
+    """
+    from analysis.signal_log import get_filtered_signals
+
+    try:
+        results = get_filtered_signals(days_back=days_back, limit=limit)
+        return {"filtered": results, "count": len(results)}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/trailing-stops/update")
 def update_trailing_stops():
     """Phase 6 P0: Update trailing stop prices for all active signals.

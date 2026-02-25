@@ -6,7 +6,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -28,6 +28,9 @@ const pipeline = ref<PipelineMonitor | null>(null)
 
 // Failure Analysis
 const failures = ref<FailureAnalysis[]>([])
+
+// Missed Opportunities (Phase 7 P2)
+const missedOpps = ref<FilteredSignal[]>([])
 
 // --- Loaders ---
 async function loadSignals() {
@@ -77,8 +80,17 @@ async function loadFailures() {
   }
 }
 
+async function loadMissedOpps() {
+  try {
+    const result = await systemApi.missedOpportunities(30, 50)
+    missedOpps.value = result.filtered || []
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps()])
 }
 
 // --- Actions ---
@@ -215,6 +227,19 @@ const signalColumns = computed<DataTableColumns>(() => [
       const phaseColors: Record<number, string> = { 0: '#94a3b8', 1: '#f59e0b', 2: '#22c55e', 3: '#3b82f6' }
       return h('span', { style: `color: ${phaseColors[phase] || '#999'}; font-weight: 600` },
         `${stop.toFixed(1)} (${phaseNames[phase] || '?'})`)
+    },
+  },
+  {
+    title: '+1R',
+    key: 'target_1r_price',
+    width: 70,
+    render: (row: any) => {
+      const target = row.target_1r_price
+      if (target == null || row.status === 'realized') return h('span', { style: 'color: #999' }, '-')
+      const triggered = row.scale_out_triggered
+      const color = triggered ? '#a855f7' : '#999'
+      const label = triggered ? `${target.toFixed(1)} ✓` : target.toFixed(1)
+      return h('span', { style: `color: ${color}; font-weight: ${triggered ? '600' : '400'}` }, label)
     },
   },
   { title: 'Industry', key: 'industry', width: 80 },
@@ -535,6 +560,61 @@ onMounted(loadAll)
               <div v-if="f.evidence.length > 0" style="margin-top: 4px; font-size: 12px; color: #ef4444">
                 <div v-for="(ev, i) in f.evidence" :key="i">{{ ev }}</div>
               </div>
+            </div>
+          </NCard>
+
+          <!-- Missed Opportunities Log (Phase 7 P2) -->
+          <NCard v-if="missedOpps.length > 0" title="Missed Opportunities (Energy Score Filtered)" size="small" style="margin-top: 16px">
+            <div style="font-size: 12px; color: #999; margin-bottom: 8px">
+              Signals penalized by Energy Score filter. Review to assess: bullets or bombs?
+            </div>
+            <div style="overflow-x: auto">
+              <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                <thead>
+                  <tr style="border-bottom: 2px solid #e5e7eb; text-align: left">
+                    <th style="padding: 6px 8px">Date</th>
+                    <th style="padding: 6px 8px">Code</th>
+                    <th style="padding: 6px 8px">Name</th>
+                    <th style="padding: 6px 8px">Tier</th>
+                    <th style="padding: 6px 8px">Raw</th>
+                    <th style="padding: 6px 8px">Final</th>
+                    <th style="padding: 6px 8px">TR Ratio</th>
+                    <th style="padding: 6px 8px">Vol Ratio</th>
+                    <th style="padding: 6px 8px">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="m in missedOpps"
+                    :key="m.stock_code + m.signal_date"
+                    style="border-bottom: 1px solid #f3f4f6"
+                  >
+                    <td style="padding: 4px 8px">{{ m.signal_date }}</td>
+                    <td style="padding: 4px 8px; font-weight: 600">{{ m.stock_code }}</td>
+                    <td style="padding: 4px 8px">{{ m.stock_name }}</td>
+                    <td style="padding: 4px 8px">
+                      <NTag size="tiny" :type="m.tier === 'sniper' ? 'success' : m.tier === 'tactical' ? 'warning' : 'default'">
+                        {{ m.tier }}
+                      </NTag>
+                    </td>
+                    <td style="padding: 4px 8px; text-decoration: line-through; color: #999">{{ m.raw_score }}</td>
+                    <td style="padding: 4px 8px; font-weight: 600">{{ m.final_score }}</td>
+                    <td style="padding: 4px 8px; font-family: monospace">
+                      <span :style="{ color: m.tr_ratio && m.tr_ratio > 2.5 ? '#ef4444' : '#666' }">
+                        {{ m.tr_ratio != null ? m.tr_ratio.toFixed(1) : '-' }}
+                      </span>
+                    </td>
+                    <td style="padding: 4px 8px; font-family: monospace">
+                      <span :style="{ color: m.vol_ratio != null && m.vol_ratio < 1.5 ? '#f59e0b' : '#666' }">
+                        {{ m.vol_ratio != null ? m.vol_ratio.toFixed(1) : '-' }}
+                      </span>
+                    </td>
+                    <td style="padding: 4px 8px; font-size: 11px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                      {{ m.filter_reason }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </NCard>
         </NTabPane>

@@ -4,11 +4,14 @@ P2-B: CTO Gemini directive — 全自動化決策鏈條
 Daily at 20:30 after screener refresh:
   1. Query screener for RS > 80 stocks
   2. Run find_similar_dual on candidates
+  2.3. Energy Quality Filter (Phase 7 P0)
+  2.5. Market Context adjustment
   3. Rank by sniper_assessment + confidence
   4. Diversify: max 2 per L1 industry
   5. Send LINE Notify with CTO-mandated format
 
 [HYPOTHESIS: AUTOSIM_RS_THRESHOLD = 80, MAX_PER_INDUSTRY = 2, TOP_N = 5]
+[HYPOTHESIS: SIGNAL_QUALITY_V1 — TR>2.5xATR=overheat, Vol<1.5xAvg=weak]
 """
 
 import logging
@@ -29,10 +32,102 @@ ASSUMED_EQUITY = 3_000_000   # [PLACEHOLDER] Joe's assumed equity (TWD)
 RISK_PER_TRADE = 0.02        # [HYPOTHESIS] 2% of equity per trade
 MAX_POSITION_PCT = 0.20      # Max 20% of equity in single stock
 
+# Energy Score (Phase 7 P0) — [HYPOTHESIS: SIGNAL_QUALITY_V1]
+# Architect approved: "動能與波動平衡器"
+ENERGY_OVERHEAT_TR_MULT = 2.5   # TR > 2.5x ATR20 → climax / momentum exhaustion
+ENERGY_WEAK_VOL_MULT = 1.5      # Vol < 1.5x 5-day avg → weak breakout
+ENERGY_OVERHEAT_PENALTY = 0.8   # Confidence × 0.8
+ENERGY_WEAK_VOL_PENALTY = 0.9   # Confidence × 0.9
+
 
 def _tier_score(tier: str) -> int:
     """Convert sniper tier to numeric score for sorting."""
     return {"sniper": 3, "tactical": 2, "avoid": 1}.get(tier, 0)
+
+
+def _compute_energy_score(stock_code: str) -> dict:
+    """Phase 7 P0: Energy Quality assessment for a signal.
+
+    Architect approved: "動能與波動平衡器"
+    Checks:
+      1. TR > 2.5x ATR20 → "overheat" (climax bar, momentum exhaustion)
+      2. Vol < 1.5x 5-day avg → "weak_volume" (breakout without conviction)
+
+    [HYPOTHESIS: SIGNAL_QUALITY_V1]
+
+    Returns:
+        {
+            "penalty_factor": float,  # 1.0 = no penalty, <1.0 = penalized
+            "overheat": bool,
+            "weak_volume": bool,
+            "tr_ratio": float | None,   # TR / ATR20
+            "vol_ratio": float | None,  # today_vol / 5d_avg_vol
+            "warnings": list[str],
+        }
+    """
+    result = {
+        "penalty_factor": 1.0,
+        "overheat": False,
+        "weak_volume": False,
+        "tr_ratio": None,
+        "vol_ratio": None,
+        "warnings": [],
+    }
+
+    try:
+        import pandas as pd
+        from data.fetcher import get_stock_data
+
+        df = get_stock_data(stock_code, period_days=60)
+        if df is None or len(df) < 25:
+            return result
+
+        high = df["high"]
+        low = df["low"]
+        close = df["close"]
+        volume = df["volume"]
+
+        # True Range series
+        tr = pd.concat([
+            high - low,
+            (high - close.shift(1)).abs(),
+            (low - close.shift(1)).abs(),
+        ], axis=1).max(axis=1)
+
+        # ATR20 (20-day rolling average of TR)
+        atr20 = tr.rolling(20).mean()
+
+        latest_tr = float(tr.iloc[-1])
+        latest_atr20 = float(atr20.iloc[-1])
+        latest_vol = float(volume.iloc[-1])
+        avg_vol_5d = float(volume.iloc[-5:].mean())
+
+        # Check 1: Energy Overheat (climax bar)
+        if latest_atr20 > 0:
+            tr_ratio = latest_tr / latest_atr20
+            result["tr_ratio"] = round(tr_ratio, 2)
+            if tr_ratio > ENERGY_OVERHEAT_TR_MULT:
+                result["overheat"] = True
+                result["penalty_factor"] *= ENERGY_OVERHEAT_PENALTY
+                result["warnings"].append(
+                    f"過熱 TR={latest_tr:.1f} > {ENERGY_OVERHEAT_TR_MULT}x ATR20={latest_atr20:.1f}"
+                )
+
+        # Check 2: Weak Volume breakout
+        if avg_vol_5d > 0:
+            vol_ratio = latest_vol / avg_vol_5d
+            result["vol_ratio"] = round(vol_ratio, 2)
+            if vol_ratio < ENERGY_WEAK_VOL_MULT:
+                result["weak_volume"] = True
+                result["penalty_factor"] *= ENERGY_WEAK_VOL_PENALTY
+                result["warnings"].append(
+                    f"量縮 Vol={latest_vol:.0f} < {ENERGY_WEAK_VOL_MULT}x Avg5d={avg_vol_5d:.0f}"
+                )
+
+    except Exception as e:
+        logger.debug("Energy score failed for %s: %s", stock_code, e)
+
+    return result
 
 
 def _format_advice(confidence_score: int) -> str:
@@ -155,6 +250,46 @@ def run_auto_sim(
         })
 
     logger.info("Auto-Sim: %d/%d stocks simulated", len(sim_results), len(candidates))
+
+    # Step 2.3: Energy Quality Filter (Phase 7 P0)
+    # Architect approved: [HYPOTHESIS: SIGNAL_QUALITY_V1]
+    # "把這兩個 check 實作為 Penalty Factors"
+    energy_penalized = 0
+    for s in sim_results:
+        energy = _compute_energy_score(s["stock_code"])
+        s["energy_overheat"] = energy["overheat"]
+        s["energy_weak_volume"] = energy["weak_volume"]
+        s["energy_tr_ratio"] = energy["tr_ratio"]
+        s["energy_vol_ratio"] = energy["vol_ratio"]
+        s["energy_warnings"] = energy["warnings"]
+
+        if energy["penalty_factor"] < 1.0:
+            original_score = s["confidence_score"]
+            s["confidence_score"] = max(0, int(s["confidence_score"] * energy["penalty_factor"]))
+            # Re-grade after penalty
+            score = s["confidence_score"]
+            s["confidence_grade"] = "HIGH" if score >= 70 else "MEDIUM" if score >= 40 else "LOW"
+            energy_penalized += 1
+            logger.info(
+                "Energy penalty %s: %d → %d (TR_ratio=%.1f, Vol_ratio=%.1f, %s)",
+                s["stock_code"], original_score, s["confidence_score"],
+                energy.get("tr_ratio") or 0, energy.get("vol_ratio") or 0,
+                ", ".join(energy["warnings"]),
+            )
+            # Phase 7 P2: Log to Missed Opportunities for post-mortem
+            try:
+                from analysis.signal_log import log_filtered_signal
+                log_filtered_signal(
+                    signal=s,
+                    raw_score=original_score,
+                    final_score=s["confidence_score"],
+                    reason="; ".join(energy["warnings"]),
+                )
+            except Exception:
+                pass
+
+    if energy_penalized:
+        logger.info("Auto-Sim: Energy Score penalized %d/%d signals", energy_penalized, len(sim_results))
 
     # Step 2.5: Market Context Factor (Phase 4 Scoring V2)
     # CTO directive: "在空頭市場頻繁開火是多頭策略最容易死掉的地方"
@@ -392,6 +527,11 @@ def _format_line_message(signals: list[dict]) -> str:
         pos_lots = s.get("position_lots")
         if pos_pct is not None and pos_lots:
             lines.append(f"  📊 建議倉位: {pos_pct:.0%} ({pos_lots} 張)")
+
+        # Energy quality warnings (Phase 7 P0)
+        energy_warns = s.get("energy_warnings", [])
+        if energy_warns:
+            lines.append(f"  ⚠️ 訊號品質警示: {'; '.join(energy_warns)}")
 
         # Divergence warning
         if s.get("divergence_warning"):
