@@ -84,6 +84,9 @@ export const systemApi = {
   confirmLiveTrade: (signalId: number, actualPrice: number) =>
     client.post<any, any>(`/system/signal/${signalId}/confirm-live?actual_price=${actualPrice}`),
 
+  // Phase 12 P0: Slippage Audit
+  slippageAudit: () => client.get<any, SlippageAuditResult>('/system/slippage-audit', { timeout: 15000 }),
+
   // Phase 9 P0: Industry Success Rates
   industrySuccessRates: (daysBack: number = 90) =>
     client.get<any, any>(`/system/industry-success-rates?days_back=${daysBack}`),
@@ -378,6 +381,25 @@ export interface StressTestResult {
   crash_factor: number
   exit_factor: number
   recovery_needed_pct: number
+}
+
+// Phase 12 P0: Slippage Audit
+export interface SlippageIndustry {
+  industry: string
+  count: number
+  median_bps: number
+  p95_bps: number
+  avg_bps: number
+  status: 'LOW' | 'HIGH' | 'INSUFFICIENT_DATA'
+}
+
+export interface SlippageAuditResult {
+  total_live_trades: number
+  avg_slippage_bps: number
+  friction_drag_pct: number | null
+  industries: SlippageIndustry[]
+  high_friction_industries: string[]
+  virtual_expectancy: number | null
 }
 
 /** Trigger browser file download from Blob response */

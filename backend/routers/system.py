@@ -1438,6 +1438,28 @@ def confirm_live_trade(signal_id: int, actual_price: float):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/daily-review-preview")
+def daily_review_preview():
+    """Phase 12 P1: Preview the daily review message (without sending LINE).
+
+    Architect: Option A (template-based, no external API).
+    """
+    from data.daily_update import generate_daily_review
+    msg = generate_daily_review()
+    return {"message": msg or "(empty)", "generated_at": __import__("datetime").datetime.now().isoformat()}
+
+
+@router.get("/slippage-audit")
+def slippage_audit():
+    """Phase 12 P0: Slippage Auditor — Real-trade friction analysis.
+
+    Architect OFFICIALLY APPROVED. CTO: "如果實戰滑價吃掉了預期利潤，所有回測都是幻影"
+    [HYPOTHESIS: SLIPPAGE_SENSITIVITY_V1]
+    """
+    from analysis.slippage_auditor import run_slippage_audit
+    return run_slippage_audit()
+
+
 @router.get("/aggressive-index")
 def aggressive_index():
     """Phase 10 P1: Aggressive Index — System Temperature Gauge.

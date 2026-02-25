@@ -554,6 +554,160 @@ def rollover_forward_returns() -> dict:
     return result
 
 
+def generate_daily_review() -> str | None:
+    """Phase 12 P1: Template-based daily post-mortem review.
+
+    Architect OFFICIALLY APPROVED (Option A — no external API).
+    CTO: "讓 Joe 養成每天接收系統反饋的習慣"
+
+    Generates a LINE message summarizing today's system state:
+    - Aggressive Index + regime icon (🔥/☘️/🧊)
+    - Risk Flag + Pipeline Health
+    - Active signals, trailing stop moves, +1R scale-outs
+    - Missed opportunities (filtered signals that performed well)
+    - CTO tip based on regime
+
+    [HYPOTHESIS: DAILY_REVIEW_SCHEDULE_001] — 22:00 排程
+    [HYPOTHESIS: MISSED_OPP_LOOKBACK_001] — 當日過濾標的
+    """
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # --- 1. Aggressive Index ---
+        agg_score = None
+        agg_level = "Normal"
+        agg_icon = "☘️"
+        try:
+            from analysis.signal_log import _get_conn
+            # Recompute inline (lightweight)
+            from analysis.market_regime import get_regime_context
+            ctx = get_regime_context()
+            market_score = min(30, max(0, int(ctx.get("score", 50) * 0.3)))
+
+            from analysis.sector_rs import get_sector_rs_overview
+            sector_data = get_sector_rs_overview()
+            top3 = sector_data.get("top3_sectors", []) if sector_data else []
+            sector_score = min(25, len(top3) * 8)
+
+            from analysis.drift_detector import get_drift_report
+            drift = get_drift_report()
+            ib_rate = drift.get("in_bounds", {}).get("in_bounds_rate")
+            ib_score = min(25, int((ib_rate or 0.5) * 25))
+
+            from analysis.signal_log import get_all_signals
+            recent = get_all_signals(limit=20)
+            high_conf = sum(1 for s in recent if s.get("confidence_grade") == "HIGH")
+            sig_score = min(20, high_conf * 5)
+
+            agg_score = market_score + sector_score + ib_score + sig_score
+            if agg_score >= 70:
+                agg_level, agg_icon = "Aggressive", "🔥"
+            elif agg_score < 40:
+                agg_level, agg_icon = "Defensive", "🧊"
+            else:
+                agg_level, agg_icon = "Normal", "☘️"
+        except Exception as e:
+            logger.warning("Aggressive Index calc failed: %s", e)
+
+        # --- 2. Risk Flag + Pipeline ---
+        risk_status = "ON"
+        try:
+            risk_path = PROJECT_ROOT / "data" / "risk_flag.json"
+            if risk_path.exists():
+                import json
+                rf = json.loads(risk_path.read_text(encoding="utf-8"))
+                risk_status = "ON" if rf.get("global_risk_on", True) else "OFF (LOCKDOWN)"
+        except Exception:
+            pass
+
+        pipeline_status = "OK"
+        try:
+            heartbeat_path = PROJECT_ROOT / "data" / "scheduler_heartbeat.json"
+            if heartbeat_path.exists():
+                import json
+                hb = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+                pipeline_status = hb.get("status", "OK")
+        except Exception:
+            pass
+
+        # --- 3. Signal Summary ---
+        active_count = 0
+        stop_raised = []
+        scale_out_list = []
+        try:
+            from analysis.signal_log import get_all_signals
+            all_sigs = get_all_signals(limit=200)
+            active = [s for s in all_sigs if s.get("status") == "active"]
+            active_count = len(active)
+            for s in active:
+                phase = s.get("trailing_phase", 0)
+                if phase >= 1:  # BE or higher
+                    stop_raised.append(f"{s['stock_code']}(P{phase})")
+                if s.get("scale_out_triggered"):
+                    scale_out_list.append(s["stock_code"])
+        except Exception as e:
+            logger.warning("Signal summary failed: %s", e)
+
+        # --- 4. Missed Opportunities ---
+        # [HYPOTHESIS: MISSED_OPP_LOOKBACK_001]
+        missed_text = ""
+        try:
+            from analysis.signal_log import _get_conn as get_conn
+            conn = get_conn()
+            missed = conn.execute(
+                """SELECT stock_code, stock_name, filter_reason
+                   FROM filtered_signals
+                   WHERE signal_date = ?
+                   ORDER BY raw_score DESC LIMIT 3""",
+                (today,),
+            ).fetchall()
+            conn.close()
+            if missed:
+                missed_text = "\n".join(
+                    f"  • {m['stock_code']} {m['stock_name'] or ''} ({m['filter_reason']})"
+                    for m in missed
+                )
+        except Exception as e:
+            logger.warning("Missed opps lookup failed: %s", e)
+
+        # --- 5. CTO Tip ---
+        if agg_level == "Aggressive":
+            tip = "市場火熱，嚴守紀律，勿追高。停損不可鬆動。"
+        elif agg_level == "Defensive":
+            tip = "市場低迷，減少倉位，保留現金。只接受 High Confidence 訊號。"
+        else:
+            tip = "市場正常運行。按計畫執行，關注產業輪動。"
+
+        # --- Build message ---
+        # Architect mandate: Bold for stop-raise and scale-out lists
+        lines = [
+            f"{agg_icon} {today} 盤後複盤總結",
+            "",
+            f"1. 市場熱度: {agg_score if agg_score is not None else '?'} ({agg_level})",
+            f"2. 系統狀態: Risk={risk_status} | Pipeline={pipeline_status}",
+            f"3. 戰報摘要:",
+            f"  🟢 Active Signals: {active_count} 檔",
+        ]
+
+        if stop_raised:
+            # Architect mandate: Bold (LINE doesn't support bold, use ** markers)
+            lines.append(f"  🛡️ **停損上移**: {', '.join(stop_raised[:8])}")
+        if scale_out_list:
+            lines.append(f"  💎 **利潤鎖定 (+1R)**: {', '.join(scale_out_list[:8])}")
+
+        if missed_text:
+            lines.append("4. 系統遺珠 (Missed Opps):")
+            lines.append(missed_text)
+
+        lines.append(f"5. CTO 叮嚀: {tip}")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error("generate_daily_review failed: %s", e, exc_info=True)
+        return None
+
+
 def run_daily_update() -> dict:
     """Run the complete daily update pipeline.
 
@@ -702,6 +856,21 @@ def run_daily_update() -> dict:
             results["weekly_audit"] = {"error": str(e)}
     else:
         logger.info("[Step 8/9] Skipping weekly audit (not Saturday)")
+
+    # Step 9: Daily Review (Phase 12 P1 — template-based post-mortem LINE push)
+    # [HYPOTHESIS: DAILY_REVIEW_SCHEDULE_001] — runs as final step of nightly pipeline
+    logger.info("[Step 9/9] Generating daily review...")
+    try:
+        review_msg = generate_daily_review()
+        if review_msg:
+            from backend.scheduler import _send_notification
+            _send_notification(review_msg)
+            results["daily_review"] = {"sent": True, "length": len(review_msg)}
+        else:
+            results["daily_review"] = {"sent": False, "reason": "empty"}
+    except Exception as e:
+        logger.error("Daily review failed: %s", e, exc_info=True)
+        results["daily_review"] = {"error": str(e)}
 
     total_elapsed = time.time() - t0
     results["total_elapsed_s"] = round(total_elapsed, 1)

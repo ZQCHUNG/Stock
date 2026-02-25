@@ -7,7 +7,7 @@ import {
 import type { DataTableColumns } from 'naive-ui'
 import VChart from 'vue-echarts'
 import { systemApi } from '../api/system'
-import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData, StressTestResult, AggressiveIndex } from '../api/system'
+import type { DriftReport, RiskFlag, PipelineMonitor, TrailingStopResult, FailureAnalysis, FilteredSignal, SelfHealedEvents, SectorHeatmapData, WarRoomData, StressTestResult, AggressiveIndex, SlippageAuditResult } from '../api/system'
 
 // --- State ---
 const activeTab = ref('signals')
@@ -48,6 +48,9 @@ const stressMode = ref(false)
 
 // Aggressive Index (Phase 10 P1)
 const aggIndex = ref<AggressiveIndex | null>(null)
+
+// Slippage Audit (Phase 12 P0)
+const slippageAudit = ref<SlippageAuditResult | null>(null)
 
 // --- Loaders ---
 async function loadSignals() {
@@ -146,8 +149,16 @@ async function loadAggIndex() {
   }
 }
 
+async function loadSlippageAudit() {
+  try {
+    slippageAudit.value = await systemApi.slippageAudit()
+  } catch {
+    // silent
+  }
+}
+
 async function loadAll() {
-  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom(), loadStressTest(), loadAggIndex()])
+  await Promise.all([loadSignals(), loadDrift(), loadRiskFlag(), loadPipeline(), loadFailures(), loadMissedOpps(), loadHealedEvents(), loadSectorHeatmap(), loadWarRoom(), loadStressTest(), loadAggIndex(), loadSlippageAudit()])
 }
 
 // --- Actions ---
@@ -1259,6 +1270,86 @@ onMounted(loadAll)
               <template v-else-if="!stressMode">
                 <div style="color: #999; font-size: 12px; text-align: center; padding: 8px">
                   Toggle "Show Stress Test" to simulate a Flash Crash scenario on current positions.
+                </div>
+              </template>
+            </NCard>
+
+            <!-- Phase 12 P0: Slippage Audit (實戰磨損分析) -->
+            <NCard title="實戰磨損分析 (Slippage Audit)" size="small" style="margin-top: 12px">
+              <template v-if="slippageAudit && slippageAudit.total_live_trades > 0">
+                <NGrid :cols="3" :x-gap="12" style="margin-bottom: 12px">
+                  <NGi>
+                    <NStatistic label="Live Trades" :value="slippageAudit.total_live_trades" />
+                  </NGi>
+                  <NGi>
+                    <NStatistic label="Avg Slippage">
+                      <template #default>
+                        <span :style="{ color: slippageAudit.avg_slippage_bps > 50 ? '#ef4444' : '#22c55e' }">
+                          {{ slippageAudit.avg_slippage_bps }} bps
+                        </span>
+                      </template>
+                    </NStatistic>
+                  </NGi>
+                  <NGi>
+                    <NStatistic label="Friction Drag">
+                      <template #default>
+                        <span v-if="slippageAudit.friction_drag_pct != null"
+                              :style="{ color: slippageAudit.friction_drag_pct > 20 ? '#ef4444' : '#f59e0b' }">
+                          {{ slippageAudit.friction_drag_pct }}%
+                        </span>
+                        <span v-else style="color: #999">N/A</span>
+                      </template>
+                      <template #suffix>
+                        <span style="font-size: 11px; color: #999"> of Expectancy</span>
+                      </template>
+                    </NStatistic>
+                  </NGi>
+                </NGrid>
+
+                <NAlert v-if="slippageAudit.high_friction_industries.length > 0" type="warning" style="margin-bottom: 12px">
+                  High friction industries: {{ slippageAudit.high_friction_industries.join(', ') }}
+                </NAlert>
+
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px">
+                  <thead>
+                    <tr style="border-bottom: 2px solid #e5e7eb; text-align: left">
+                      <th style="padding: 6px 8px">Industry</th>
+                      <th style="padding: 6px 8px; text-align: center">Samples</th>
+                      <th style="padding: 6px 8px; text-align: right">Median (bps)</th>
+                      <th style="padding: 6px 8px; text-align: right">P95 (bps)</th>
+                      <th style="padding: 6px 8px; text-align: center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="ind in slippageAudit.industries" :key="ind.industry"
+                        style="border-bottom: 1px solid #f3f4f6">
+                      <td style="padding: 4px 8px">{{ ind.industry }}</td>
+                      <td style="padding: 4px 8px; text-align: center">{{ ind.count }}</td>
+                      <td style="padding: 4px 8px; text-align: right; font-weight: 600"
+                          :style="{ color: ind.median_bps >= 50 ? '#ef4444' : '#22c55e' }">
+                        {{ ind.median_bps }}
+                      </td>
+                      <td style="padding: 4px 8px; text-align: right"
+                          :style="{ color: ind.p95_bps >= 150 ? '#ef4444' : '#999' }">
+                        {{ ind.p95_bps }}
+                      </td>
+                      <td style="padding: 4px 8px; text-align: center">
+                        <NTag v-if="ind.status === 'HIGH'" size="small" type="error">HIGH</NTag>
+                        <NTag v-else-if="ind.status === 'LOW'" size="small" type="success">LOW</NTag>
+                        <NTag v-else size="small" type="default">N/A</NTag>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <div style="margin-top: 8px; text-align: right">
+                  <NButton size="tiny" @click="loadSlippageAudit()">Refresh</NButton>
+                </div>
+              </template>
+
+              <template v-else>
+                <div style="color: #999; font-size: 12px; text-align: center; padding: 16px">
+                  No live trades confirmed yet. Use "Confirm Live" in Signal Log to start tracking slippage.
                 </div>
               </template>
             </NCard>
