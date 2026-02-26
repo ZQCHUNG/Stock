@@ -378,6 +378,43 @@ def _run_morning_brief():
         logger.error("Morning brief failed: %s", e)
 
 
+def _run_drift_monitor():
+    """V1.3 P1: Drift Monitor job — runs at 20:30 Mon-Fri.
+
+    CTO/Architect OFFICIALLY APPROVED.
+    Computes daily drift snapshot and sends alert if drifting.
+    """
+    try:
+        from analysis.morning_brief import is_market_open
+
+        if not is_market_open():
+            logger.info("Drift monitor skipped: market closed today")
+            return
+
+        from analysis.drift_monitor import generate_drift_report
+
+        result = generate_drift_report(save_snapshot=True)
+        level = result.get("alert_level", "NORMAL")
+        drift_pct = result.get("portfolio_drift_pct", 0)
+        zscore = result.get("portfolio_zscore", 0)
+        logger.info(
+            "Drift monitor: level=%s, drift=%.1f%%, zscore=%.2f",
+            level, drift_pct, zscore,
+        )
+
+        # Send alert if WARNING or CRITICAL
+        if level in ("WARNING", "CRITICAL"):
+            msg = result.get("alert_message", "")
+            if msg:
+                try:
+                    _send_notification(msg)
+                    logger.info("Drift alert sent: %s", level)
+                except Exception as e:
+                    logger.warning("Drift alert notification failed: %s", e)
+    except Exception as e:
+        logger.error("Drift monitor failed: %s", e)
+
+
 def start_scheduler(interval_minutes: int = 5):
     """Start the APScheduler background scheduler.
 
@@ -566,6 +603,15 @@ def start_scheduler(interval_minutes: int = 5):
         trigger=CronTrigger(hour=8, minute=30, day_of_week="mon-fri"),
         id="morning_brief",
         name="Morning Briefing (V1.2 P1)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # V1.3 P1: Drift Monitor — daily snapshot at 20:30 (after market close + data update)
+    _scheduler.add_job(
+        _run_drift_monitor,
+        trigger=CronTrigger(hour=20, minute=30, day_of_week="mon-fri"),
+        id="drift_monitor",
+        name="Drift Monitor (V1.3 P1)",
         replace_existing=True,
         max_instances=1,
     )

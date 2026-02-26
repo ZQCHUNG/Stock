@@ -264,6 +264,16 @@ def _get_risk_alerts(signals: list[dict], guard: dict, agg_score: int | None) ->
     except Exception:
         pass
 
+    # Backtest drift alert (V1.3 P1)
+    try:
+        from analysis.drift_monitor import get_drift_alert_for_brief
+
+        drift_alert = get_drift_alert_for_brief()
+        if drift_alert:
+            alerts.append(drift_alert)
+    except Exception:
+        pass
+
     return alerts
 
 

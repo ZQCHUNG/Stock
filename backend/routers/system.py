@@ -2130,3 +2130,16 @@ def rebalance_report():
         guard_level=guard.get("level", 0),
         guard_label=guard.get("label", "NORMAL"),
     )
+
+
+@router.get("/drift-monitor")
+def drift_monitor():
+    """V1.3 P1: Backtest Drift Monitor — live vs backtest equity curve.
+
+    CTO/Architect OFFICIALLY APPROVED.
+    Returns portfolio-level drift, Z-score, alert level,
+    expanding negative detection, and historical trend.
+    """
+    from analysis.drift_monitor import generate_drift_report
+
+    return generate_drift_report(save_snapshot=False)
