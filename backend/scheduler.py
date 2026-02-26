@@ -352,6 +352,32 @@ def get_health() -> dict:
     }
 
 
+def _run_morning_brief():
+    """V1.2 P1: Morning Briefing job — runs at 08:30 Mon-Fri.
+
+    CTO/Architect OFFICIALLY APPROVED.
+    Checks market_calendar.yaml first; skips on holidays.
+    """
+    try:
+        from analysis.morning_brief import generate_morning_brief, is_market_open
+
+        if not is_market_open():
+            logger.info("Morning brief skipped: market closed today")
+            return
+
+        result = generate_morning_brief(send_notification=True)
+        focus_count = len(result.get("focus_stocks", []))
+        alert_count = len(result.get("risk_alerts", []))
+        logger.info(
+            "Morning brief sent: %d focus stocks, %d alerts, agg=%s",
+            focus_count,
+            alert_count,
+            result.get("aggressive_index", {}).get("score"),
+        )
+    except Exception as e:
+        logger.error("Morning brief failed: %s", e)
+
+
 def start_scheduler(interval_minutes: int = 5):
     """Start the APScheduler background scheduler.
 
@@ -529,6 +555,17 @@ def start_scheduler(interval_minutes: int = 5):
         trigger=CronTrigger(hour=22, minute=15, day_of_week="sun"),
         id="weekly_performance_report",
         name="Weekly Performance Report (V1.0)",
+        replace_existing=True,
+        max_instances=1,
+    )
+
+    # V1.2 P1: Morning Briefing at 08:30 (Mon-Fri)
+    # CTO/Architect OFFICIALLY APPROVED — 3-Section template, zero AI dependency
+    _scheduler.add_job(
+        _run_morning_brief,
+        trigger=CronTrigger(hour=8, minute=30, day_of_week="mon-fri"),
+        id="morning_brief",
+        name="Morning Briefing (V1.2 P1)",
         replace_existing=True,
         max_instances=1,
     )

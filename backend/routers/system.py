@@ -2094,3 +2094,18 @@ def _get_health_summary() -> dict:
 
     status = "healthy" if not issues else "degraded"
     return {"status": status, "issues": issues}
+
+
+@router.get("/morning-brief")
+def morning_brief(send: bool = False):
+    """V1.2 P1: Morning Briefing Generator — preview or send.
+
+    CTO/Architect OFFICIALLY APPROVED.
+    - send=false (default): preview only, no notification
+    - send=true: generate + push via LINE/Telegram
+    """
+    from analysis.morning_brief import generate_morning_brief, is_market_open
+
+    result = generate_morning_brief(send_notification=send)
+    result["is_market_open"] = is_market_open()
+    return result
