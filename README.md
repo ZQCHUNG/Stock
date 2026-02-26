@@ -2,7 +2,7 @@
 
 Vue 3 + FastAPI 全端台股技術分析與量化回測系統。支援所有上市（TWSE）與上櫃（TPEX）股票，共 2300+ 檔。
 
-> **Status: V1.3 Active Development** — P0 Portfolio Rebalancing 已完成，P1 Backtest Drift Monitor 開發中。
+> **Status: V1.3 Active Development** — P0 Portfolio Rebalancing + P1 Backtest Drift Monitor 已完成，P2 Dynamic ATR Multiplier 開發中。
 
 ## 架構
 
@@ -57,7 +57,8 @@ Stock/
 │   ├── winner_dna.py         # Phase 3-5: UMAP + HDBSCAN + k-NN + DTW Matcher (R90)
 │   ├── ai_commentator.py     # AI Signal Commentator — Playwright + Gemini Web UI (Phase 14)
 │   ├── param_recommender.py  # Parameter Recommendation Engine — monthly read-only scan (Phase 14)
-│   └── rebalancer.py         # Portfolio Rebalancing Engine — Regime + Hysteresis + Actions (V1.3 P0)
+│   ├── rebalancer.py         # Portfolio Rebalancing Engine — Regime + Hysteresis + Actions (V1.3 P0)
+│   └── drift_monitor.py     # Backtest Drift Monitor — Z-score + Expanding Negative (V1.3 P1)
 ├── backtest/
 │   ├── engine.py             # Backtest engine (v4/v5/bold/aggressive/portfolio)
 │   ├── portfolio_runner.py   # Portfolio Backtester — 108 stocks + 3-Layer Defense (R14.14-16)
@@ -337,10 +338,10 @@ python -m pytest tests/ -q
 | **V1.2 P0** | **Data Fidelity: 4-Layer Fundamental Fallback** — `data/fetcher.py` 4 層基本面資料備援：L1 TWSE BWIBBU_d + TPEX OpenAPI (1946 stocks O(1) cache)、L2 FinMind、L3 Screener DB、L4 yfinance clamp；Fixed-time 18:30 invalidation、Ticker normalization (.TW/.TWO→digits)、7-day backward search；**TSMC 殖利率 122%→1.09%** (CTO APPROVED V1.2 P0) | Done |
 | **V1.2 P1** | **Morning Briefing Generator** — `analysis/morning_brief.py` 3-Section 早報模板（市場體溫+今日焦點+風險警報）；Priority Score 篩選 Top 5（RS×0.3+SQS×0.25+AQS×0.2+PA×0.15+Liq×0.1）；BRIEF_URGENCY_SORT（Agg<40→風險置頂）；`market_calendar.yaml` 假日偵測；08:30 cron + LINE/Telegram 推送；GET `/api/system/morning-brief`；27 tests (CTO/Architect OFFICIALLY APPROVED) | Done |
 | **V1.3 P0** | **Portfolio Rebalancing Engine** — `analysis/rebalancer.py` 5 regime 分類（LOCKDOWN/CAUTION/DEFENSIVE/NORMAL/AGGRESSIVE）；Hysteresis Buffer（連續 2 天確認防 churning）；Two-Tier Adjustments（Light ±10% / Structural ±50%）；Guard 安全覆寫（CAUTION/LOCKDOWN 繞過緩衝直接生效）；Priority-weighted position actions；整合 Morning Brief Section 4 再平衡建議；Standalone API: GET `/api/system/rebalance`；43 tests (CTO/Architect OFFICIALLY APPROVED) | Done |
-| **V1.3 P1** | **Backtest Drift Monitor** — Live equity curve vs Backtest equity curve 偏離監控；Rolling 20-day drift；>15% LINE 警告；整合 Market Guard | TODO |
+| **V1.3 P1** | **Backtest Drift Monitor** — `analysis/drift_monitor.py` Per-stock σ 正規化 → 等權 portfolio 聚合；Rolling 20-signal Z-score；Expanding Negative Detection（CTO [CRITICAL]: 負向偏離擴大→建議下調 Agg Index）；3 alert levels（NORMAL/WARNING/CRITICAL）；60-day drift history + trend analysis；整合 Morning Brief 風險警報；GET `/api/system/drift-monitor`；20:30 daily cron + LINE alert；35 tests (CTO/Architect APPROVED) | Done |
 | **V1.3 P2** | **Dynamic ATR Multiplier** — Shake-out Rate 自動調整 ATR 停損倍數（依賴 P0+P1） | TODO |
 
-> **V1.3 Position Intelligence (2026-02-26)**: CTO 批准 V1.3 Roadmap — 部位控管優先。P0 Portfolio Rebalancing Engine 完成，5 regime + 緩衝 + 雙層調整 + 43 tests。
+> **V1.3 Position Intelligence (2026-02-26)**: CTO 批准 V1.3 Roadmap — P0 Rebalancing (5 regime+緩衝+43 tests) + P1 Drift Monitor (Z-score+expanding negative+35 tests) 完成。P2 Dynamic ATR Multiplier 待開發。
 >
 > **V1.2 Data Fidelity (2026-02-26)**: CTO 批准 V1.2 P0 — 4 層基本面資料備援架構。TWSE+TPEX 官方數據取代 yfinance 異常值（殖利率 122%→1.09%），1946 檔即時快取。
 >
