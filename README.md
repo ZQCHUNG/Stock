@@ -1,8 +1,8 @@
-# 台股技術分析系統 `V1.1-RESILIENCE` · LTS
+# 台股技術分析系統 `V1.2-DATA-FIDELITY`
 
 Vue 3 + FastAPI 全端台股技術分析與量化回測系統。支援所有上市（TWSE）與上櫃（TPEX）股票，共 2300+ 檔。
 
-> **Status: Long Term Support (LTS)** — 所有開發分支已關閉，系統進入穩定維運模式。
+> **Status: V1.2 Active Development** — P0 Data Fidelity 已完成，P1 Morning Briefing 規劃中。
 
 ## 架構
 
@@ -66,7 +66,7 @@ Stock/
 │   ├── parameter_heatmap.py    # P2-A: 2D Parameter Sensitivity Heatmap (Phase 5)
 │   └── bold_parameter_sweep.py  # Parameter sensitivity analysis (R67)
 ├── data/
-│   ├── fetcher.py            # yfinance + FinMind + TWSE + Redis cache
+│   ├── fetcher.py            # 4-Layer Fundamental Fallback (TWSE+TPEX+FinMind+Screener) + yfinance + Redis cache
 │   ├── twse_provider.py      # TWSE/TPEX unified provider + SQLite
 │   ├── fetch_google_news.py  # Google News RSS fetcher (6 TW finance sites) (R88.7P12)
 │   ├── build_features.py     # 8 sources → 65 features Parquet (R88)
@@ -333,7 +333,10 @@ python -m pytest tests/ -q
 | **Sprint 15** | **P0-B: API Timeout Guard** — Backend `asyncio.wait_for()` 15s/120s 熔斷 + Frontend Axios 20s default + 504 中文提示 | Done |
 | **Sprint 15** | **P1-A: NaN/Null Placeholder** — Skeleton loading + "--" fallback + ECharts RadarChart 全局註冊修復 | Done |
 | **Sprint 15** | **P1-B: On-demand Cache Queue** — `cache_queue.json` + nightly pre-warm via `auto_sim.py` | Done |
+| **V1.2 P0** | **Data Fidelity: 4-Layer Fundamental Fallback** — `data/fetcher.py` 4 層基本面資料備援：L1 TWSE BWIBBU_d + TPEX OpenAPI (1946 stocks O(1) cache)、L2 FinMind、L3 Screener DB、L4 yfinance clamp；Fixed-time 18:30 invalidation、Ticker normalization (.TW/.TWO→digits)、7-day backward search；**TSMC 殖利率 122%→1.09%** (CTO APPROVED V1.2 P0) | Done |
 
+> **V1.2 Data Fidelity (2026-02-26)**: CTO 批准 V1.2 P0 — 4 層基本面資料備援架構。TWSE+TPEX 官方數據取代 yfinance 異常值（殖利率 122%→1.09%），1946 檔即時快取。
+>
 > **V1.1-RESILIENCE LTS (2026-02-25)**: 系統正式進入 **Long Term Support 長期維運模式**。所有開發分支已關閉，版本凍結。
 >
 > **Sprint 15 緊急修正 (2026-02-25)**: Playwright UX 實測發現 3 項 P0 Bug（切股數據殘留、推薦頁雪崩、API 120s 空等），CTO 裁定 **【OFFICIALLY APPROVED】** 暫停 LTS 修補。4 項修正全數完成，CTO **【FULL PASS】** 結案，回歸 LTS。
