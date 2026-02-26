@@ -2109,3 +2109,24 @@ def morning_brief(send: bool = False):
     result = generate_morning_brief(send_notification=send)
     result["is_market_open"] = is_market_open()
     return result
+
+
+@router.get("/rebalance")
+def rebalance_report():
+    """V1.3 P0: Portfolio Rebalancing Engine — standalone report.
+
+    CTO/Architect OFFICIALLY APPROVED.
+    Returns regime classification, target exposure, hysteresis state,
+    and per-position rebalancing actions.
+    """
+    from analysis.rebalancer import generate_rebalance_report
+    from analysis.morning_brief import _get_aggressive_index, _get_market_guard
+
+    agg_score, agg_level, agg_icon = _get_aggressive_index()
+    guard = _get_market_guard()
+
+    return generate_rebalance_report(
+        agg_score=agg_score,
+        guard_level=guard.get("level", 0),
+        guard_label=guard.get("label", "NORMAL"),
+    )

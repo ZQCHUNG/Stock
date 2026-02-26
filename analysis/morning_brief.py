@@ -267,6 +267,25 @@ def _get_risk_alerts(signals: list[dict], guard: dict, agg_score: int | None) ->
     return alerts
 
 
+def _get_rebalance_summary(
+    agg_score: int | None, guard: dict, focus_sigs: list[dict]
+) -> dict | None:
+    """Get rebalancing suggestions (V1.3 P0 integration)."""
+    try:
+        from analysis.rebalancer import generate_rebalance_report
+
+        live_positions = [s for s in focus_sigs if s.get("is_live")]
+        return generate_rebalance_report(
+            agg_score=agg_score,
+            guard_level=guard.get("level", 0),
+            guard_label=guard.get("label", "NORMAL"),
+            positions=live_positions,
+        )
+    except Exception as e:
+        logger.warning("Rebalancer failed: %s", e)
+        return None
+
+
 def generate_morning_brief(send_notification: bool = True) -> dict:
     """Generate the morning briefing.
 
@@ -374,6 +393,12 @@ def generate_morning_brief(send_notification: bool = True) -> dict:
     elif not alerts:
         lines.append("[\u98a8\u96aa\u8b66\u5831] \u7121 \u2705")
 
+    # Section 4: Rebalancing Suggestions (V1.3 P0)
+    rebalance = _get_rebalance_summary(agg_score, guard, focus_sigs)
+    if rebalance:
+        lines.append("")
+        lines.append(rebalance["summary_message"])
+
     message = "\n".join(lines)
 
     # --- Send notification ---
@@ -394,5 +419,6 @@ def generate_morning_brief(send_notification: bool = True) -> dict:
         "focus_stocks": focus_sigs,
         "risk_alerts": alerts,
         "urgency_mode": urgency_mode,
+        "rebalance": rebalance,
         "message": message,
     }
