@@ -2,7 +2,7 @@
 
 Vue 3 + FastAPI 全端台股技術分析與量化回測系統。支援所有上市（TWSE）與上櫃（TPEX）股票，共 2300+ 檔。
 
-> **Status: V1.2 Active Development** — P0 Data Fidelity 已完成，P1 Morning Briefing 規劃中。
+> **Status: V1.2 Active Development** — P0 Data Fidelity + P1 Morning Briefing 已完成。
 
 ## 架構
 
@@ -334,6 +334,7 @@ python -m pytest tests/ -q
 | **Sprint 15** | **P1-A: NaN/Null Placeholder** — Skeleton loading + "--" fallback + ECharts RadarChart 全局註冊修復 | Done |
 | **Sprint 15** | **P1-B: On-demand Cache Queue** — `cache_queue.json` + nightly pre-warm via `auto_sim.py` | Done |
 | **V1.2 P0** | **Data Fidelity: 4-Layer Fundamental Fallback** — `data/fetcher.py` 4 層基本面資料備援：L1 TWSE BWIBBU_d + TPEX OpenAPI (1946 stocks O(1) cache)、L2 FinMind、L3 Screener DB、L4 yfinance clamp；Fixed-time 18:30 invalidation、Ticker normalization (.TW/.TWO→digits)、7-day backward search；**TSMC 殖利率 122%→1.09%** (CTO APPROVED V1.2 P0) | Done |
+| **V1.2 P1** | **Morning Briefing Generator** — `analysis/morning_brief.py` 3-Section 早報模板（市場體溫+今日焦點+風險警報）；Priority Score 篩選 Top 5（RS×0.3+SQS×0.25+AQS×0.2+PA×0.15+Liq×0.1）；BRIEF_URGENCY_SORT（Agg<40→風險置頂）；`market_calendar.yaml` 假日偵測；08:30 cron + LINE/Telegram 推送；GET `/api/system/morning-brief`；27 tests (CTO/Architect OFFICIALLY APPROVED) | Done |
 
 > **V1.2 Data Fidelity (2026-02-26)**: CTO 批准 V1.2 P0 — 4 層基本面資料備援架構。TWSE+TPEX 官方數據取代 yfinance 異常值（殖利率 122%→1.09%），1946 檔即時快取。
 >
