@@ -415,6 +415,42 @@ def _run_drift_monitor():
         logger.error("Drift monitor failed: %s", e)
 
 
+def _run_dynamic_atr():
+    """V1.3 P2: Dynamic ATR job — runs at 20:35 Mon-Fri (after drift monitor).
+
+    CTO APPROVED: Auto-adjust ATR multipliers based on shake-out rate.
+    """
+    try:
+        from analysis.morning_brief import is_market_open
+
+        if not is_market_open():
+            logger.info("Dynamic ATR skipped: market closed today")
+            return
+
+        from analysis.dynamic_atr import generate_dynamic_atr_report
+
+        result = generate_dynamic_atr_report(save_snapshot=True)
+        direction = result.get("direction", "NEUTRAL")
+        rate = result.get("shake_out_rate")
+        adj = result.get("adjustment", 0)
+        logger.info(
+            "Dynamic ATR: direction=%s, shake_out_rate=%s, adjustment=%.1f",
+            direction, f"{rate:.1%}" if rate is not None else "N/A", adj,
+        )
+
+        # Send alert if widening (high shake-out) or rate warning
+        if result.get("rate_warning") or direction == "WIDEN":
+            msg = result.get("summary_message", "")
+            if msg:
+                try:
+                    _send_notification(msg)
+                    logger.info("Dynamic ATR alert sent: %s", direction)
+                except Exception as e:
+                    logger.warning("Dynamic ATR notification failed: %s", e)
+    except Exception as e:
+        logger.error("Dynamic ATR job failed: %s", e)
+
+
 def start_scheduler(interval_minutes: int = 5):
     """Start the APScheduler background scheduler.
 
@@ -612,6 +648,15 @@ def start_scheduler(interval_minutes: int = 5):
         trigger=CronTrigger(hour=20, minute=30, day_of_week="mon-fri"),
         id="drift_monitor",
         name="Drift Monitor (V1.3 P1)",
+        replace_existing=True,
+        max_instances=1,
+    )
+    # V1.3 P2: Dynamic ATR — daily at 20:35 (after drift monitor + shake-out detection)
+    _scheduler.add_job(
+        _run_dynamic_atr,
+        trigger=CronTrigger(hour=20, minute=35, day_of_week="mon-fri"),
+        id="dynamic_atr",
+        name="Dynamic ATR (V1.3 P2)",
         replace_existing=True,
         max_instances=1,
     )

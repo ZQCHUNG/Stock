@@ -614,6 +614,17 @@ def update_trailing_stops() -> dict:
     import pandas as pd
     from analysis.stop_loss import compute_trailing_stop
 
+    # V1.3 P2: Compute dynamic ATR adjustment ONCE (not per-signal)
+    dynamic_atr_adj = 0.0
+    try:
+        from analysis.dynamic_atr import compute_atr_adjustment
+        so_data = detect_shake_outs()
+        so_rate = so_data.get("shake_out_rate")
+        if so_data.get("total_stopped_out", 0) >= 5 and so_rate is not None:
+            dynamic_atr_adj = compute_atr_adjustment(so_rate)["adjustment"]
+    except Exception as e:
+        logger.debug("Dynamic ATR adjustment unavailable: %s", e)
+
     conn = _get_conn()
     updated = errors = 0
     active_stops = []
@@ -677,6 +688,7 @@ def update_trailing_stops() -> dict:
                     initial_stop=initial_stop,
                     current_atr=current_atr,
                     r_value=r_value,
+                    atr_adjustment=dynamic_atr_adj,
                 )
 
                 # Phase 7 P1: +1R Scale-out check

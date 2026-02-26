@@ -186,9 +186,19 @@ def _calculate_structural_stop(df: pd.DataFrame, entry_price: float,
     return swing_low
 
 
-def _calculate_atr_stop(entry_price: float, atr: float, entry_type: str) -> float:
-    """Calculate ATR-based stop: entry - N×ATR."""
-    mult = ATR_MULTIPLIERS.get(entry_type, DEFAULT_ATR_MULT)
+def _calculate_atr_stop(entry_price: float, atr: float, entry_type: str,
+                        atr_adjustment: float = 0.0) -> float:
+    """Calculate ATR-based stop: entry - N×ATR.
+
+    Args:
+        atr_adjustment: V1.3 P2 Dynamic ATR offset from shake-out analysis.
+            Positive = widen stop (more room), Negative = tighten.
+            Clamped to [ATR_FLOOR, ATR_CEILING] from dynamic_atr module.
+    """
+    base_mult = ATR_MULTIPLIERS.get(entry_type, DEFAULT_ATR_MULT)
+    mult = base_mult + atr_adjustment
+    # Clamp to safe bounds (V1.3 P2)
+    mult = max(1.5, min(3.5, mult))
     return entry_price - mult * atr
 
 
@@ -231,6 +241,7 @@ def calculate_stop_levels(
     entry_price: float,
     entry_type: str = "squeeze_breakout",
     vcp_context: dict | None = None,
+    atr_adjustment: float = 0.0,
 ) -> StopLevels:
     """Calculate stop-loss levels for a position.
 
@@ -242,6 +253,7 @@ def calculate_stop_levels(
         entry_price: Entry price per share
         entry_type: One of squeeze_breakout, oversold_bounce, volume_ramp, momentum_breakout
         vcp_context: Optional VCP detection result dict
+        atr_adjustment: V1.3 P2 Dynamic ATR offset from shake-out rate analysis
 
     Returns:
         StopLevels dataclass with all stop information
@@ -267,14 +279,16 @@ def calculate_stop_levels(
         atr = float(tr.rolling(ATR_PERIOD).mean().dropna().iloc[-1])
 
     result.current_atr = atr
-    result.atr_multiplier = ATR_MULTIPLIERS.get(entry_type, DEFAULT_ATR_MULT)
+    # V1.3 P2: Apply dynamic ATR adjustment to base multiplier
+    base_mult = ATR_MULTIPLIERS.get(entry_type, DEFAULT_ATR_MULT)
+    result.atr_multiplier = max(1.5, min(3.5, base_mult + atr_adjustment))
 
     # 1. Structural stop
     structural = _calculate_structural_stop(df, entry_price, vcp_context)
     result.structural_stop = structural
 
-    # 2. ATR stop
-    atr_stop = _calculate_atr_stop(entry_price, atr, entry_type)
+    # 2. ATR stop (with dynamic adjustment)
+    atr_stop = _calculate_atr_stop(entry_price, atr, entry_type, atr_adjustment)
     result.atr_stop = atr_stop
 
     # 3. Percentage stop (hard floor)
@@ -355,13 +369,14 @@ def compute_trailing_stop(
     initial_stop: float,
     current_atr: float,
     r_value: float,
+    atr_adjustment: float = 0.0,
 ) -> dict[str, Any]:
     """Compute the current trailing stop based on 4-phase progression.
 
     Phase 0 (Entry → +1R): Initial stop holds.
     Phase 1 (+1R): Move stop to entry price (breakeven).
-    Phase 2 (+1.5R): Activate ATR trail at highest_close - 2.0×ATR.
-    Phase 3 (+2R): Tighten trail to highest_close - 1.5×ATR.
+    Phase 2 (+1.5R): Activate ATR trail at highest_close - N×ATR.
+    Phase 3 (+2R): Tighten trail to highest_close - N×ATR.
 
     Args:
         entry_price: Original entry price
@@ -370,6 +385,7 @@ def compute_trailing_stop(
         initial_stop: Original calculated stop
         current_atr: Current ATR value
         r_value: Initial risk per share (entry - initial_stop)
+        atr_adjustment: V1.3 P2 Dynamic ATR offset (applied to trail multipliers)
 
     Returns:
         Dict with phase, current_stop, reason
@@ -384,24 +400,28 @@ def compute_trailing_stop(
     current_r = (current_price - entry_price) / r_value
     highest_r = (highest_price - entry_price) / r_value
 
+    # V1.3 P2: Apply dynamic ATR adjustment to trailing multipliers
+    trail_mult_p2 = max(1.5, min(3.5, TRAIL_ATR_MULT_PHASE2 + atr_adjustment))
+    trail_mult_p3 = max(1.5, min(3.5, TRAIL_ATR_MULT_PHASE3 + atr_adjustment))
+
     if highest_r >= TRAIL_TIGHTEN_R:
-        # Phase 3: Tighten to 1.5×ATR
-        trail_stop = highest_price - TRAIL_ATR_MULT_PHASE3 * current_atr
+        # Phase 3: Tighten trail
+        trail_stop = highest_price - trail_mult_p3 * current_atr
         # Never lower than entry (breakeven floor)
         trail_stop = max(trail_stop, entry_price)
         return {
             "phase": 3,
             "current_stop": round(trail_stop, 2),
-            "reason": f"+{highest_r:.1f}R reached — trail tightened to 1.5×ATR",
+            "reason": f"+{highest_r:.1f}R reached — trail tightened to {trail_mult_p3:.1f}×ATR",
         }
     elif highest_r >= TRAIL_ACTIVATE_R:
-        # Phase 2: ATR trail at 2.0×ATR
-        trail_stop = highest_price - TRAIL_ATR_MULT_PHASE2 * current_atr
+        # Phase 2: ATR trail
+        trail_stop = highest_price - trail_mult_p2 * current_atr
         trail_stop = max(trail_stop, entry_price)
         return {
             "phase": 2,
             "current_stop": round(trail_stop, 2),
-            "reason": f"+{highest_r:.1f}R reached — ATR trail active (2.0×ATR)",
+            "reason": f"+{highest_r:.1f}R reached — ATR trail active ({trail_mult_p2:.1f}×ATR)",
         }
     elif highest_r >= TRAIL_BREAKEVEN_R:
         # Phase 1: Breakeven lock
@@ -424,7 +444,12 @@ def get_stop_context(
     entry_price: float,
     entry_type: str = "squeeze_breakout",
     vcp_context: dict | None = None,
+    atr_adjustment: float = 0.0,
 ) -> dict[str, Any]:
-    """Main entry point for API — calculate stops and return JSON-safe dict."""
-    levels = calculate_stop_levels(df, entry_price, entry_type, vcp_context)
+    """Main entry point for API — calculate stops and return JSON-safe dict.
+
+    Args:
+        atr_adjustment: V1.3 P2 Dynamic ATR offset from shake-out analysis.
+    """
+    levels = calculate_stop_levels(df, entry_price, entry_type, vcp_context, atr_adjustment)
     return levels.to_dict()

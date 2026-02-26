@@ -274,6 +274,16 @@ def _get_risk_alerts(signals: list[dict], guard: dict, agg_score: int | None) ->
     except Exception:
         pass
 
+    # Dynamic ATR alert (V1.3 P2)
+    try:
+        from analysis.dynamic_atr import get_atr_alert_for_brief
+
+        atr_alert = get_atr_alert_for_brief()
+        if atr_alert:
+            alerts.append(atr_alert)
+    except Exception:
+        pass
+
     return alerts
 
 

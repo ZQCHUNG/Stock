@@ -2143,3 +2143,16 @@ def drift_monitor():
     from analysis.drift_monitor import generate_drift_report
 
     return generate_drift_report(save_snapshot=False)
+
+
+@router.get("/dynamic-atr")
+def dynamic_atr():
+    """V1.3 P2: Dynamic ATR Multiplier — auto-adjust stop-loss based on shake-out rate.
+
+    CTO APPROVED: "為系統裝上肌肉的靈活性"
+    Returns current shake-out rate, ATR adjustment, adjusted multipliers per entry type,
+    and historical trend.
+    """
+    from analysis.dynamic_atr import generate_dynamic_atr_report
+
+    return generate_dynamic_atr_report(save_snapshot=False)
