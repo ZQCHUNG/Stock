@@ -1,8 +1,8 @@
-# 台股技術分析系統 `V1.3-POSITION-INTELLIGENCE`
+# 台股技術分析系統 `V1.3-POSITION-INTELLIGENCE` (LTS-2026-Q1-STABLE)
 
 Vue 3 + FastAPI 全端台股技術分析與量化回測系統。支援所有上市（TWSE）與上櫃（TPEX）股票，共 2300+ 檔。
 
-> **Status: V1.3 Complete** — P0 Portfolio Rebalancing + P1 Backtest Drift Monitor + P2 Dynamic ATR Multiplier 全部完成。
+> **Status: V1.3 CLOSED (CTO SIGNED-OFF)** — P0 Portfolio Rebalancing + P1 Backtest Drift Monitor + P2 Dynamic ATR Multiplier 全部完成。進入 LTS 觀察期。
 
 ## 架構
 
