@@ -1088,6 +1088,7 @@ def get_winner_dna_match(code: str):
             PRICE_CACHE_FILE,
             _load_metadata,
         )
+        from backend.dependencies import make_serializable
         import numpy as np
         import pandas as pd
 
@@ -1159,7 +1160,7 @@ def get_winner_dna_match(code: str):
             price_df=price_df,
         )
 
-        return result.to_dict()
+        return make_serializable(result.to_dict())
     except HTTPException:
         raise
     except Exception as e:

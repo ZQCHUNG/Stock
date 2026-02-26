@@ -473,7 +473,7 @@ def _compute_horizon_stats(
     # Profit Factor: sum(wins) / abs(sum(losses))
     total_wins = float(np.sum(wins)) if len(wins) > 0 else 0.0
     total_losses = abs(float(np.sum(losses))) if len(losses) > 0 else 0.0
-    stats.profit_factor = round(total_wins / total_losses, 4) if total_losses > 0 else float("inf")
+    stats.profit_factor = round(total_wins / total_losses, 4) if total_losses > 0 else 99.99
 
     # Expectancy = (Win% × Avg Win) - (Loss% × |Avg Loss|)
     loss_rate = 1.0 - stats.win_rate

@@ -833,8 +833,8 @@ def get_stock_info_and_fundamentals(stock_code: str) -> tuple[dict, dict]:
         "profit_margins": info.get("profitMargins"),
         "gross_margins": info.get("grossMargins"),
         "operating_margins": info.get("operatingMargins"),
-        # 股利
-        "dividend_yield": info.get("dividendYield"),
+        # 股利 (clamp: yfinance dividendYield sometimes returns absurd values)
+        "dividend_yield": min(info.get("dividendYield") or 0, 0.15),
         "dividend_rate": info.get("dividendRate"),
         # 財務健全
         "debt_to_equity": info.get("debtToEquity"),
@@ -888,8 +888,8 @@ def get_stock_fundamentals(stock_code: str) -> dict:
         "profit_margins": info.get("profitMargins"),
         "gross_margins": info.get("grossMargins"),
         "operating_margins": info.get("operatingMargins"),
-        # 股利
-        "dividend_yield": info.get("dividendYield"),
+        # 股利 (clamp: yfinance dividendYield sometimes returns absurd values)
+        "dividend_yield": min(info.get("dividendYield") or 0, 0.15),
         "dividend_rate": info.get("dividendRate"),
         # 財務健全
         "debt_to_equity": info.get("debtToEquity"),
