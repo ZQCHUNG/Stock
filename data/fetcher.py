@@ -796,14 +796,18 @@ def get_stock_info(stock_code: str) -> dict:
 
 
 def get_stock_info_and_fundamentals(stock_code: str) -> tuple[dict, dict]:
-    """取得股票基本資訊 + 基本面數據（單次 HTTP 請求）
+    """取得股票基本資訊 + 基本面數據（4-Layer for PE/PB/Yield）
 
-    合併 get_stock_info() 和 get_stock_fundamentals() 的功能，
-    只呼叫一次 yf.Ticker().info，省掉一次完整的 HTTP roundtrip。
+    合併 get_stock_info() 和 get_stock_fundamentals() 的功能。
+    PE/PB/Yield 使用 4-Layer Fallback (TWSE/TPEX → FinMind → ScreenerDB → yfinance)。
+    其他欄位仍從 yfinance 取得。
 
     Returns:
         (company_info_dict, fundamentals_dict)
     """
+    # Get layered valuation (PE/PB/Yield) from best available source
+    layered = _get_layered_valuation(stock_code)
+
     ticker_str = get_ticker(stock_code)
     ticker = yf.Ticker(ticker_str)
     info = ticker.info
@@ -817,11 +821,18 @@ def get_stock_info_and_fundamentals(stock_code: str) -> tuple[dict, dict]:
         "currency": info.get("currency", "TWD"),
     }
 
+    # Use layered data for PE/PB/Yield, fallback to yfinance with clamp
+    trailing_pe = layered.get("trailing_pe") or info.get("trailingPE")
+    price_to_book = layered.get("price_to_book") or info.get("priceToBook")
+    dividend_yield = layered.get("dividend_yield")
+    if dividend_yield is None:
+        dividend_yield = min(info.get("dividendYield") or 0, 0.15)
+
     fundamentals = {
-        # 估值
-        "trailing_pe": info.get("trailingPE"),
+        # 估值 (4-Layer)
+        "trailing_pe": trailing_pe,
         "forward_pe": info.get("forwardPE"),
-        "price_to_book": info.get("priceToBook"),
+        "price_to_book": price_to_book,
         # 獲利
         "trailing_eps": info.get("trailingEps"),
         "forward_eps": info.get("forwardEps"),
@@ -833,8 +844,8 @@ def get_stock_info_and_fundamentals(stock_code: str) -> tuple[dict, dict]:
         "profit_margins": info.get("profitMargins"),
         "gross_margins": info.get("grossMargins"),
         "operating_margins": info.get("operatingMargins"),
-        # 股利 (clamp: yfinance dividendYield sometimes returns absurd values)
-        "dividend_yield": min(info.get("dividendYield") or 0, 0.15),
+        # 股利 (4-Layer)
+        "dividend_yield": dividend_yield,
         "dividend_rate": info.get("dividendRate"),
         # 財務健全
         "debt_to_equity": info.get("debtToEquity"),
@@ -856,27 +867,340 @@ def get_stock_info_and_fundamentals(stock_code: str) -> tuple[dict, dict]:
         "number_of_analysts": info.get("numberOfAnalystOpinions"),
         # 規模
         "market_cap": info.get("marketCap"),
-        # 現價（供 screener 免呼叫 get_stock_data）
+        # 現價
         "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
+        # 數據來源標記
+        "_valuation_source": layered.get("_source", "yfinance"),
     }
 
     return company_info, fundamentals
 
 
+# ============================================================
+# 4-Layer Fundamental Data Fallback (CTO Approved V1.2)
+# L1: TWSE BWIBBU_d (listed) / TPEX OpenAPI (OTC)
+# L2: FinMind TaiwanStockDividendYield + TaiwanStockPER
+# L3: Screener DB snapshot
+# L4: yfinance (with clamp)
+# ============================================================
+
+# In-memory cache for TWSE/TPEX valuation data (full-market fetch)
+_fundamental_cache: dict[str, dict] = {}
+_fundamental_cache_date: str = ""
+
+_FIXED_INVALIDATION_HOUR = 18
+_FIXED_INVALIDATION_MINUTE = 30
+
+
+def _get_cache_date_key() -> str:
+    """Get cache date key with fixed-time invalidation at 18:30.
+
+    Before 18:30 → use yesterday's date (data not yet updated)
+    After 18:30 → use today's date (fresh data available)
+    """
+    now = datetime.now()
+    if now.hour < _FIXED_INVALIDATION_HOUR or (
+        now.hour == _FIXED_INVALIDATION_HOUR and now.minute < _FIXED_INVALIDATION_MINUTE
+    ):
+        return (now - timedelta(days=1)).strftime("%Y%m%d")
+    return now.strftime("%Y%m%d")
+
+
+def normalize_ticker(code: str) -> str:
+    """Strip .TW / .TWO suffix → pure digits for TWSE/TPEX/FinMind APIs."""
+    code = str(code).strip()
+    for suffix in (".TW", ".TWO", ".tw", ".two"):
+        if code.endswith(suffix):
+            code = code[:-len(suffix)]
+    return code
+
+
+def _is_tpex_stock(code: str) -> bool:
+    """Determine if a stock is OTC (TPEX) vs listed (TWSE).
+
+    Uses ticker cache: .TWO suffix = TPEX, .TW = TWSE.
+    Fallback: try TWSE first via existing data.
+    """
+    code = normalize_ticker(code)
+    cached = _ticker_cache.get(code, "")
+    if cached.endswith(".TWO"):
+        return True
+    if cached.endswith(".TW"):
+        return False
+    # Unknown: resolve via yfinance ticker cache (triggers network if not cached)
+    ticker_str = get_ticker(code)
+    return ticker_str.endswith(".TWO")
+
+
+def _get_official_fundamentals(code: str) -> dict | None:
+    """L1: Official TWSE/TPEX valuation data (PE, PB, Yield).
+
+    Fetches full-market data and caches in memory for O(1) lookup.
+    """
+    global _fundamental_cache, _fundamental_cache_date
+
+    code = normalize_ticker(code)
+    cache_key = _get_cache_date_key()
+
+    # Check in-memory cache
+    if _fundamental_cache_date == cache_key and code in _fundamental_cache:
+        return _fundamental_cache[code]
+
+    # Need to refresh: fetch full market data
+    if _fundamental_cache_date != cache_key:
+        _fundamental_cache = {}
+        _fundamental_cache_date = cache_key
+
+        # Fetch TWSE (listed)
+        _fetch_twse_valuation_to_cache()
+        # Fetch TPEX (OTC)
+        _fetch_tpex_valuation_to_cache()
+
+        _logger.info("Fundamental cache refreshed: %d stocks (date=%s)",
+                      len(_fundamental_cache), cache_key)
+
+    return _fundamental_cache.get(code)
+
+
+def _fetch_twse_valuation_to_cache():
+    """Fetch full TWSE BWIBBU_d and populate _fundamental_cache.
+
+    Tries today's date first, then falls back up to 7 days to find the
+    most recent trading day with data.
+    """
+    try:
+        from data.twse_scraper import fetch_valuation_all
+
+        df = pd.DataFrame()
+        current = datetime.now()
+        for _ in range(7):
+            date_str = current.strftime("%Y%m%d")
+            df = fetch_valuation_all(date_str)
+            if not df.empty:
+                break
+            current -= timedelta(days=1)
+
+        if df.empty:
+            _logger.warning("TWSE valuation: no data in last 7 days")
+            return
+        for _, row in df.iterrows():
+            stock_code = str(row.get("code", "")).strip()
+            if not stock_code:
+                continue
+            _fundamental_cache[stock_code] = {
+                "trailing_pe": row.get("pe"),
+                "price_to_book": row.get("pb"),
+                "dividend_yield": (row.get("dividend_yield") or 0) / 100.0,  # TWSE returns %
+                "_source": "TWSE",
+            }
+        _logger.info("TWSE valuation: %d stocks loaded",
+                      sum(1 for v in _fundamental_cache.values() if v.get("_source") == "TWSE"))
+    except Exception as e:
+        _logger.warning("TWSE valuation fetch failed: %s", e)
+
+
+def _fetch_tpex_valuation_to_cache():
+    """Fetch full TPEX OpenAPI peratio_analysis and populate _fundamental_cache."""
+    import urllib.request
+    import json as _json
+
+    url = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_peratio_analysis"
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+        })
+        resp = urllib.request.urlopen(req, timeout=15)
+        data = _json.loads(resp.read().decode("utf-8"))
+
+        count = 0
+        for item in data:
+            stock_code = str(item.get("SecuritiesCompanyCode", "")).strip()
+            if not stock_code:
+                continue
+            pe_str = item.get("PriceEarningRatio", "")
+            pb_str = item.get("PriceBookRatio", "")
+            yield_str = item.get("YieldRatio", "")
+
+            pe = _safe_float_val(pe_str)
+            pb = _safe_float_val(pb_str)
+            dy = _safe_float_val(yield_str)
+
+            _fundamental_cache[stock_code] = {
+                "trailing_pe": pe,
+                "price_to_book": pb,
+                "dividend_yield": (dy or 0) / 100.0,  # TPEX returns %
+                "_source": "TPEX",
+            }
+            count += 1
+
+        _logger.info("TPEX valuation: %d stocks loaded", count)
+    except Exception as e:
+        _logger.warning("TPEX valuation fetch failed: %s", e)
+
+
+def _safe_float_val(s) -> float | None:
+    """Safe float conversion for TWSE/TPEX string values."""
+    if s is None:
+        return None
+    s = str(s).strip().replace(",", "")
+    if not s or s in ("-", "N/A", "–", ""):
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _get_finmind_fundamentals(code: str) -> dict | None:
+    """L2: FinMind TaiwanStockDividendYield + TaiwanStockPER.
+
+    FinMind handles both TWSE and TPEX stocks transparently.
+    Free tier: ~300 req/hour.
+    """
+    import urllib.request
+    import json as _json
+    from urllib.parse import urlencode
+
+    code = normalize_ticker(code)
+    result = {}
+
+    # Fetch PE ratio
+    try:
+        params = urlencode({
+            "dataset": "TaiwanStockPER",
+            "data_id": code,
+            "start_date": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
+        })
+        url = f"https://api.finmindtrade.com/api/v4/data?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = _json.loads(resp.read().decode("utf-8"))
+
+        if data.get("status") == 200 and data.get("data"):
+            latest = data["data"][-1]
+            result["trailing_pe"] = _safe_float_val(latest.get("PER"))
+            result["price_to_book"] = _safe_float_val(latest.get("PBR"))
+    except Exception as e:
+        _logger.debug("FinMind PER failed for %s: %s", code, e)
+
+    # Fetch dividend yield
+    try:
+        params = urlencode({
+            "dataset": "TaiwanStockDividendYield",
+            "data_id": code,
+            "start_date": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
+        })
+        url = f"https://api.finmindtrade.com/api/v4/data?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        data = _json.loads(resp.read().decode("utf-8"))
+
+        if data.get("status") == 200 and data.get("data"):
+            latest = data["data"][-1]
+            dy = _safe_float_val(latest.get("DividendYield"))
+            if dy is not None:
+                result["dividend_yield"] = dy / 100.0  # FinMind returns %
+    except Exception as e:
+        _logger.debug("FinMind DividendYield failed for %s: %s", code, e)
+
+    if result.get("trailing_pe") or result.get("dividend_yield"):
+        result["_source"] = "FinMind"
+        return result
+    return None
+
+
+def _get_screener_fundamentals(code: str) -> dict | None:
+    """L3: Screener DB snapshot (local SQLite, fast but may be 1-day stale)."""
+    import sqlite3
+
+    code = normalize_ticker(code)
+    db_path = Path(__file__).parent / "screener.db"
+    if not db_path.exists():
+        return None
+
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT pe, pb, dividend_yield FROM screening_latest WHERE code = ?",
+            (code,)
+        ).fetchone()
+        conn.close()
+
+        if row:
+            pe = row["pe"] if row["pe"] else None
+            pb = row["pb"] if row["pb"] else None
+            dy = row["dividend_yield"] if row["dividend_yield"] else None
+            if pe or pb or dy:
+                return {
+                    "trailing_pe": pe,
+                    "price_to_book": pb,
+                    "dividend_yield": (dy or 0) / 100.0 if dy else None,  # screener stores %
+                    "_source": "ScreenerDB",
+                }
+    except Exception as e:
+        _logger.debug("Screener DB lookup failed for %s: %s", code, e)
+
+    return None
+
+
+def _get_layered_valuation(stock_code: str) -> dict:
+    """4-Layer fallback for PE/PB/Yield. Returns best available data."""
+    code = normalize_ticker(stock_code)
+
+    # L1: Official TWSE/TPEX
+    result = _get_official_fundamentals(code)
+    if result:
+        _logger.debug("Valuation for %s from %s (L1)", code, result.get("_source"))
+        return result
+
+    # L2: FinMind
+    result = _get_finmind_fundamentals(code)
+    if result:
+        _logger.debug("Valuation for %s from FinMind (L2)", code)
+        return result
+
+    # L3: Screener DB
+    result = _get_screener_fundamentals(code)
+    if result:
+        _logger.debug("Valuation for %s from ScreenerDB (L3)", code)
+        return result
+
+    # L4: no official source available, will use yfinance with clamp
+    _logger.debug("Valuation for %s: all layers failed, using yfinance (L4)", code)
+    return {}
+
+
 def get_stock_fundamentals(stock_code: str) -> dict:
-    """取得股票基本面數據
+    """取得股票基本面數據 (4-Layer Fallback for PE/PB/Yield)
+
+    PE/PB/Yield: L1 TWSE/TPEX → L2 FinMind → L3 ScreenerDB → L4 yfinance(clamp)
+    Other fields (EPS, margins, cashflow, analyst): yfinance only
 
     Returns:
         包含估值、獲利、成長、股利、財務健全等指標的 dict，缺值為 None
     """
+    # Get layered valuation (PE/PB/Yield) from best available source
+    layered = _get_layered_valuation(stock_code)
+
     ticker_str = get_ticker(stock_code)
     ticker = yf.Ticker(ticker_str)
     info = ticker.info
+
+    # Use layered data for PE/PB/Yield, fallback to yfinance with clamp
+    trailing_pe = layered.get("trailing_pe") or info.get("trailingPE")
+    price_to_book = layered.get("price_to_book") or info.get("priceToBook")
+    dividend_yield = layered.get("dividend_yield")
+    if dividend_yield is None:
+        # L4 fallback: yfinance with clamp
+        dividend_yield = min(info.get("dividendYield") or 0, 0.15)
+
     return {
-        # 估值
-        "trailing_pe": info.get("trailingPE"),
+        # 估值 (4-Layer)
+        "trailing_pe": trailing_pe,
         "forward_pe": info.get("forwardPE"),
-        "price_to_book": info.get("priceToBook"),
+        "price_to_book": price_to_book,
         # 獲利
         "trailing_eps": info.get("trailingEps"),
         "forward_eps": info.get("forwardEps"),
@@ -888,8 +1212,8 @@ def get_stock_fundamentals(stock_code: str) -> dict:
         "profit_margins": info.get("profitMargins"),
         "gross_margins": info.get("grossMargins"),
         "operating_margins": info.get("operatingMargins"),
-        # 股利 (clamp: yfinance dividendYield sometimes returns absurd values)
-        "dividend_yield": min(info.get("dividendYield") or 0, 0.15),
+        # 股利 (4-Layer)
+        "dividend_yield": dividend_yield,
         "dividend_rate": info.get("dividendRate"),
         # 財務健全
         "debt_to_equity": info.get("debtToEquity"),
@@ -911,8 +1235,10 @@ def get_stock_fundamentals(stock_code: str) -> dict:
         "number_of_analysts": info.get("numberOfAnalystOpinions"),
         # 規模
         "market_cap": info.get("marketCap"),
-        # 現價（供 screener 免呼叫 get_stock_data）
+        # 現價
         "current_price": info.get("currentPrice") or info.get("regularMarketPrice"),
+        # 數據來源標記
+        "_valuation_source": layered.get("_source", "yfinance"),
     }
 
 
