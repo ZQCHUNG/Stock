@@ -3,12 +3,56 @@
 Split from analysis.py — market-regime, market-regime-ml, sector-heat endpoints.
 """
 
+import threading
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 import logging
+
+from data.cache import get_cached_sector_heat, set_cached_sector_heat
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Background scan guard — prevents duplicate concurrent scans
+_bg_scan_running = False
+_bg_scan_lock = threading.Lock()
+
+
+def _do_background_scan():
+    """Run the full sector heat scan in a background thread.
+
+    Delegates to worker.scan_sector_heat() which already has the complete
+    scanning logic (momentum, maturity transitions, leader detection, etc.).
+    Falls back to a minimal inline scan if the worker module is unavailable.
+    """
+    global _bg_scan_running
+    try:
+        from backend.worker import scan_sector_heat
+        result = scan_sector_heat()
+        set_cached_sector_heat(result)
+        logger.info(
+            f"Background sector heat scan complete: "
+            f"{result['scanned']} stocks, {result['total_buy']} buys"
+        )
+    except Exception as e:
+        logger.error(f"Background sector heat scan failed: {e}")
+    finally:
+        with _bg_scan_lock:
+            _bg_scan_running = False
+
+
+def _trigger_background_scan():
+    """Start a background scan if one is not already running."""
+    global _bg_scan_running
+    with _bg_scan_lock:
+        if _bg_scan_running:
+            logger.info("Background sector heat scan already in progress, skipping")
+            return
+        _bg_scan_running = True
+
+    thread = threading.Thread(target=_do_background_scan, daemon=True)
+    thread.start()
 
 
 @router.get("/market-regime")
@@ -79,87 +123,30 @@ def get_market_regime_ml():
 def get_sector_heat(force_refresh: bool = False):
     """Sector heat analysis (Gemini R21 P1: Sector Rotation Monitor)
 
-    Reads worker-cached data first, falls back to live computation.
-    ?force_refresh=true to force live recomputation.
+    Reads worker-cached data. On cache miss, triggers a background scan
+    and returns 503. On force_refresh, triggers background scan and returns 202.
     """
-    from data.cache import get_cached_sector_heat, set_cached_sector_heat
-    from backend.dependencies import make_serializable
+    # 1. force_refresh: trigger background scan, return 202 immediately
+    if force_refresh:
+        _trigger_background_scan()
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": "Sector heat refresh triggered. Data will be available shortly.",
+            },
+        )
 
-    # 1. Try Redis cache first (worker-populated)
-    if not force_refresh:
-        cached = get_cached_sector_heat()
-        if cached:
-            return cached
+    # 2. Try cache (worker-populated or previous background scan)
+    cached = get_cached_sector_heat()
+    if cached:
+        return cached
 
-    # 2. Fallback: live computation (same logic as worker)
-    from concurrent.futures import ThreadPoolExecutor
-    from config import SCAN_STOCKS
-    from data.fetcher import get_stock_data
-    from analysis.strategy_v4 import get_v4_analysis
-    from data.sector_mapping import get_stock_sector
-
-    MATURITY_WEIGHTS = {
-        "Speculative Spike": 1.0,
-        "Trend Formation": 1.5,
-        "Structural Shift": 2.0,
-    }
-
-    def _scan_stock(code):
-        try:
-            df = get_stock_data(code, period_days=120)
-            v4 = get_v4_analysis(df)
-            sector = get_stock_sector(code, level=1)
-            return {
-                "code": code,
-                "name": SCAN_STOCKS.get(code, code),
-                "sector": sector,
-                "signal": v4["signal"],
-                "signal_maturity": v4.get("signal_maturity", "N/A"),
-                "uptrend_days": v4.get("uptrend_days", 0),
-            }
-        except Exception as e:
-            logger.debug(f"Data fetch failed, returning default: {e}")
-            return None
-
-    with ThreadPoolExecutor(max_workers=6) as executor:
-        results = list(executor.map(_scan_stock, list(SCAN_STOCKS.keys())))
-
-    valid = [r for r in results if r is not None]
-
-    sectors: dict[str, list] = {}
-    for s in valid:
-        sec = s["sector"]
-        sectors.setdefault(sec, []).append(s)
-
-    heat_data = []
-    for sector, stocks in sectors.items():
-        total = len(stocks)
-        buy_stocks = [s for s in stocks if s["signal"] == "BUY"]
-        buy_count = len(buy_stocks)
-        heat = buy_count / total if total > 0 else 0
-
-        weighted_sum = sum(MATURITY_WEIGHTS.get(s["signal_maturity"], 1.0) for s in buy_stocks)
-        weighted_heat = weighted_sum / total if total > 0 else 0
-
-        heat_data.append({
-            "sector": sector,
-            "total": total,
-            "buy_count": buy_count,
-            "heat": round(heat, 3),
-            "weighted_heat": round(weighted_heat, 3),
-            "buy_stocks": [{"code": s["code"], "name": s["name"], "maturity": s["signal_maturity"]} for s in buy_stocks],
-            "all_stocks": [s["code"] for s in stocks],
-        })
-
-    heat_data.sort(key=lambda x: x["weighted_heat"], reverse=True)
-
-    result = {
-        "sectors": heat_data,
-        "scanned": len(valid),
-        "total_buy": sum(h["buy_count"] for h in heat_data),
-    }
-
-    # Cache the live result for subsequent requests
-    set_cached_sector_heat(result)
-
-    return make_serializable(result)
+    # 3. Cache miss (cold start): trigger background scan, return 503
+    _trigger_background_scan()
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "Sector heat data is being calculated. "
+            "Please retry in 1-2 minutes."
+        ),
+    )
