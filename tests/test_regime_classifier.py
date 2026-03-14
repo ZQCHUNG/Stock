@@ -1,8 +1,8 @@
-"""Tests for backend/ml_regime.py (R50-3: ML Market Regime)"""
+"""Tests for backend/regime_classifier.py (R50-3: Rule-based Market Regime)"""
 
 import numpy as np
 import pytest
-from backend.ml_regime import (
+from backend.regime_classifier import (
     classify_market_regime,
     _compute_adx,
     _compute_atr,

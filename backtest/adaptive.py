@@ -92,7 +92,7 @@ def run_adaptive_backtest(
     Returns:
         AdaptiveBacktestResult with both equity curves and comparison
     """
-    from backend.ml_regime import classify_market_regime
+    from backend.regime_classifier import classify_market_regime
     from analysis.strategy_v4 import generate_v4_signals
     from config import TRADE_UNIT
 

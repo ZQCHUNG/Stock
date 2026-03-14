@@ -15,7 +15,7 @@ def get_adaptive_recommendation(regime_data: dict, strategies: list[dict]) -> di
     """Generate adaptive strategy recommendation based on market regime.
 
     Args:
-        regime_data: Output from ml_regime.classify_market_regime()
+        regime_data: Output from regime_classifier.classify_market_regime()
         strategies: List of strategy dicts from strategies.json
 
     Returns:

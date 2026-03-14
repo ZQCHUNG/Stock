@@ -95,7 +95,7 @@ class TestRegimeParamMap:
 class TestRunAdaptiveBacktest:
     """Test run_adaptive_backtest main function."""
 
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime)
     def test_basic_run(self, mock_regime, long_ohlcv):
         from backtest.adaptive import run_adaptive_backtest
         result = run_adaptive_backtest(long_ohlcv, initial_capital=1_000_000)
@@ -108,7 +108,7 @@ class TestRunAdaptiveBacktest:
         assert isinstance(result.regime_log, list)
         assert len(result.regime_log) > 0
 
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime)
     def test_adaptive_has_equity_curve(self, mock_regime, long_ohlcv):
         from backtest.adaptive import run_adaptive_backtest
         result = run_adaptive_backtest(long_ohlcv)
@@ -116,7 +116,7 @@ class TestRunAdaptiveBacktest:
         assert not result.adaptive.equity_curve.empty
         assert not result.baseline.equity_curve.empty
 
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime)
     def test_regime_log_populated(self, mock_regime, long_ohlcv):
         from backtest.adaptive import run_adaptive_backtest
         result = run_adaptive_backtest(long_ohlcv, rebalance_days=10)
@@ -128,7 +128,7 @@ class TestRunAdaptiveBacktest:
         assert "confidence" in first
         assert "kelly" in first
 
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime_cycling)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime_cycling)
     def test_regime_switching(self, mock_regime, long_ohlcv):
         from backtest.adaptive import run_adaptive_backtest
         result = run_adaptive_backtest(long_ohlcv, rebalance_days=5)
@@ -137,7 +137,7 @@ class TestRunAdaptiveBacktest:
         regimes = set(r["regime"] for r in result.regime_log)
         assert len(regimes) >= 1  # At least one regime type
 
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime)
     def test_comparison_metrics_reasonable(self, mock_regime, long_ohlcv):
         from backtest.adaptive import run_adaptive_backtest
         result = run_adaptive_backtest(long_ohlcv)
@@ -156,7 +156,7 @@ class TestRunAdaptiveBacktest:
         with pytest.raises(ValueError, match="Need at least"):
             run_adaptive_backtest(short_df)
 
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime)
     def test_custom_rebalance_days(self, mock_regime, long_ohlcv):
         from backtest.adaptive import run_adaptive_backtest
 
@@ -170,7 +170,7 @@ class TestRunAdaptiveBacktest:
 class TestComputeRegimePerformance:
     """Test _compute_regime_performance helper."""
 
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime)
     def test_regime_performance_structure(self, mock_regime, long_ohlcv):
         from backtest.adaptive import run_adaptive_backtest
         result = run_adaptive_backtest(long_ohlcv)
@@ -182,7 +182,7 @@ class TestComputeRegimePerformance:
             assert "avg_return" in rp
             assert "total_pnl" in rp
 
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime)
     def test_regime_performance_sorted_by_count(self, mock_regime, long_ohlcv):
         from backtest.adaptive import run_adaptive_backtest
         result = run_adaptive_backtest(long_ohlcv)
@@ -202,7 +202,7 @@ class TestAdaptiveBacktestAPI:
         return TestClient(app)
 
     @patch("data.fetcher.get_stock_data")
-    @patch("backend.ml_regime.classify_market_regime", side_effect=_mock_regime)
+    @patch("backend.regime_classifier.classify_market_regime", side_effect=_mock_regime)
     def test_endpoint_returns_200(self, mock_regime, mock_data, client, long_ohlcv):
         mock_data.return_value = long_ohlcv
         resp = client.post("/api/strategies/adaptive-backtest/2330", json={})

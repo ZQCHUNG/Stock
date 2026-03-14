@@ -126,7 +126,7 @@ def get_adaptive_recommendation_endpoint():
     根據當前 ML 市場情境，自動推薦最合適的策略與參數調整。
     """
     from data.fetcher import get_stock_data
-    from backend.ml_regime import classify_market_regime
+    from backend.regime_classifier import classify_market_regime
     from backend.strategy_adapter import get_adaptive_recommendation
     from backend.dependencies import make_serializable
 
@@ -314,7 +314,7 @@ def _compute_regime_breakdown(result, df) -> list[dict]:
         return []
 
     try:
-        from backend.ml_regime import classify_market_regime
+        from backend.regime_classifier import classify_market_regime
     except ImportError:
         return []
 

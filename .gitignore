@@ -10,7 +10,7 @@ build/
 .venv
 venv/
 ENV/
-.streamlit/secrets.toml
+# (removed: .streamlit/secrets.toml — covered by .streamlit/ below)
 *.csv
 *.xlsx
 .DS_Store
@@ -29,3 +29,30 @@ nul
 .claude/
 .playwright-mcp/
 Images/
+
+# Streamlit (legacy, fully replaced by Vue + FastAPI)
+.streamlit/
+
+# Temp scripts and logs (underscore prefix)
+_*.py
+_*.txt
+_*.md
+_*.html
+
+# Gemini / Architect conversation snapshots
+gemini_*.md
+architect_*.md
+snapshot_*.md
+*_snap*.md
+colab_snap*.md
+tech_snap.md
+
+# One-off notes
+feedback.txt
+need.txt
+retro.txt
+workflow.txt
+
+# Directories for temp artifacts
+screenshots/
+snapshots/
