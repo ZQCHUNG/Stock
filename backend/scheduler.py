@@ -719,8 +719,8 @@ def _run_data_quality_check():
 
         codes = set()
         try:
-            from backend.routers.watchlist import _load_watchlist
-            codes.update(_load_watchlist()[:20])
+            from backend import db
+            codes.update(db.get_watchlist()[:20])
         except Exception:
             pass
         try:
@@ -921,8 +921,8 @@ def _run_twse_daily_sync():
         codes = set()
         # Watchlist stocks
         try:
-            from backend.routers.watchlist import _load_watchlist
-            codes.update(_load_watchlist()[:50])
+            from backend import db
+            codes.update(db.get_watchlist()[:50])
         except Exception:
             pass
         # Open positions
@@ -934,8 +934,12 @@ def _run_twse_daily_sync():
             pass
         # Recent stocks
         try:
-            from backend.routers.system import _load_recent
-            codes.update(_load_recent()[:10])
+            import json
+            from pathlib import Path
+            recent_file = Path(__file__).resolve().parent.parent / "data" / "recent_stocks.json"
+            if recent_file.exists():
+                recent = json.loads(recent_file.read_text(encoding="utf-8"))
+                codes.update(recent[:10])
         except Exception:
             pass
 

@@ -63,6 +63,9 @@ async def shutdown_cleanup():
         pass
 
 
+_debug_mode = os.environ.get("DEBUG", "").lower() in ("1", "true")
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     """Standardized error response for all unhandled exceptions (Gemini R44)."""
@@ -72,7 +75,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={
             "error": True,
             "error_code": "INTERNAL_ERROR",
-            "message": str(exc),
+            "message": str(exc) if _debug_mode else "Internal server error",
             "path": str(request.url.path),
         },
     )
@@ -177,9 +180,9 @@ def get_api_performance_stats() -> dict:
     for e in entries:
         by_path[e["path"]].append(e["elapsed_ms"])
 
+    import numpy as np
     endpoints = []
     for path, times in sorted(by_path.items()):
-        import numpy as np
         arr = np.array(times)
         endpoints.append({
             "path": path,

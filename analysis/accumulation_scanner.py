@@ -508,22 +508,24 @@ def _count_consolidation_days(df: pd.DataFrame) -> int:
 
 # ---------- AQS (Accumulation Quality Score) ----------
 
-_aqs_cache: dict[str, pd.DataFrame | None] = {"df": None}
+_aqs_cache: dict = {"df": None, "mtime": 0}
 
 
 def _load_features_parquet() -> pd.DataFrame | None:
-    """Load features Parquet (lazy, cached). Returns None if unavailable."""
-    if _aqs_cache["df"] is not None:
-        return _aqs_cache["df"]
-
+    """Load features Parquet (lazy, cached with mtime check for nightly refresh)."""
     import os
+
     # Try both relative and absolute paths
     for path in [FEATURES_PARQUET, os.path.join(os.path.dirname(__file__), "..", FEATURES_PARQUET)]:
         if os.path.exists(path):
+            mtime = os.path.getmtime(path)
+            if _aqs_cache["df"] is not None and mtime <= _aqs_cache["mtime"]:
+                return _aqs_cache["df"]
             try:
                 df = pd.read_parquet(path)
                 df["date"] = pd.to_datetime(df["date"])
                 _aqs_cache["df"] = df
+                _aqs_cache["mtime"] = mtime
                 return df
             except Exception as e:
                 _logger.warning("Failed to load features Parquet: %s", e)

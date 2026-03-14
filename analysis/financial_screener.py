@@ -694,6 +694,8 @@ def screen_stocks(filters: dict) -> list[dict]:
     where_clauses = []
     params = []
 
+    filters = dict(filters)  # Defensive copy — never mutate caller's dict
+
     sort_by = filters.pop("sort_by", "code")
     sort_desc = filters.pop("sort_desc", False)
     limit = filters.pop("limit", 100)
@@ -764,6 +766,10 @@ def get_rankings(metric: str, top_n: int = 50, ascending: bool = False) -> list[
         top_n: Number of results
         ascending: True for lowest first (e.g., PE), False for highest first
     """
+    if metric not in _VALID_COLUMNS:
+        logger.warning("Invalid ranking metric rejected: %s", metric)
+        return []
+
     init_db()
     conn = get_db()
 

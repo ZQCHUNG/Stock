@@ -105,7 +105,6 @@ def risk_summary():
 
     # 2. VaR (95% confidence, 1-day and 5-day)
     var_1d = calculate_portfolio_var(stock_data, confidence=0.95, days=250, portfolio_value=total_value)
-    var_5d = calculate_portfolio_var(stock_data, confidence=0.95, days=250, portfolio_value=total_value)
     # 5-day VaR approximation: VaR_1d * sqrt(5)
     var_5d_pct = var_1d["var_pct"] * (5 ** 0.5) if var_1d["var_pct"] else 0
     var_5d_amt = var_5d_pct * total_value
@@ -293,9 +292,9 @@ def validate_var():
     codes.update(p["code"] for p in positions)
 
     try:
-        from backend.routers.watchlist import _load_watchlist
-        wl = _load_watchlist()
-        codes.update(wl[:10])  # Max 10 from watchlist
+        from backend import db
+        wl = db.get_watchlist()
+        codes.update(wl[:10])
     except Exception:
         pass
 

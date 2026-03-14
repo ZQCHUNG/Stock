@@ -5,6 +5,7 @@ yfinance 失敗時自動切換 FinMind API 作為備援數據源。
 """
 
 import json as _json_mod
+import threading
 from pathlib import Path
 
 import yfinance as yf
@@ -64,11 +65,17 @@ def _save_ticker_cache():
 _load_ticker_cache()
 
 
+_ticker_lock = threading.Lock()
+
+
 def get_ticker(stock_code: str) -> str:
-    """取得 yfinance ticker 字串（含快取 + 磁碟持久化）"""
-    if stock_code not in _ticker_cache:
-        _ticker_cache[stock_code] = _resolve_ticker(stock_code)
-        _save_ticker_cache()
+    """取得 yfinance ticker 字串（含快取 + 磁碟持久化，thread-safe）"""
+    if stock_code in _ticker_cache:
+        return _ticker_cache[stock_code]
+    with _ticker_lock:
+        if stock_code not in _ticker_cache:
+            _ticker_cache[stock_code] = _resolve_ticker(stock_code)
+            _save_ticker_cache()
     return _ticker_cache[stock_code]
 
 

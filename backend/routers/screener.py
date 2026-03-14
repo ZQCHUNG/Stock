@@ -476,9 +476,9 @@ def run_bold_scan(req: BoldScanRequest | None = None):
             sqs_score = None
             try:
                 from analysis.scoring import compute_sqs_for_signal
-                sqs_data = compute_sqs_for_signal(code, df)
+                sqs_data = compute_sqs_for_signal(code, signal_strategy="V4")
                 if sqs_data:
-                    sqs_score = sqs_data.get("total_score")
+                    sqs_score = sqs_data.get("sqs")
             except Exception:
                 pass
 

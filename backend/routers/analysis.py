@@ -396,7 +396,7 @@ def get_sqs(code: str):
     try:
         df = get_stock_data(code, period_days=365)
         v4 = get_v4_analysis(df)
-        signal_strategy = "V4" if v4.get("signal") == "BUY" else "V4"
+        signal_strategy = "V4" if v4.get("signal") == "BUY" else "Adaptive"
         maturity = v4.get("signal_maturity", "N/A")
 
         result = compute_sqs_for_signal(
@@ -561,7 +561,7 @@ def get_market_regime_ml():
     進行 6 種市場情境分類，帶信心分數與策略建議。
     """
     from data.fetcher import get_stock_data
-    from backend.ml_regime import classify_market_regime
+    from backend.regime_classifier import classify_market_regime
     from backend.dependencies import make_serializable
     import numpy as np
 

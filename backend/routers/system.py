@@ -316,8 +316,8 @@ def data_quality():
     codes = set()
 
     try:
-        from backend.routers.watchlist import _load_watchlist
-        wl = _load_watchlist()
+        from backend import db
+        wl = db.get_watchlist()
         codes.update(wl)
     except Exception:
         pass
@@ -560,7 +560,7 @@ def _dashboard_pnl():
 def _dashboard_regime():
     """Current ML market regime (fast — uses cached data if available)."""
     try:
-        from backend.ml_regime import classify_market_regime
+        from backend.regime_classifier import classify_market_regime
         from data.fetcher import get_stock_data
 
         df = get_stock_data("0050", period_days=250)
