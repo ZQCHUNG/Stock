@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk, strategies, ws, cluster
+from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk, strategies, ws, cluster, signals, patterns, risk_calc, market, system_export, system_ops
 
 logger = logging.getLogger(__name__)
 
@@ -221,12 +221,18 @@ app.add_middleware(
 # 掛載路由
 app.include_router(stocks.router, prefix="/api/stocks", tags=["stocks"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["analysis"])
+app.include_router(signals.router, prefix="/api/analysis", tags=["signals"])
+app.include_router(patterns.router, prefix="/api/analysis", tags=["patterns"])
+app.include_router(risk_calc.router, prefix="/api/analysis", tags=["risk-calc"])
+app.include_router(market.router, prefix="/api/analysis", tags=["market"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["backtest"])
 app.include_router(report.router, prefix="/api/report", tags=["report"])
 app.include_router(recommend.router, prefix="/api/recommend", tags=["recommend"])
 app.include_router(screener.router, prefix="/api/screener", tags=["screener"])
 app.include_router(watchlist.router, prefix="/api/watchlist", tags=["watchlist"])
 app.include_router(system.router, prefix="/api/system", tags=["system"])
+app.include_router(system_export.router, prefix="/api/system", tags=["system-export"])
+app.include_router(system_ops.router, prefix="/api/system", tags=["system-ops"])
 app.include_router(configs.router, prefix="/api/configs", tags=["configs"])
 app.include_router(bt_results.router, prefix="/api/backtest-results", tags=["backtest-results"])
 app.include_router(portfolio.router, prefix="/api/portfolio", tags=["portfolio"])
