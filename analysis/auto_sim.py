@@ -94,20 +94,15 @@ def _compute_energy_score(stock_code: str) -> dict:
         if df is None or len(df) < 25:
             return result
 
-        high = df["high"]
-        low = df["low"]
-        close = df["close"]
+        from analysis.indicators import compute_true_range, calculate_atr
         volume = df["volume"]
 
-        # True Range series
-        tr = pd.concat([
-            high - low,
-            (high - close.shift(1)).abs(),
-            (low - close.shift(1)).abs(),
-        ], axis=1).max(axis=1)
+        # True Range series (kept for per-bar TR ratio check)
+        tr = compute_true_range(df)
 
         # ATR20 (20-day rolling average of TR)
-        atr20 = tr.rolling(20).mean()
+        atr20_df = calculate_atr(df, period=20, method="sma")
+        atr20 = atr20_df["atr"]
 
         latest_tr = float(tr.iloc[-1])
         latest_atr20 = float(atr20.iloc[-1])

@@ -863,14 +863,13 @@ def get_risk_factors(code: str, period_days: int = 365):
         current_price = float(df["close"].iloc[-1])
 
         # Dynamic exit: ATR-based trailing stop (Gemini R24)
+        from analysis.indicators import compute_true_range
         atr_14 = None
         trailing_stop_price = None
         highest_close_20d = None
         if len(df) >= 15:
-            high = df["high"]
-            low = df["low"]
             close = df["close"]
-            tr = (high - low).combine(abs(high - close.shift(1)), max).combine(abs(low - close.shift(1)), max)
+            tr = compute_true_range(df)
             atr_14 = float(tr.tail(14).mean())
             highest_close_20d = float(close.tail(20).max())
             # Trailing: max(static SL, highest_close - 2×ATR)
@@ -1245,8 +1244,8 @@ def get_trail_classifier(code: str):
     - ATR% < 1.8%  → Precision Trender (ATR k=1.0 trail, volatility-calibrated)
     """
     import numpy as np
-    import pandas as pd
     from data.fetcher import get_stock_data
+    from analysis.indicators import calculate_atr
 
     try:
         df = get_stock_data(code, period_days=365)
@@ -1256,19 +1255,11 @@ def get_trail_classifier(code: str):
     if df is None or len(df) < 30:
         raise HTTPException(status_code=400, detail="Insufficient data")
 
-    # Compute ATR_14
-    h = df["high"] if "high" in df.columns else df["close"]
-    lo = df["low"] if "low" in df.columns else df["close"]
+    # Compute ATR_14 (SMA to preserve original behavior)
+    atr_df = calculate_atr(df, period=14, method="sma", min_periods=7)
+    atr_14 = atr_df["atr"]
+    atr_pct = atr_df["atr_pct"]
     c = df["close"]
-    tr = pd.concat([
-        h - lo,
-        (h - c.shift(1)).abs(),
-        (lo - c.shift(1)).abs(),
-    ], axis=1).max(axis=1)
-    atr_14 = tr.rolling(14, min_periods=7).mean()
-
-    # ATR% = ATR_14 / close
-    atr_pct = atr_14 / c
 
     # 60-day rolling median (same as backtest engine)
     atr_pct_median = atr_pct.rolling(60, min_periods=20).median()
@@ -1330,16 +1321,10 @@ def get_sizing_advisor(
         raise HTTPException(status_code=400, detail="Insufficient data")
 
     # Compute ATR% (same logic as trail-classifier)
-    h = df["high"] if "high" in df.columns else df["close"]
-    lo = df["low"] if "low" in df.columns else df["close"]
+    from analysis.indicators import calculate_atr
+    atr_df = calculate_atr(df, period=14, method="sma", min_periods=7)
+    atr_pct = atr_df["atr_pct"]
     c = df["close"]
-    tr = pd.concat([
-        h - lo,
-        (h - c.shift(1)).abs(),
-        (lo - c.shift(1)).abs(),
-    ], axis=1).max(axis=1)
-    atr_14 = tr.rolling(14, min_periods=7).mean()
-    atr_pct = atr_14 / c
     atr_pct_median = atr_pct.rolling(60, min_periods=20).median()
 
     current_atr_pct = float(atr_pct_median.iloc[-1]) if not np.isnan(atr_pct_median.iloc[-1]) else float(atr_pct.iloc[-1])

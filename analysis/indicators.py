@@ -269,7 +269,35 @@ def calculate_roc(df: pd.DataFrame, period: int = 12, _inplace: bool = False) ->
     return result
 
 
-def calculate_atr(df: pd.DataFrame, period: int = 14, _inplace: bool = False) -> pd.DataFrame:
+def compute_true_range(df: pd.DataFrame) -> pd.Series:
+    """Compute True Range series from OHLC DataFrame.
+
+    TR = max(H-L, |H-prevC|, |L-prevC|)
+
+    Args:
+        df: DataFrame with 'high', 'low', 'close' columns
+
+    Returns:
+        pd.Series of True Range values
+    """
+    high = df["high"]
+    low = df["low"]
+    prev_close = df["close"].shift(1)
+
+    return pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs(),
+    ], axis=1).max(axis=1)
+
+
+def calculate_atr(
+    df: pd.DataFrame,
+    period: int = 14,
+    method: str = "ema",
+    min_periods: int | None = None,
+    _inplace: bool = False,
+) -> pd.DataFrame:
     """計算 ATR (Average True Range) 平均真實波幅
 
     ATR 衡量股票的波動度，用於動態調整停損停利距離。
@@ -277,23 +305,27 @@ def calculate_atr(df: pd.DataFrame, period: int = 14, _inplace: bool = False) ->
     Args:
         df: 包含 'high', 'low', 'close' 欄位的 DataFrame
         period: ATR 週期，預設 14
+        method: Smoothing method — "ema" (default, ewm span=period) or
+                "sma" (simple rolling mean)
+        min_periods: Minimum observations for rolling/ewm window.
+                     Defaults to ``period`` for both methods.
+        _inplace: If True, modify df in place (avoid extra copy)
 
     Returns:
         新增 'atr', 'atr_pct' 欄位的 DataFrame
     """
     result = df if _inplace else df.copy()
-    high = result["high"]
-    low = result["low"]
-    prev_close = result["close"].shift(1)
+    tr = compute_true_range(result)
 
-    # True Range = max(H-L, |H-prevC|, |L-prevC|)
-    tr = pd.concat([
-        high - low,
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    if min_periods is None:
+        min_periods = period
 
-    result["atr"] = tr.ewm(span=period, adjust=False).mean()
+    if method == "sma":
+        result["atr"] = tr.rolling(period, min_periods=min_periods).mean()
+    else:
+        # Default: EMA (ewm span)
+        result["atr"] = tr.ewm(span=period, min_periods=min_periods, adjust=False).mean()
+
     # ATR 百分比（相對收盤價）
     result["atr_pct"] = result["atr"] / result["close"].replace(0, 1e-10)
 

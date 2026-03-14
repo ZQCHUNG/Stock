@@ -189,10 +189,9 @@ def compute_technical_features(df: pd.DataFrame) -> pd.DataFrame:
     df["kd_k"] = (c - low_14) / (high_14 - low_14).replace(0, np.nan)
     df["kd_d"] = df["kd_k"].rolling(3).mean()
 
-    tr = pd.concat(
-        [h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1
-    ).max(axis=1)
-    df["atr_pct"] = tr.rolling(14).mean() / c
+    from analysis.indicators import calculate_atr
+    atr_tmp = calculate_atr(df, period=14, method="sma")
+    df["atr_pct"] = atr_tmp["atr_pct"]
 
     df["vol_ratio_5"] = v / v.rolling(5).mean().replace(0, np.nan)
     df["vol_ratio_20"] = v / v.rolling(20).mean().replace(0, np.nan)

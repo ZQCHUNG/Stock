@@ -14,6 +14,7 @@ from analysis.indicators import (
     calculate_atr,
     calculate_roc,
     calculate_all_indicators,
+    compute_true_range,
 )
 
 
@@ -194,6 +195,31 @@ class TestADX:
         assert result["plus_di"].iloc[-1] > result["minus_di"].iloc[-1]
 
 
+class TestComputeTrueRange:
+    def test_returns_series(self, sample_ohlcv):
+        tr = compute_true_range(sample_ohlcv)
+        assert isinstance(tr, pd.Series)
+        assert len(tr) == len(sample_ohlcv)
+
+    def test_positive_values(self, sample_ohlcv):
+        tr = compute_true_range(sample_ohlcv)
+        valid = tr.dropna()
+        assert (valid >= 0).all()
+
+    def test_flat_price_near_zero(self, flat_price_df):
+        tr = compute_true_range(flat_price_df)
+        valid = tr.dropna()
+        assert valid.iloc[-1] < 0.01
+
+    def test_first_row_uses_high_minus_low(self, sample_ohlcv):
+        """First row has no prev_close, so TR = H - L (others are NaN)."""
+        tr = compute_true_range(sample_ohlcv)
+        expected_first = sample_ohlcv["high"].iloc[0] - sample_ohlcv["low"].iloc[0]
+        # First row: H-L is valid, but |H-prevC| and |L-prevC| are NaN
+        # max(H-L, NaN, NaN) = H-L via pandas
+        assert abs(tr.iloc[0] - expected_first) < 1e-6
+
+
 class TestATR:
     def test_basic(self, sample_ohlcv):
         result = calculate_atr(sample_ohlcv)
@@ -210,6 +236,48 @@ class TestATR:
         valid = result["atr"].dropna()
         # 平坦價格時 ATR 應接近 0（但第一筆有 NaN diff）
         assert valid.iloc[-1] < 0.01
+
+    def test_sma_method(self, sample_ohlcv):
+        """SMA method should use simple rolling mean, not EMA."""
+        result_sma = calculate_atr(sample_ohlcv, method="sma")
+        result_ema = calculate_atr(sample_ohlcv, method="ema")
+        # Both produce ATR columns but values differ
+        assert "atr" in result_sma.columns
+        sma_val = result_sma["atr"].dropna().iloc[-1]
+        ema_val = result_ema["atr"].dropna().iloc[-1]
+        # They should be different (unless data is flat/trivial)
+        # Both should be positive
+        assert sma_val > 0
+        assert ema_val > 0
+
+    def test_sma_matches_manual_rolling(self, sample_ohlcv):
+        """SMA ATR should match manual TR.rolling(14).mean()."""
+        tr = compute_true_range(sample_ohlcv)
+        expected = tr.rolling(14).mean()
+        result = calculate_atr(sample_ohlcv, period=14, method="sma")
+        actual = result["atr"]
+        # Compare non-NaN values
+        mask = expected.notna() & actual.notna()
+        np.testing.assert_allclose(actual[mask].values, expected[mask].values, rtol=1e-10)
+
+    def test_custom_period(self, sample_ohlcv):
+        result_7 = calculate_atr(sample_ohlcv, period=7, method="sma")
+        result_14 = calculate_atr(sample_ohlcv, period=14, method="sma")
+        # Period 7 should have fewer NaN at the start
+        assert result_7["atr"].notna().sum() > result_14["atr"].notna().sum()
+
+    def test_min_periods(self, sample_ohlcv):
+        result = calculate_atr(sample_ohlcv, period=14, method="sma", min_periods=7)
+        # Should have ATR values earlier than default min_periods=14
+        result_default = calculate_atr(sample_ohlcv, period=14, method="sma")
+        assert result["atr"].notna().sum() >= result_default["atr"].notna().sum()
+
+    def test_atr_pct_ratio(self, sample_ohlcv):
+        """atr_pct should equal atr / close."""
+        result = calculate_atr(sample_ohlcv)
+        valid = result.dropna(subset=["atr", "atr_pct"])
+        expected_pct = valid["atr"] / valid["close"]
+        np.testing.assert_allclose(valid["atr_pct"].values, expected_pct.values, rtol=1e-10)
 
 
 class TestROC:

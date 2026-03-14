@@ -49,12 +49,9 @@ def _make_ohlcv(n=60, base_price=100.0, atr_pct=0.02):
     }, index=dates)
 
     # Add ATR
-    tr = pd.concat([
-        df["high"] - df["low"],
-        (df["high"] - df["close"].shift(1)).abs(),
-        (df["low"] - df["close"].shift(1)).abs(),
-    ], axis=1).max(axis=1)
-    df["atr"] = tr.rolling(14).mean()
+    from analysis.indicators import calculate_atr
+    df = calculate_atr(df, period=14, method="sma", _inplace=True)
+    # calculate_atr also adds atr_pct; we only need 'atr' column here
 
     return df
 

@@ -269,15 +269,9 @@ def _get_atr_at_date(stock_code: str, signal_date: str) -> Optional[float]:
             return None
 
         # Compute ATR(14)
-        high = df["high"]
-        low = df["low"]
-        close = df["close"]
-        tr = pd.concat([
-            high - low,
-            (high - close.shift(1)).abs(),
-            (low - close.shift(1)).abs(),
-        ], axis=1).max(axis=1)
-        atr = tr.rolling(14).mean()
+        from analysis.indicators import calculate_atr
+        atr_df = calculate_atr(df, period=14, method="sma")
+        atr = atr_df["atr"]
 
         df.index = pd.to_datetime(df.index)
         sig_dt = pd.Timestamp(signal_date)

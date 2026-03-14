@@ -580,14 +580,12 @@ def get_stress_test():
         # Fetch ATR for sector crash scenario
         atr = current * 0.03  # Default 3% if data unavailable
         try:
+            from analysis.indicators import compute_true_range
             df = get_stock_data(p["code"], period_days=30)
             if len(df) >= 15:
-                high = df["high"]
-                low = df["low"]
-                close = df["close"]
-                tr = (high - low).combine(abs(high - close.shift(1)), max).combine(abs(low - close.shift(1)), max)
+                tr = compute_true_range(df)
                 atr = float(tr.tail(14).mean())
-                current = float(close.iloc[-1])
+                current = float(df["close"].iloc[-1])
                 market_value = current * shares
         except Exception:
             pass
@@ -994,8 +992,8 @@ def simulate_rebalance(req: SimulateRebalanceRequest):
             returns = df["close"].pct_change().dropna().tail(60)
             current = float(df["close"].iloc[-1])
             # ATR for stress test
-            high, low, close = df["high"], df["low"], df["close"]
-            tr = (high - low).combine(abs(high - close.shift(1)), max).combine(abs(low - close.shift(1)), max)
+            from analysis.indicators import compute_true_range
+            tr = compute_true_range(df)
             atr = float(tr.tail(14).mean())
             return code, returns, current, atr
         except Exception:

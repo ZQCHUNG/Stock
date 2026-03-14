@@ -267,16 +267,10 @@ def calculate_stop_levels(
     if "atr" in df.columns:
         atr = float(df["atr"].dropna().iloc[-1])
     else:
-        # Compute ATR(14) from raw data
-        high = df["high"]
-        low = df["low"]
-        close = df["close"]
-        tr = pd.concat([
-            high - low,
-            (high - close.shift(1)).abs(),
-            (low - close.shift(1)).abs(),
-        ], axis=1).max(axis=1)
-        atr = float(tr.rolling(ATR_PERIOD).mean().dropna().iloc[-1])
+        # Compute ATR from raw data (SMA to match legacy behavior)
+        from analysis.indicators import calculate_atr
+        atr_df = calculate_atr(df, period=ATR_PERIOD, method="sma")
+        atr = float(atr_df["atr"].dropna().iloc[-1])
 
     result.current_atr = atr
     # V1.3 P2: Apply dynamic ATR adjustment to base multiplier

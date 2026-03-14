@@ -669,15 +669,9 @@ def update_trailing_stops() -> dict:
                         initial_stop = entry_price * 0.93  # default 7% stop
 
                 # Compute ATR(14)
-                high = df["high"]
-                low = df["low"]
-                close = df["close"]
-                tr = pd.concat([
-                    high - low,
-                    (high - close.shift(1)).abs(),
-                    (low - close.shift(1)).abs(),
-                ], axis=1).max(axis=1)
-                current_atr = float(tr.rolling(14).mean().dropna().iloc[-1])
+                from analysis.indicators import calculate_atr
+                atr_result = calculate_atr(df, period=14, method="sma")
+                current_atr = float(atr_result["atr"].dropna().iloc[-1])
 
                 r_value = entry_price - initial_stop
 
