@@ -15,6 +15,7 @@ import asyncio
 import logging
 import time
 from collections import deque
+from contextlib import asynccontextmanager
 from threading import Lock
 
 from fastapi import FastAPI, Request
@@ -31,36 +32,38 @@ from backend.logging_config import setup_logging
 import os
 setup_logging(json_format=os.environ.get("LOG_FORMAT") == "json")
 
-app = FastAPI(title="台股技術分析系統 API", version="2.0")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: startup and shutdown logic.
 
-@app.on_event("startup")
-async def startup_scheduler():
-    """R45: Start APScheduler for background alert checks.
-    R55: Start WebSocket market data feed.
+    R45: Start APScheduler for background alert checks.
+    R55: Start/stop WebSocket market data feed.
     """
+    # --- Startup ---
     try:
         from backend.scheduler import start_scheduler
         start_scheduler(interval_minutes=5)
     except Exception as e:
         logger.warning(f"Failed to start scheduler: {e}")
 
-    # R55-1: Start WebSocket market feed
     try:
         from backend.ws_manager import market_feed
         await market_feed.start()
     except Exception as e:
         logger.warning(f"Failed to start market feed: {e}")
 
+    yield
 
-@app.on_event("shutdown")
-async def shutdown_cleanup():
-    """R55: Stop market feed on shutdown."""
+    # --- Shutdown ---
     try:
         from backend.ws_manager import market_feed
         await market_feed.stop()
     except Exception:
         pass
+
+
+app = FastAPI(title="台股技術分析系統 API", version="2.0", lifespan=lifespan)
 
 
 _debug_mode = os.environ.get("DEBUG", "").lower() in ("1", "true")
