@@ -660,9 +660,12 @@ def generate_daily_review() -> str | None:
         try:
             from analysis.signal_log import _get_conn
             # Recompute inline (lightweight)
-            from analysis.market_regime import get_regime_context
-            ctx = get_regime_context()
-            market_score = min(30, max(0, int(ctx.get("score", 50) * 0.3)))
+            from analysis.market_regime import detect_market_regime
+            from data.fetcher import get_taiex_data
+            taiex_df = get_taiex_data(period_days=120)
+            ctx = detect_market_regime(taiex_df) if taiex_df is not None else {}
+            multiplier = ctx.get("position_multiplier", 0.5)
+            market_score = min(30, int(multiplier * 30))
 
             from analysis.sector_rs import get_sector_rs_overview
             sector_data = get_sector_rs_overview()
