@@ -43,7 +43,8 @@ def _get_volume_ratio(stock_code: str) -> float | None:
         if avg_vol <= 0:
             return None
         return round(today_vol / avg_vol, 2)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Volume ratio calc failed: {e}")
         return None
 
 _CREATE_TABLE = """
@@ -143,8 +144,8 @@ def _ensure_migration(conn: sqlite3.Connection):
             try:
                 conn.execute(f"ALTER TABLE trade_signals_log ADD COLUMN {col_name} {col_type}")
                 logger.info("Migrated signal_log: added column %s", col_name)
-            except Exception:
-                pass  # already exists or other issue
+            except Exception as e:
+                logger.debug(f"Column migration skipped for {col_name}: {e}")
 
 
 def log_signal(signal: dict) -> int:
@@ -593,8 +594,8 @@ def _get_closing_price(stock_code: str) -> Optional[float]:
         df = get_stock_data(stock_code, period_days=5)
         if df is not None and not df.empty:
             return float(df["close"].iloc[-1])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Closing price fetch failed for {stock_code}: {e}")
     return None
 
 
@@ -804,5 +805,6 @@ def _compute_actual_returns(
                 result[key] = round((fwd_price / entry_price) - 1.0, 4)
 
         return result
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Forward return computation failed: {e}")
         return {}

@@ -113,7 +113,8 @@ def _fetch_inst_scores(buy_codes: list[str]) -> dict[str, float]:
             inst_df = get_institutional_data(code, days=10)
             result = _calculate_institutional_score(inst_df)
             return code, result.get("score", 0)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Institutional score fetch failed for {code}: {e}")
             return code, None
 
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -429,7 +430,8 @@ def _acquire_scan_lock(ttl: int = 300) -> bool:
         # SET NX: only succeeds if key doesn't exist
         acquired = r.set("sector_heat:lock", "1", nx=True, ex=ttl)
         return bool(acquired)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Redis scan lock check failed: {e}")
         return True  # On error, proceed with scan
 
 
@@ -440,8 +442,8 @@ def _release_scan_lock():
     if r is not None:
         try:
             r.delete("sector_heat:lock")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to release scan lock: {e}")
 
 
 def check_portfolio_exits() -> None:
@@ -467,7 +469,8 @@ def check_portfolio_exits() -> None:
         try:
             df = get_stock_data(code, period_days=5)
             current_price = float(df["close"].iloc[-1])
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Price fetch failed for exit check {code}: {e}")
             continue
 
         exit_signals = []
@@ -529,7 +532,8 @@ def take_equity_snapshot() -> None:
             df = get_stock_data(pos["code"], period_days=5)
             current = float(df["close"].iloc[-1])
             total_value += current * shares
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Price fetch failed for {pos['code']}, using entry price: {e}")
             total_value += pos["entry_price"] * shares  # Fallback to entry price
 
     realized_pnl = stats["total_gain"] - stats["total_loss"]
@@ -539,8 +543,8 @@ def take_equity_snapshot() -> None:
     try:
         df_bench = get_stock_data("0050", period_days=5)
         benchmark_price = float(df_bench["close"].iloc[-1])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Benchmark 0050 price fetch failed: {e}")
 
     snapshot = {
         "date": datetime.now().strftime("%Y-%m-%d"),
@@ -610,8 +614,8 @@ def manage_shadow_portfolio(heat_result: dict) -> None:
                 db.close_shadow_trade(st["id"], price, today)
                 reason = "TP" if price >= entry * 1.10 else "SL"
                 logger.info(f"  Shadow EXIT [{reason}]: {st['code']} @ {price:.2f}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Shadow trade exit check failed for {st['code']}: {e}")
 
     # Refresh after closes
     open_shadows = db.get_open_shadow_trades()
@@ -684,7 +688,8 @@ def manage_shadow_portfolio(heat_result: dict) -> None:
                 df = get_stock_data(st["code"], period_days=5)
                 price = float(df["close"].iloc[-1])
                 total_value += price * st["lots"] * 1000
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Shadow price fetch failed for {st['code']}, using entry: {e}")
                 total_value += st["entry_price"] * st["lots"] * 1000
 
         # Include realized P&L from closed shadow trades

@@ -35,8 +35,8 @@ def _load_config() -> AlertConfig:
         try:
             data = json.loads(ALERT_CONFIG_PATH.read_text(encoding="utf-8"))
             return AlertConfig(**data)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
     return AlertConfig()
 
 
@@ -52,8 +52,8 @@ def _load_history() -> list[dict]:
     if ALERT_HISTORY_PATH.exists():
         try:
             return json.loads(ALERT_HISTORY_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
     return []
 
 
@@ -146,8 +146,8 @@ def _check_alerts_fallback(config: AlertConfig) -> dict:
                         "maturity": stock.get("maturity", ""),
                         "confidence": stock.get("confidence", 0),
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
 
         triggered.sort(key=lambda x: x["sqs"], reverse=True)
     except Exception as e:
@@ -338,7 +338,8 @@ def check_compound_rules(codes: list[str] | None = None):
             try:
                 from config import SCAN_STOCKS
                 check_codes = SCAN_STOCKS[:20]  # Limit for performance
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
                 check_codes = []
 
         for code in check_codes:

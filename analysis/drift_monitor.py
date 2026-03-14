@@ -358,8 +358,8 @@ def _load_drift_history() -> list[dict]:
             return json.loads(
                 DRIFT_STATE_FILE.read_text(encoding="utf-8")
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load drift snapshots: {e}")
     return []
 
 

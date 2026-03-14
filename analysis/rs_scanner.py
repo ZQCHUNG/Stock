@@ -181,7 +181,8 @@ def get_cached_rankings() -> dict | None:
         return None
     try:
         return json.loads(RS_RANKING_PATH.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Data load failed, returning default: {e}")
         return None
 
 

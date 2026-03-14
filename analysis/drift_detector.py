@@ -265,8 +265,8 @@ def get_risk_flag() -> dict:
     if RISK_FLAG_PATH.exists():
         try:
             return json.loads(RISK_FLAG_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load risk flag: {e}")
     return {"global_risk_on": True, "reason": "default", "updated_at": ""}
 
 
@@ -453,6 +453,6 @@ def _load_previous_report() -> Optional[dict]:
     if DRIFT_REPORT_PATH.exists():
         try:
             return json.loads(DRIFT_REPORT_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to load previous drift report: {e}")
     return None

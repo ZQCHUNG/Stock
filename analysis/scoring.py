@@ -383,8 +383,8 @@ def compute_sqs_for_signal(
         tags = get_fitness_tags([code])
         if tags:
             fitness_tag = tags[0].get("fitness_tag", "")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"SQS fitness tag unavailable for {code}: {e}")
 
     # 2. Market regime
     regime = "sideways"
@@ -392,8 +392,8 @@ def compute_sqs_for_signal(
         from analysis.market_regime import detect_market_regime
         regime_data = detect_market_regime()
         regime = regime_data.get("regime", "sideways")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"SQS market regime unavailable: {e}")
 
     # 3. Signal EV (per-stock)
     raw_ev_20d = None
@@ -408,8 +408,8 @@ def compute_sqs_for_signal(
             if raw_ev_20d is None:
                 raw_ev_20d = strat_data.get("ev_5d")
             ev_sample_count = strat_data.get("sample_count", 0)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"SQS signal EV unavailable for {code}: {e}")
 
     # 4. Sector heat
     sector_weighted_heat = None
@@ -425,8 +425,8 @@ def compute_sqs_for_signal(
                     sector_weighted_heat = sec.get("weighted_heat")
                     sector_momentum = sec.get("momentum", "stable")
                     break
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"SQS sector heat unavailable for {code}: {e}")
 
     # 5. Institutional flow (R45-3: market-cap-weighted breakdown)
     inst_net_ratio = None
@@ -451,16 +451,16 @@ def compute_sqs_for_signal(
                         trust_ratio = inst_df["trust_net"].sum() / total_vol_5d
                     if "dealer_net" in inst_df.columns:
                         dealer_ratio = inst_df["dealer_net"].sum() / total_vol_5d
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"SQS institutional flow unavailable for {code}: {e}")
 
     # 6. Market cap for institutional weighting
     try:
         from data.fetcher import get_stock_info
         info = get_stock_info(code)
         market_cap = info.get("market_cap", 0) or None
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"SQS market cap unavailable for {code}: {e}")
 
     # 7. Valuation: PE/PB/殖利率 from TWSE (R62)
     pe_ratio = None
@@ -473,8 +473,8 @@ def compute_sqs_for_signal(
             pe_ratio = val.get("pe")
             pb_ratio = val.get("pb")
             dividend_yield = val.get("dividend_yield")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"SQS valuation unavailable for {code}: {e}")
 
     # 8. Growth: 月營收 YoY from MOPS (R62)
     revenue_yoy = None
@@ -483,8 +483,8 @@ def compute_sqs_for_signal(
         rev_df = get_stock_revenue(code, months=1)
         if rev_df is not None and not rev_df.empty:
             revenue_yoy = rev_df.iloc[-1].get("revenue_yoy")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"SQS revenue growth unavailable for {code}: {e}")
 
     sqs_result = calculate_sqs(
         fitness_tag=fitness_tag,

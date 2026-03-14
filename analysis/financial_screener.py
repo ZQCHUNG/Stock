@@ -284,7 +284,8 @@ def _load_revenue_data() -> pd.DataFrame:
     for f in files:
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to data load error: {e}")
             continue
 
         if not isinstance(data, dict) or "data" not in data:
@@ -348,7 +349,8 @@ def _load_stock_list() -> dict:
     try:
         from data.stock_list import get_all_stocks
         return get_all_stocks()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
         from config import SCAN_STOCKS
         return {c: {"name": n, "market": ""} for c, n in SCAN_STOCKS.items()}
 
@@ -358,7 +360,8 @@ def _load_sector_mapping():
     try:
         from data.sector_mapping import get_stock_sector
         return get_stock_sector
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Data fetch failed, returning default: {e}")
         return lambda code, level=1: "未分類"
 
 
@@ -555,7 +558,8 @@ def refresh_screening_data(progress_callback=None):
 
         try:
             industry = get_sector(code, level=1) if callable(get_sector) else "未分類"
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             industry = "未分類"
 
         # Technical from close matrix

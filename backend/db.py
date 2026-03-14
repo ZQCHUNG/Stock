@@ -9,12 +9,15 @@ Zero external dependencies — uses Python stdlib sqlite3.
 """
 
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "stock.db"
 
@@ -187,7 +190,8 @@ def _migrate_portfolio_json(conn: sqlite3.Connection):
 
     try:
         data = json.loads(_PORTFOLIO_JSON.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to load portfolio JSON for migration: {e}")
         return
 
     # Import open positions
@@ -246,7 +250,8 @@ def _migrate_watchlist_json(conn: sqlite3.Connection):
 
     try:
         codes = json.loads(_WATCHLIST_JSON.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to load watchlist JSON for migration: {e}")
         return
 
     if not isinstance(codes, list):
@@ -853,8 +858,8 @@ def import_csv_trades(trades: list[dict]) -> dict:
                     d1 = dt.strptime(entry_date, "%Y-%m-%d")
                     d2 = dt.strptime(exit_date, "%Y-%m-%d")
                     days_held = (d2 - d1).days
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to compute days_held for trade: {e}")
 
                 try:
                     conn.execute(

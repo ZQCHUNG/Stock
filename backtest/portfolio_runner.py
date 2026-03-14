@@ -27,6 +27,9 @@ from analysis.strategy_bold import (
 )
 from analysis.rs_scanner import compute_rs_ratio
 from data.sector_mapping import get_stock_sector
+import logging
+logger = logging.getLogger(__name__)
+
 
 warnings.filterwarnings("ignore")
 
@@ -511,7 +514,8 @@ class PortfolioBacktester:
                 sig_df = generate_bold_signals(df, params=self.bold_params)
                 if sig_df is not None and len(sig_df) > 60:
                     signals_cache[code] = sig_df
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to cache operation error: {e}")
                 continue
         print(f"  {len(signals_cache)} stocks with signals")
 
@@ -1360,6 +1364,7 @@ def print_portfolio_report(result: PortfolioResult):
     if result.trades:
         # Entry type distribution
         from collections import Counter
+
         types = Counter(t.entry_type for t in result.trades)
         print("\nEntry Type Distribution:")
         for etype, count in types.most_common():

@@ -165,8 +165,8 @@ class ConnectionManager:
             for cb in self._code_change_callbacks:
                 try:
                     cb(added, removed)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Code change callback error: {e}")
 
     def on_codes_changed(self, callback):
         """R58: Register callback for code change events.
@@ -199,7 +199,8 @@ class ConnectionManager:
                 if ws:
                     try:
                         await ws.send_json(data)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"WS send failed for {conn_id}, marking dead: {e}")
                         dead.append(conn_id)
         # Clean dead connections
         for conn_id in dead:
@@ -211,7 +212,8 @@ class ConnectionManager:
         for conn_id, ws in self.active_connections.items():
             try:
                 await ws.send_json(data)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"WS broadcast failed for {conn_id}: {e}")
                 dead.append(conn_id)
         for conn_id in dead:
             await self.disconnect(conn_id)
@@ -416,8 +418,8 @@ class FugleMarketFeed:
             if config_path.exists():
                 data = _json.loads(config_path.read_text(encoding="utf-8"))
                 self._api_key = data.get("api_key", "")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to load Fugle config: {e}")
         return self._api_key
 
     def _on_codes_changed(self, added: set[str], removed: set[str]):
@@ -479,8 +481,8 @@ class FugleMarketFeed:
         if self._ws:
             try:
                 await self._ws.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"WS close error: {e}")
             self._ws = None
         if self._task:
             self._task.cancel()
@@ -563,8 +565,8 @@ class FugleMarketFeed:
         try:
             msg = _json.dumps({"event": "unsubscribe", "data": {"channel": "aggregates", "symbol": code}})
             await ws.send(msg)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Fugle unsubscribe failed for {code}: {e}")
 
     async def _handle_message(self, data: dict):
         """Handle incoming Fugle WebSocket message."""
@@ -674,8 +676,8 @@ def create_market_feed(manager: ConnectionManager) -> MarketFeed | FugleMarketFe
                 if config_path.exists():
                     data = _json.loads(config_path.read_text(encoding="utf-8"))
                     api_key = data.get("api_key", "")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to load Fugle config for factory: {e}")
         if api_key:
             logger.info("Using Fugle MarketData WebSocket feed (<1s latency)")
             return FugleMarketFeed(manager)

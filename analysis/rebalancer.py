@@ -62,8 +62,8 @@ def _load_state() -> dict:
     if STATE_FILE.exists():
         try:
             return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
     return {
         "prev_regime": "NORMAL",
         "regime_streak": 0,

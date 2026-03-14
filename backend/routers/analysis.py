@@ -2,6 +2,9 @@
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -55,7 +58,8 @@ def get_v4_enhanced(code: str, period_days: int = 365):
         df = get_stock_data(code, period_days=period_days)
         try:
             inst_df = get_institutional_data(code, days=10)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             inst_df = None
         result = get_v4_enhanced_analysis(df, inst_df=inst_df)
         return make_serializable(result)
@@ -231,7 +235,8 @@ def get_adaptive_signal(code: str, period_days: int = 365):
             from backend.routers.portfolio import get_market_regime
             regime_data = get_market_regime()
             regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             regime_en = "range_quiet"
 
         adaptive = adaptive_strategy_score(
@@ -272,7 +277,8 @@ def get_risk_budget(code: str, period_days: int = 365):
             from backend.routers.portfolio import get_market_regime
             regime_data = get_market_regime()
             regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             regime_en = "range_quiet"
 
         # Get Kelly from portfolio optimal exposure (if available)
@@ -282,8 +288,8 @@ def get_risk_budget(code: str, period_days: int = 365):
             exposure_data = get_optimal_exposure()
             if exposure_data.get("has_data"):
                 kelly_half = exposure_data.get("kelly_half", 0.5)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
 
         result = multi_strategy_bouncer(
             code=code,
@@ -425,7 +431,8 @@ def batch_sqs(payload: BatchSqsRequest):
             try:
                 sqs = compute_sqs_for_signal(s.code, s.strategy, s.maturity)
                 results[s.code] = sqs
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
                 results[s.code] = {"sqs": 50.0, "grade": "silver", "grade_label": "普通信號"}
         return make_serializable(results)
     except Exception as e:
@@ -462,8 +469,8 @@ def get_sqs_distribution():
                     signal_maturity=s.get("maturity", "N/A"),
                 )
                 sqs_scores.append(sqs)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
 
         result = compute_sqs_distribution(sqs_scores)
         return make_serializable(result)
@@ -549,7 +556,8 @@ def get_market_regime():
             "ma60": float(ma60) if not np.isnan(ma60) else None,
             "rsi": float(rsi) if not np.isnan(rsi) else None,
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return {"regime": "unknown"}
 
 
@@ -624,7 +632,8 @@ def get_sector_heat(force_refresh: bool = False):
                 "signal_maturity": v4.get("signal_maturity", "N/A"),
                 "uptrend_days": v4.get("uptrend_days", 0),
             }
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return None
 
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -803,15 +812,18 @@ def get_risk_factors(code: str, period_days: int = 365):
             df = fut_data.result()
             try:
                 company_info, _ = fut_info.result()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
                 company_info = {"industry": "", "sector": ""}
             try:
                 inst_df = fut_inst.result()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
                 inst_df = None
             try:
                 fin_data = fut_fin.result()
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
                 fin_data = None
 
         # 計算風險因子
@@ -883,7 +895,8 @@ def get_risk_factors(code: str, period_days: int = 365):
             signal_maturity = v4.get("signal_maturity", "N/A")
             v4_signal = v4.get("signal", "HOLD")
             stop_loss_price = v4.get("stop_loss_price")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             signal_maturity = "N/A"
             v4_signal = "HOLD"
             stop_loss_price = None
@@ -1138,7 +1151,8 @@ def get_winner_dna_match(code: str):
                             if sim > best_sim:
                                 best_sim = sim
                                 samples_labels[i] = p.cluster_id
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
                 samples_df = None
                 samples_reduced = None
 
@@ -1147,8 +1161,8 @@ def get_winner_dna_match(code: str):
         if PRICE_CACHE_FILE.exists():
             try:
                 price_df = pd.read_parquet(PRICE_CACHE_FILE)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Optional cache operation failed: {e}")
 
         # Run Two-Stage Matcher
         result = match_stock_to_dna(
@@ -1345,7 +1359,8 @@ def get_sizing_advisor(
             sector_mult, sector_reason = get_sector_penalty_multiplier(
                 stock_sector, positions, penalty_factor=1.0,  # disabled by default
             )
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
         pass  # DB not available or empty — no penalty
 
     # Sizing params
@@ -1633,7 +1648,8 @@ def get_accumulation_scan(code: str, period_days: int = 365):
         try:
             from analysis.rs_scanner import get_stock_rs
             rs_rating = get_stock_rs(code)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
             pass  # RS is optional; skip if unavailable
 
         result = detect_accumulation(df, rs_rating=rs_rating, stock_code=code)

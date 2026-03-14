@@ -113,8 +113,8 @@ def calculate_position_size(
                 elif max_corr > 0.5:
                     corr_penalty = 0.75
                     reasons.append(f"中度相關性調整 (max corr={max_corr:.2f})")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Correlation check failed for {stock_code}: {e}")
 
     # --- 5. Beta check ---
     beta_penalty = 1.0
@@ -131,8 +131,8 @@ def calculate_position_size(
             elif port_beta > 1.2:
                 beta_penalty = 0.85
                 reasons.append(f"Beta 調整 ({port_beta:.2f})")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Beta check failed for {stock_code}: {e}")
 
     # --- 6. Confidence scaling ---
     # Higher confidence → allow larger position

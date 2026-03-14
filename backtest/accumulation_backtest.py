@@ -519,7 +519,8 @@ def _process_stock(
                 try:
                     vcp_result = detect_vcp(window_df)
                     vcp_score = vcp_result.vcp_score if vcp_result.has_vcp else 0
-                except Exception:
+                except Exception as e:
+                    _logger.debug(f"VCP detection failed: {e}")
                     vcp_score = 0
                 vcp_pts = (vcp_score / 100) * 25
                 aqgs += vcp_pts

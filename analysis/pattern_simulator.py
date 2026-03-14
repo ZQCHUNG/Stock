@@ -403,7 +403,8 @@ def get_available_dimensions() -> list[dict]:
                 "features": info.get("count", 0),
             })
         return dims
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Data load failed, returning default: {e}")
         return [
             {"key": "technical", "label": "技術面", "features": 20},
             {"key": "institutional", "label": "法人面", "features": 11},

@@ -10,6 +10,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend import db
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -62,7 +65,8 @@ def list_positions():
         try:
             df = get_stock_data(code, period_days=5)
             return code, float(df["close"].iloc[-1])
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -492,7 +496,8 @@ def get_portfolio_correlation():
                 return code, None
             returns = df["close"].pct_change().dropna().tail(60)
             return code, returns
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -587,8 +592,8 @@ def get_stress_test():
                 atr = float(tr.tail(14).mean())
                 current = float(df["close"].iloc[-1])
                 market_value = current * shares
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
 
         pos_data.append({
             "code": p["code"],
@@ -996,7 +1001,8 @@ def simulate_rebalance(req: SimulateRebalanceRequest):
             tr = compute_true_range(df)
             atr = float(tr.tail(14).mean())
             return code, returns, current, atr
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None, None, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -1061,7 +1067,8 @@ def get_market_regime():
 
     try:
         df = get_stock_data("0050", period_days=120)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Data fetch failed, returning default: {e}")
         return make_serializable({"has_data": False})
 
     if len(df) < 60:
@@ -1192,7 +1199,8 @@ def get_efficient_frontier():
             if len(df) < 60:
                 return code, None
             return code, df["close"].pct_change().dropna().tail(60)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:

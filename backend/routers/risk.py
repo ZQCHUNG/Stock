@@ -68,7 +68,8 @@ def risk_summary():
     def _fetch(code):
         try:
             return code, get_stock_data(code, period_days=300)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -113,8 +114,8 @@ def risk_summary():
     taiex_df = None
     try:
         taiex_df = get_taiex_data(period_days=300)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     betas = {}
     portfolio_beta = None
@@ -198,7 +199,8 @@ def suggest_position_size(req: PositionSizeRequest):
     def _fetch(code):
         try:
             return code, get_stock_data(code, period_days=300)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None
 
     if codes:
@@ -210,7 +212,8 @@ def suggest_position_size(req: PositionSizeRequest):
     # Fetch target stock data
     try:
         stock_df = get_stock_data(req.code, period_days=300)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Optional data fetch failed: {e}")
         stock_df = None
 
     if stock_df is None or stock_df.empty:
@@ -220,8 +223,8 @@ def suggest_position_size(req: PositionSizeRequest):
     market_df = None
     try:
         market_df = get_taiex_data(period_days=300)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     result = calculate_position_size(
         stock_code=req.code,
@@ -256,7 +259,8 @@ def run_scenario(req: ScenarioRequest):
     def _fetch(code):
         try:
             return code, get_stock_data(code, period_days=300)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None
 
     if codes:
@@ -295,8 +299,8 @@ def validate_var():
         from backend import db
         wl = db.get_watchlist()
         codes.update(wl[:10])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     if not codes:
         return {"error": "無持倉或自選股可供驗證"}
@@ -306,7 +310,8 @@ def validate_var():
     def _fetch(code):
         try:
             return code, get_stock_data(code, period_days=750)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -423,16 +428,16 @@ def get_portfolio_heat():
             df = get_stock_data(code, period_days=120)
             if df is not None and len(df) > 30:
                 stock_data[code] = df
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
 
     # Compute correlation matrix
     corr_matrix = None
     if len(stock_data) >= 2:
         try:
             corr_matrix = calculate_correlation_matrix(stock_data, days=60)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
 
     result = compute_portfolio_heat(heat_positions, corr_matrix)
     return make_serializable(result)
@@ -462,7 +467,8 @@ def get_sector_correlation():
     def _fetch(code):
         try:
             return code, get_stock_data(code, period_days=900)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data fetch failed, returning default: {e}")
             return code, None
 
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -503,7 +509,8 @@ def get_sector_correlation():
             aligned = df.reindex(pd.DatetimeIndex(common_dates))
             pct = aligned["close"].pct_change().fillna(0)
             returns_dict[code] = pct
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
 
     stock_returns = pd.DataFrame(returns_dict)
@@ -515,7 +522,8 @@ def get_sector_correlation():
             info = get_stock_info(code)
             cap = info.get("marketCap", 0) or info.get("market_cap", 0) or 0
             market_caps[code] = cap
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
             market_caps[code] = 0
 
     result = compute_full_sector_correlation(stock_returns, market_caps)

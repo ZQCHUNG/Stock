@@ -12,6 +12,7 @@ Redis 不可用時自動降級為 in-memory TTL 快取，
 """
 
 import json
+import logging
 import time as _time
 import threading
 import redis
@@ -19,6 +20,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
+logger = logging.getLogger(__name__)
 
 # ===== In-Memory TTL Cache (Redis 備援) =====
 
@@ -95,7 +97,8 @@ def _redis_port_open(host: str = "127.0.0.1", port: int = 6379, timeout: float =
         result = sock.connect_ex((host, port))
         sock.close()
         return result == 0
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return False
 
 
@@ -112,7 +115,8 @@ def get_redis() -> redis.Redis | None:
         try:
             _redis_client.ping()
             return _redis_client
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
             _redis_client = None
 
     # 快速探測 port：避免 Windows 上 socket_connect_timeout 無效（10-20 秒）
@@ -136,7 +140,8 @@ def get_redis() -> redis.Redis | None:
         _redis_client.ping()
         _redis_last_fail = 0
         return _redis_client
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
         _redis_client = None
         _redis_last_fail = _time.time()
         return None
@@ -150,8 +155,8 @@ def _cache_get(key: str) -> str | None:
             val = r.get(key)
             if val is not None:
                 return val
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
     return _memory_cache.get(key)
 
 
@@ -161,8 +166,8 @@ def _cache_set(key: str, value: str, ttl: int) -> None:
     if r is not None:
         try:
             r.setex(key, ttl, value)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
     _memory_cache.setex(key, ttl, value)
 
 
@@ -216,8 +221,8 @@ def get_cached_stock_data(stock_code: str, period_days: int) -> pd.DataFrame | N
     if cached:
         try:
             return _json_to_df(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -241,8 +246,8 @@ def get_cached_analysis(stock_code: str) -> dict | None:
             if "date" in data:
                 data["date"] = pd.Timestamp(data["date"])
             return data
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -252,8 +257,8 @@ def set_cached_analysis(stock_code: str, analysis: dict, ttl: int = 300) -> None
     try:
         serializable = _make_serializable(analysis)
         _cache_set(key, json.dumps(serializable, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 # ===== 推薦掃描快取 =====
@@ -268,8 +273,8 @@ def get_cached_scan_results() -> list[dict] | None:
                 if "date" in item:
                     item["date"] = pd.Timestamp(item["date"])
             return results
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -278,8 +283,8 @@ def set_cached_scan_results(results: list[dict], ttl: int = 600) -> None:
     try:
         serializable = [_make_serializable(item) for item in results]
         _cache_set("scan_results", json.dumps(serializable, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 # ===== 條件選股快取 =====
@@ -291,8 +296,8 @@ def get_cached_screener_results(conditions_hash: str) -> list[dict] | None:
     if cached:
         try:
             return json.loads(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -301,8 +306,8 @@ def set_cached_screener_results(conditions_hash: str, results: list[dict], ttl: 
     try:
         serializable = [_make_serializable(item) for item in results]
         _cache_set(f"screener:{conditions_hash}", json.dumps(serializable, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 # ===== 股票清單快取 =====
@@ -313,8 +318,8 @@ def get_cached_stock_list() -> dict[str, dict] | None:
     if cached:
         try:
             return json.loads(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -322,8 +327,8 @@ def set_cached_stock_list(stocks: dict[str, dict], ttl: int = 86400) -> None:
     """寫入股票清單快取（預設 24 小時）"""
     try:
         _cache_set("stock_list", json.dumps(stocks, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 # ===== 法人籌碼快取 =====
@@ -335,8 +340,8 @@ def get_cached_institutional_data(stock_code: str) -> pd.DataFrame | None:
     if cached:
         try:
             return _json_to_df(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -388,8 +393,8 @@ def get_cached_sector_heat() -> dict | None:
             data["_updated_at"] = updated_at
             data["_status"] = status
             return data
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -405,16 +410,16 @@ def set_cached_sector_heat(data: dict, ttl: int = 86400) -> None:
         _cache_set("sector_heat:data", json.dumps(serializable, ensure_ascii=False), ttl)
         _cache_set("sector_heat:updated_at", datetime.now().isoformat(), ttl)
         _cache_set("sector_heat:status", "ok", ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 def set_sector_heat_error(error_msg: str) -> None:
     """標記產業熱度掃描失敗（不清除舊數據）"""
     try:
         _cache_set("sector_heat:status", f"error:{error_msg}", 86400)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 def get_sector_heat_previous() -> dict | None:
@@ -423,8 +428,8 @@ def get_sector_heat_previous() -> dict | None:
     if cached:
         try:
             return json.loads(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -437,8 +442,8 @@ def set_sector_heat_previous(heat_map: dict, ttl: int = 86400) -> None:
     """
     try:
         _cache_set("sector_heat:previous", json.dumps(heat_map, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 def set_worker_heartbeat(scan_count: int, stocks_scanned: int, buy_signals: int = 0) -> None:
@@ -452,8 +457,8 @@ def set_worker_heartbeat(scan_count: int, stocks_scanned: int, buy_signals: int 
             "status": "running",
         }
         _cache_set("worker:heartbeat", json.dumps(data), 1800)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 def get_worker_heartbeat() -> dict | None:
@@ -462,8 +467,8 @@ def get_worker_heartbeat() -> dict | None:
     if cached:
         try:
             return json.loads(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -475,8 +480,8 @@ def get_stock_maturity_map() -> dict | None:
     if cached:
         try:
             return json.loads(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -484,8 +489,8 @@ def set_stock_maturity_map(maturity_map: dict, ttl: int = 86400) -> None:
     """儲存當前每檔股票的 maturity（{code: maturity_str}）"""
     try:
         _cache_set("sector_heat:stock_maturity", json.dumps(maturity_map, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 def add_transition_event(event: dict, ttl: int = 86400) -> None:
@@ -517,8 +522,8 @@ def add_transition_event(event: dict, ttl: int = 86400) -> None:
             events = events[-50:]
 
         _cache_set("sector_heat:transitions", json.dumps(events, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 def get_transition_events(limit: int = 20) -> list:
@@ -528,8 +533,8 @@ def get_transition_events(limit: int = 20) -> list:
         try:
             events = json.loads(cached)
             return events[-limit:]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return []
 
 
@@ -556,8 +561,8 @@ def clear_transition_events() -> None:
         ]
 
         _cache_set("sector_heat:transitions", json.dumps(retained, ensure_ascii=False), 86400)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 # ===== Portfolio Exit Alerts (Gemini R25) =====
@@ -568,8 +573,8 @@ def get_portfolio_exit_alerts() -> list:
     if cached:
         try:
             return json.loads(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return []
 
 
@@ -577,8 +582,8 @@ def set_portfolio_exit_alerts(alerts: list, ttl: int = 86400) -> None:
     """儲存倉位出場警報"""
     try:
         _cache_set("portfolio:exit_alerts", json.dumps(alerts, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 # ===== Equity Ledger (Gemini R25: Daily Snapshot) =====
@@ -589,8 +594,8 @@ def get_equity_ledger() -> list:
     if cached:
         try:
             return json.loads(cached)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
     return []
 
 
@@ -609,8 +614,8 @@ def append_equity_snapshot(snapshot: dict, ttl: int = 86400 * 365) -> None:
             ledger = ledger[-365:]
 
         _cache_set("portfolio:equity_ledger", json.dumps(ledger, ensure_ascii=False), ttl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 def get_cache_stats() -> dict:
@@ -626,8 +631,8 @@ def get_cache_stats() -> dict:
                 "memory_used": info.get("used_memory_human", "N/A"),
                 "memory_peak": info.get("used_memory_peak_human", "N/A"),
             }
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
 
     # Memory cache fallback stats
     mem_keys = _memory_cache.dbsize()
@@ -646,6 +651,6 @@ def flush_cache() -> bool:
     if r is not None:
         try:
             r.flushdb()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
     return True

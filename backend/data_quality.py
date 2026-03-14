@@ -100,8 +100,8 @@ def check_stock_data_quality(
                     "severity": "warning",
                     "detail": f"日期跳躍：期望 ~{expected_rows} 交易日，實際 {total_rows} ({gap_ratio:.1%})",
                 })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Date gap check failed for {code}: {e}")
 
     # --- 6. Check price anomalies (>20% daily move) ---
     if "close" in df.columns and total_rows > 1:
@@ -142,8 +142,8 @@ def check_stock_data_quality(
                 "severity": "warning",
                 "detail": f"最新數據日期 {last_date}，已過 {days_stale} 天",
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Staleness check failed for {code}: {e}")
 
     # --- Compute completeness score ---
     error_count = sum(1 for i in issues if i["severity"] == "error")

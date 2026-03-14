@@ -372,8 +372,8 @@ def run_auto_sim(
                     final_score=s["confidence_score"],
                     reason="; ".join(energy["warnings"]),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Energy log failed for signal: {e}")
 
     if energy_penalized:
         logger.info("Auto-Sim: Energy Score penalized %d/%d signals", energy_penalized, len(sim_results))
@@ -484,8 +484,8 @@ def run_auto_sim(
                 s["position_pct"] = sizing["position_pct"]
                 s["position_lots"] = sizing["lots"]
                 s["position_rationale"] = sizing["rationale"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Position sizing failed: {e}")
 
     # Step 5: Format LINE message (ai_comments added in Step 6.5 below)
     message = _format_line_message(top_signals)
@@ -533,8 +533,8 @@ def run_auto_sim(
             message = _format_risk_off_message(flag)
             risk_suppressed = True
             logger.info("Auto-Sim: Risk flag OFF — suppressing recommendations")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Risk flag check failed: {e}")
 
     elapsed = round(time.time() - t0, 1)
 
@@ -647,7 +647,8 @@ def _get_market_context_adjustment() -> int:
         if latest_close < latest_ma20:
             return -10  # Bear filter
         return 0  # Neutral (RS>90 bonus handled by caller)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Market context bonus check failed: {e}")
         return 0  # Default: no adjustment
 
 
@@ -671,7 +672,8 @@ def _get_aggressive_index_summary() -> tuple:
                 score += 10
         else:
             score += 15
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Aggressive index: market context failed: {e}")
         score += 15
 
     # 2. Sector RS (max 25)
@@ -685,7 +687,8 @@ def _get_aggressive_index_summary() -> tuple:
             score += 25 if avg > 70 else 15 if avg > 50 else 5
         else:
             score += 10
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Aggressive index: sector RS failed: {e}")
         score += 10
 
     # 3. In-Bounds Rate (max 25)
@@ -703,7 +706,8 @@ def _get_aggressive_index_summary() -> tuple:
             score += 15
         else:
             score += 5
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Aggressive index: in-bounds rate failed: {e}")
         score += 10
 
     # 4. Signal Quality (max 20)
@@ -715,7 +719,8 @@ def _get_aggressive_index_summary() -> tuple:
             score += 20 if avg_conf >= 60 else 12 if avg_conf >= 40 else 5
         else:
             score += 10
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Aggressive index: signal quality failed: {e}")
         score += 10
 
     if score >= 70:
@@ -751,8 +756,8 @@ def _format_line_message(signals: list[dict]) -> str:
         if agg_score is not None:
             icon = "🔥" if agg_score >= 70 else "🌡️" if agg_score >= 40 else "🧊"
             lines.append(f"{icon} 今日市場熱度：{agg_score} ({agg_advice})")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Aggressive index header failed: {e}")
 
     lines.append(f"共 {len(signals)} 檔高信心標的:\n")
 
@@ -903,8 +908,8 @@ def _save_daily_report_snapshot(top_signals: list[dict]):
         if len(reports) > 30:
             for old in reports[:-30]:
                 old.unlink()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to cleanup old daily reports: {e}")
 
 
 def get_energy_trend(stock_code: str, days_back: int = 3) -> list[dict]:
@@ -939,7 +944,8 @@ def get_energy_trend(stock_code: str, days_back: int = 3) -> list[dict]:
                         "confidence_score": s.get("confidence_score", 0),
                     })
                     break
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Energy trend load failed for report: {e}")
             continue
 
     # Sort oldest first

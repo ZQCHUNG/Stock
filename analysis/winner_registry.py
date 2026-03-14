@@ -52,7 +52,8 @@ def _load_industry_chain_map() -> dict:
             name = d.get("chain_name", "unknown")
             for code in d.get("stock_codes", []):
                 chain_map[code] = name
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to data load error: {e}")
             continue
     return chain_map
 
@@ -111,7 +112,8 @@ def _parse_month_end_date(end_date_str: str) -> Optional[str]:
         parts = end_date_str.replace("/", "-").split("-")
         y, m, d = int(parts[0]), int(parts[1]), int(parts[2])
         return f"{y:04d}-{m:02d}-{d:02d}"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return None
 
 
@@ -135,7 +137,8 @@ def scan_broker_buys(
     for filepath in files:
         try:
             data = json.load(open(filepath, encoding="utf-8"))
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
             errors += 1
             continue
 

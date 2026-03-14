@@ -214,8 +214,8 @@ def generate_recommendations(days_back: int = LOOKBACK_DAYS) -> dict:
                 },
                 "suggestion": "trailing_atr_multiplier: 從 2.0 提高至 2.5",
             })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     # --- 7. In-Bounds Rate Health ---
     if in_bounds_rate < 0.50 and trade_count >= 15:

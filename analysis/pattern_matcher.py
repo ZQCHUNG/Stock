@@ -216,7 +216,8 @@ def find_similar_stocks(
         try:
             from data.stock_list import get_all_stocks
             name = get_all_stocks().get(c["code"], {}).get("name", "")
-        except Exception:
+        except Exception as e:
+            _logger.debug(f"Stock name lookup failed for {c['code']}: {e}")
             name = ""
 
         results.append({

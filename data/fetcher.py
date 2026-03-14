@@ -30,7 +30,8 @@ def _resolve_ticker(stock_code: str) -> str:
             df = yf.Ticker(ticker).history(period="2d", auto_adjust=True)
             if not df.empty:
                 return ticker
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
     return f"{stock_code}.TW"  # fallback
 
@@ -45,7 +46,8 @@ def _load_ticker_cache():
     try:
         if _TICKER_CACHE_FILE.exists():
             _ticker_cache = _json_mod.loads(_TICKER_CACHE_FILE.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
         _ticker_cache = {}
 
 
@@ -57,8 +59,8 @@ def _save_ticker_cache():
             _json_mod.dumps(_ticker_cache, ensure_ascii=False),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 # 啟動時載入
@@ -344,8 +346,8 @@ def get_dividend_data(stock_code: str) -> pd.Series:
             dates = pd.to_datetime([r[0] for r in rows])
             values = [r[1] for r in rows]
             return pd.Series(values, index=dates, name="Dividends")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data fetch failed: {e}")
 
     # Fallback: yfinance
     ticker_str = get_ticker(stock_code)
@@ -452,7 +454,8 @@ def get_institutional_data(stock_code: str, days: int = 30) -> pd.DataFrame:
                         "total_net": _parse_int(row[_col_map["total"]]),
                     })
                     break
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to data load error: {e}")
             continue
 
         # TWSE rate limit
@@ -518,7 +521,8 @@ def _fetch_institutional_from_finmind(stock_code: str, days: int = 20) -> pd.Dat
             timeout=15,
         )
         raw = resp.json().get("data", [])
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Data load failed, returning default: {e}")
         return pd.DataFrame()
 
     if not raw:
@@ -1365,7 +1369,8 @@ def get_stock_fundamentals_safe(stock_code: str) -> dict | None:
     """
     try:
         return get_stock_fundamentals(stock_code)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Data fetch failed, returning default: {e}")
         return None
 
 
@@ -1374,5 +1379,6 @@ def validate_stock_code(stock_code: str) -> bool:
     try:
         df = get_stock_data(stock_code, period_days=7)
         return not df.empty
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Data fetch failed, returning default: {e}")
         return False

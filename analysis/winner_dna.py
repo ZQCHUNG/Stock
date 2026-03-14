@@ -639,7 +639,8 @@ def match_stock_to_dna(
     # Reduce to cluster space
     try:
         reduced = reducer.transform(feat_vector)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return MatchResult(stock_code=stock_code, match_date=match_date)
 
     reduced_vec = reduced.flatten()
@@ -859,7 +860,8 @@ def _compute_multiscale_dtw(
 
         try:
             nb_date = pd.Timestamp(nb_date_str)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
 
         # Find the index closest to epiphany date

@@ -3,6 +3,9 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -87,7 +90,8 @@ def scan_v4(req: ScanRequest):
                     item["filter_reason"] = "基本面資料不可用"
 
             results.append(item)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
 
     # 只快取預設股票池結果（無基本面過濾時）
@@ -173,7 +177,8 @@ def scan_v4_stream(req: ScanRequest):
                         item["filter_reason"] = "基本面資料不可用"
 
                 results.append(item)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to operation error: {e}")
                 continue
 
         if not req.stock_codes and not has_ff:

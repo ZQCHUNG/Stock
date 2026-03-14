@@ -1,8 +1,11 @@
 """條件選股路由 — Phase 1: 財報狗級篩選系統"""
 
+import logging
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -198,7 +201,8 @@ def _run_screener_logic(filters: ScreenerFilter, progress_callback=None):
 
                     if filters.signal_filter and v4["signal"] != filters.signal_filter:
                         continue
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Screener: V4 analysis failed for {code}: {e}")
                     continue
 
             fundamentals = None
@@ -248,7 +252,8 @@ def _run_screener_logic(filters: ScreenerFilter, progress_callback=None):
                 item["market_cap"] = fundamentals.get("market_cap")
 
             results.append(item)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Screener: stock processing failed for {code}: {e}")
             continue
 
     return make_serializable(results)
@@ -341,7 +346,8 @@ def run_screener_stream(filters: ScreenerFilter):
 
                         if filters.signal_filter and v4["signal"] != filters.signal_filter:
                             continue
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Screener SSE: V4 analysis failed for {code}: {e}")
                         continue
 
                 fundamentals = None
@@ -385,7 +391,8 @@ def run_screener_stream(filters: ScreenerFilter):
                     item["roe"] = fundamentals.get("return_on_equity")
 
                 results.append(item)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Screener SSE: processing failed for {code}: {e}")
                 continue
 
         yield sse_done(make_serializable(results))
@@ -479,8 +486,8 @@ def run_bold_scan(req: BoldScanRequest | None = None):
                 sqs_data = compute_sqs_for_signal(code, signal_strategy="V4")
                 if sqs_data:
                     sqs_score = sqs_data.get("sqs")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Sniper scan: SQS failed for {code}: {e}")
 
             # 5. Compute Sniper Score (CTO formula)
             rs_norm = (rs_rating / 100.0) if rs_rating else 0
@@ -509,8 +516,8 @@ def run_bold_scan(req: BoldScanRequest | None = None):
                         # e.g., 2% slippage → (2-1)/100 = 0.01 deducted from sniper_score
                         penalty = (predicted_slippage_pct - 1.0) / 100.0
                         sniper_score = max(0, sniper_score - penalty)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Sniper scan: liquidity check failed for {code}: {e}")
 
             # 6. Sector
             sector = get_stock_sector(code, level=1)

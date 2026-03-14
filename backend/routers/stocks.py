@@ -1,6 +1,9 @@
 """股票資料路由"""
 
+import logging
 from fastapi import APIRouter, HTTPException, Query
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -84,7 +87,8 @@ def stock_institutional(code: str, days: int = Query(20, ge=1, le=60)):
     try:
         df = get_institutional_data(code, days=days)
         return df_to_response(df)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Institutional data fetch failed for {code}: {e}")
         return {"dates": [], "columns": {}}
 
 
@@ -96,7 +100,8 @@ def stock_dividends(code: str):
     try:
         s = get_dividend_data(code)
         return series_to_response(s)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dividend data fetch failed for {code}: {e}")
         return {"dates": [], "values": []}
 
 
@@ -108,5 +113,6 @@ def taiex_data(period_days: int = Query(365, ge=7, le=3650)):
     try:
         df = get_taiex_data(period_days=period_days)
         return df_to_response(df)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"TAIEX data fetch failed: {e}")
         return {"dates": [], "columns": {}}

@@ -180,7 +180,8 @@ def _check_taiex_drop(start_dt: datetime, end_dt: datetime) -> Optional[float]:
         start_price = float(period["close"].iloc[0])
         end_price = float(period["close"].iloc[-1])
         return round((end_price / start_price - 1) * 100, 1)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return None
 
 
@@ -205,7 +206,8 @@ def _check_earnings_proximity(stock_code: str, sig_dt: datetime) -> Optional[str
             return f"{quarterly_months[sig_dt.month]}公告期間 ({sig_dt.strftime('%Y/%m')})"
 
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return None
 
 
@@ -250,10 +252,11 @@ def _check_negative_news(
                         if kw in title:
                             hits.append(f"[{kw}] {title[:60]}")
                             break
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data load error: {e}")
                 continue
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data load failed: {e}")
 
     return hits
 
@@ -281,7 +284,8 @@ def _get_atr_at_date(stock_code: str, signal_date: str) -> Optional[float]:
         if not valid.empty:
             return round(float(valid.iloc[-1]), 2)
         return None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return None
 
 

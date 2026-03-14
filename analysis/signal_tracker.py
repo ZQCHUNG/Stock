@@ -123,8 +123,8 @@ def record_daily_signals(stocks: dict[str, str] | None = None, max_workers: int 
                         "bias_confirmed": 0,
                         "composite_score": None,
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"V4 signal scan failed for {code}: {e}")
 
             # V5 signal
             try:
@@ -139,8 +139,8 @@ def record_daily_signals(stocks: dict[str, str] | None = None, max_workers: int 
                         "bias_confirmed": 1 if v5.get("bias_confirmed") else 0,
                         "composite_score": None,
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"V5 signal scan failed for {code}: {e}")
 
             # Adaptive signal
             try:
@@ -162,8 +162,8 @@ def record_daily_signals(stocks: dict[str, str] | None = None, max_workers: int 
                             regime = "trend_explosive" if ret_std > 0.3 else "trend_mild"
                         else:
                             regime = "range_volatile" if ret_std > 0.25 else "range_quiet"
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Regime detection failed for {code}: {e}")
 
                 adaptive = adaptive_strategy_score(
                     v4_signal=v4["signal"],
@@ -186,7 +186,8 @@ def record_daily_signals(stocks: dict[str, str] | None = None, max_workers: int 
                 for r in results:
                     r["regime"] = regime
 
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Adaptive signal scan failed for {code}: {e}")
                 for r in results:
                     r.setdefault("regime", "range_quiet")
 

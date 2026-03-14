@@ -164,7 +164,8 @@ async def _query_gemini_playwright(prompt: str, timeout_s: int = 90) -> Optional
                     if el:
                         input_area = el
                         break
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Skipping due to operation error: {e}")
                     continue
 
             if not input_area:
@@ -194,7 +195,8 @@ async def _query_gemini_playwright(prompt: str, timeout_s: int = 90) -> Optional
                         await btn.click()
                         sent = True
                         break
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Skipping due to operation error: {e}")
                     continue
 
             if not sent:

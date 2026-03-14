@@ -261,8 +261,8 @@ def _get_risk_alerts(signals: list[dict], guard: dict, agg_score: int | None) ->
                         f"\u26a0\ufe0f {sector_name}\u96c6\u4e2d\u5ea6 {concentration:.0f}% "
                         f"(\u5efa\u8b70 <50%)"
                     )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     # Backtest drift alert (V1.3 P1)
     try:
@@ -271,8 +271,8 @@ def _get_risk_alerts(signals: list[dict], guard: dict, agg_score: int | None) ->
         drift_alert = get_drift_alert_for_brief()
         if drift_alert:
             alerts.append(drift_alert)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     # Dynamic ATR alert (V1.3 P2)
     try:
@@ -281,8 +281,8 @@ def _get_risk_alerts(signals: list[dict], guard: dict, agg_score: int | None) ->
         atr_alert = get_atr_alert_for_brief()
         if atr_alert:
             alerts.append(atr_alert)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     return alerts
 
@@ -332,7 +332,8 @@ def generate_morning_brief(send_notification: bool = True) -> dict:
                 pa_data = ctx.get("peer_alpha", {})
                 sig["peer_alpha"] = pa_data.get("peer_alpha", 1.0)
                 sig["sector"] = ctx.get("sector_l1", "")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             sig["peer_alpha"] = 1.0
 
     # Compute Priority Scores and sort

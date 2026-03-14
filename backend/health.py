@@ -117,7 +117,8 @@ def check_data_files_health() -> dict:
             try:
                 size = path.stat().st_size
                 results[name] = {"exists": True, "size_bytes": size}
-            except Exception:
+            except Exception as e:
+                logger.debug(f"File stat failed for {name}: {e}")
                 results[name] = {"exists": True, "readable": False}
         else:
             results[name] = {"exists": False}

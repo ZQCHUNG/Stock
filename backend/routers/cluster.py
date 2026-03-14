@@ -12,6 +12,9 @@ Endpoints:
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -209,7 +212,8 @@ def get_daily_summary(regenerate: bool = False):
         try:
             with open(summary_path, "r", encoding="utf-8") as f:
                 return json_mod.load(f)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
             pass  # Fall through to regenerate
 
     # Generate fresh summary

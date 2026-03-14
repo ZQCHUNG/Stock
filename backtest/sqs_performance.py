@@ -29,8 +29,8 @@ def _load_tracker() -> list[dict]:
     if TRACKER_PATH.exists():
         try:
             return json.loads(TRACKER_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
     return []
 
 
@@ -339,16 +339,16 @@ def backfill_from_sqs_backtest(
         tags = get_fitness_tags(stock_codes)
         for t in tags:
             fitness_map[t["code"]] = t.get("fitness_tag", "")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     # Load TAIEX
     taiex_df = None
     try:
         from data.fetcher import get_taiex_data
         taiex_df = get_taiex_data(period_days=period_days + 120)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data fetch failed: {e}")
 
     # Process all stocks
     all_signals: list[dict] = []
@@ -361,8 +361,8 @@ def backfill_from_sqs_backtest(
             try:
                 result = future.result(timeout=60)
                 all_signals.extend(result)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Optional operation failed: {e}")
 
     if not all_signals:
         return 0

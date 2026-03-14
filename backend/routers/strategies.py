@@ -58,7 +58,8 @@ def _load_strategies() -> list[dict]:
     try:
         data = json.loads(STRATEGY_FILE.read_text(encoding="utf-8"))
         return data if isinstance(data, list) else []
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to load strategies file: {e}")
         return _default_strategies()
 
 
@@ -340,7 +341,8 @@ def _compute_regime_breakdown(result, df) -> list[dict]:
                     volume=window["volume"].values.astype(float),
                 )
                 regime_label = regime_data.get("regime_label", "未知")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Regime classification failed: {e}")
                 regime_label = "分類失敗"
 
         regime_trades.setdefault(regime_label, []).append(trade)

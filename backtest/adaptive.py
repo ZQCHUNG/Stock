@@ -119,7 +119,8 @@ def run_adaptive_backtest(
                 "confidence": rd.get("confidence", 0.5),
                 "kelly": rd.get("kelly_multiplier", 0.5),
             })
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Regime classification failed at index {i}: {e}")
             regime_timeline.append({
                 "idx": i, "date": df.index[i],
                 "regime": "unknown", "label": "Unknown",

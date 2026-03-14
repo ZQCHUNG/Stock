@@ -18,11 +18,13 @@ G. Winner 動能 (1): winner_momentum (Tier 1 count → 0/50/100)
     [PLACEHOLDER] Purity cutoff: top3 >= 40%
 """
 import json
+import logging
 import re
 import numpy as np
 from pathlib import Path
 from typing import Optional
 
+logger = logging.getLogger(__name__)
 
 # --- PLACEHOLDER parameters (Trader suggested values, awaiting data validation) ---
 WINNER_SCORE_THRESHOLD = 1.1      # [PLACEHOLDER: BROKER_DAILY_001]
@@ -50,7 +52,8 @@ def get_winner_registry() -> dict:
         try:
             from analysis.winner_registry import load_registry
             _winner_registry_cache = load_registry(WINNER_REGISTRY_PATH)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Winner registry load failed: {e}")
             _winner_registry_cache = {}
     return _winner_registry_cache
 

@@ -411,8 +411,8 @@ def get_stock_indicator_data(code: str) -> dict:
             v4 = get_v4_analysis(df)
             if v4:
                 result["v4_signal"] = v4.get("signal", "HOLD")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"V4 signal unavailable for {code}: {e}")
 
         return result
 

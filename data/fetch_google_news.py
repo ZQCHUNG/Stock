@@ -26,6 +26,10 @@ from urllib.parse import quote
 
 import requests
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from data.pattern_store import (
     save_raw_json, log_fetch, is_fetched,
     get_last_fetch_date, get_fetch_stats, RAW_DIR
@@ -118,10 +122,11 @@ def _parse_rss(xml_text: str) -> list[dict]:
                 try:
                     # "Tue, 18 Feb 2026 08:30:00 GMT"
                     from email.utils import parsedate_to_datetime
+
                     dt = parsedate_to_datetime(pub_date)
                     publish_ts = int(dt.timestamp())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Optional data load failed: {e}")
 
             articles.append({
                 "title": title,

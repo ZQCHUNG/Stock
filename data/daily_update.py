@@ -152,7 +152,8 @@ def _check_legitimate_move(stock_code: str, change: float) -> bool:
                     return True  # Likely ex-dividend
 
         return False
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Data fetch failed, returning default: {e}")
         return False  # Can't verify → treat as anomaly
 
 
@@ -173,8 +174,8 @@ def _attempt_heal(stock_code: str) -> float | None:
         hist = ticker.history(period="5d", auto_adjust=True)
         if hist is not None and not hist.empty:
             return float(hist["Close"].iloc[-1])
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
     return None
 
 
@@ -186,8 +187,8 @@ def _update_healed_counter(anomalies: list[dict]):
     if HEALED_EVENTS_FILE.exists():
         try:
             counter = json.loads(HEALED_EVENTS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
 
     for a in anomalies:
         if a["action"] == "healed":
@@ -696,8 +697,8 @@ def generate_daily_review() -> str | None:
                 import json
                 rf = json.loads(risk_path.read_text(encoding="utf-8"))
                 risk_status = "ON" if rf.get("global_risk_on", True) else "OFF (LOCKDOWN)"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
 
         pipeline_status = "OK"
         try:
@@ -706,8 +707,8 @@ def generate_daily_review() -> str | None:
                 import json
                 hb = json.loads(heartbeat_path.read_text(encoding="utf-8"))
                 pipeline_status = hb.get("status", "OK")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data load failed: {e}")
 
         # --- 3. Signal Summary ---
         active_count = 0
@@ -904,7 +905,8 @@ def run_daily_update() -> dict:
                     from backend.scheduler import _send_notification
                     _send_notification(trail_msg)
                     results["trailing_stops"]["notification_sent"] = True
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Optional operation failed: {e}")
                     results["trailing_stops"]["notification_sent"] = False
     except Exception as e:
         logger.error("Trailing stops update failed: %s", e, exc_info=True)

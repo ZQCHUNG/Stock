@@ -40,8 +40,8 @@ def _load_json(path: Path, default=None):
     if path.exists():
         try:
             return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load JSON from {path.name}: {e}")
     return default if default is not None else {}
 
 
@@ -67,7 +67,8 @@ def _should_notify(code: str, dedup: dict, cooldown_hours: int = 4) -> bool:
     try:
         last_dt = datetime.fromisoformat(last)
         return datetime.now() - last_dt > timedelta(hours=cooldown_hours)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dedup timestamp parse failed for {code}: {e}")
         return True
 
 
@@ -195,8 +196,8 @@ def run_alert_check():
                         "maturity": stock.get("maturity", ""),
                         "confidence": stock.get("confidence", 0),
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"SQS computation failed for {stock.get('code', '?')}: {e}")
 
         triggered.sort(key=lambda x: x["sqs"], reverse=True)
 
@@ -265,8 +266,8 @@ def _save_heartbeat(ts: datetime):
     """Persist last successful check timestamp for catch-up detection."""
     try:
         _save_json(HEARTBEAT_PATH, {"last_check": ts.isoformat()})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to save heartbeat: {e}")
 
 
 def _load_heartbeat() -> datetime | None:
@@ -276,8 +277,8 @@ def _load_heartbeat() -> datetime | None:
     if ts:
         try:
             return datetime.fromisoformat(ts)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to parse heartbeat timestamp: {e}")
     return None
 
 
@@ -310,8 +311,8 @@ def get_scheduler_status() -> dict:
             jobs = _scheduler.get_jobs()
             if jobs:
                 next_run = str(jobs[0].next_run_time)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to get next scheduler run time: {e}")
 
     return {
         "running": running,
@@ -336,8 +337,8 @@ def get_health() -> dict:
     if _start_time:
         try:
             uptime_seconds = (now - datetime.fromisoformat(_start_time)).total_seconds()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to compute uptime: {e}")
 
     return {
         "status": "degraded" if stale else ("healthy" if running else "stopped"),
@@ -721,13 +722,13 @@ def _run_data_quality_check():
         try:
             from backend import db
             codes.update(db.get_watchlist()[:20])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Data quality: failed to load watchlist: {e}")
         try:
             positions = db.get_open_positions()
             codes.update(p["code"] for p in positions)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Data quality: failed to load positions: {e}")
 
         if not codes:
             return
@@ -737,7 +738,8 @@ def _run_data_quality_check():
         def _fetch(code):
             try:
                 return code, get_stock_data(code, period_days=60)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Data quality: fetch failed for {code}: {e}")
                 return code, None
 
         with ThreadPoolExecutor(max_workers=6) as ex:
@@ -848,7 +850,8 @@ def _run_compound_alert_check():
                 try:
                     from config import SCAN_STOCKS
                     check_codes = SCAN_STOCKS[:20]
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to load SCAN_STOCKS for compound alerts: {e}")
                     check_codes = []
 
             for code in check_codes:
@@ -866,8 +869,8 @@ def _run_compound_alert_check():
                         rule.last_triggered = _time.time()
                         rule.trigger_count += 1
                         updated = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Compound alert eval failed for {code}: {e}")
 
         if updated:
             save_rules(rules)
@@ -923,15 +926,15 @@ def _run_twse_daily_sync():
         try:
             from backend import db
             codes.update(db.get_watchlist()[:50])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"TWSE sync: failed to load watchlist: {e}")
         # Open positions
         try:
             from backend import db
             positions = db.get_open_positions()
             codes.update(p["code"] for p in positions)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"TWSE sync: failed to load positions: {e}")
         # Recent stocks
         try:
             import json
@@ -939,8 +942,8 @@ def _run_twse_daily_sync():
             if recent_file.exists():
                 recent = json.loads(recent_file.read_text(encoding="utf-8"))
                 codes.update(recent[:10])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"TWSE sync: failed to load recent stocks: {e}")
 
         if not codes:
             logger.debug("TWSE sync: no stocks to sync")
@@ -958,8 +961,8 @@ def _run_twse_daily_sync():
         # Also sync TAIEX
         try:
             sync_taiex(months_back=1)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"TWSE TAIEX sync failed: {e}")
 
         logger.info(f"TWSE daily sync: {synced}/{len(codes)} stocks updated")
     except Exception as e:
@@ -1206,8 +1209,8 @@ def _run_weekly_parameter_scan():
                 df = get_stock_data(code, period_days=1095)
                 if df is not None and len(df) >= 200:
                     stock_data[code] = df
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Weekly param scan: fetch failed for {code}: {e}")
 
         if len(stock_data) < 5:
             logger.warning("Weekly parameter scan: insufficient stock data (%d)", len(stock_data))
@@ -1234,8 +1237,8 @@ def _run_weekly_parameter_scan():
             try:
                 prev = _json.loads(scan_history_path.read_text(encoding="utf-8"))
                 prev_ratio = prev.get("plateau_ratio")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to load previous scan history: {e}")
 
         # Save current scan
         scan_record = {
@@ -1368,8 +1371,8 @@ def _run_weekly_performance_report():
             if high_friction:
                 lines.append(f"High Friction: {', '.join(high_friction[:3])}")
             lines.append("")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Weekly report: slippage audit unavailable: {e}")
 
         # --- Shake-out Rate ---
         try:
@@ -1379,8 +1382,8 @@ def _run_weekly_performance_report():
                 icon = "!!" if shake.get("rate_warning") else "OK"
                 lines.append(f"Shake-out Rate: {rate:.0%} {icon}")
                 lines.append("")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Weekly report: shake-out detection unavailable: {e}")
 
         # --- Tier 1 (Sniper) Performance (Alpha Decay) ---
         all_realized = get_realized_signals(days_back=30)
@@ -1405,8 +1408,8 @@ def _run_weekly_performance_report():
                 lines.append("Param Alerts:")
                 for r in warnings[:3]:
                     lines.append(f"  {r['title']}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Weekly report: param recommendations unavailable: {e}")
 
         _send_notification("\n".join(lines))
         logger.info("Weekly performance report sent")

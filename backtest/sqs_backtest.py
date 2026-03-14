@@ -40,7 +40,8 @@ def _estimate_regime_at_date(taiex_df: pd.DataFrame | None, date) -> str:
         elif pct_diff < -0.02:
             return "bear"
         return "sideways"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return "sideways"
 
 
@@ -234,16 +235,16 @@ def run_sqs_backtest(
         tags = get_fitness_tags(stock_codes)
         for t in tags:
             fitness_map[t["code"]] = t.get("fitness_tag", "")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
 
     # Load TAIEX for regime estimation
     taiex_df = None
     try:
         from data.fetcher import get_taiex_data
         taiex_df = get_taiex_data(period_days=period_days + 120)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data fetch failed: {e}")
 
     # Process all stocks in parallel
     all_signals: list[dict] = []

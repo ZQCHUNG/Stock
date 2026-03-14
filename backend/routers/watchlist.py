@@ -1,10 +1,13 @@
 """自選股路由（Gemini R27: SQLite-backed）"""
 
+import logging
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend import db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -71,8 +74,8 @@ def watchlist_overview():
                 info = get_stock_info(code)
                 sector = info.get("sector", "")
                 industry = info.get("industry", "")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Stock info fetch failed for {code}: {e}")
 
             return {
                 "code": code,
@@ -89,7 +92,8 @@ def watchlist_overview():
                 "sector": sector,
                 "industry": industry,
             }
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Watchlist stock load failed for {code}: {e}")
             return {"code": code, "name": get_stock_name(code), "error": True}
 
     with ThreadPoolExecutor(max_workers=6) as executor:
@@ -132,7 +136,8 @@ def batch_backtest(req: BatchBacktestRequest):
                 "total_trades": result.total_trades,
                 "profit_factor": result.profit_factor,
             }
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Batch backtest failed for {code}: {e}")
             return {"code": code, "name": get_stock_name(code), "error": True}
 
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -175,7 +180,8 @@ def batch_backtest_stream(req: BatchBacktestRequest):
                     "total_trades": result.total_trades,
                     "profit_factor": result.profit_factor,
                 })
-            except Exception:
+            except Exception as e:
+                logger.debug(f"SSE backtest failed for {code}: {e}")
                 results.append({"code": code, "name": get_stock_name(code), "error": True})
 
         yield sse_done(make_serializable(results))
@@ -213,15 +219,18 @@ def risk_audit(capital: float = 1_000_000, risk_pct: float = 2.0):
                 df = fut_data.result()
                 try:
                     company_info, _ = fut_info.result()
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Company info failed for {code}: {e}")
                     company_info = {"industry": "", "sector": ""}
                 try:
                     inst_df = fut_inst.result()
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Institutional data failed for {code}: {e}")
                     inst_df = None
                 try:
                     fin_data = fut_fin.result()
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Financial data failed for {code}: {e}")
                     fin_data = None
 
             v4 = get_v4_analysis(df)

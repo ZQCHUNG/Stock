@@ -59,8 +59,8 @@ async def lifespan(app: FastAPI):
     try:
         from backend.ws_manager import market_feed
         await market_feed.stop()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to stop market feed on shutdown: {e}")
 
 
 app = FastAPI(title="台股技術分析系統 API", version="2.0", lifespan=lifespan)

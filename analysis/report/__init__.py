@@ -11,8 +11,11 @@
 - recommendation.py — 評等、矛盾偵測、行動建議、展望、摘要
 """
 
+import logging
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+
+logger = logging.getLogger(__name__)
 
 from data.fetcher import (
     get_stock_data, get_stock_info_and_fundamentals,
@@ -129,29 +132,34 @@ def generate_report(stock_code: str, period_days: int = 730,
 
         try:
             company_info, fundamentals_raw = fut_info.result()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             company_info = {"name": cn_name or stock_code, "sector": "N/A",
                            "industry": "N/A", "market_cap": 0, "currency": "TWD"}
             fundamentals_raw = {}
 
         try:
             google_news_cn = fut_gnews.result()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             google_news_cn = []
 
         try:
             yf_news = fut_yfnews.result()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             yf_news = []
 
         try:
             institutional_df = fut_inst.result()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             institutional_df = None
 
         try:
             financial_data = fut_fin.result()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             financial_data = None
 
     # 2. 計算指標
@@ -162,12 +170,14 @@ def generate_report(stock_code: str, period_days: int = 730,
     # 3. 策略訊號
     try:
         v4 = get_v4_analysis(raw_df)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
         v4 = {"signal": "HOLD", "entry_type": "", "uptrend_days": 0,
               "dist_ma20": 0, "indicators": {}}
     try:
         v2 = get_latest_analysis(raw_df)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
         v2 = {"signal": "HOLD", "composite_score": 0, "scores": {}, "indicators": {}}
 
     current_price = float(df["close"].iloc[-1])
@@ -187,8 +197,8 @@ def generate_report(stock_code: str, period_days: int = 730,
             for n in google_news_en:
                 if n["title"].lower() not in existing_titles:
                     raw_news.append(n)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
 
     # yfinance 新聞去重合併
     existing_titles = {n["title"].lower() for n in raw_news}

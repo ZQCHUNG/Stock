@@ -1,10 +1,13 @@
 """系統路由 — 快取狀態、最近股票、健康檢查、備份"""
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import Response
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -45,8 +48,8 @@ def get_recent_stocks():
             codes = json.loads(RECENT_FILE.read_text(encoding="utf-8"))
             from data.stock_list import get_stock_name
             return [{"code": c, "name": get_stock_name(c)} for c in codes]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to load recent stocks: {e}")
     return []
 
 
@@ -57,7 +60,8 @@ def add_recent_stock(code: str):
     try:
         if RECENT_FILE.exists():
             codes = json.loads(RECENT_FILE.read_text(encoding="utf-8"))
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to read recent stocks file: {e}")
         codes = []
 
     if code in codes:
@@ -88,8 +92,8 @@ def _add_to_cache_queue(code: str):
             queue.append(code)
             queue = queue[-50:]  # keep last 50
             _CACHE_QUEUE_FILE.write_text(json.dumps(queue, ensure_ascii=False), encoding="utf-8")
-    except Exception:
-        pass  # non-critical
+    except Exception as e:
+        logger.debug(f"Failed to update cache queue: {e}")
 
 
 @router.get("/worker-heartbeat")
@@ -319,14 +323,14 @@ def data_quality():
         from backend import db
         wl = db.get_watchlist()
         codes.update(wl)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Data quality: failed to load watchlist: {e}")
 
     try:
         positions = db.get_open_positions()
         codes.update(p["code"] for p in positions)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Data quality: failed to load positions: {e}")
 
     if not codes:
         return {
@@ -344,7 +348,8 @@ def data_quality():
     def _fetch(code):
         try:
             return code, get_stock_data(code, period_days=60)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Data quality fetch failed for {code}: {e}")
             return code, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -526,7 +531,8 @@ def _dashboard_positions():
                 for p in sorted(positions, key=lambda x: abs(x.get("pnl", 0)), reverse=True)[:5]
             ],
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dashboard positions summary failed: {e}")
         return {"count": 0, "total_value": 0, "total_pnl": 0, "total_pnl_pct": 0}
 
 
@@ -553,7 +559,8 @@ def _dashboard_pnl():
             "cumulative_pnl": round(cumulative, 0),
             "monthly": monthly_list[-6:],  # Last 6 months for compact view
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dashboard P&L summary failed: {e}")
         return {"total_closed": 0, "cumulative_pnl": 0, "monthly": []}
 
 
@@ -581,7 +588,8 @@ def _dashboard_regime():
             "v4_suitability": rd.get("v4_suitability", "unknown"),
             "advice": rd.get("strategy_advice", ""),
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dashboard regime classification failed: {e}")
         return {"regime": "unknown", "label": "N/A", "confidence": 0}
 
 
@@ -595,7 +603,8 @@ def _dashboard_oms():
             "max_consecutive_losses": eff.get("max_consecutive_losses", 0),
             "total_auto_exits": eff.get("total_auto_exits", 0),
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dashboard OMS summary failed: {e}")
         return {"auto_coverage": 0, "max_consecutive_losses": 0, "total_auto_exits": 0}
 
 
@@ -609,7 +618,8 @@ def _dashboard_alerts():
         if isinstance(data, list):
             return data[-5:]  # Last 5 alerts
         return []
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dashboard alerts load failed: {e}")
         return []
 
 
@@ -632,7 +642,8 @@ def _dashboard_risk():
         def _fetch(code):
             try:
                 return code, get_stock_data(code, period_days=120)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"VaR data fetch failed for {code}: {e}")
                 return code, None
 
         with ThreadPoolExecutor(max_workers=4) as ex:
@@ -655,7 +666,8 @@ def _dashboard_risk():
             "total_value": round(total_value, 0),
             "position_count": len(positions),
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dashboard VaR calculation failed: {e}")
         return {"has_data": False}
 
 
@@ -677,7 +689,8 @@ def _dashboard_today_signals():
                     "entry_type": item.get("entry_type", ""),
                 })
         return signals[:10]  # Top 10
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dashboard today signals failed: {e}")
         return []
 
 
@@ -693,7 +706,8 @@ def _dashboard_equity_curve():
         dates = [s.get("date", "") for s in recent]
         values = [s.get("total_equity", 0) for s in recent]
         return {"dates": dates, "values": values}
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Dashboard equity curve failed: {e}")
         return {"dates": [], "values": []}
 
 
@@ -814,8 +828,8 @@ def market_guard_status():
             df = get_stock_data(code, period_days=60)
             if df is not None and len(df) >= 25:
                 return code, df["close"]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Market guard fetch failed for {code}: {e}")
         return code, None
 
     try:
@@ -1007,8 +1021,8 @@ def _exception_liquidity():
                 df = get_stock_data(code, period_days=30)
                 if df is not None and len(df) >= 5:
                     return code, float(df["volume"].tail(20).mean())
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Volume fetch failed for {code}: {e}")
             return code, 0
 
         with ThreadPoolExecutor(max_workers=6) as ex:
@@ -1420,8 +1434,8 @@ def self_healed_events():
     if events_file.exists():
         try:
             return json.loads(events_file.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load self-healed events: {e}")
     return {"total_healed": 0, "total_flagged": 0, "events": []}
 
 
@@ -1564,9 +1578,6 @@ def aggressive_index():
     Combines Market Context (30) + Sector RS (25) + In-Bounds Rate (25) + Signal Quality (20).
     0-40: Defensive (blue), 40-70: Normal (green), 70-100: Aggressive (red).
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     score = 0
     breakdown = {}
 
@@ -1588,7 +1599,8 @@ def aggressive_index():
         else:
             market_score = 15
             market_label = "No data"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Health score: market context failed: {e}")
         market_score = 15
         market_label = "Error"
 
@@ -1616,7 +1628,8 @@ def aggressive_index():
         else:
             sector_score = 10
             sector_label = "No data"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Health score: sector RS failed: {e}")
         sector_score = 10
         sector_label = "Error"
 
@@ -1644,7 +1657,8 @@ def aggressive_index():
         else:
             ib_score = 5
             ib_label = f"Poor ({rate:.0%})"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Health score: in-bounds rate failed: {e}")
         ib_score = 10
         ib_label = "Error"
 
@@ -1669,7 +1683,8 @@ def aggressive_index():
         else:
             sq_score = 10
             sq_label = "No signals"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Health score: signal quality failed: {e}")
         sq_score = 10
         sq_label = "Error"
 
@@ -1956,8 +1971,8 @@ def pipeline_monitor():
     if hb_path.exists():
         try:
             heartbeat = json.loads(hb_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to load scheduler heartbeat: {e}")
 
     # 3. Summary
     fresh_count = sum(1 for f in file_status if f.get("status") == "fresh")
@@ -1995,7 +2010,8 @@ def daily_summary():
     # 1. System health summary
     try:
         result["health"] = _get_health_summary()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Glance: health summary failed: {e}")
         result["health"] = {"status": "unknown"}
 
     # 2. Active signals with trailing stops
@@ -2019,14 +2035,16 @@ def daily_summary():
                 for s in active[:10]  # top 10
             ],
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Glance: active signals failed: {e}")
         result["active_signals"] = {"count": 0, "signals": []}
 
     # 3. Risk flag
     try:
         from analysis.drift_detector import get_risk_flag
         result["risk_flag"] = get_risk_flag()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Glance: risk flag failed: {e}")
         result["risk_flag"] = {"global_risk_on": True, "reason": "default"}
 
     # 4. Pipeline freshness (lightweight)
@@ -2047,7 +2065,8 @@ def daily_summary():
             else:
                 pipeline_ok = False
         result["pipeline_healthy"] = pipeline_ok
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Glance: pipeline freshness check failed: {e}")
         result["pipeline_healthy"] = None
 
     # 5. Recent auto-sim results (latest signals sent)
@@ -2064,7 +2083,8 @@ def daily_summary():
             }
             for s in recent
         ]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Glance: latest signals failed: {e}")
         result["latest_signals"] = []
 
     result["generated_at"] = datetime.now().isoformat()

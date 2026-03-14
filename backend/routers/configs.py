@@ -5,6 +5,9 @@ from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -15,8 +18,8 @@ def _load_all() -> dict:
     try:
         if CONFIGS_FILE.exists():
             return json.loads(CONFIGS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data load failed: {e}")
     return {"backtest": [], "screener": []}
 
 

@@ -48,8 +48,8 @@ def _load_ticker_cache() -> dict[str, str]:
     try:
         if _TICKER_CACHE_FILE.exists():
             return json.loads(_TICKER_CACHE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
     return {}
 
 

@@ -96,8 +96,8 @@ def _rotate_backups(backup_dir: Path, retention_days: int) -> int:
                 if mtime < cutoff:
                     f.unlink()
                     removed += 1
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to remove old backup {f.name}: {e}")
     return removed
 
 

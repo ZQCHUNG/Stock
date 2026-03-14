@@ -100,8 +100,8 @@ def _fetch_current_prices(codes: list[str]) -> dict[str, float]:
             df = get_stock_data(code, period_days=5)
             if len(df) >= 1:
                 return code, float(df["close"].iloc[-1])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"OMS price fetch failed for {code}: {e}")
         return code, None
 
     with ThreadPoolExecutor(max_workers=6) as ex:

@@ -2,6 +2,9 @@
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -207,7 +210,8 @@ def run_v4_backtest(code: str, req: BacktestRequest):
             ca_report = detect_corporate_actions(code, df, dividends, splits)
             result.corporate_action_warnings = annotate_trades_with_actions(
                 result.trades, ca_report)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             pass  # Non-critical: don't fail backtest if CA detection fails
 
         return _serialize_backtest_result(result)
@@ -229,7 +233,8 @@ def run_portfolio_backtest(req: PortfolioRequest):
             try:
                 stock_data[code] = get_stock_data(code, period_days=req.period_days)
                 stock_names[code] = get_stock_name(code)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data fetch error: {e}")
                 continue
 
         if not stock_data:
@@ -412,7 +417,8 @@ def run_adaptive_backtest(code: str, req: BacktestRequest):
             from backend.routers.portfolio import get_market_regime
             regime_data = get_market_regime()
             regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             regime_en = "range_quiet"
         result = run_backtest_adaptive(
             df, regime=regime_en, initial_capital=req.initial_capital,
@@ -527,7 +533,8 @@ def run_strategy_comparison(code: str, req: StrategyComparisonRequest):
             from backend.routers.portfolio import get_market_regime
             regime_data = get_market_regime()
             regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             regime_en = "range_quiet"
 
         v4_result = run_backtest_v4(df, initial_capital=req.initial_capital, params=req.v4_params)
@@ -641,7 +648,8 @@ def run_meta_strategy_backtest(req: MetaStrategyRequest):
                         from backend.routers.portfolio import get_market_regime
                         regime_data = get_market_regime()
                         regime_en = regime_data.get("regime_en", "range_quiet") if regime_data.get("has_data") else "range_quiet"
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Optional operation failed: {e}")
                         regime_en = "range_quiet"
                     bt = engine.run_adaptive(df, regime=regime_en)
                     chosen = "Adaptive"
@@ -663,7 +671,8 @@ def run_meta_strategy_backtest(req: MetaStrategyRequest):
                     winning_stocks += 1
                 elif bt.total_return < 0:
                     losing_stocks += 1
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data fetch error: {e}")
                 continue
 
         if not stock_equity_curves:
@@ -696,14 +705,14 @@ def run_meta_strategy_backtest(req: MetaStrategyRequest):
             for code in req.stock_codes:
                 try:
                     v4_stock_data[code] = get_stock_data(code, period_days=req.period_days)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Optional data fetch failed: {e}")
             if v4_stock_data:
                 v4_result = run_portfolio_backtest_v4(
                     v4_stock_data, initial_capital=req.initial_capital)
                 v4_total_return = v4_result.total_return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
 
         return make_serializable({
             "total_return": total_return,
@@ -978,7 +987,8 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
                 if df is not None and not df.empty and len(df) > 60:
                     stock_data[code] = df
                     stock_sectors[code] = get_stock_sector(code, level=1) or ""
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data fetch error: {e}")
                 continue
 
         if not stock_data:
@@ -988,8 +998,8 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
         taiex_data = None
         try:
             taiex_data = get_taiex_data(period_days=fetch_days)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
 
         # Phase 9A: build cost calculator for portfolio backtest
         from backtest.engine import TransactionCostCalculator
@@ -1037,7 +1047,8 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
                         {"date": d, "value": round(v, 0)}
                         for d, v in zip(taiex_dates, taiex_norm)
                     ]
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             pass  # Benchmark is optional
 
         # Holdings count per day (from trades)
@@ -1266,7 +1277,8 @@ def run_rolling_wfa(req: RollingWfaRequest | None = None):
                 if df is not None and not df.empty and len(df) > 60:
                     stock_data[code] = df
                     stock_sectors[code] = get_stock_sector(code, level=1) or ""
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data fetch error: {e}")
                 continue
 
         if not stock_data:
@@ -1275,8 +1287,8 @@ def run_rolling_wfa(req: RollingWfaRequest | None = None):
         taiex_data = None
         try:
             taiex_data = get_taiex_data(period_days=fetch_days)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
 
         # Generate windows: from Jan 2025 to now, step by window_months
         today = datetime.now().date()
@@ -1430,7 +1442,8 @@ def run_attribution_analysis(req: RollingWfaRequest | None = None):
                 if df is not None and not df.empty and len(df) > 60:
                     stock_data[code] = df
                     stock_sectors[code] = get_stock_sector(code, level=1) or ""
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data fetch error: {e}")
                 continue
 
         if not stock_data:
@@ -1439,8 +1452,8 @@ def run_attribution_analysis(req: RollingWfaRequest | None = None):
         taiex_data = None
         try:
             taiex_data = get_taiex_data(period_days=fetch_days)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
 
         # Generate windows (same as rolling-wfa)
         today = datetime.now().date()
@@ -1671,7 +1684,8 @@ def get_regime_barometer(req: RegimeBarometerRequest | None = None):
                 if df is not None and not df.empty and len(df) > 60:
                     stock_data[code] = df
                     stock_sectors[code] = get_stock_sector(code, level=1) or ""
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data fetch error: {e}")
                 continue
 
         if not stock_data:
@@ -1680,8 +1694,8 @@ def get_regime_barometer(req: RegimeBarometerRequest | None = None):
         taiex_data = None
         try:
             taiex_data = get_taiex_data(period_days=fetch_days)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
 
         # Run portfolio backtest for recent period
         cost_calc = TransactionCostCalculator(
@@ -1896,15 +1910,16 @@ async def adaptive_sniper_ab(req: AdaptiveSniperRequest):
                 if df is not None and not df.empty and len(df) > 200:
                     stock_data[code] = df
                     stock_sectors[code] = get_stock_sector(code, level=1) or ""
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data fetch error: {e}")
                 continue
 
         # Fetch TAIEX
         taiex_data = None
         try:
             taiex_data = get_taiex_data(period_days=fetch_days)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional data fetch failed: {e}")
 
         print(f"Phase 12 A/B: {len(stock_data)} stocks loaded")
         if len(stock_data) < 10:
@@ -2073,7 +2088,8 @@ def run_parameter_heatmap(req: ParameterHeatmapRequest):
                 df = get_stock_data(code, period_days=fetch_days)
                 if df is not None and not df.empty and len(df) > 120:
                     stock_data[code] = df
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Skipping due to data fetch error: {e}")
                 continue
 
         if len(stock_data) < 3:

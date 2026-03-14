@@ -16,6 +16,9 @@ from dataclasses import dataclass, field
 import pandas as pd
 import numpy as np
 from backtest.engine import BacktestEngine, BacktestResult
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -98,7 +101,8 @@ def run_rolling_backtest(
         # 執行回測
         try:
             result = engine.run_v4(window_data, params=params)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             current = window_end
             continue
 
@@ -191,6 +195,7 @@ def run_parameter_sensitivity(
     """
     from config import STRATEGY_V4_PARAMS
 
+
     base = dict(STRATEGY_V4_PARAMS)
     if base_params:
         base.update(base_params)
@@ -213,7 +218,8 @@ def run_parameter_sensitivity(
                 "max_dd": r.max_drawdown,
                 "sharpe": r.sharpe_ratio,
             })
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
 
     # 測試停利門檻變化
@@ -231,7 +237,8 @@ def run_parameter_sensitivity(
                 "max_dd": r.max_drawdown,
                 "sharpe": r.sharpe_ratio,
             })
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
 
     # 測試停損門檻變化
@@ -249,7 +256,8 @@ def run_parameter_sensitivity(
                 "max_dd": r.max_drawdown,
                 "sharpe": r.sharpe_ratio,
             })
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
 
     # 測試移動停利變化
@@ -267,7 +275,8 @@ def run_parameter_sensitivity(
                 "max_dd": r.max_drawdown,
                 "sharpe": r.sharpe_ratio,
             })
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
 
     return results

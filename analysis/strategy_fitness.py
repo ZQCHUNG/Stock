@@ -93,7 +93,8 @@ def compute_stock_fitness(code: str, period_days: int = 730) -> dict | None:
             v4_sharpe = v4_result.sharpe_ratio
             v4_ret = v4_result.total_return
             v4_trades = v4_result.total_trades
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             v4_pf = v4_sharpe = v4_ret = 0
             v4_trades = 0
 
@@ -104,7 +105,8 @@ def compute_stock_fitness(code: str, period_days: int = 730) -> dict | None:
             v5_sharpe = v5_result.sharpe_ratio
             v5_ret = v5_result.total_return
             v5_trades = v5_result.total_trades
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             v5_pf = v5_sharpe = v5_ret = 0
             v5_trades = 0
 
@@ -121,8 +123,8 @@ def compute_stock_fitness(code: str, period_days: int = 730) -> dict | None:
                     regime = "trend_explosive" if ret_std > 0.3 else "trend_mild"
                 else:
                     regime = "range_volatile" if ret_std > 0.25 else "range_quiet"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
 
         # Adaptive backtest
         try:
@@ -131,7 +133,8 @@ def compute_stock_fitness(code: str, period_days: int = 730) -> dict | None:
             ad_sharpe = ad_result.sharpe_ratio
             ad_ret = ad_result.total_return
             ad_trades = ad_result.total_trades
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Optional operation failed: {e}")
             ad_pf = ad_sharpe = ad_ret = 0
             ad_trades = 0
 

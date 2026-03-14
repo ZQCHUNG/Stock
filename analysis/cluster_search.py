@@ -1471,7 +1471,8 @@ def _compute_activity_percentile(current_mutations: int, data_dir: Path) -> dict
         try:
             with open(history_path, "r", encoding="utf-8") as f:
                 history = jm.load(f)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to load mutation history: {e}")
             history = []
 
     # Extract historical mutation counts
@@ -1521,7 +1522,8 @@ def _append_to_history(summary: dict, data_dir: Path, max_entries: int = 60):
         try:
             with open(history_path, "r", encoding="utf-8") as f:
                 history = jm.load(f)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to load summary history: {e}")
             history = []
 
     entry = {
@@ -1565,7 +1567,8 @@ def _compute_row_count_drift(current_rows: int | None, data_dir: Path) -> dict:
     try:
         with open(history_path, "r", encoding="utf-8") as f:
             history = jm.load(f)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to load canary history: {e}")
         return {"status": "NO_HISTORY", "deviation_pct": None}
 
     hist_rows = [h.get("new_rows") for h in history if h.get("new_rows") is not None]
@@ -1786,8 +1789,8 @@ def _check_attention_cold_start() -> dict:
             elif "google_news" in fname:
                 mtime = datetime.fromtimestamp(f.stat().st_mtime)
                 dates_with_news.add(mtime.strftime("%Y%m%d"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to parse news file date: {e}")
 
     days = len(dates_with_news)
     required = 30

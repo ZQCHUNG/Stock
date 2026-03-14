@@ -11,6 +11,9 @@ import json
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
+import logging
+logger = logging.getLogger(__name__)
+
 
 # 快取檔案路徑（存在專案根目錄下）
 CACHE_DIR = Path(__file__).parent.parent / ".cache"
@@ -32,8 +35,8 @@ def _fetch_twse_stocks() -> dict[str, dict]:
             name = item.get("Name", "")
             if code and name:
                 stocks[code] = {"name": name, "market": "上市"}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data load failed: {e}")
     return stocks
 
 
@@ -51,8 +54,8 @@ def _fetch_tpex_stocks() -> dict[str, dict]:
             name = item.get("CompanyName", "")
             if code and name:
                 stocks[code] = {"name": name, "market": "上櫃"}
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data load failed: {e}")
     return stocks
 
 
@@ -71,8 +74,8 @@ def _fetch_twstock_codes() -> dict[str, dict]:
                         "name": getattr(info, "name", code),
                         "market": market,
                     }
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional operation failed: {e}")
     return stocks
 
 
@@ -138,8 +141,8 @@ def _load_cache() -> dict[str, dict] | None:
             cached_time = datetime.fromisoformat(data.get("timestamp", "2000-01-01"))
             if datetime.now() - cached_time < timedelta(hours=CACHE_TTL_HOURS):
                 return data.get("stocks", {})
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
     return None
 
 
@@ -153,8 +156,8 @@ def _save_cache(stocks: dict[str, dict]) -> None:
             "stocks": stocks,
         }
         CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional cache operation failed: {e}")
 
 
 def get_all_stocks(force_refresh: bool = False) -> dict[str, dict]:
@@ -176,8 +179,8 @@ def get_all_stocks(force_refresh: bool = False) -> dict[str, dict]:
             if redis_cached and len(redis_cached) > 100:
                 _save_cache(redis_cached)  # 回填本地（下次更快）
                 return redis_cached
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
 
     # 2. 線上 API
     stocks = {}
@@ -203,8 +206,8 @@ def get_all_stocks(force_refresh: bool = False) -> dict[str, dict]:
         try:
             from data.cache import set_cached_stock_list
             set_cached_stock_list(stocks)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Optional cache operation failed: {e}")
 
     # 至少回傳內建清單
     if not stocks:
@@ -264,8 +267,8 @@ def _lookup_stock_name_online(code: str) -> tuple[str, str] | None:
             name = data["msgArray"][0].get("n", "")
             if name:
                 return (name, "上市")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data load failed: {e}")
 
     # 嘗試 TPEX 查詢
     try:
@@ -278,13 +281,14 @@ def _lookup_stock_name_online(code: str) -> tuple[str, str] | None:
             name = data["msgArray"][0].get("n", "")
             if name:
                 return (name, "上櫃")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data load failed: {e}")
 
     # fallback: yfinance（可能只有英文名）
     try:
         from data.fetcher import get_ticker
         import yfinance as yf
+
         ticker_str = get_ticker(code)
         ticker = yf.Ticker(ticker_str)
         yf_info = ticker.info
@@ -292,8 +296,8 @@ def _lookup_stock_name_online(code: str) -> tuple[str, str] | None:
         if name:
             market = "上櫃" if ".TWO" in ticker_str else "上市"
             return (name, market)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Optional data fetch failed: {e}")
 
     return None
 

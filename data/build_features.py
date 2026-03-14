@@ -35,6 +35,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import logging
+logger = logging.getLogger(__name__)
+
 
 # Ensure project root in path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -112,7 +115,8 @@ def fetch_price_single(code: str):
         df["stock_code"] = code
         df.index.name = "date"
         return df.reset_index()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return None
 
 
@@ -1125,6 +1129,7 @@ def main():
     # [CONVERGED] Gemini: regime_tag for same-regime filtering
     print("  Computing regime_tag...")
     import yfinance as yf
+
     taiex = yf.download("^TWII", start=START_DATE, auto_adjust=True, progress=False)
     taiex.columns = [c.lower() if isinstance(c, str) else c[0].lower() for c in taiex.columns]
     taiex = taiex[["close"]].rename(columns={"close": "taiex_close"})

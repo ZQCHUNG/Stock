@@ -963,7 +963,8 @@ def compare_with_yfinance(stock_code: str, days: int = 30) -> dict:
             "Open": "open", "High": "high", "Low": "low",
             "Close": "close", "Volume": "volume",
         })
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Operation failed, returning default: {e}")
         return {"error": "yfinance fetch failed"}
 
     if twse_df.empty or yf_df.empty:

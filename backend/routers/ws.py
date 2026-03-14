@@ -44,8 +44,8 @@ async def market_data_ws(websocket: WebSocket):
             "type": "status",
             "data": market_feed.get_status(),
         })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"WS initial status send failed: {e}")
 
     try:
         while True:

@@ -23,6 +23,9 @@ from analysis.strategy_aggressive import (
     STRATEGY_AGGRESSIVE_PARAMS,
 )
 from analysis.liquidity import calculate_market_impact
+import logging
+logger = logging.getLogger(__name__)
+
 
 
 # Phase 9A: Panic exit reasons that get asymmetric slippage (1.5x Kyle Lambda)
@@ -1848,6 +1851,7 @@ def run_portfolio_backtest_v4(
     """
     from config import BACKTEST_PARAMS
 
+
     total_capital = initial_capital or BACKTEST_PARAMS["initial_capital"]
     n_stocks = len(stock_data)
     if n_stocks == 0:
@@ -1875,7 +1879,8 @@ def run_portfolio_backtest_v4(
                 result.winning_stocks += 1
             elif bt.total_return < 0:
                 result.losing_stocks += 1
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Skipping due to operation error: {e}")
             continue
 
     if not result.stock_equity_curves:
