@@ -2,24 +2,24 @@ import client from './client'
 
 export interface SavedConfig {
   name: string
-  config: Record<string, any>
+  config: Record<string, unknown>
   updatedAt: string
 }
 
 export const configsApi = {
   list(type: 'backtest' | 'screener'): Promise<SavedConfig[]> {
-    return client.get(`/configs/${type}`) as any
+    return client.get<any, SavedConfig[]>(`/configs/${type}`)
   },
-  save(type: 'backtest' | 'screener', name: string, config: Record<string, any>) {
-    return client.post(`/configs/${type}`, { name, config }) as any
+  save(type: 'backtest' | 'screener', name: string, config: Record<string, unknown>): Promise<{ ok: boolean }> {
+    return client.post<any, { ok: boolean }>(`/configs/${type}`, { name, config })
   },
-  rename(type: 'backtest' | 'screener', name: string, newName: string) {
-    return client.patch(`/configs/${type}/${encodeURIComponent(name)}`, { new_name: newName }) as any
+  rename(type: 'backtest' | 'screener', name: string, newName: string): Promise<{ ok: boolean }> {
+    return client.patch<any, { ok: boolean }>(`/configs/${type}/${encodeURIComponent(name)}`, { new_name: newName })
   },
-  batchDelete(type: 'backtest' | 'screener', names: string[]) {
-    return client.post(`/configs/${type}/batch-delete`, { names }) as any
+  batchDelete(type: 'backtest' | 'screener', names: string[]): Promise<{ ok: boolean; deleted: number }> {
+    return client.post<any, { ok: boolean; deleted: number }>(`/configs/${type}/batch-delete`, { names })
   },
-  remove(type: 'backtest' | 'screener', name: string) {
-    return client.delete(`/configs/${type}/${encodeURIComponent(name)}`) as any
+  remove(type: 'backtest' | 'screener', name: string): Promise<{ ok: boolean }> {
+    return client.delete<any, { ok: boolean }>(`/configs/${type}/${encodeURIComponent(name)}`)
   },
 }

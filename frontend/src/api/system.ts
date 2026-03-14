@@ -1,26 +1,124 @@
 import client from './client'
 
+// --- System Types ---
+
+export interface CacheStats {
+  total_keys: number
+  memory_used?: string
+  [key: string]: unknown
+}
+
+export interface RecentStock {
+  code: string
+  name: string
+}
+
+export interface WorkerHeartbeat {
+  running: boolean
+  last_beat?: string
+  tasks?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface SystemHealth {
+  status: string
+  checks: Record<string, { status: string; detail?: string }>
+  [key: string]: unknown
+}
+
+export interface BackupInfo {
+  filename: string
+  size: number
+  created_at: string
+  [key: string]: unknown
+}
+
+export interface DataQualityResult {
+  checks: Record<string, unknown>[]
+  score: number
+  [key: string]: unknown
+}
+
+export interface ApiPerformanceResult {
+  endpoints: Record<string, { avg_ms: number; p95_ms: number; count: number }>
+  [key: string]: unknown
+}
+
+export interface OmsEvent {
+  event_type: string
+  timestamp: string
+  detail: string
+  [key: string]: unknown
+}
+
+export interface OmsStats {
+  total_events: number
+  last_run?: string
+  [key: string]: unknown
+}
+
+export interface OmsEfficiency {
+  efficiency_score: number
+  [key: string]: unknown
+}
+
+export interface DashboardResult {
+  portfolio_summary?: Record<string, unknown>
+  market_status?: Record<string, unknown>
+  recent_signals?: Record<string, unknown>[]
+  [key: string]: unknown
+}
+
+export interface ExceptionDashboard {
+  exceptions: Record<string, unknown>[]
+  total: number
+  [key: string]: unknown
+}
+
+export interface SignalLogEntry {
+  id: number
+  stock_code: string
+  signal_date: string
+  strategy: string
+  status: string
+  actual_return?: number | null
+  [key: string]: unknown
+}
+
+export interface WeeklyAuditResult {
+  summary: string
+  metrics: Record<string, unknown>
+  [key: string]: unknown
+}
+
+export interface IndustrySuccessRate {
+  industry: string
+  signal_count: number
+  success_rate: number
+  [key: string]: unknown
+}
+
 export const systemApi = {
-  cacheStats: () => client.get<any, any>('/system/cache-stats'),
-  flushCache: () => client.post<any, any>('/system/flush-cache'),
-  recentStocks: () => client.get<any, any[]>('/system/recent-stocks'),
-  addRecentStock: (code: string) => client.post<any, any>(`/system/recent-stocks/${code}`),
-  workerHeartbeat: () => client.get<any, any>('/system/worker-heartbeat'),
-  v4Params: () => client.get<any, any>('/system/v4-params'),
-  transitionAlerts: (limit: number = 20) => client.get<any, any[]>(`/system/transition-alerts?limit=${limit}`),
-  health: (includeSlow: boolean = false) => client.get<any, any>(`/system/health?include_slow=${includeSlow}`, { timeout: 30000 }),
-  runBackup: () => client.post<any, any>('/system/backup'),
-  listBackups: () => client.get<any, any[]>('/system/backups'),
-  dataQuality: () => client.get<any, any>('/system/data-quality', { timeout: 60000 }),
-  apiPerformance: () => client.get<any, any>('/system/api-performance'),
-  omsEvents: (limit: number = 50) => client.get<any, any>(`/system/oms-events?limit=${limit}`),
-  omsStats: () => client.get<any, any>('/system/oms-stats'),
-  omsRunNow: () => client.post<any, any>('/system/oms-run', {}, { timeout: 60000 }),
-  omsEfficiency: () => client.get<any, any>('/system/oms-efficiency'),
-  performanceAttribution: () => client.get<any, any>('/system/performance-attribution'),
-  dashboard: () => client.get<any, any>('/system/dashboard', { timeout: 30000 }),
-  exceptionDashboard: () => client.get<any, any>('/system/exception-dashboard', { timeout: 30000 }),
-  emergencyStop: () => client.post<any, any>('/system/emergency-stop', {}, { timeout: 10000 }),
+  cacheStats: () => client.get<any, CacheStats>('/system/cache-stats'),
+  flushCache: () => client.post<any, { ok: boolean }>('/system/flush-cache'),
+  recentStocks: () => client.get<any, RecentStock[]>('/system/recent-stocks'),
+  addRecentStock: (code: string) => client.post<any, { ok: boolean }>(`/system/recent-stocks/${code}`),
+  workerHeartbeat: () => client.get<any, WorkerHeartbeat>('/system/worker-heartbeat'),
+  v4Params: () => client.get<any, Record<string, unknown>>('/system/v4-params'),
+  transitionAlerts: (limit: number = 20) => client.get<any, Record<string, unknown>[]>(`/system/transition-alerts?limit=${limit}`),
+  health: (includeSlow: boolean = false) => client.get<any, SystemHealth>(`/system/health?include_slow=${includeSlow}`, { timeout: 30000 }),
+  runBackup: () => client.post<any, { ok: boolean; filename: string }>('/system/backup'),
+  listBackups: () => client.get<any, BackupInfo[]>('/system/backups'),
+  dataQuality: () => client.get<any, DataQualityResult>('/system/data-quality', { timeout: 60000 }),
+  apiPerformance: () => client.get<any, ApiPerformanceResult>('/system/api-performance'),
+  omsEvents: (limit: number = 50) => client.get<any, OmsEvent[]>(`/system/oms-events?limit=${limit}`),
+  omsStats: () => client.get<any, OmsStats>('/system/oms-stats'),
+  omsRunNow: () => client.post<any, { ok: boolean }>('/system/oms-run', {}, { timeout: 60000 }),
+  omsEfficiency: () => client.get<any, OmsEfficiency>('/system/oms-efficiency'),
+  performanceAttribution: () => client.get<any, Record<string, unknown>>('/system/performance-attribution'),
+  dashboard: () => client.get<any, DashboardResult>('/system/dashboard', { timeout: 30000 }),
+  exceptionDashboard: () => client.get<any, ExceptionDashboard>('/system/exception-dashboard', { timeout: 30000 }),
+  emergencyStop: () => client.post<any, { ok: boolean }>('/system/emergency-stop', {}, { timeout: 10000 }),
 
   // P2-B: Auto-Sim Pipeline
   autoSim: (sendNotify = true) =>
@@ -31,13 +129,13 @@ export const systemApi = {
 
   // P3: Signal Log + Drift Detection
   signalLog: (status: string = 'all', limit: number = 100) =>
-    client.get<any, any[]>(`/system/signal-log?status=${status}&limit=${limit}`),
+    client.get<any, SignalLogEntry[]>(`/system/signal-log?status=${status}&limit=${limit}`),
   realizeSignals: () =>
-    client.post<any, any>('/system/signal-log/realize'),
+    client.post<any, { realized: number }>('/system/signal-log/realize'),
   driftReport: () =>
     client.get<any, DriftReport>('/system/drift-report'),
   weeklyAudit: () =>
-    client.post<any, any>('/system/weekly-audit', {}, { timeout: 120000 }),
+    client.post<any, WeeklyAuditResult>('/system/weekly-audit', {}, { timeout: 120000 }),
   riskFlag: () =>
     client.get<any, RiskFlag>('/system/risk-flag'),
   setRiskFlag: (riskOn: boolean, reason: string = 'manual') =>
@@ -54,7 +152,7 @@ export const systemApi = {
     client.post<any, TrailingStopResult>('/system/trailing-stops/update', {}, { timeout: 60000 }),
 
   // Phase 6 P1: Daily Summary (Ask My System)
-  dailySummary: () => client.get<any, any>('/system/daily-summary', { timeout: 15000 }),
+  dailySummary: () => client.get<any, DashboardResult>('/system/daily-summary', { timeout: 15000 }),
 
   // Phase 6 P2: Failure Analysis
   failureAnalysis: (daysBack: number = 90) =>
@@ -82,7 +180,7 @@ export const systemApi = {
 
   // Phase 11 P1: Live Trade Sync
   confirmLiveTrade: (signalId: number, actualPrice: number) =>
-    client.post<any, any>(`/system/signal/${signalId}/confirm-live?actual_price=${actualPrice}`),
+    client.post<any, { ok: boolean }>(`/system/signal/${signalId}/confirm-live?actual_price=${actualPrice}`),
 
   // Phase 12 P0: Slippage Audit
   slippageAudit: () => client.get<any, SlippageAuditResult>('/system/slippage-audit', { timeout: 15000 }),
@@ -104,7 +202,7 @@ export const systemApi = {
 
   // Phase 9 P0: Industry Success Rates
   industrySuccessRates: (daysBack: number = 90) =>
-    client.get<any, any>(`/system/industry-success-rates?days_back=${daysBack}`),
+    client.get<any, IndustrySuccessRate[]>(`/system/industry-success-rates?days_back=${daysBack}`),
 
   // R55-2: CSV export (returns Blob for download)
   exportBacktestCsv: (result: any) =>

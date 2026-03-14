@@ -9,27 +9,27 @@ export interface SavedBtResult {
   name: string
   stockCode: string
   stockName: string
-  config: Record<string, any>
-  metrics: Record<string, any>
+  config: Record<string, unknown>
+  metrics: Record<string, unknown>
   savedAt: string
   equityCurve?: EquityCurveData
 }
 
 export const btResultsApi = {
   list(): Promise<SavedBtResult[]> {
-    return client.get('/backtest-results') as any
+    return client.get<any, SavedBtResult[]>('/backtest-results')
   },
   listWithEquity(): Promise<SavedBtResult[]> {
-    return client.get('/backtest-results', { params: { include_equity: true } }) as any
+    return client.get<any, SavedBtResult[]>('/backtest-results', { params: { include_equity: true } })
   },
   save(data: {
     name: string; stockCode: string; stockName: string;
-    config: Record<string, any>; metrics: Record<string, any>;
+    config: Record<string, unknown>; metrics: Record<string, unknown>;
     equityCurve?: EquityCurveData;
-  }) {
-    return client.post('/backtest-results', data) as any
+  }): Promise<{ ok: boolean }> {
+    return client.post<any, { ok: boolean }>('/backtest-results', data)
   },
-  remove(index: number) {
-    return client.delete(`/backtest-results/${index}`) as any
+  remove(index: number): Promise<{ ok: boolean }> {
+    return client.delete<any, { ok: boolean }>(`/backtest-results/${index}`)
   },
 }

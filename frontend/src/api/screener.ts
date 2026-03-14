@@ -90,7 +90,7 @@ export interface ScreenerStats {
 
 export const screenerApi = {
   // V1 Legacy
-  run: (filters: ScreenerFilters) => client.post<any, any[]>('/screener/run', filters),
+  run: (filters: ScreenerFilters) => client.post<any, Record<string, unknown>[]>('/screener/run', filters),
   boldScan: (req?: BoldScanRequest) => client.post<any, BoldScanResponse>('/screener/bold-scan', req || {}),
 
   // V2 Snapshot-based

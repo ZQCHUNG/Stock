@@ -18,7 +18,7 @@ export interface SchedulerStatus {
   last_check: {
     timestamp: string | null
     triggered_count: number
-    triggered: any[]
+    triggered: AlertTriggered[]
     error: string | null
   }
 }
@@ -49,15 +49,57 @@ export interface ConditionTypeOption {
   label: string
 }
 
+// --- Alert Check / History Types ---
+
+export interface AlertTriggered {
+  code: string
+  name: string
+  sqs: number
+  grade: string
+  timestamp: string
+  [key: string]: unknown
+}
+
+export interface AlertCheckResult {
+  triggered: AlertTriggered[]
+  checked_count: number
+  timestamp: string
+}
+
+export interface AlertHistoryItem {
+  code: string
+  name: string
+  sqs: number
+  grade: string
+  triggered_at: string
+  notified: boolean
+  [key: string]: unknown
+}
+
+export interface AlertHealthResult {
+  scheduler_running: boolean
+  last_check: string | null
+  config_valid: boolean
+  [key: string]: unknown
+}
+
+export interface RuleCheckResult {
+  rule_id: string
+  rule_name: string
+  triggered: boolean
+  matches: Record<string, unknown>[]
+  [key: string]: unknown
+}
+
 export const alertsApi = {
   getConfig: () => client.get<any, AlertConfig>('/alerts/config'),
-  saveConfig: (config: AlertConfig) => client.post<any, any>('/alerts/config', config),
-  checkAlerts: () => client.get<any, any>('/alerts/check'),
-  triggerCheck: () => client.post<any, any>('/alerts/trigger-check'),
-  notifyTriggered: () => client.post<any, any>('/alerts/notify-triggered'),
-  getHistory: () => client.get<any, any>('/alerts/history'),
+  saveConfig: (config: AlertConfig) => client.post<any, { ok: boolean }>('/alerts/config', config),
+  checkAlerts: () => client.get<any, AlertCheckResult>('/alerts/check'),
+  triggerCheck: () => client.post<any, AlertCheckResult>('/alerts/trigger-check'),
+  notifyTriggered: () => client.post<any, { sent: number }>('/alerts/notify-triggered'),
+  getHistory: () => client.get<any, AlertHistoryItem[]>('/alerts/history'),
   getSchedulerStatus: () => client.get<any, SchedulerStatus>('/alerts/scheduler-status'),
-  getHealth: () => client.get<any, any>('/alerts/health'),
+  getHealth: () => client.get<any, AlertHealthResult>('/alerts/health'),
 
   // R55-3: Compound alert rules
   listRules: () => client.get<any, CompoundRule[]>('/alerts/rules'),
@@ -72,12 +114,12 @@ export const alertsApi = {
   }) => client.post<any, CompoundRule>('/alerts/rules', rule),
   updateRule: (id: string, updates: Record<string, any>) =>
     client.patch<any, CompoundRule>(`/alerts/rules/${id}`, updates),
-  deleteRule: (id: string) => client.delete<any, any>(`/alerts/rules/${id}`),
+  deleteRule: (id: string) => client.delete<any, { ok: boolean }>(`/alerts/rules/${id}`),
   checkRules: (codes?: string[]) =>
-    client.post<any, any>('/alerts/rules/check', codes || null, { timeout: 60000 }),
+    client.post<any, RuleCheckResult[]>('/alerts/rules/check', codes || null, { timeout: 60000 }),
   getConditionTypes: () => client.get<any, ConditionTypeOption[]>('/alerts/condition-types'),
 
   // R56: Test notification
   sendTest: (message?: string) =>
-    client.post<any, any>('/alerts/send-test', { message: message || undefined }),
+    client.post<any, { ok: boolean; message?: string }>('/alerts/send-test', { message: message || undefined }),
 }

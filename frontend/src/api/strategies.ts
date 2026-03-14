@@ -27,6 +27,34 @@ export interface Strategy {
   updated_at: string
 }
 
+// --- Backtest / Adaptive Types ---
+
+export interface StrategyBacktestResult {
+  total_return: number
+  annual_return: number
+  max_drawdown: number
+  sharpe_ratio: number
+  win_rate: number
+  total_trades: number
+  profit_factor: number
+  trades?: Record<string, unknown>[]
+  equity_curve?: { dates: string[]; values: number[] }
+  [key: string]: unknown
+}
+
+export interface AdaptiveRecommendation {
+  recommended_strategy: string
+  regime: string
+  weights: Record<string, number>
+  [key: string]: unknown
+}
+
+export interface BatchAdaptiveResult {
+  results: Record<string, StrategyBacktestResult>
+  summary?: Record<string, unknown>
+  [key: string]: unknown
+}
+
 export const strategiesApi = {
   list: () => client.get<any, { strategies: Strategy[] }>('/strategies/'),
   get: (id: string) => client.get<any, Strategy>(`/strategies/${id}`),
@@ -37,13 +65,13 @@ export const strategiesApi = {
   clone: (id: string) => client.post<any, { ok: boolean; strategy: Strategy }>(`/strategies/${id}/clone`),
   delete: (id: string) => client.delete<any, { ok: boolean }>(`/strategies/${id}`),
   backtest: (id: string, code: string) =>
-    client.post<any, any>(`/strategies/${id}/backtest/${code}`, {}, { timeout: 60000 }),
+    client.post<any, StrategyBacktestResult>(`/strategies/${id}/backtest/${code}`, {}, { timeout: 60000 }),
   adaptiveRecommendation: () =>
-    client.get<any, any>('/strategies/adaptive-recommendation'),
+    client.get<any, AdaptiveRecommendation>('/strategies/adaptive-recommendation'),
   adaptiveBacktest: (code: string, params?: { period_days?: number; rebalance_days?: number; regime_lookback?: number }) =>
-    client.post<any, any>(`/strategies/adaptive-backtest/${code}`, params || {}, { timeout: 120000 }),
+    client.post<any, StrategyBacktestResult>(`/strategies/adaptive-backtest/${code}`, params || {}, { timeout: 120000 }),
   batchAdaptiveBacktest: (codes?: string[], periodDays?: number) =>
-    client.post<any, any>('/strategies/adaptive-backtest-batch', {
+    client.post<any, BatchAdaptiveResult>('/strategies/adaptive-backtest-batch', {
       codes: codes || ['0050', '2330', '2317'],
       period_days: periodDays || 1095,
     }, { timeout: 300000 }),
