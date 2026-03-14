@@ -1342,19 +1342,20 @@ def populate_ticker_cache(stock_dict: dict[str, dict]) -> None:
     Args:
         stock_dict: {code: {"name": ..., "market": "上市"|"上櫃"}}
     """
-    _changed = False
-    for code, info in stock_dict.items():
-        if code in _ticker_cache:
-            continue
-        if isinstance(info, dict):
-            market = info.get("market", "")
-            suffix = ".TWO" if market == "上櫃" else ".TW"
-        else:
-            suffix = ".TW"
-        _ticker_cache[code] = f"{code}{suffix}"
-        _changed = True
-    if _changed:
-        _save_ticker_cache()
+    with _ticker_lock:
+        _changed = False
+        for code, info in stock_dict.items():
+            if code in _ticker_cache:
+                continue
+            if isinstance(info, dict):
+                market = info.get("market", "")
+                suffix = ".TWO" if market == "上櫃" else ".TW"
+            else:
+                suffix = ".TW"
+            _ticker_cache[code] = f"{code}{suffix}"
+            _changed = True
+        if _changed:
+            _save_ticker_cache()
 
 
 def get_stock_fundamentals_safe(stock_code: str) -> dict | None:

@@ -414,7 +414,7 @@ class TestStrategies:
 # ML Market Regime (R50-3)
 # ---------------------------------------------------------------------------
 
-class TestMlRegime:
+class TestRegimeClassifier:
     def test_ml_regime_endpoint(self, client):
         """GET /api/analysis/market-regime-ml should return regime data."""
         resp = client.get("/api/analysis/market-regime-ml")

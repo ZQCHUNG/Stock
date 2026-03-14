@@ -935,8 +935,7 @@ def _run_twse_daily_sync():
         # Recent stocks
         try:
             import json
-            from pathlib import Path
-            recent_file = Path(__file__).resolve().parent.parent / "data" / "recent_stocks.json"
+            recent_file = DATA_DIR / "recent_stocks.json"
             if recent_file.exists():
                 recent = json.loads(recent_file.read_text(encoding="utf-8"))
                 codes.update(recent[:10])
