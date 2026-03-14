@@ -161,21 +161,20 @@ def _attempt_heal(stock_code: str) -> float | None:
     """Re-fetch latest price from yfinance as heal attempt (max 1 retry).
 
     Architect: "Retry = 1, 防止無限循環"
+    Uses get_ticker() to resolve correct suffix (.TW / .TWO) from cache.
     """
     try:
         import yfinance as yf
-        ticker = yf.Ticker(f"{stock_code}.TW")
-        hist = ticker.history(period="5d", auto_adjust=True)
-        if hist is not None and not hist.empty:
-            return float(hist["Close"].iloc[-1])
+        from data.fetcher import get_ticker
 
-        # Try TPEX suffix
-        ticker = yf.Ticker(f"{stock_code}.TWO")
+        ticker_str = get_ticker(stock_code)
+        ticker = yf.Ticker(ticker_str)
         hist = ticker.history(period="5d", auto_adjust=True)
         if hist is not None and not hist.empty:
-            return float(hist["Close"].iloc[-1])
+            col = "Close" if "Close" in hist.columns else "close"
+            return float(hist[col].iloc[-1])
     except Exception as e:
-        logger.debug(f"Optional operation failed: {e}")
+        logger.debug(f"Heal attempt failed for {stock_code}: {e}")
     return None
 
 
@@ -667,14 +666,17 @@ def generate_daily_review() -> str | None:
             multiplier = ctx.get("position_multiplier", 0.5)
             market_score = min(30, int(multiplier * 30))
 
-            from analysis.sector_rs import get_sector_rs_overview
-            sector_data = get_sector_rs_overview()
-            top3 = sector_data.get("top3_sectors", []) if sector_data else []
+            from analysis.sector_rs import compute_sector_rs_table
+            sector_table = compute_sector_rs_table()
+            sorted_sectors = sorted(
+                sector_table.values(), key=lambda s: s.get("median_rs", 0), reverse=True
+            ) if sector_table else []
+            top3 = sorted_sectors[:3]
             sector_score = min(25, len(top3) * 8)
 
-            from analysis.drift_detector import get_drift_report
-            drift = get_drift_report()
-            ib_rate = drift.get("in_bounds", {}).get("in_bounds_rate")
+            from analysis.drift_detector import compute_in_bounds_rate
+            drift = compute_in_bounds_rate()
+            ib_rate = drift.get("in_bounds_rate")
             ib_score = min(25, int((ib_rate or 0.5) * 25))
 
             from analysis.signal_log import get_all_signals

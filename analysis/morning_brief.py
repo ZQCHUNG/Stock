@@ -75,21 +75,28 @@ def _get_aggressive_index() -> tuple[int | None, str, str]:
     Returns: (score, level_label, icon)
     """
     try:
-        from analysis.market_regime import get_regime_context
+        from analysis.market_regime import detect_market_regime
+        from data.fetcher import get_taiex_data
 
-        ctx = get_regime_context()
-        market_score = min(30, max(0, int(ctx.get("score", 50) * 0.3)))
+        taiex_df = get_taiex_data(period_days=120)
+        ctx = detect_market_regime(taiex_df) if taiex_df is not None else {}
+        multiplier = ctx.get("position_multiplier", 0.5)
+        market_score = min(30, max(0, int(multiplier * 30)))
 
-        from analysis.sector_rs import get_sector_rs_overview
+        from analysis.sector_rs import compute_sector_rs_table
 
-        sector_data = get_sector_rs_overview()
-        top3 = sector_data.get("top3_sectors", []) if sector_data else []
+        sector_table = compute_sector_rs_table()
+        # Top 3 sectors by median RS — analogous to old get_sector_rs_overview
+        sorted_sectors = sorted(
+            sector_table.values(), key=lambda s: s.get("median_rs", 0), reverse=True
+        ) if sector_table else []
+        top3 = sorted_sectors[:3]
         sector_score = min(25, len(top3) * 8)
 
-        from analysis.drift_detector import get_drift_report
+        from analysis.drift_detector import compute_in_bounds_rate
 
-        drift = get_drift_report()
-        ib_rate = drift.get("in_bounds", {}).get("in_bounds_rate")
+        drift = compute_in_bounds_rate()
+        ib_rate = drift.get("in_bounds_rate")
         ib_score = min(25, int((ib_rate or 0.5) * 25))
 
         from analysis.signal_log import get_all_signals

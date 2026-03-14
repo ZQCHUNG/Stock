@@ -516,8 +516,9 @@ def get_accumulation_scan(code: str, period_days: int = 365):
         # Try to get RS rating for condition 5
         rs_rating = None
         try:
-            from analysis.rs_scanner import get_stock_rs
-            rs_rating = get_stock_rs(code)
+            from analysis.rs_scanner import get_stock_rs_rating
+            rs_data = get_stock_rs_rating(code)
+            rs_rating = rs_data.get("rs_rating") if rs_data else None
         except Exception as e:
             logger.debug(f"Optional data fetch failed: {e}")
             pass  # RS is optional; skip if unavailable

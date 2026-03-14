@@ -4,6 +4,7 @@ Split from analysis.py — market-regime, market-regime-ml, sector-heat endpoint
 """
 
 import threading
+import time
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 import logging
@@ -16,7 +17,9 @@ router = APIRouter()
 
 # Background scan guard — prevents duplicate concurrent scans
 _bg_scan_running = False
+_bg_scan_start: float = 0.0
 _bg_scan_lock = threading.Lock()
+_BG_SCAN_TIMEOUT = 600  # 10 minutes — auto-reset if scan hangs
 
 
 def _do_background_scan():
@@ -44,12 +47,21 @@ def _do_background_scan():
 
 def _trigger_background_scan():
     """Start a background scan if one is not already running."""
-    global _bg_scan_running
+    global _bg_scan_running, _bg_scan_start
     with _bg_scan_lock:
         if _bg_scan_running:
-            logger.info("Background sector heat scan already in progress, skipping")
-            return
+            # Auto-reset if scan has been running longer than timeout
+            if (time.time() - _bg_scan_start) > _BG_SCAN_TIMEOUT:
+                logger.warning(
+                    "Background scan exceeded %ds timeout, auto-resetting",
+                    _BG_SCAN_TIMEOUT,
+                )
+                _bg_scan_running = False
+            else:
+                logger.info("Background sector heat scan already in progress, skipping")
+                return
         _bg_scan_running = True
+        _bg_scan_start = time.time()
 
     thread = threading.Thread(target=_do_background_scan, daemon=True)
     thread.start()

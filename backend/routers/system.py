@@ -741,8 +741,8 @@ def _exception_price_gap():
                             "gap_pct": round(gap_pct * 100, 2),
                             "type": "gap_down" if gap_pct < 0 else "gap_up",
                         })
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Price gap check failed: {e}")
 
         return {"has_exceptions": len(exceptions) > 0, "exceptions": exceptions}
     except Exception as e:
