@@ -1,9 +1,22 @@
-"""共用工具 — DataFrame 序列化、股票清單 loader"""
+"""共用工具 — DataFrame 序列化、股票清單 loader、HTTP error helpers"""
 
 import dataclasses
 import math
 import numpy as np
 import pandas as pd
+from fastapi import HTTPException
+
+
+def raise_stock_data_error(code: str, e: Exception):
+    """Classify stock data fetch errors into appropriate HTTP status codes.
+
+    404 = stock genuinely not found (no data, delisted)
+    502 = external data source (yfinance/FinMind/TWSE) error
+    """
+    msg = str(e).lower()
+    if "no data" in msg or "not found" in msg or "no price" in msg or "delisted" in msg:
+        raise HTTPException(status_code=404, detail=f"Stock {code} not found: {e}")
+    raise HTTPException(status_code=502, detail=f"External data source error for {code}: {e}")
 
 
 def df_to_response(df: pd.DataFrame, tail: int | None = None) -> dict:

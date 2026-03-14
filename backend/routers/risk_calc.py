@@ -5,6 +5,7 @@ sizing-advisor, trail-classifier endpoints.
 """
 
 from fastapi import APIRouter, HTTPException, Query
+from backend.dependencies import raise_stock_data_error as _raise_stock_data_error
 import logging
 
 logger = logging.getLogger(__name__)
@@ -291,7 +292,7 @@ def get_risk_factors(code: str, period_days: int = 365):
             "trailing_stop_price": trailing_stop_price,
         })
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/risk-budget")
@@ -342,7 +343,7 @@ def get_risk_budget(code: str, period_days: int = 365):
 
         return make_serializable(result)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/trail-classifier")
@@ -360,7 +361,7 @@ def get_trail_classifier(code: str):
     try:
         df = get_stock_data(code, period_days=365)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch data: {e}")
+        raise HTTPException(status_code=502, detail=f"External data source error for {code}: {e}")
 
     if df is None or len(df) < 30:
         raise HTTPException(status_code=400, detail="Insufficient data")
@@ -425,7 +426,7 @@ def get_sizing_advisor(
     try:
         df = get_stock_data(code, period_days=365)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch data: {e}")
+        raise HTTPException(status_code=502, detail=f"External data source error for {code}: {e}")
 
     if df is None or len(df) < 30:
         raise HTTPException(status_code=400, detail="Insufficient data")

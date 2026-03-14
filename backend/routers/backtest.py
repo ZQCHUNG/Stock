@@ -216,7 +216,7 @@ def run_v4_backtest(code: str, req: BacktestRequest):
 
         return _serialize_backtest_result(result)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/portfolio")
@@ -238,7 +238,7 @@ def run_portfolio_backtest(req: PortfolioRequest):
                 continue
 
         if not stock_data:
-            raise HTTPException(status_code=400, detail="無法取得任何股票資料")
+            raise HTTPException(status_code=502, detail="Failed to fetch data from external sources for any stock")
 
         result = run_portfolio_backtest_v4(
             stock_data, stock_names=stock_names,
@@ -271,7 +271,7 @@ def run_portfolio_backtest(req: PortfolioRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/simulation")
@@ -314,7 +314,7 @@ def run_simulation(code: str, req: SimulationRequest):
             "trade_log": result.trade_log,
         })
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/rolling")
@@ -359,7 +359,7 @@ def run_rolling(code: str, req: RollingRequest):
             "consistency_score": result.consistency_score,
         })
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/sensitivity")
@@ -375,7 +375,7 @@ def run_sensitivity(code: str, req: SensitivityRequest):
         )
         return make_serializable(results)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/alpha-beta")
@@ -402,7 +402,7 @@ def run_alpha_beta(code: str, req: AlphaBetaRequest):
 
         return serialized
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/adaptive")
@@ -427,7 +427,7 @@ def run_adaptive_backtest(code: str, req: BacktestRequest):
         )
         return _serialize_backtest_result(result)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/v5")
@@ -444,7 +444,7 @@ def run_v5_backtest(code: str, req: BacktestRequest):
         )
         return _serialize_backtest_result(result)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/bold")
@@ -476,7 +476,7 @@ def run_bold_backtest(code: str, req: BoldBacktestRequest):
         )
         return _serialize_backtest_result(result)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/aggressive")
@@ -512,7 +512,7 @@ def run_aggressive_backtest(code: str, req: AggressiveBacktestRequest):
             )
         return serialized
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/strategy-comparison")
@@ -587,7 +587,7 @@ def run_strategy_comparison(code: str, req: StrategyComparisonRequest):
             "regime": regime_en,
         })
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/meta-strategy")
@@ -676,7 +676,7 @@ def run_meta_strategy_backtest(req: MetaStrategyRequest):
                 continue
 
         if not stock_equity_curves:
-            raise HTTPException(status_code=400, detail="無法取得任何回測結果")
+            raise HTTPException(status_code=500, detail="All backtests failed to produce results")
 
         # Merge equity curves
         eq_df = pd.DataFrame(stock_equity_curves)
@@ -731,7 +731,7 @@ def run_meta_strategy_backtest(req: MetaStrategyRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/sqs-backtest")
@@ -747,7 +747,7 @@ def run_sqs_backtest_endpoint(req: SqsBacktestRequest):
         )
         return result
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{code}/attribution")
@@ -782,7 +782,7 @@ def run_attribution(code: str, req: BacktestRequest):
             "holding_periods": len([t for t in result.trades if t.date_close]),
         }
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -923,7 +923,7 @@ def assess_risk(req: RiskAssessmentRequest):
         )
         return report.to_dict()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/risk/var")
@@ -950,7 +950,7 @@ def compute_var_endpoint(req: RiskAssessmentRequest):
         result = compute_var(port_ret, req.confidence, req.portfolio_value)
         return result.to_dict()
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # === Phase 8A: Portfolio Bold Backtest with Equity Curve (CTO R14.18) ===
@@ -992,7 +992,7 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
                 continue
 
         if not stock_data:
-            raise HTTPException(status_code=400, detail="No stock data loaded")
+            raise HTTPException(status_code=502, detail="Failed to load stock data from external sources")
 
         # Load TAIEX for guard
         taiex_data = None
@@ -1016,7 +1016,7 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
 
         eq_df = result.equity_curve
         if eq_df.empty:
-            raise HTTPException(status_code=400, detail="Backtest produced no data")
+            raise HTTPException(status_code=500, detail="Backtest produced no data")
 
         dates = eq_df.index.strftime("%Y-%m-%d").tolist()
         equity = eq_df["equity"].tolist()
@@ -1100,7 +1100,7 @@ def run_portfolio_bold_backtest(req: PortfolioBoldRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def _compute_holdings_count(dates: list[str], trades) -> list[int]:
@@ -1211,7 +1211,7 @@ def run_stress_test_endpoint(req: RiskAssessmentRequest):
             for r in results
         ]
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/risk/circuit-breaker")
@@ -1282,7 +1282,7 @@ def run_rolling_wfa(req: RollingWfaRequest | None = None):
                 continue
 
         if not stock_data:
-            raise HTTPException(status_code=400, detail="No stock data loaded")
+            raise HTTPException(status_code=502, detail="Failed to load stock data from external sources")
 
         taiex_data = None
         try:
@@ -1447,7 +1447,7 @@ def run_attribution_analysis(req: RollingWfaRequest | None = None):
                 continue
 
         if not stock_data:
-            raise HTTPException(status_code=400, detail="No stock data loaded")
+            raise HTTPException(status_code=502, detail="Failed to load stock data from external sources")
 
         taiex_data = None
         try:
@@ -1689,7 +1689,7 @@ def get_regime_barometer(req: RegimeBarometerRequest | None = None):
                 continue
 
         if not stock_data:
-            raise HTTPException(status_code=400, detail="No stock data loaded")
+            raise HTTPException(status_code=502, detail="Failed to load stock data from external sources")
 
         taiex_data = None
         try:
@@ -1923,7 +1923,7 @@ async def adaptive_sniper_ab(req: AdaptiveSniperRequest):
 
         print(f"Phase 12 A/B: {len(stock_data)} stocks loaded")
         if len(stock_data) < 10:
-            raise HTTPException(status_code=400, detail="Not enough stock data")
+            raise HTTPException(status_code=502, detail="Not enough stock data from external sources")
 
         # Compute date range
         from datetime import datetime, timedelta

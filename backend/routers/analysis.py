@@ -13,6 +13,7 @@ endpoints have been split into separate routers:
 """
 
 from fastapi import APIRouter, HTTPException, Query
+from backend.dependencies import raise_stock_data_error as _raise_stock_data_error
 import logging
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def get_indicators(code: str, period_days: int = 365, tail: int = Query(120, ge=
         result = calculate_all_indicators(df)
         return df_to_response(result, tail=tail)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/v4-signal")
@@ -45,7 +46,7 @@ def get_v4_signal(code: str, period_days: int = 365):
         result = get_v4_analysis(df)
         return make_serializable(result)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/v4-enhanced")
@@ -64,7 +65,7 @@ def get_v4_enhanced(code: str, period_days: int = 365):
         result = get_v4_enhanced_analysis(df, inst_df=inst_df)
         return make_serializable(result)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/v4-signals-full")
@@ -78,7 +79,7 @@ def get_v4_signals_full(code: str, period_days: int = 365, tail: int = Query(120
         signals_df = generate_v4_signals(df)
         return df_to_response(signals_df, tail=tail)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/support-resistance")
@@ -102,7 +103,7 @@ def get_support_resistance(code: str, period_days: int = 365):
             "resistances": [{"price": r.price, "source": r.source, "strength": r.strength} for r in resistances],
         })
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/v5-signal")
@@ -116,7 +117,7 @@ def get_v5_signal(code: str, period_days: int = 365):
         result = get_v5_analysis(df)
         return make_serializable(result)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/bold-signal")
@@ -133,7 +134,7 @@ def get_bold_signal(code: str, period_days: int = 1095):
         result = get_bold_analysis(df)
         return make_serializable(result)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/rs-rating")
@@ -195,7 +196,7 @@ def get_rs_rating(code: str, period_days: int = 400):
             },
         }
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/liquidity")
@@ -212,7 +213,7 @@ def get_liquidity(code: str, period_days: int = 365,
         result = calculate_liquidity_score(df, position_size_ntd=position_ntd)
         return result
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/adaptive-signal")
@@ -253,7 +254,7 @@ def get_adaptive_signal(code: str, period_days: int = 365):
             "adaptive": adaptive,
         })
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/volume-patterns")
@@ -267,7 +268,7 @@ def get_volume_patterns(code: str, period_days: int = 365):
         result = get_volume_pattern_summary(df)
         return make_serializable(result)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/corporate-actions")
@@ -288,7 +289,7 @@ def get_corporate_actions(code: str, period_days: int = 365):
         )
         return report.summary()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/valuation")
@@ -317,7 +318,7 @@ def get_valuation(code: str):
             "valuation_score": round(score, 1),
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502, detail=f"TWSE valuation data error for {code}: {e}")
 
 
 @router.get("/{code}/revenue")
@@ -345,7 +346,7 @@ def get_revenue(code: str, months: int = Query(default=12, ge=1, le=36)):
             "data": df.to_dict(orient="records"),
         })
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=502, detail=f"MOPS revenue data error for {code}: {e}")
 
 
 # === R63: RS Scanner & Bold Status ===
@@ -442,7 +443,7 @@ def get_bold_status(code: str, period_days: int = 1095):
             "params": params_summary,
         })
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/sector-context")

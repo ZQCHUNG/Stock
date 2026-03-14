@@ -2,6 +2,7 @@
 
 import logging
 from fastapi import APIRouter, HTTPException, Query
+from backend.dependencies import raise_stock_data_error as _raise_stock_data_error
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def stock_data(code: str, period_days: int = Query(365, ge=7, le=3650)):
         df = get_stock_data(code, period_days=period_days)
         return df_to_response(df)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/info")
@@ -47,7 +48,7 @@ def stock_info(code: str):
     try:
         return get_stock_info(code)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/name")
@@ -67,7 +68,7 @@ def stock_fundamentals(code: str):
         data = get_stock_fundamentals(code)
         return make_serializable(data)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _raise_stock_data_error(code, e)
 
 
 @router.get("/{code}/news")
