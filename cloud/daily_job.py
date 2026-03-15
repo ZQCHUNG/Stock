@@ -21,7 +21,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -54,6 +54,44 @@ UPLOAD_ARTIFACTS = [
     "data/pattern_data/features/feature_metadata.json",
     "data/screener.db",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Data Freshness Check
+# ---------------------------------------------------------------------------
+def check_data_freshness() -> date:
+    """Verify close matrix has today's data. Abort if stale.
+
+    Allow for weekends/holidays: max gap is 3 calendar days
+    (e.g., Monday job checking for Friday's data).
+
+    Returns:
+        The latest date found in the close matrix.
+
+    Raises:
+        RuntimeError: If data is stale (gap > 3 calendar days).
+        FileNotFoundError: If close matrix file is missing.
+    """
+    import pandas as pd
+
+    close_path = PROJECT_ROOT / "data" / "pit_close_matrix.parquet"
+    if not close_path.exists():
+        raise FileNotFoundError(f"Close matrix not found: {close_path}")
+
+    close = pd.read_parquet(close_path)
+    latest_date = close.index[-1].date() if hasattr(close.index[-1], 'date') else close.index[-1]
+    today = date.today()
+
+    gap = (today - latest_date).days
+    logger.info("Data freshness: latest=%s, today=%s, gap=%d days", latest_date, today, gap)
+
+    if gap > 3:
+        raise RuntimeError(
+            f"Data is stale! Latest: {latest_date}, Today: {today}, Gap: {gap} days. "
+            f"Aborting to prevent running with outdated data."
+        )
+
+    return latest_date
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +274,26 @@ def main():
 
     # Step 1: Daily update
     results["daily_update"] = step_daily_update()
+
+    # Freshness gate: abort early if data is stale (silent errors are worse)
+    if results["daily_update"].get("status") == "ok":
+        try:
+            latest = check_data_freshness()
+            results["data_freshness"] = {"status": "ok", "latest_date": str(latest)}
+            logger.info("Data freshness check PASSED: latest=%s", latest)
+        except (RuntimeError, FileNotFoundError) as e:
+            results["data_freshness"] = {"status": "error", "error": str(e)}
+            logger.error("Data freshness check FAILED: %s", e)
+            # Abort — don't continue with stale data
+            total_elapsed = time.time() - t0
+            results["total_elapsed_s"] = round(total_elapsed, 1)
+            results["timestamp"] = datetime.now().isoformat()
+            results["notification"] = step_notify(results)
+            logger.error("Aborting pipeline due to stale data")
+            sys.exit(1)
+    else:
+        logger.warning("Skipping freshness check — daily update failed")
+        results["data_freshness"] = {"status": "skipped", "reason": "daily_update_failed"}
 
     # Step 2: Build features
     results["build_features"] = step_build_features()

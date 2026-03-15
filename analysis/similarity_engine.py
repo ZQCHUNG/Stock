@@ -37,8 +37,8 @@ CLOSE_MATRIX_FILE = _PROJECT_ROOT / "data" / "pit_close_matrix.parquet"
 MAX_CACHED_WINDOWS = 2  # [PLACEHOLDER] LRU cache size
 DEFAULT_TOP_K = 30  # [PLACEHOLDER] default number of similar cases
 VALID_WINDOWS = (7, 14, 30, 90, 180)  # [PLACEHOLDER] supported window sizes
-FORWARD_HORIZONS = [1, 3, 7, 30, 180]  # [PLACEHOLDER] trading days
-HORIZON_LABELS = ["d1", "d3", "d7", "d30", "d180"]
+FORWARD_HORIZONS = [7, 14, 30, 90, 180]  # [PLACEHOLDER] trading days
+HORIZON_LABELS = ["d7", "d14", "d30", "d90", "d180"]
 
 # 5 user-facing dimensions → 6 internal dimensions
 # "institutional" merges internal "institutional" + "brokerage"
@@ -77,7 +77,7 @@ class SimilarCase:
     date: str  # ISO format string
     similarity: float
     dimension_similarities: dict  # dim_name -> float
-    forward_returns: dict  # "d1", "d3", ... -> float | None
+    forward_returns: dict  # "d7", "d14", ... -> float | None
 
 
 @dataclass
@@ -278,7 +278,7 @@ def _compute_forward_returns(
     Uses trading days (the actual index of close_matrix), not calendar days.
 
     Returns:
-        dict like {"d1": 0.012, "d3": -0.005, "d7": None, ...}
+        dict like {"d7": 0.012, "d14": -0.005, "d30": None, ...}
     """
     if horizons is None:
         horizons = FORWARD_HORIZONS

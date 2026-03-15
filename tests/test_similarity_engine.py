@@ -217,13 +217,13 @@ class TestForwardReturns:
         result = search_similar("2330", top_k=5)
         for c in result.cases:
             assert isinstance(c.forward_returns, dict)
-            for h in ["d1", "d3", "d7", "d30", "d180"]:
+            for h in ["d7", "d14", "d30", "d90", "d180"]:
                 assert h in c.forward_returns
 
     def test_forward_returns_spot_check(self, close_matrix):
         """Verify a forward return against the close matrix directly."""
         result = search_similar("2330", query_date="2024-06-03", top_k=5)
-        # Pick the first case and verify d1 manually
+        # Pick the first case and verify d7 manually
         case = result.cases[0]
         code = case.stock_code
         match_date = pd.Timestamp(case.date)
@@ -236,10 +236,10 @@ class TestForwardReturns:
             pytest.skip(f"{match_date} not in price index for {code}")
 
         idx = prices.index.get_loc(match_date)
-        if idx + 1 < len(prices):
-            expected_d1 = (prices.iloc[idx + 1] / prices.iloc[idx]) - 1.0
-            if case.forward_returns["d1"] is not None:
-                assert abs(case.forward_returns["d1"] - expected_d1) < 0.001
+        if idx + 7 < len(prices):
+            expected_d7 = (prices.iloc[idx + 7] / prices.iloc[idx]) - 1.0
+            if case.forward_returns["d7"] is not None:
+                assert abs(case.forward_returns["d7"] - expected_d7) < 0.001
 
     def test_forward_returns_none_at_end(self):
         """Cases near data end may have None forward returns for long horizons."""
@@ -261,7 +261,7 @@ class TestStatistics:
         result = search_similar("2330", top_k=30)
         stats = result.statistics
         assert isinstance(stats, dict)
-        for h in ["d1", "d3", "d7", "d30", "d180"]:
+        for h in ["d7", "d14", "d30", "d90", "d180"]:
             if h in stats:
                 s = stats[h]
                 assert "win_rate" in s
@@ -272,18 +272,18 @@ class TestStatistics:
     def test_statistics_from_cases(self):
         """_compute_statistics produces correct results."""
         cases = [
-            SimilarCase("A", "2024-01-01", 0.9, {}, {"d1": 0.05, "d3": -0.02, "d7": None, "d30": None, "d180": None}),
-            SimilarCase("B", "2024-01-02", 0.8, {}, {"d1": -0.01, "d3": 0.03, "d7": None, "d30": None, "d180": None}),
-            SimilarCase("C", "2024-01-03", 0.7, {}, {"d1": 0.02, "d3": 0.01, "d7": None, "d30": None, "d180": None}),
+            SimilarCase("A", "2024-01-01", 0.9, {}, {"d7": 0.05, "d14": -0.02, "d30": None, "d90": None, "d180": None}),
+            SimilarCase("B", "2024-01-02", 0.8, {}, {"d7": -0.01, "d14": 0.03, "d30": None, "d90": None, "d180": None}),
+            SimilarCase("C", "2024-01-03", 0.7, {}, {"d7": 0.02, "d14": 0.01, "d30": None, "d90": None, "d180": None}),
         ]
         stats = _compute_statistics(cases)
-        # d1: 2 wins out of 3
-        assert abs(stats["d1"]["win_rate"] - 2 / 3) < 0.01
-        # d3: 2 wins out of 3
-        assert abs(stats["d3"]["win_rate"] - 2 / 3) < 0.01
-        # d7: all None → should not be in stats or have count=0
-        if "d7" in stats:
-            assert stats["d7"]["count"] == 0
+        # d7: 2 wins out of 3
+        assert abs(stats["d7"]["win_rate"] - 2 / 3) < 0.01
+        # d14: 2 wins out of 3
+        assert abs(stats["d14"]["win_rate"] - 2 / 3) < 0.01
+        # d30: all None → should not be in stats or have count=0
+        if "d30" in stats:
+            assert stats["d30"]["count"] == 0
 
     def test_to_dict_serializable(self):
         """SimilarityResult.to_dict() should be JSON-serializable."""

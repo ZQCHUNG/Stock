@@ -27,8 +27,8 @@ CPU="2"
 TASK_TIMEOUT="3600"   # 60 min max (daily_update ~14min + features ~30min)
 MAX_RETRIES="2"
 
-# Scheduler: weekdays 18:00 Taiwan time (after market close at 13:30)
-SCHEDULE="0 18 * * 1-5"
+# Scheduler: weekdays 19:00 Taiwan time (after market close + data settlement)
+SCHEDULE="0 19 * * 1-5"
 TIMEZONE="Asia/Taipei"
 
 # ---------------------------------------------------------------------------
