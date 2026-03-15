@@ -1,0 +1,766 @@
+{
+  "total_stocks_scanned": 100,
+  "total_signals": 4007,
+  "elapsed_sec": 199.87,
+  "hit_rates": {
+    "5": 0.5079,
+    "10": 0.5363,
+    "20": 0.557
+  },
+  "avg_returns": {
+    "5": 0.014331,
+    "10": 0.029235,
+    "20": 0.066743
+  },
+  "median_returns": {
+    "5": 0.001916,
+    "10": 0.008547,
+    "20": 0.019355
+  },
+  "avg_mae": -0.086389,
+  "signal_attribution": {
+    "spring": {
+      "count": 51,
+      "win_contribution": 30,
+      "avg_score": 59.9,
+      "win_rate": 0.5882
+    },
+    "rsi_divergence": {
+      "count": 271,
+      "win_contribution": 161,
+      "avg_score": 49.6,
+      "win_rate": 0.5941
+    },
+    "bb_squeeze": {
+      "count": 1331,
+      "win_contribution": 666,
+      "avg_score": 74.1,
+      "win_rate": 0.5004
+    },
+    "volume_exhaustion": {
+      "count": 1704,
+      "win_contribution": 923,
+      "avg_score": 71.6,
+      "win_rate": 0.5417
+    },
+    "multiscale_accumulation": {
+      "count": 2544,
+      "win_contribution": 1392,
+      "avg_score": 61.1,
+      "win_rate": 0.5472
+    }
+  },
+  "benchmark_returns": {
+    "5": 0.010379,
+    "10": 0.026034,
+    "20": 0.059616
+  },
+  "per_stock": [
+    {
+      "code": "0050",
+      "signal_count": 45,
+      "avg_score": 65.7,
+      "hit_rate_d10": 0.6,
+      "avg_return_d10": 0.0127
+    },
+    {
+      "code": "0053",
+      "signal_count": 40,
+      "avg_score": 66.3,
+      "hit_rate_d10": 0.7,
+      "avg_return_d10": 0.020615
+    },
+    {
+      "code": "1326",
+      "signal_count": 26,
+      "avg_score": 62.7,
+      "hit_rate_d10": 0.4615,
+      "avg_return_d10": 0.003739
+    },
+    {
+      "code": "1519",
+      "signal_count": 38,
+      "avg_score": 60.1,
+      "hit_rate_d10": 0.5,
+      "avg_return_d10": 0.043835
+    },
+    {
+      "code": "1528",
+      "signal_count": 45,
+      "avg_score": 68.2,
+      "hit_rate_d10": 0.4444,
+      "avg_return_d10": 0.02227
+    },
+    {
+      "code": "1711",
+      "signal_count": 45,
+      "avg_score": 66.5,
+      "hit_rate_d10": 0.4667,
+      "avg_return_d10": 0.005223
+    },
+    {
+      "code": "1727",
+      "signal_count": 41,
+      "avg_score": 69.7,
+      "hit_rate_d10": 0.439,
+      "avg_return_d10": 0.011677
+    },
+    {
+      "code": "2313",
+      "signal_count": 31,
+      "avg_score": 62.8,
+      "hit_rate_d10": 0.3548,
+      "avg_return_d10": 0.037035
+    },
+    {
+      "code": "2327",
+      "signal_count": 38,
+      "avg_score": 65.3,
+      "hit_rate_d10": 0.6053,
+      "avg_return_d10": 0.003767
+    },
+    {
+      "code": "2337",
+      "signal_count": 40,
+      "avg_score": 65.8,
+      "hit_rate_d10": 0.65,
+      "avg_return_d10": 0.063195
+    },
+    {
+      "code": "2344",
+      "signal_count": 32,
+      "avg_score": 72.3,
+      "hit_rate_d10": 0.5,
+      "avg_return_d10": 0.045399
+    },
+    {
+      "code": "2367",
+      "signal_count": 34,
+      "avg_score": 64.7,
+      "hit_rate_d10": 0.4412,
+      "avg_return_d10": 0.017508
+    },
+    {
+      "code": "2368",
+      "signal_count": 37,
+      "avg_score": 67.9,
+      "hit_rate_d10": 0.4324,
+      "avg_return_d10": 0.024831
+    },
+    {
+      "code": "2369",
+      "signal_count": 43,
+      "avg_score": 68.6,
+      "hit_rate_d10": 0.5581,
+      "avg_return_d10": 0.029648
+    },
+    {
+      "code": "2374",
+      "signal_count": 52,
+      "avg_score": 65.7,
+      "hit_rate_d10": 0.5962,
+      "avg_return_d10": 0.029379
+    },
+    {
+      "code": "2408",
+      "signal_count": 35,
+      "avg_score": 67.4,
+      "hit_rate_d10": 0.7714,
+      "avg_return_d10": 0.123502
+    },
+    {
+      "code": "2413",
+      "signal_count": 48,
+      "avg_score": 66.0,
+      "hit_rate_d10": 0.5625,
+      "avg_return_d10": 0.012239
+    },
+    {
+      "code": "2449",
+      "signal_count": 38,
+      "avg_score": 68.0,
+      "hit_rate_d10": 0.5263,
+      "avg_return_d10": 0.015968
+    },
+    {
+      "code": "2451",
+      "signal_count": 41,
+      "avg_score": 66.8,
+      "hit_rate_d10": 0.561,
+      "avg_return_d10": 0.02954
+    },
+    {
+      "code": "2481",
+      "signal_count": 36,
+      "avg_score": 62.3,
+      "hit_rate_d10": 0.5833,
+      "avg_return_d10": 0.021963
+    },
+    {
+      "code": "2485",
+      "signal_count": 40,
+      "avg_score": 67.6,
+      "hit_rate_d10": 0.625,
+      "avg_return_d10": 0.038973
+    },
+    {
+      "code": "2740",
+      "signal_count": 51,
+      "avg_score": 72.5,
+      "hit_rate_d10": 0.3922,
+      "avg_return_d10": -0.014202
+    },
+    {
+      "code": "3006",
+      "signal_count": 46,
+      "avg_score": 59.6,
+      "hit_rate_d10": 0.6087,
+      "avg_return_d10": 0.030396
+    },
+    {
+      "code": "3016",
+      "signal_count": 41,
+      "avg_score": 67.4,
+      "hit_rate_d10": 0.4878,
+      "avg_return_d10": 0.011212
+    },
+    {
+      "code": "3037",
+      "signal_count": 33,
+      "avg_score": 61.7,
+      "hit_rate_d10": 0.7273,
+      "avg_return_d10": 0.064219
+    },
+    {
+      "code": "3081",
+      "signal_count": 58,
+      "avg_score": 74.1,
+      "hit_rate_d10": 0.7586,
+      "avg_return_d10": 0.074554
+    },
+    {
+      "code": "3105",
+      "signal_count": 40,
+      "avg_score": 66.2,
+      "hit_rate_d10": 0.475,
+      "avg_return_d10": -0.004461
+    },
+    {
+      "code": "3135",
+      "signal_count": 34,
+      "avg_score": 66.7,
+      "hit_rate_d10": 0.5882,
+      "avg_return_d10": 0.053831
+    },
+    {
+      "code": "3138",
+      "signal_count": 37,
+      "avg_score": 66.6,
+      "hit_rate_d10": 0.5946,
+      "avg_return_d10": 0.027957
+    },
+    {
+      "code": "3163",
+      "signal_count": 47,
+      "avg_score": 69.6,
+      "hit_rate_d10": 0.7021,
+      "avg_return_d10": 0.076605
+    },
+    {
+      "code": "3167",
+      "signal_count": 51,
+      "avg_score": 70.7,
+      "hit_rate_d10": 0.5098,
+      "avg_return_d10": 0.047001
+    },
+    {
+      "code": "3189",
+      "signal_count": 46,
+      "avg_score": 63.7,
+      "hit_rate_d10": 0.6304,
+      "avg_return_d10": 0.024042
+    },
+    {
+      "code": "3205",
+      "signal_count": 36,
+      "avg_score": 69.4,
+      "hit_rate_d10": 0.5,
+      "avg_return_d10": 0.002428
+    },
+    {
+      "code": "3229",
+      "signal_count": 52,
+      "avg_score": 65.6,
+      "hit_rate_d10": 0.3654,
+      "avg_return_d10": 0.003898
+    },
+    {
+      "code": "3234",
+      "signal_count": 47,
+      "avg_score": 64.9,
+      "hit_rate_d10": 0.4894,
+      "avg_return_d10": 0.039713
+    },
+    {
+      "code": "3260",
+      "signal_count": 38,
+      "avg_score": 70.6,
+      "hit_rate_d10": 0.7368,
+      "avg_return_d10": 0.056458
+    },
+    {
+      "code": "3324",
+      "signal_count": 34,
+      "avg_score": 68.5,
+      "hit_rate_d10": 0.5882,
+      "avg_return_d10": 0.036376
+    },
+    {
+      "code": "3443",
+      "signal_count": 23,
+      "avg_score": 61.2,
+      "hit_rate_d10": 0.5652,
+      "avg_return_d10": 0.018684
+    },
+    {
+      "code": "3491",
+      "signal_count": 33,
+      "avg_score": 63.0,
+      "hit_rate_d10": 0.6667,
+      "avg_return_d10": 0.048455
+    },
+    {
+      "code": "3535",
+      "signal_count": 46,
+      "avg_score": 61.4,
+      "hit_rate_d10": 0.5,
+      "avg_return_d10": 0.033963
+    },
+    {
+      "code": "3555",
+      "signal_count": 47,
+      "avg_score": 66.3,
+      "hit_rate_d10": 0.4255,
+      "avg_return_d10": 0.022149
+    },
+    {
+      "code": "3576",
+      "signal_count": 36,
+      "avg_score": 65.3,
+      "hit_rate_d10": 0.4167,
+      "avg_return_d10": -0.002115
+    },
+    {
+      "code": "3581",
+      "signal_count": 50,
+      "avg_score": 65.9,
+      "hit_rate_d10": 0.54,
+      "avg_return_d10": 0.028281
+    },
+    {
+      "code": "3624",
+      "signal_count": 38,
+      "avg_score": 63.3,
+      "hit_rate_d10": 0.5263,
+      "avg_return_d10": 0.004997
+    },
+    {
+      "code": "3706",
+      "signal_count": 46,
+      "avg_score": 64.7,
+      "hit_rate_d10": 0.6739,
+      "avg_return_d10": 0.048756
+    },
+    {
+      "code": "3707",
+      "signal_count": 44,
+      "avg_score": 70.5,
+      "hit_rate_d10": 0.4773,
+      "avg_return_d10": -0.002424
+    },
+    {
+      "code": "3711",
+      "signal_count": 29,
+      "avg_score": 64.4,
+      "hit_rate_d10": 0.6552,
+      "avg_return_d10": 0.035022
+    },
+    {
+      "code": "3715",
+      "signal_count": 33,
+      "avg_score": 64.9,
+      "hit_rate_d10": 0.5455,
+      "avg_return_d10": 0.025993
+    },
+    {
+      "code": "4304",
+      "signal_count": 47,
+      "avg_score": 70.4,
+      "hit_rate_d10": 0.383,
+      "avg_return_d10": -0.009594
+    },
+    {
+      "code": "4542",
+      "signal_count": 46,
+      "avg_score": 62.4,
+      "hit_rate_d10": 0.5217,
+      "avg_return_d10": 0.021119
+    },
+    {
+      "code": "4577",
+      "signal_count": 58,
+      "avg_score": 69.4,
+      "hit_rate_d10": 0.5862,
+      "avg_return_d10": 0.046669
+    },
+    {
+      "code": "4712",
+      "signal_count": 2,
+      "avg_score": 100.0,
+      "hit_rate_d10": 0.0,
+      "avg_return_d10": 0.0
+    },
+    {
+      "code": "4764",
+      "signal_count": 32,
+      "avg_score": 60.5,
+      "hit_rate_d10": 0.5625,
+      "avg_return_d10": 0.036544
+    },
+    {
+      "code": "4768",
+      "signal_count": 31,
+      "avg_score": 64.5,
+      "hit_rate_d10": 0.4516,
+      "avg_return_d10": 0.030852
+    },
+    {
+      "code": "4804",
+      "signal_count": 54,
+      "avg_score": 82.1,
+      "hit_rate_d10": 0.2778,
+      "avg_return_d10": 0.001979
+    },
+    {
+      "code": "4950",
+      "signal_count": 45,
+      "avg_score": 71.2,
+      "hit_rate_d10": 0.2889,
+      "avg_return_d10": 0.022776
+    },
+    {
+      "code": "4967",
+      "signal_count": 42,
+      "avg_score": 68.3,
+      "hit_rate_d10": 0.5476,
+      "avg_return_d10": 0.029315
+    },
+    {
+      "code": "4971",
+      "signal_count": 41,
+      "avg_score": 67.8,
+      "hit_rate_d10": 0.561,
+      "avg_return_d10": 0.042238
+    },
+    {
+      "code": "4973",
+      "signal_count": 47,
+      "avg_score": 65.6,
+      "hit_rate_d10": 0.4894,
+      "avg_return_d10": 0.000716
+    },
+    {
+      "code": "4989",
+      "signal_count": 40,
+      "avg_score": 65.4,
+      "hit_rate_d10": 0.55,
+      "avg_return_d10": 0.038635
+    },
+    {
+      "code": "4991",
+      "signal_count": 52,
+      "avg_score": 72.6,
+      "hit_rate_d10": 0.5962,
+      "avg_return_d10": 0.073797
+    },
+    {
+      "code": "5274",
+      "signal_count": 33,
+      "avg_score": 64.5,
+      "hit_rate_d10": 0.5758,
+      "avg_return_d10": 0.021641
+    },
+    {
+      "code": "5289",
+      "signal_count": 28,
+      "avg_score": 61.7,
+      "hit_rate_d10": 0.4643,
+      "avg_return_d10": 0.015672
+    },
+    {
+      "code": "5314",
+      "signal_count": 52,
+      "avg_score": 65.2,
+      "hit_rate_d10": 0.5769,
+      "avg_return_d10": 0.093795
+    },
+    {
+      "code": "5340",
+      "signal_count": 46,
+      "avg_score": 66.1,
+      "hit_rate_d10": 0.5217,
+      "avg_return_d10": 0.038537
+    },
+    {
+      "code": "5351",
+      "signal_count": 35,
+      "avg_score": 67.1,
+      "hit_rate_d10": 0.6,
+      "avg_return_d10": 0.035322
+    },
+    {
+      "code": "5386",
+      "signal_count": 49,
+      "avg_score": 69.6,
+      "hit_rate_d10": 0.551,
+      "avg_return_d10": 0.018434
+    },
+    {
+      "code": "5475",
+      "signal_count": 41,
+      "avg_score": 70.3,
+      "hit_rate_d10": 0.5854,
+      "avg_return_d10": 0.036531
+    },
+    {
+      "code": "5498",
+      "signal_count": 32,
+      "avg_score": 63.8,
+      "hit_rate_d10": 0.4688,
+      "avg_return_d10": 0.008883
+    },
+    {
+      "code": "6127",
+      "signal_count": 48,
+      "avg_score": 67.8,
+      "hit_rate_d10": 0.5208,
+      "avg_return_d10": 0.01794
+    },
+    {
+      "code": "6217",
+      "signal_count": 35,
+      "avg_score": 61.8,
+      "hit_rate_d10": 0.4857,
+      "avg_return_d10": 0.016625
+    },
+    {
+      "code": "6223",
+      "signal_count": 42,
+      "avg_score": 63.8,
+      "hit_rate_d10": 0.6905,
+      "avg_return_d10": 0.046407
+    },
+    {
+      "code": "6239",
+      "signal_count": 34,
+      "avg_score": 64.3,
+      "hit_rate_d10": 0.4706,
+      "avg_return_d10": 0.036035
+    },
+    {
+      "code": "6285",
+      "signal_count": 35,
+      "avg_score": 66.3,
+      "hit_rate_d10": 0.6857,
+      "avg_return_d10": 0.031514
+    },
+    {
+      "code": "6291",
+      "signal_count": 51,
+      "avg_score": 69.8,
+      "hit_rate_d10": 0.5098,
+      "avg_return_d10": 0.033034
+    },
+    {
+      "code": "6425",
+      "signal_count": 48,
+      "avg_score": 68.1,
+      "hit_rate_d10": 0.4583,
+      "avg_return_d10": 0.00503
+    },
+    {
+      "code": "6426",
+      "signal_count": 42,
+      "avg_score": 70.6,
+      "hit_rate_d10": 0.5714,
+      "avg_return_d10": 0.021083
+    },
+    {
+      "code": "6442",
+      "signal_count": 37,
+      "avg_score": 69.4,
+      "hit_rate_d10": 0.5946,
+      "avg_return_d10": 0.08331
+    },
+    {
+      "code": "6443",
+      "signal_count": 29,
+      "avg_score": 64.5,
+      "hit_rate_d10": 0.4483,
+      "avg_return_d10": -0.022911
+    },
+    {
+      "code": "6449",
+      "signal_count": 48,
+      "avg_score": 64.9,
+      "hit_rate_d10": 0.4375,
+      "avg_return_d10": -0.000666
+    },
+    {
+      "code": "6465",
+      "signal_count": 47,
+      "avg_score": 67.3,
+      "hit_rate_d10": 0.3191,
+      "avg_return_d10": -0.008728
+    },
+    {
+      "code": "6485",
+      "signal_count": 41,
+      "avg_score": 68.4,
+      "hit_rate_d10": 0.3659,
+      "avg_return_d10": -0.004505
+    },
+    {
+      "code": "6510",
+      "signal_count": 27,
+      "avg_score": 59.8,
+      "hit_rate_d10": 0.4815,
+      "avg_return_d10": 0.014188
+    },
+    {
+      "code": "6515",
+      "signal_count": 35,
+      "avg_score": 64.1,
+      "hit_rate_d10": 0.7714,
+      "avg_return_d10": 0.082843
+    },
+    {
+      "code": "6531",
+      "signal_count": 41,
+      "avg_score": 64.6,
+      "hit_rate_d10": 0.5366,
+      "avg_return_d10": 0.021191
+    },
+    {
+      "code": "6588",
+      "signal_count": 44,
+      "avg_score": 68.7,
+      "hit_rate_d10": 0.4545,
+      "avg_return_d10": 0.002709
+    },
+    {
+      "code": "6683",
+      "signal_count": 39,
+      "avg_score": 63.5,
+      "hit_rate_d10": 0.641,
+      "avg_return_d10": 0.030318
+    },
+    {
+      "code": "6770",
+      "signal_count": 37,
+      "avg_score": 64.3,
+      "hit_rate_d10": 0.5676,
+      "avg_return_d10": 0.055235
+    },
+    {
+      "code": "6805",
+      "signal_count": 26,
+      "avg_score": 61.9,
+      "hit_rate_d10": 0.6923,
+      "avg_return_d10": 0.028759
+    },
+    {
+      "code": "6823",
+      "signal_count": 42,
+      "avg_score": 73.4,
+      "hit_rate_d10": 0.4286,
+      "avg_return_d10": 0.015091
+    },
+    {
+      "code": "7728",
+      "signal_count": 40,
+      "avg_score": 69.6,
+      "hit_rate_d10": 0.575,
+      "avg_return_d10": 0.041411
+    },
+    {
+      "code": "7751",
+      "signal_count": 34,
+      "avg_score": 65.3,
+      "hit_rate_d10": 0.5294,
+      "avg_return_d10": 0.025115
+    },
+    {
+      "code": "7795",
+      "signal_count": 13,
+      "avg_score": 61.7,
+      "hit_rate_d10": 0.6923,
+      "avg_return_d10": 0.057011
+    },
+    {
+      "code": "8021",
+      "signal_count": 43,
+      "avg_score": 69.6,
+      "hit_rate_d10": 0.6047,
+      "avg_return_d10": 0.051034
+    },
+    {
+      "code": "8042",
+      "signal_count": 61,
+      "avg_score": 71.7,
+      "hit_rate_d10": 0.541,
+      "avg_return_d10": 0.032746
+    },
+    {
+      "code": "8046",
+      "signal_count": 36,
+      "avg_score": 65.5,
+      "hit_rate_d10": 0.4444,
+      "avg_return_d10": 0.029397
+    },
+    {
+      "code": "8047",
+      "signal_count": 42,
+      "avg_score": 67.4,
+      "hit_rate_d10": 0.5238,
+      "avg_return_d10": 0.022259
+    },
+    {
+      "code": "8074",
+      "signal_count": 51,
+      "avg_score": 67.4,
+      "hit_rate_d10": 0.5686,
+      "avg_return_d10": 0.043746
+    },
+    {
+      "code": "8299",
+      "signal_count": 36,
+      "avg_score": 63.4,
+      "hit_rate_d10": 0.5556,
+      "avg_return_d10": 0.051057
+    },
+    {
+      "code": "8996",
+      "signal_count": 29,
+      "avg_score": 69.6,
+      "hit_rate_d10": 0.5862,
+      "avg_return_d10": 0.042483
+    }
+  ],
+  "phase_distribution": {
+    "STRONG": 1212,
+    "ALERT": 2795
+  },
+  "signal_count_detail": 4007,
+  "errors": []
+}
