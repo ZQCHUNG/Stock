@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk, strategies, ws, cluster, signals, patterns, risk_calc, market, system_export, system_ops
+from backend.routers import stocks, analysis, backtest, report, recommend, screener, watchlist, system, configs, bt_results, portfolio, alerts, sqs_performance, risk, strategies, ws, cluster, signals, patterns, risk_calc, market, system_export, system_ops, similarity
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +241,7 @@ app.include_router(sqs_performance.router, prefix="/api/sqs-performance", tags=[
 app.include_router(risk.router, prefix="/api/risk", tags=["risk"])
 app.include_router(strategies.router, prefix="/api/strategies", tags=["strategies"])
 app.include_router(cluster.router, prefix="/api/cluster", tags=["cluster"])
+app.include_router(similarity.router, prefix="/api/similarity", tags=["similarity"])
 
 # R55-1: WebSocket + market data REST endpoints (no prefix — ws routes are top-level)
 app.include_router(ws.router, tags=["websocket"])
