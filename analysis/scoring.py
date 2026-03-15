@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # 台股來回交易成本: 手續費 0.1425%×2 + 稅 0.3% + 滑價 0.1%×2
-TRANSACTION_COST = 0.00785
+TRANSACTION_COST = 0.005855  # 3-fold discount: 0.04275%×2 + tax 0.3% + slippage 0.1%×2
 
 # SQS grade thresholds
 SQS_DIAMOND = 80   # 鑽石級機會

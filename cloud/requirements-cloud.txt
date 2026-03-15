@@ -1,0 +1,20 @@
+# Data pipeline dependencies (no FastAPI, no frontend)
+# Derived from: data/daily_update.py, data/build_features.py, analysis/*
+
+# Core data
+yfinance>=0.2.31
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+
+# Data sources
+requests>=2.31.0
+feedparser>=6.0.0
+lxml>=4.9.0
+twstock>=1.4.0
+
+# Cache (used by data/fetcher.py — gracefully degrades if no Redis server)
+redis>=5.0.0
+
+# GCS upload for results
+google-cloud-storage>=2.14.0

@@ -1,0 +1,42 @@
+# Frontend (not needed for data pipeline)
+frontend/
+node_modules/
+
+# Backend server (not needed — job runs standalone)
+backend/
+
+# Tests
+tests/
+
+# Notebooks
+colab/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+
+# Large data files (downloaded at runtime, uploaded to GCS)
+data/pattern_data/raw/
+data/pattern_data/features/*.parquet
+data/cache/
+data/backup/
+data/browser_state/
+data/daily_reports/
+data/*.parquet
+data/*.db
+
+# Docs
+*.md
+memory/
+ARCHITECTURE.md
+DEVELOPMENT.md
+ROADMAP.md
+
+# Cloud build artifacts
+cloud/deploy.sh
