@@ -228,13 +228,14 @@ python -m pytest tests/ -q
 | 1 | P0 | Cloud Run 5 天穩定驗證 | 10 | 1 | 進行中 | — |
 | 2 | P0 | TWSE 交易日曆（補國定假日判斷） | 7 | 3 | 待開始 | #1 |
 
-### Phase 2 — 核心掃描模式 (21 SP, ~2.6 週)
+### Phase 2 — 核心掃描模式 (26 SP, ~3.3 週)
 
 | # | Priority | Item | Value | SP | Status | Depends |
 |---|----------|------|:-----:|:--:|--------|---------|
-| 3 | P0 | 掃描模式後端上線 (Golden Template → Cloud Run) | 10 | 8 | 待開始 | #1 完成 |
+| 3 | P0 | 掃描模式後端上線 (Golden Template → Cloud Run + 每日快照 + forward return 回填) | 10 | 10 | 待開始 | #1 完成 |
 | 4 | P0 | Dashboard Section 2：掃描模式 UI (Top 15) | 10 | 8 | 待開始 | #3 |
 | 5 | P1 | Multi+RSI Veto 整合進 V4 (PF 1.94, veto-only) | 8 | 5 | 待開始 | #1 完成 |
+| 5.1 | P1 | 月度績效報表 + Model Drift 警報 (TG 推送, vs 大盤 alpha) | 9 | 5 | 待開始 | #3 |
 
 ### Phase 3 — 覆蓋擴展 (8 SP, ~1 週)
 
@@ -268,7 +269,7 @@ python -m pytest tests/ -q
 | 16 | P3 | DTW Rerank (掃描模式上線 3 個月後評估) | 5 | 5 | 待開始 | #3 上線 3 個月 |
 | 17 | P3 | SQS / R88 解凍評估 (3 個月後) | 4 | 3 | 待開始 | 掃描模式上線 3 個月 |
 
-**Total: 16 items, 64 SP, ~8 週**
+**Total: 17 items, 71 SP, ~9 週**
 
 ---
 
