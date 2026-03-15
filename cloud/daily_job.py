@@ -1,13 +1,19 @@
 """Daily Stock Data Update Job for Cloud Run.
 
 Runs the complete daily pipeline as a Cloud Run Job:
-  1. Run daily_update.py (close matrix, RS, screener, forward returns, signals)
-  2. Run build_features.py (65 features, price cache, forward returns)
-  3. Upload results to GCS bucket
-  4. Send completion notification via LINE
+  1. Check if today is a trading day (skip weekends)
+  2. Run daily_update.py (close matrix, RS, screener, forward returns, signals)
+  3. Run build_features.py (65 features, price cache, forward returns)
+  4. Upload results to GCS bucket
+  5. Send completion notification via LINE (3 alert levels)
 
 Designed to be idempotent — safe to re-run on the same day.
 Each step catches its own errors so later steps still execute.
+
+Alert levels:
+  SUCCESS  — Job completed normally
+  WARNING  — Job completed but with issues (partial failures, slow build, stock drop)
+  ABORT    — Critical failure, pipeline stopped
 
 Environment variables:
   GCS_BUCKET       — GCS bucket name for result uploads (required)
@@ -43,6 +49,12 @@ LINE_TOKEN = os.environ.get("LINE_TOKEN", "")
 SKIP_FEATURES = os.environ.get("SKIP_FEATURES", "0") == "1"
 DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
 
+# [PLACEHOLDER: BUILD_TIME_WARNING_THRESHOLD_001] 30 min = 1800s
+BUILD_TIME_WARNING_S = 1800
+
+# [PLACEHOLDER: STOCK_COUNT_DROP_THRESHOLD_001] 10% drop triggers warning
+STOCK_COUNT_DROP_PCT = 0.10
+
 # Files to upload to GCS after pipeline completes
 UPLOAD_ARTIFACTS = [
     "data/pit_close_matrix.parquet",
@@ -55,21 +67,52 @@ UPLOAD_ARTIFACTS = [
     "data/screener.db",
 ]
 
+# Alert level constants
+ALERT_SUCCESS = "SUCCESS"
+ALERT_WARNING = "WARNING"
+ALERT_ABORT = "ABORT"
+
+
+# ---------------------------------------------------------------------------
+# Trading Day Check
+# ---------------------------------------------------------------------------
+def is_trading_day(target_date: date = None) -> bool:
+    """Check if the given date is a Taiwan stock trading day.
+
+    Currently checks weekday only (Mon-Fri = trading day).
+    Holidays can be added later via a holiday calendar.
+
+    Args:
+        target_date: Date to check. Defaults to today.
+
+    Returns:
+        True if the date is a trading day (weekday), False otherwise.
+    """
+    if target_date is None:
+        target_date = date.today()
+    # Monday=0 ... Friday=4 are weekdays; Saturday=5, Sunday=6 are weekends
+    return target_date.weekday() < 5
+
 
 # ---------------------------------------------------------------------------
 # Data Freshness Check
 # ---------------------------------------------------------------------------
-def check_data_freshness() -> date:
-    """Verify close matrix has today's data. Abort if stale.
+def check_data_freshness(today_override: date = None) -> date:
+    """Verify close matrix has recent data. Abort if stale.
 
-    Allow for weekends/holidays: max gap is 3 calendar days
-    (e.g., Monday job checking for Friday's data).
+    On a trading day, gap > 1 calendar day triggers abort (data should be
+    from today or yesterday at most). Weekends are handled by the
+    is_trading_day() gate in main() — this function is only called on
+    trading days.
+
+    Args:
+        today_override: Override today's date (for testing). Defaults to date.today().
 
     Returns:
         The latest date found in the close matrix.
 
     Raises:
-        RuntimeError: If data is stale (gap > 3 calendar days).
+        RuntimeError: If data is stale (gap > 1 calendar day on a trading day).
         FileNotFoundError: If close matrix file is missing.
     """
     import pandas as pd
@@ -80,12 +123,12 @@ def check_data_freshness() -> date:
 
     close = pd.read_parquet(close_path)
     latest_date = close.index[-1].date() if hasattr(close.index[-1], 'date') else close.index[-1]
-    today = date.today()
+    today = today_override or date.today()
 
     gap = (today - latest_date).days
     logger.info("Data freshness: latest=%s, today=%s, gap=%d days", latest_date, today, gap)
 
-    if gap > 3:
+    if gap > 1:
         raise RuntimeError(
             f"Data is stale! Latest: {latest_date}, Today: {today}, Gap: {gap} days. "
             f"Aborting to prevent running with outdated data."
@@ -197,63 +240,124 @@ def step_upload_gcs() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Step 4: Send Notification
+# Alert Level Determination
+# ---------------------------------------------------------------------------
+def determine_alert_level(results: dict) -> tuple:
+    """Determine alert level and collect warning/error messages.
+
+    Args:
+        results: Pipeline results dict.
+
+    Returns:
+        Tuple of (alert_level, list_of_issues).
+        alert_level is one of ALERT_SUCCESS, ALERT_WARNING, ALERT_ABORT.
+    """
+    issues = []
+
+    daily = results.get("daily_update", {})
+    features = results.get("build_features", {})
+    gcs = results.get("gcs_upload", {})
+    freshness = results.get("data_freshness", {})
+
+    # ABORT conditions: critical step failed entirely
+    if daily.get("status") == "error":
+        return ALERT_ABORT, [f"Daily update failed: {daily.get('error', '?')[:120]}"]
+    if freshness.get("status") == "error":
+        return ALERT_ABORT, [f"Data freshness failed: {freshness.get('error', '?')[:120]}"]
+    if features.get("status") == "error":
+        return ALERT_ABORT, [f"Feature build failed: {features.get('error', '?')[:120]}"]
+
+    # WARNING conditions
+    # 1. Some stocks failed to fetch
+    daily_result = daily.get("result", {})
+    failed_stocks = daily_result.get("failed_stocks", 0)
+    if failed_stocks > 0:
+        issues.append(f"{failed_stocks} stocks failed to fetch")
+
+    # 2. Build time > 30 min
+    total_elapsed = results.get("total_elapsed_s", 0)
+    if total_elapsed > BUILD_TIME_WARNING_S:
+        issues.append(f"Build time {total_elapsed/60:.1f} min > {BUILD_TIME_WARNING_S/60:.0f} min threshold")
+
+    # 3. Stock count dropped > 10% from yesterday
+    stock_count = daily_result.get("stock_count", 0)
+    prev_stock_count = daily_result.get("prev_stock_count", 0)
+    if prev_stock_count > 0 and stock_count > 0:
+        drop_pct = (prev_stock_count - stock_count) / prev_stock_count
+        if drop_pct > STOCK_COUNT_DROP_PCT:
+            issues.append(
+                f"Stock count dropped {drop_pct:.1%}: {prev_stock_count} -> {stock_count}"
+            )
+
+    # 4. GCS upload had partial failures
+    if gcs.get("status") == "error":
+        issues.append(f"GCS upload failed: {gcs.get('error', '?')[:80]}")
+    elif gcs.get("failed", 0) > 0:
+        issues.append(f"GCS: {gcs['failed']} artifacts missing")
+
+    if issues:
+        return ALERT_WARNING, issues
+
+    return ALERT_SUCCESS, []
+
+
+# ---------------------------------------------------------------------------
+# Step 4: Send Notification (3 alert levels)
 # ---------------------------------------------------------------------------
 def step_notify(results: dict) -> dict:
-    """Send LINE Notify with pipeline summary."""
+    """Send LINE Notify with pipeline summary. Always sends a notification.
+
+    Alert levels:
+        SUCCESS — brief confirmation with stock count and duration
+        WARNING — completed with issues listed
+        ABORT   — critical failure with reason
+    """
     logger.info("=" * 50)
     logger.info("Step 4: Notification")
     logger.info("=" * 50)
 
+    alert_level, issues = determine_alert_level(results)
+    results["alert_level"] = alert_level
+    results["alert_issues"] = issues
+
+    logger.info("Alert level: %s, issues: %s", alert_level, issues)
+
     if not LINE_TOKEN:
         logger.info("LINE_TOKEN not set — skipping notification")
-        return {"status": "skipped"}
+        return {"status": "skipped", "alert_level": alert_level}
 
     try:
         import requests
 
-        today = datetime.now().strftime("%Y-%m-%d")
         total_elapsed = results.get("total_elapsed_s", 0)
+        daily_result = results.get("daily_update", {}).get("result", {})
+        stock_count = daily_result.get("stock_count", 0)
 
-        # Build summary
-        daily = results.get("daily_update", {})
-        features = results.get("build_features", {})
-        gcs = results.get("gcs_upload", {})
+        # Build message based on alert level
+        if alert_level == ALERT_SUCCESS:
+            stock_str = f"{stock_count:,}" if stock_count else "?"
+            elapsed_min = total_elapsed / 60
+            message = f"\nDaily update OK: {stock_str} stocks, {elapsed_min:.1f} min"
 
-        errors = []
-        if daily.get("status") == "error":
-            errors.append(f"DailyUpdate: {daily.get('error', '?')[:80]}")
-        if features.get("status") == "error":
-            errors.append(f"Features: {features.get('error', '?')[:80]}")
-        if gcs.get("status") == "error":
-            errors.append(f"GCS: {gcs.get('error', '?')[:80]}")
+        elif alert_level == ALERT_WARNING:
+            issue_list = "\n".join(f"  - {i}" for i in issues)
+            message = f"\nDaily update completed with warnings:\n{issue_list}"
 
-        status_icon = "RED" if errors else "GREEN"
-
-        lines = [
-            f"[Cloud Run] {today} Daily Job {status_icon}",
-            f"Total: {total_elapsed:.0f}s",
-            f"DailyUpdate: {daily.get('status', '?')}",
-            f"Features: {features.get('status', '?')}",
-            f"GCS: {gcs.get('status', '?')} ({gcs.get('uploaded', 0)} files)",
-        ]
-        if errors:
-            lines.append("Errors:")
-            lines.extend(f"  - {e}" for e in errors)
-
-        message = "\n".join(lines)
+        else:  # ALERT_ABORT
+            reason = issues[0] if issues else "Unknown error"
+            message = f"\nDaily update ABORTED: {reason}"
 
         resp = requests.post(
             "https://notify-api.line.me/api/notify",
             headers={"Authorization": f"Bearer {LINE_TOKEN}"},
-            data={"message": f"\n{message}"},
+            data={"message": message},
             timeout=10,
         )
-        logger.info("LINE notify sent (status=%d)", resp.status_code)
-        return {"status": "ok", "http_status": resp.status_code}
+        logger.info("LINE notify sent (level=%s, status=%d)", alert_level, resp.status_code)
+        return {"status": "ok", "http_status": resp.status_code, "alert_level": alert_level}
     except Exception as e:
         logger.error("Notification FAILED: %s", e)
-        return {"status": "error", "error": str(e)}
+        return {"status": "error", "error": str(e), "alert_level": alert_level}
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +372,12 @@ def main():
     logger.info("  SKIP_FEATURES: %s", SKIP_FEATURES)
     logger.info("  DRY_RUN: %s", DRY_RUN)
     logger.info("=" * 60)
+
+    # Weekend gate: skip entirely on non-trading days
+    if not is_trading_day():
+        weekday_name = date.today().strftime("%A")
+        logger.info("Today is %s — not a trading day. Skipping job.", weekday_name)
+        sys.exit(0)
 
     t0 = time.time()
     results = {}
@@ -305,7 +415,7 @@ def main():
     results["total_elapsed_s"] = round(total_elapsed, 1)
     results["timestamp"] = datetime.now().isoformat()
 
-    # Step 4: Notification
+    # Step 4: Notification (always sends)
     results["notification"] = step_notify(results)
 
     # Summary
@@ -315,12 +425,9 @@ def main():
     logger.info("=" * 60)
 
     # Exit with error code if critical steps failed
-    critical_failed = (
-        results["daily_update"].get("status") == "error"
-        or results["build_features"].get("status") == "error"
-    )
-    if critical_failed:
-        logger.error("One or more critical steps failed — exiting with code 1")
+    alert_level = results.get("alert_level", ALERT_SUCCESS)
+    if alert_level == ALERT_ABORT:
+        logger.error("Critical failure — exiting with code 1")
         sys.exit(1)
 
 
