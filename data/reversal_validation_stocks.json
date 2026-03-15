@@ -1,0 +1,902 @@
+[
+  {
+    "code": "0053",
+    "drop_pct": -19.985615836128023,
+    "recovery_pct": 834.5925560707258,
+    "min_date": "2022-07-04",
+    "min_price": 19.19552993774414,
+    "latest_price": 169.60000610351562,
+    "data_points": 250
+  },
+  {
+    "code": "8021",
+    "drop_pct": -22.06506411917701,
+    "recovery_pct": 801.5244054079941,
+    "min_date": "2025-05-09",
+    "min_price": 26.843421936035156,
+    "latest_price": 203.0,
+    "data_points": 250
+  },
+  {
+    "code": "2344",
+    "drop_pct": -26.303317963960517,
+    "recovery_pct": 736.012851481878,
+    "min_date": "2025-05-09",
+    "min_price": 15.550000190734863,
+    "latest_price": 105.5,
+    "data_points": 250
+  },
+  {
+    "code": "2408",
+    "drop_pct": -32.864241369784494,
+    "recovery_pct": 705.1788067645543,
+    "min_date": "2025-07-22",
+    "min_price": 40.54999923706055,
+    "latest_price": 278.0,
+    "data_points": 250
+  },
+  {
+    "code": "6515",
+    "drop_pct": -37.95918299962181,
+    "recovery_pct": 459.51232955487126,
+    "min_date": "2025-05-09",
+    "min_price": 894.5289916992188,
+    "latest_price": 5005.0,
+    "data_points": 250
+  },
+  {
+    "code": "8299",
+    "drop_pct": -23.636364203182787,
+    "recovery_pct": 430.63543431049436,
+    "min_date": "2025-05-09",
+    "min_price": 448.51885986328125,
+    "latest_price": 1855.0,
+    "data_points": 250
+  },
+  {
+    "code": "6770",
+    "drop_pct": -23.684210526315788,
+    "recovery_pct": 379.3103448275862,
+    "min_date": "2025-05-09",
+    "min_price": 14.5,
+    "latest_price": 63.099998474121094,
+    "data_points": 250
+  },
+  {
+    "code": "6442",
+    "drop_pct": -29.152824735806504,
+    "recovery_pct": 374.4674717469121,
+    "min_date": "2025-05-09",
+    "min_price": 418.36376953125,
+    "latest_price": 1950.0,
+    "data_points": 250
+  },
+  {
+    "code": "4304",
+    "drop_pct": -30.545455759221856,
+    "recovery_pct": 362.0418829051442,
+    "min_date": "2025-08-26",
+    "min_price": 7.639999866485596,
+    "latest_price": 29.899999618530273,
+    "data_points": 250
+  },
+  {
+    "code": "3491",
+    "drop_pct": -35.89743704165153,
+    "recovery_pct": 356.2228374559952,
+    "min_date": "2025-06-03",
+    "min_price": 306.8675842285156,
+    "latest_price": 1400.0,
+    "data_points": 250
+  },
+  {
+    "code": "4768",
+    "drop_pct": -38.62275497932765,
+    "recovery_pct": 353.80487129315827,
+    "min_date": "2025-06-02",
+    "min_price": 97.61904907226562,
+    "latest_price": 388.0,
+    "data_points": 250
+  },
+  {
+    "code": "6223",
+    "drop_pct": -25.92592360767285,
+    "recovery_pct": 337.6410627248706,
+    "min_date": "2025-05-19",
+    "min_price": 650.0761108398438,
+    "latest_price": 2790.0,
+    "data_points": 250
+  },
+  {
+    "code": "3135",
+    "drop_pct": -22.850128527334938,
+    "recovery_pct": 336.5379441320149,
+    "min_date": "2025-09-02",
+    "min_price": 30.69607162475586,
+    "latest_price": 114.5,
+    "data_points": 250
+  },
+  {
+    "code": "8047",
+    "drop_pct": -31.172066255110604,
+    "recovery_pct": 334.7826026863623,
+    "min_date": "2025-05-09",
+    "min_price": 13.800000190734863,
+    "latest_price": 46.900001525878906,
+    "data_points": 250
+  },
+  {
+    "code": "2485",
+    "drop_pct": -29.372936774349824,
+    "recovery_pct": 330.3738323171354,
+    "min_date": "2025-06-23",
+    "min_price": 10.699999809265137,
+    "latest_price": 36.79999923706055,
+    "data_points": 250
+  },
+  {
+    "code": "8996",
+    "drop_pct": -32.621952717073626,
+    "recovery_pct": 327.6971360548157,
+    "min_date": "2025-05-09",
+    "min_price": 217.67739868164062,
+    "latest_price": 906.0,
+    "data_points": 250
+  },
+  {
+    "code": "0050",
+    "drop_pct": -19.985615836128023,
+    "recovery_pct": 322.4941886842847,
+    "min_date": "2022-07-04",
+    "min_price": 19.19552993774414,
+    "latest_price": 75.94999694824219,
+    "data_points": 250
+  },
+  {
+    "code": "3037",
+    "drop_pct": -28.59315264206969,
+    "recovery_pct": 318.2880338184031,
+    "min_date": "2025-05-09",
+    "min_price": 92.75904846191406,
+    "latest_price": 369.0,
+    "data_points": 250
+  },
+  {
+    "code": "8046",
+    "drop_pct": -30.10380869813853,
+    "recovery_pct": 316.02561044512083,
+    "min_date": "2025-05-09",
+    "min_price": 100.11402893066406,
+    "latest_price": 416.0,
+    "data_points": 250
+  },
+  {
+    "code": "7728",
+    "drop_pct": -44.26434026191338,
+    "recovery_pct": 311.738042737812,
+    "min_date": "2025-06-02",
+    "min_price": 217.85696411132812,
+    "latest_price": 778.0,
+    "data_points": 250
+  },
+  {
+    "code": "5475",
+    "drop_pct": -25.78268912837257,
+    "recovery_pct": 304.4665088978525,
+    "min_date": "2025-08-22",
+    "min_price": 40.29999923706055,
+    "latest_price": 163.0,
+    "data_points": 250
+  },
+  {
+    "code": "3081",
+    "drop_pct": -44.28008010224906,
+    "recovery_pct": 302.3530804151612,
+    "min_date": "2025-05-09",
+    "min_price": 282.0905456542969,
+    "latest_price": 1085.0,
+    "data_points": 250
+  },
+  {
+    "code": "4712",
+    "drop_pct": -33.56643519871883,
+    "recovery_pct": 300.0,
+    "min_date": "2024-02-05",
+    "min_price": 2.8499999046325684,
+    "latest_price": 11.399999618530273,
+    "data_points": 250
+  },
+  {
+    "code": "5498",
+    "drop_pct": -35.48035253803537,
+    "recovery_pct": 298.89198361941453,
+    "min_date": "2025-09-26",
+    "min_price": 18.049999237060547,
+    "latest_price": 54.0,
+    "data_points": 250
+  },
+  {
+    "code": "3006",
+    "drop_pct": -27.39130478927123,
+    "recovery_pct": 297.11653974825964,
+    "min_date": "2025-06-03",
+    "min_price": 49.103973388671875,
+    "latest_price": 154.0,
+    "data_points": 250
+  },
+  {
+    "code": "4991",
+    "drop_pct": -42.55814071773559,
+    "recovery_pct": 294.0620863871933,
+    "min_date": "2025-06-09",
+    "min_price": 74.0999984741211,
+    "latest_price": 269.0,
+    "data_points": 250
+  },
+  {
+    "code": "4971",
+    "drop_pct": -43.66576819407008,
+    "recovery_pct": 288.5167464114832,
+    "min_date": "2025-05-09",
+    "min_price": 104.5,
+    "latest_price": 401.0,
+    "data_points": 250
+  },
+  {
+    "code": "3163",
+    "drop_pct": -28.175519382144522,
+    "recovery_pct": 285.271479690974,
+    "min_date": "2025-05-09",
+    "min_price": 152.87921142578125,
+    "latest_price": 589.0,
+    "data_points": 250
+  },
+  {
+    "code": "4967",
+    "drop_pct": -24.514036574919857,
+    "recovery_pct": 279.7534514448266,
+    "min_date": "2025-06-02",
+    "min_price": 67.5438232421875,
+    "latest_price": 199.5,
+    "data_points": 250
+  },
+  {
+    "code": "3715",
+    "drop_pct": -31.2989015616077,
+    "recovery_pct": 271.14779928630264,
+    "min_date": "2025-05-09",
+    "min_price": 42.4359245300293,
+    "latest_price": 141.0,
+    "data_points": 250
+  },
+  {
+    "code": "3167",
+    "drop_pct": -31.872149577514758,
+    "recovery_pct": 271.0635593799443,
+    "min_date": "2025-05-09",
+    "min_price": 74.24604034423828,
+    "latest_price": 271.5,
+    "data_points": 250
+  },
+  {
+    "code": "5289",
+    "drop_pct": -19.326242388425733,
+    "recovery_pct": 267.798683672226,
+    "min_date": "2025-06-03",
+    "min_price": 215.87896728515625,
+    "latest_price": 726.0,
+    "data_points": 250
+  },
+  {
+    "code": "2449",
+    "drop_pct": -22.25108014119062,
+    "recovery_pct": 262.7996738508075,
+    "min_date": "2025-05-09",
+    "min_price": 86.41132354736328,
+    "latest_price": 313.5,
+    "data_points": 250
+  },
+  {
+    "code": "3535",
+    "drop_pct": -33.50305159657347,
+    "recovery_pct": 256.9913883830067,
+    "min_date": "2025-05-20",
+    "min_price": 32.353721618652344,
+    "latest_price": 103.5,
+    "data_points": 250
+  },
+  {
+    "code": "3189",
+    "drop_pct": -27.663550228863855,
+    "recovery_pct": 253.55298806076033,
+    "min_date": "2025-05-09",
+    "min_price": 76.50904083251953,
+    "latest_price": 265.5,
+    "data_points": 250
+  },
+  {
+    "code": "6588",
+    "drop_pct": -30.8767425217874,
+    "recovery_pct": 240.44116131162193,
+    "min_date": "2025-06-02",
+    "min_price": 27.200000762939453,
+    "latest_price": 92.5999984741211,
+    "data_points": 250
+  },
+  {
+    "code": "2337",
+    "drop_pct": -22.85714087548194,
+    "recovery_pct": 231.64982313034562,
+    "min_date": "2025-11-04",
+    "min_price": 29.700000762939453,
+    "latest_price": 98.5,
+    "data_points": 250
+  },
+  {
+    "code": "3105",
+    "drop_pct": -32.36514291631788,
+    "recovery_pct": 220.20307210184512,
+    "min_date": "2025-06-03",
+    "min_price": 80.57386779785156,
+    "latest_price": 246.0,
+    "data_points": 250
+  },
+  {
+    "code": "6805",
+    "drop_pct": -33.41677522194657,
+    "recovery_pct": 207.79624868697567,
+    "min_date": "2025-05-12",
+    "min_price": 527.9466552734375,
+    "latest_price": 1545.0,
+    "data_points": 250
+  },
+  {
+    "code": "2413",
+    "drop_pct": -34.37500395812088,
+    "recovery_pct": 206.54763296888592,
+    "min_date": "2025-06-23",
+    "min_price": 16.799999237060547,
+    "latest_price": 41.5,
+    "data_points": 250
+  },
+  {
+    "code": "5314",
+    "drop_pct": -39.67254233410007,
+    "recovery_pct": 200.62630566813417,
+    "min_date": "2025-06-26",
+    "min_price": 47.79444122314453,
+    "latest_price": 87.5999984741211,
+    "data_points": 250
+  },
+  {
+    "code": "2451",
+    "drop_pct": -21.705856921805978,
+    "recovery_pct": 200.11260229875023,
+    "min_date": "2025-07-22",
+    "min_price": 88.80000305175781,
+    "latest_price": 219.0,
+    "data_points": 250
+  },
+  {
+    "code": "5351",
+    "drop_pct": -29.839879324517586,
+    "recovery_pct": 192.53111570158651,
+    "min_date": "2025-06-03",
+    "min_price": 24.100000381469727,
+    "latest_price": 55.70000076293945,
+    "data_points": 250
+  },
+  {
+    "code": "6443",
+    "drop_pct": -28.470589132869943,
+    "recovery_pct": 190.13157254936283,
+    "min_date": "2025-05-09",
+    "min_price": 15.199999809265137,
+    "latest_price": 37.099998474121094,
+    "data_points": 250
+  },
+  {
+    "code": "3555",
+    "drop_pct": -37.35549077185,
+    "recovery_pct": 188.35064452106496,
+    "min_date": "2025-09-12",
+    "min_price": 43.349998474121094,
+    "latest_price": 121.0,
+    "data_points": 250
+  },
+  {
+    "code": "4950",
+    "drop_pct": -51.32275134944918,
+    "recovery_pct": 185.86956285123333,
+    "min_date": "2025-07-10",
+    "min_price": 9.199999809265137,
+    "latest_price": 16.950000762939453,
+    "data_points": 250
+  },
+  {
+    "code": "4804",
+    "drop_pct": -36.20689782744776,
+    "recovery_pct": 183.78378012652294,
+    "min_date": "2025-05-09",
+    "min_price": 3.700000047683716,
+    "latest_price": 5.889999866485596,
+    "data_points": 250
+  },
+  {
+    "code": "6683",
+    "drop_pct": -38.574422954882905,
+    "recovery_pct": 177.83571078070457,
+    "min_date": "2025-05-09",
+    "min_price": 284.3406982421875,
+    "latest_price": 790.0,
+    "data_points": 250
+  },
+  {
+    "code": "3581",
+    "drop_pct": -37.931029465483576,
+    "recovery_pct": 175.84820326247652,
+    "min_date": "2025-06-03",
+    "min_price": 29.291473388671875,
+    "latest_price": 72.19999694824219,
+    "data_points": 250
+  },
+  {
+    "code": "4989",
+    "drop_pct": -37.90012682769672,
+    "recovery_pct": 174.22680412371133,
+    "min_date": "2025-09-26",
+    "min_price": 24.25,
+    "latest_price": 50.20000076293945,
+    "data_points": 250
+  },
+  {
+    "code": "6510",
+    "drop_pct": -23.896103896103895,
+    "recovery_pct": 173.03754266211604,
+    "min_date": "2025-11-12",
+    "min_price": 1465.0,
+    "latest_price": 3980.0,
+    "data_points": 250
+  },
+  {
+    "code": "1519",
+    "drop_pct": -30.564266119428034,
+    "recovery_pct": 172.26168801224898,
+    "min_date": "2025-06-02",
+    "min_price": 396.67718505859375,
+    "latest_price": 921.0,
+    "data_points": 250
+  },
+  {
+    "code": "1727",
+    "drop_pct": -26.65589142076849,
+    "recovery_pct": 172.0004102612762,
+    "min_date": "2025-06-02",
+    "min_price": 22.352907180786133,
+    "latest_price": 60.79999923706055,
+    "data_points": 250
+  },
+  {
+    "code": "6465",
+    "drop_pct": -31.372550349856134,
+    "recovery_pct": 168.54031773946926,
+    "min_date": "2025-05-19",
+    "min_price": 15.435298919677734,
+    "latest_price": 31.899999618530273,
+    "data_points": 250
+  },
+  {
+    "code": "5386",
+    "drop_pct": -16.19631989511509,
+    "recovery_pct": 168.039954728317,
+    "min_date": "2025-05-09",
+    "min_price": 59.50605392456055,
+    "latest_price": 159.5,
+    "data_points": 250
+  },
+  {
+    "code": "3711",
+    "drop_pct": -25.06811716341958,
+    "recovery_pct": 167.55709129286237,
+    "min_date": "2025-05-09",
+    "min_price": 132.49508666992188,
+    "latest_price": 354.5,
+    "data_points": 250
+  },
+  {
+    "code": "8074",
+    "drop_pct": -30.2835057501155,
+    "recovery_pct": 166.17375981790988,
+    "min_date": "2025-10-17",
+    "min_price": 27.049999237060547,
+    "latest_price": 61.20000076293945,
+    "data_points": 250
+  },
+  {
+    "code": "2327",
+    "drop_pct": -22.324412090429696,
+    "recovery_pct": 165.81129789987673,
+    "min_date": "2025-05-09",
+    "min_price": 111.35719299316406,
+    "latest_price": 256.0,
+    "data_points": 250
+  },
+  {
+    "code": "4764",
+    "drop_pct": -37.0186325926218,
+    "recovery_pct": 162.32741222603684,
+    "min_date": "2025-11-24",
+    "min_price": 50.70000076293945,
+    "latest_price": 102.5,
+    "data_points": 250
+  },
+  {
+    "code": "3205",
+    "drop_pct": -30.298506323970965,
+    "recovery_pct": 161.24196575349458,
+    "min_date": "2025-05-09",
+    "min_price": 23.350000381469727,
+    "latest_price": 50.20000076293945,
+    "data_points": 250
+  },
+  {
+    "code": "5340",
+    "drop_pct": -27.914613422096558,
+    "recovery_pct": 159.6810843680663,
+    "min_date": "2025-09-26",
+    "min_price": 43.900001525878906,
+    "latest_price": 99.80000305175781,
+    "data_points": 250
+  },
+  {
+    "code": "2367",
+    "drop_pct": -25.324673474910625,
+    "recovery_pct": 158.69565217391303,
+    "min_date": "2025-11-24",
+    "min_price": 23.0,
+    "latest_price": 52.5,
+    "data_points": 250
+  },
+  {
+    "code": "4542",
+    "drop_pct": -39.224138285402155,
+    "recovery_pct": 157.97871642474678,
+    "min_date": "2025-06-02",
+    "min_price": 56.400001525878906,
+    "latest_price": 142.0,
+    "data_points": 250
+  },
+  {
+    "code": "3443",
+    "drop_pct": -24.137933096701754,
+    "recovery_pct": 151.4007218175649,
+    "min_date": "2025-05-09",
+    "min_price": 1083.9268798828125,
+    "latest_price": 2475.0,
+    "data_points": 250
+  },
+  {
+    "code": "2313",
+    "drop_pct": -15.299330254170496,
+    "recovery_pct": 151.30889550435938,
+    "min_date": "2025-11-21",
+    "min_price": 76.4000015258789,
+    "latest_price": 186.5,
+    "data_points": 250
+  },
+  {
+    "code": "3016",
+    "drop_pct": -31.19266010185936,
+    "recovery_pct": 145.9032213946411,
+    "min_date": "2025-06-02",
+    "min_price": 29.5238094329834,
+    "latest_price": 55.5,
+    "data_points": 250
+  },
+  {
+    "code": "6239",
+    "drop_pct": -17.15328758224131,
+    "recovery_pct": 144.47003207293696,
+    "min_date": "2025-06-02",
+    "min_price": 107.78417205810547,
+    "latest_price": 243.0,
+    "data_points": 250
+  },
+  {
+    "code": "8042",
+    "drop_pct": -32.970624977910155,
+    "recovery_pct": 144.36860183790296,
+    "min_date": "2025-06-03",
+    "min_price": 29.299999237060547,
+    "latest_price": 56.0,
+    "data_points": 250
+  },
+  {
+    "code": "3576",
+    "drop_pct": -34.23694612802963,
+    "recovery_pct": 142.7480787103062,
+    "min_date": "2025-06-19",
+    "min_price": 6.550000190734863,
+    "latest_price": 15.149999618530273,
+    "data_points": 250
+  },
+  {
+    "code": "4973",
+    "drop_pct": -29.23533737195982,
+    "recovery_pct": 140.9090801614468,
+    "min_date": "2025-05-09",
+    "min_price": 24.200000762939453,
+    "latest_price": 45.849998474121094,
+    "data_points": 250
+  },
+  {
+    "code": "6485",
+    "drop_pct": -31.958762016709656,
+    "recovery_pct": 138.08024482555297,
+    "min_date": "2025-06-03",
+    "min_price": 52.29329299926758,
+    "latest_price": 90.0,
+    "data_points": 250
+  },
+  {
+    "code": "6426",
+    "drop_pct": -19.62138362833645,
+    "recovery_pct": 137.69230769230768,
+    "min_date": "2025-11-21",
+    "min_price": 65.0,
+    "latest_price": 154.5,
+    "data_points": 250
+  },
+  {
+    "code": "4577",
+    "drop_pct": -35.135137288327655,
+    "recovery_pct": 133.71212747909266,
+    "min_date": "2025-09-04",
+    "min_price": 26.399999618530273,
+    "latest_price": 59.20000076293945,
+    "data_points": 250
+  },
+  {
+    "code": "3138",
+    "drop_pct": -27.768592923379366,
+    "recovery_pct": 133.69662871265064,
+    "min_date": "2025-05-09",
+    "min_price": 84.72522735595703,
+    "latest_price": 155.5,
+    "data_points": 250
+  },
+  {
+    "code": "3234",
+    "drop_pct": -39.332096776956,
+    "recovery_pct": 133.6391429460358,
+    "min_date": "2025-05-09",
+    "min_price": 32.70000076293945,
+    "latest_price": 76.4000015258789,
+    "data_points": 250
+  },
+  {
+    "code": "6217",
+    "drop_pct": -20.38303423009858,
+    "recovery_pct": 131.27148511864985,
+    "min_date": "2025-05-15",
+    "min_price": 29.100000381469727,
+    "latest_price": 64.0999984741211,
+    "data_points": 250
+  },
+  {
+    "code": "2369",
+    "drop_pct": -24.119244330212585,
+    "recovery_pct": 131.07141767229353,
+    "min_date": "2025-05-09",
+    "min_price": 14.0,
+    "latest_price": 25.25,
+    "data_points": 250
+  },
+  {
+    "code": "6127",
+    "drop_pct": -32.34200363927797,
+    "recovery_pct": 130.76922109544267,
+    "min_date": "2025-05-09",
+    "min_price": 18.200000762939453,
+    "latest_price": 32.0,
+    "data_points": 250
+  },
+  {
+    "code": "7795",
+    "drop_pct": -24.418604651162788,
+    "recovery_pct": 130.25641025641025,
+    "min_date": "2025-11-21",
+    "min_price": 195.0,
+    "latest_price": 346.5,
+    "data_points": 250
+  },
+  {
+    "code": "2481",
+    "drop_pct": -23.40791082615563,
+    "recovery_pct": 130.22866022826793,
+    "min_date": "2025-05-09",
+    "min_price": 43.174468994140625,
+    "latest_price": 84.19999694824219,
+    "data_points": 250
+  },
+  {
+    "code": "1528",
+    "drop_pct": -35.397988860332916,
+    "recovery_pct": 128.05756570438865,
+    "min_date": "2025-11-07",
+    "min_price": 13.899999618530273,
+    "latest_price": 22.399999618530273,
+    "data_points": 250
+  },
+  {
+    "code": "1326",
+    "drop_pct": -23.37228926471808,
+    "recovery_pct": 127.18254418360783,
+    "min_date": "2025-06-02",
+    "min_price": 22.44890785217285,
+    "latest_price": 41.70000076293945,
+    "data_points": 250
+  },
+  {
+    "code": "7751",
+    "drop_pct": -29.145728643216078,
+    "recovery_pct": 126.47754137115838,
+    "min_date": "2025-11-21",
+    "min_price": 423.0,
+    "latest_price": 958.0,
+    "data_points": 250
+  },
+  {
+    "code": "6449",
+    "drop_pct": -33.770496552073745,
+    "recovery_pct": 126.24340918697712,
+    "min_date": "2025-05-09",
+    "min_price": 97.68240356445312,
+    "latest_price": 159.5,
+    "data_points": 250
+  },
+  {
+    "code": "5274",
+    "drop_pct": -15.576923076923077,
+    "recovery_pct": 123.00683371298406,
+    "min_date": "2025-07-30",
+    "min_price": 4390.0,
+    "latest_price": 9725.0,
+    "data_points": 250
+  },
+  {
+    "code": "3624",
+    "drop_pct": -23.607748056129143,
+    "recovery_pct": 122.77272176141582,
+    "min_date": "2025-05-09",
+    "min_price": 30.34482765197754,
+    "latest_price": 52.70000076293945,
+    "data_points": 250
+  },
+  {
+    "code": "2374",
+    "drop_pct": -25.272167901879637,
+    "recovery_pct": 122.6847292755681,
+    "min_date": "2025-05-09",
+    "min_price": 42.641845703125,
+    "latest_price": 77.5,
+    "data_points": 250
+  },
+  {
+    "code": "6823",
+    "drop_pct": -38.34586466165413,
+    "recovery_pct": 122.43901694693216,
+    "min_date": "2025-06-09",
+    "min_price": 41.0,
+    "latest_price": 59.20000076293945,
+    "data_points": 250
+  },
+  {
+    "code": "3229",
+    "drop_pct": -28.91892098091744,
+    "recovery_pct": 120.5323257890803,
+    "min_date": "2025-05-09",
+    "min_price": 13.149999618530273,
+    "latest_price": 20.850000381469727,
+    "data_points": 250
+  },
+  {
+    "code": "6291",
+    "drop_pct": -39.07766990291262,
+    "recovery_pct": 120.3187250996016,
+    "min_date": "2025-11-07",
+    "min_price": 125.5,
+    "latest_price": 276.5,
+    "data_points": 250
+  },
+  {
+    "code": "3706",
+    "drop_pct": -30.064516037204843,
+    "recovery_pct": 119.56182987708584,
+    "min_date": "2025-05-09",
+    "min_price": 48.73342514038086,
+    "latest_price": 78.4000015258789,
+    "data_points": 250
+  },
+  {
+    "code": "6531",
+    "drop_pct": -25.84097542532359,
+    "recovery_pct": 117.26476149473808,
+    "min_date": "2025-05-09",
+    "min_price": 237.03797912597656,
+    "latest_price": 396.0,
+    "data_points": 250
+  },
+  {
+    "code": "6425",
+    "drop_pct": -36.71429021964954,
+    "recovery_pct": 116.95696498943148,
+    "min_date": "2025-06-03",
+    "min_price": 43.32656478881836,
+    "latest_price": 66.0,
+    "data_points": 250
+  },
+  {
+    "code": "6285",
+    "drop_pct": -26.153846153846157,
+    "recovery_pct": 116.14583333333333,
+    "min_date": "2025-11-19",
+    "min_price": 96.0,
+    "latest_price": 172.0,
+    "data_points": 250
+  },
+  {
+    "code": "2740",
+    "drop_pct": -35.74661159387135,
+    "recovery_pct": 115.72771083948953,
+    "min_date": "2025-10-28",
+    "min_price": 21.299999237060547,
+    "latest_price": 42.25,
+    "data_points": 250
+  },
+  {
+    "code": "3707",
+    "drop_pct": -36.37254752364813,
+    "recovery_pct": 115.40832013079768,
+    "min_date": "2025-06-02",
+    "min_price": 32.45000076293945,
+    "latest_price": 52.5,
+    "data_points": 250
+  },
+  {
+    "code": "3324",
+    "drop_pct": -24.8920816524333,
+    "recovery_pct": 114.7312473157586,
+    "min_date": "2025-05-09",
+    "min_price": 514.5967407226562,
+    "latest_price": 1065.0,
+    "data_points": 250
+  },
+  {
+    "code": "3260",
+    "drop_pct": -21.670428893905193,
+    "recovery_pct": 112.68011527377521,
+    "min_date": "2025-11-21",
+    "min_price": 173.5,
+    "latest_price": 294.0,
+    "data_points": 250
+  },
+  {
+    "code": "1711",
+    "drop_pct": -24.127213426661097,
+    "recovery_pct": 112.49999764718504,
+    "min_date": "2025-07-10",
+    "min_price": 15.199999809265137,
+    "latest_price": 32.29999923706055,
+    "data_points": 250
+  },
+  {
+    "code": "2368",
+    "drop_pct": -20.99009900990099,
+    "recovery_pct": 112.03007518796993,
+    "min_date": "2025-10-23",
+    "min_price": 399.0,
+    "latest_price": 829.0,
+    "data_points": 250
+  }
+]

@@ -13,6 +13,7 @@ endpoints have been split into separate routers:
 """
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 from backend.dependencies import raise_stock_data_error as _raise_stock_data_error
 import logging
 
@@ -534,3 +535,93 @@ def get_accumulation_scan(code: str, period_days: int = 365):
         return make_serializable(output)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# === Reversal Detection (Phase 4) ===
+
+
+class ReversalScanRequest(BaseModel):
+    """Request body for batch reversal scan."""
+    codes: list[str] = Field(..., min_length=1, max_length=200, description="Stock codes to scan")
+    include_broker: bool = Field(False, description="Include F6 broker score")
+
+
+class ReversalQuickBacktestRequest(BaseModel):
+    """Request body for quick reversal backtest."""
+    codes: list[str] = Field(..., min_length=1, max_length=50, description="Stock codes")
+    days: int = Field(400, ge=200, le=1000, description="History days")
+    min_score: float = Field(50.0, ge=0, le=100, description="Minimum composite score")
+
+
+@router.get("/{code}/reversal")
+def get_reversal_analysis_endpoint(code: str, period_days: int = 400, include_broker: bool = False):
+    """Get reversal detection result for a stock.
+
+    Returns composite score, phase (NONE/WATCH/ALERT/STRONG), and
+    per-signal breakdown (F1-F6).
+    """
+    from analysis.reversal_detector import get_reversal_analysis
+    from backend.dependencies import make_serializable
+
+    try:
+        result = get_reversal_analysis(code, period_days=period_days, include_broker=include_broker)
+        return make_serializable(result)
+    except Exception as e:
+        _raise_stock_data_error(code, e)
+
+
+@router.post("/reversal-scan")
+def scan_reversals(request: ReversalScanRequest):
+    """Batch scan stocks for reversal signals, sorted by composite_score desc.
+
+    Accepts a list of stock codes and returns reversal analysis for each,
+    sorted by composite score (highest first).
+    """
+    from analysis.reversal_detector import get_reversal_analysis
+    from backend.dependencies import make_serializable
+
+    results = []
+    for code in request.codes:
+        try:
+            analysis = get_reversal_analysis(
+                code,
+                include_broker=request.include_broker,
+            )
+            results.append(analysis)
+        except Exception as e:
+            logger.warning("Reversal scan failed for %s: %s", code, e)
+            results.append({
+                "code": code,
+                "error": str(e),
+                "phase": "NONE",
+                "score": 0,
+                "signals": [],
+            })
+
+    # Sort by composite score descending
+    results.sort(key=lambda r: r.get("score", 0), reverse=True)
+
+    return make_serializable({
+        "total": len(results),
+        "results": results,
+    })
+
+
+@router.post("/reversal-backtest")
+def run_reversal_backtest_endpoint(request: ReversalQuickBacktestRequest):
+    """Run quick reversal backtest on specified stocks.
+
+    Returns hit rates, average returns, and signal attribution.
+    """
+    from backtest.reversal_backtest import run_quick_backtest
+    from backend.dependencies import make_serializable
+
+    try:
+        result = run_quick_backtest(
+            codes=request.codes,
+            days=request.days,
+            min_score=request.min_score,
+        )
+        return make_serializable(result.to_dict())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Backtest failed: {e}")

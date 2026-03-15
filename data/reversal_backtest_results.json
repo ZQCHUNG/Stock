@@ -1,0 +1,239 @@
+{
+  "total_stocks_scanned": 20,
+  "total_signals": 402,
+  "elapsed_sec": 405.25,
+  "hit_rates": {
+    "5": 0.6368,
+    "10": 0.7065,
+    "20": 0.8109
+  },
+  "avg_returns": {
+    "5": 0.033694,
+    "10": 0.067273,
+    "20": 0.131135
+  },
+  "median_returns": {
+    "5": 0.021776,
+    "10": 0.045188,
+    "20": 0.093996
+  },
+  "avg_mae": -0.050245,
+  "signal_attribution": {
+    "spring": {
+      "count": 3,
+      "win_contribution": 3,
+      "avg_score": 49.9,
+      "win_rate": 1.0
+    },
+    "rsi_divergence": {
+      "count": 31,
+      "win_contribution": 18,
+      "avg_score": 41.4,
+      "win_rate": 0.5806
+    },
+    "bb_squeeze": {
+      "count": 162,
+      "win_contribution": 108,
+      "avg_score": 73.0,
+      "win_rate": 0.6667
+    },
+    "volume_exhaustion": {
+      "count": 86,
+      "win_contribution": 60,
+      "avg_score": 65.2,
+      "win_rate": 0.6977
+    },
+    "multiscale_accumulation": {
+      "count": 324,
+      "win_contribution": 231,
+      "avg_score": 62.6,
+      "win_rate": 0.713
+    }
+  },
+  "benchmark_returns": {
+    "5": 0.025221,
+    "10": 0.054754,
+    "20": 0.119569
+  },
+  "per_stock": [
+    {
+      "code": "0050",
+      "signal_count": 16,
+      "avg_score": 62.9,
+      "hit_rate_d10": 0.8125,
+      "avg_return_d10": 0.039861
+    },
+    {
+      "code": "1326",
+      "signal_count": 16,
+      "avg_score": 58.9,
+      "hit_rate_d10": 0.5,
+      "avg_return_d10": 0.035935
+    },
+    {
+      "code": "1519",
+      "signal_count": 24,
+      "avg_score": 64.6,
+      "hit_rate_d10": 0.5417,
+      "avg_return_d10": 0.068859
+    },
+    {
+      "code": "2313",
+      "signal_count": 17,
+      "avg_score": 65.1,
+      "hit_rate_d10": 0.5882,
+      "avg_return_d10": 0.091711
+    },
+    {
+      "code": "2317",
+      "signal_count": 21,
+      "avg_score": 61.5,
+      "hit_rate_d10": 0.6667,
+      "avg_return_d10": 0.03998
+    },
+    {
+      "code": "2330",
+      "signal_count": 19,
+      "avg_score": 65.4,
+      "hit_rate_d10": 0.7895,
+      "avg_return_d10": 0.047489
+    },
+    {
+      "code": "2374",
+      "signal_count": 29,
+      "avg_score": 62.4,
+      "hit_rate_d10": 0.6207,
+      "avg_return_d10": 0.024359
+    },
+    {
+      "code": "2408",
+      "signal_count": 28,
+      "avg_score": 69.5,
+      "hit_rate_d10": 0.7857,
+      "avg_return_d10": 0.151473
+    },
+    {
+      "code": "2449",
+      "signal_count": 21,
+      "avg_score": 66.3,
+      "hit_rate_d10": 0.8095,
+      "avg_return_d10": 0.060695
+    },
+    {
+      "code": "2454",
+      "signal_count": 18,
+      "avg_score": 72.2,
+      "hit_rate_d10": 0.4444,
+      "avg_return_d10": -0.004569
+    },
+    {
+      "code": "3006",
+      "signal_count": 25,
+      "avg_score": 61.7,
+      "hit_rate_d10": 0.8,
+      "avg_return_d10": 0.074342
+    },
+    {
+      "code": "3037",
+      "signal_count": 24,
+      "avg_score": 64.5,
+      "hit_rate_d10": 0.75,
+      "avg_return_d10": 0.077818
+    },
+    {
+      "code": "3324",
+      "signal_count": 22,
+      "avg_score": 66.6,
+      "hit_rate_d10": 0.6364,
+      "avg_return_d10": 0.036993
+    },
+    {
+      "code": "3443",
+      "signal_count": 6,
+      "avg_score": 64.8,
+      "hit_rate_d10": 0.5,
+      "avg_return_d10": 0.010254
+    },
+    {
+      "code": "3491",
+      "signal_count": 18,
+      "avg_score": 65.4,
+      "hit_rate_d10": 0.7222,
+      "avg_return_d10": 0.062242
+    },
+    {
+      "code": "3711",
+      "signal_count": 17,
+      "avg_score": 64.1,
+      "hit_rate_d10": 0.8235,
+      "avg_return_d10": 0.055528
+    },
+    {
+      "code": "5274",
+      "signal_count": 21,
+      "avg_score": 60.3,
+      "hit_rate_d10": 0.7619,
+      "avg_return_d10": 0.061569
+    },
+    {
+      "code": "6223",
+      "signal_count": 23,
+      "avg_score": 64.1,
+      "hit_rate_d10": 0.8696,
+      "avg_return_d10": 0.090065
+    },
+    {
+      "code": "6442",
+      "signal_count": 18,
+      "avg_score": 70.0,
+      "hit_rate_d10": 0.6667,
+      "avg_return_d10": 0.11903
+    },
+    {
+      "code": "6515",
+      "signal_count": 19,
+      "avg_score": 67.7,
+      "hit_rate_d10": 0.8421,
+      "avg_return_d10": 0.134979
+    }
+  ],
+  "phase_distribution": {
+    "STRONG": 69,
+    "ALERT": 333
+  },
+  "signal_count_detail": 402,
+  "errors": [],
+  "config": {
+    "min_composite_score": 50.0,
+    "forward_days": [
+      5,
+      10,
+      20
+    ],
+    "period_days": 500,
+    "universe_size": 20,
+    "codes": [
+      "2330",
+      "2317",
+      "2454",
+      "1326",
+      "3443",
+      "2313",
+      "0050",
+      "3037",
+      "2449",
+      "3006",
+      "2408",
+      "3491",
+      "6223",
+      "6442",
+      "2374",
+      "3324",
+      "1519",
+      "6515",
+      "5274",
+      "3711"
+    ],
+    "note": "20 stocks (mix of liquid large-caps + validation stocks)"
+  }
+}
