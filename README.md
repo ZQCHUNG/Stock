@@ -217,6 +217,61 @@ python -m pytest tests/ -q
 
 ---
 
+## Backlog (2026-03-15, reviewed by Trading Advisor)
+
+> [Excel version: docs/backlog.xlsx](docs/backlog.xlsx)
+
+### Phase 1 — 基礎建設 (4 SP, ~0.5 週)
+
+| # | Priority | Item | Value | SP | Status | Depends |
+|---|----------|------|:-----:|:--:|--------|---------|
+| 1 | P0 | Cloud Run 5 天穩定驗證 | 10 | 1 | 進行中 | — |
+| 2 | P0 | TWSE 交易日曆（補國定假日判斷） | 7 | 3 | 待開始 | #1 |
+
+### Phase 2 — 核心掃描模式 (21 SP, ~2.6 週)
+
+| # | Priority | Item | Value | SP | Status | Depends |
+|---|----------|------|:-----:|:--:|--------|---------|
+| 3 | P0 | 掃描模式後端上線 (Golden Template → Cloud Run) | 10 | 8 | 待開始 | #1 完成 |
+| 4 | P0 | Dashboard Section 2：掃描模式 UI (Top 15) | 10 | 8 | 待開始 | #3 |
+| 5 | P1 | Multi+RSI Veto 整合進 V4 (PF 1.94, veto-only) | 8 | 5 | 待開始 | #1 完成 |
+
+### Phase 3 — 覆蓋擴展 (8 SP, ~1 週)
+
+| # | Priority | Item | Value | SP | Status | Depends |
+|---|----------|------|:-----:|:--:|--------|---------|
+| 6 | P1 | Colab 歷史回填 1,973 股 (65 維 + 5 窗口) | 8 | 5 | 待開始 | #1 完成 |
+| 7 | P1 | Cloud Run 擴池 1,096 → 1,973 | 8 | 3 | 待開始 | #6 |
+
+### Phase 4 — 持股 & UX (8 SP, ~1 週)
+
+| # | Priority | Item | Value | SP | Status | Depends |
+|---|----------|------|:-----:|:--:|--------|---------|
+| 8 | P1 | Dashboard Section 3：持股追蹤 | 7 | 5 | 待開始 | #5 |
+| 9 | P2 | 3 Preset 切換 UI (技術派/價值派/事件派) | 6 | 3 | 待開始 | #4 |
+
+### Phase 5 — 技術債 (12 SP, ~1.5 週)
+
+| # | Priority | Item | Value | SP | Status | Depends |
+|---|----------|------|:-----:|:--:|--------|---------|
+| 10 | P1 | Winner DNA → archived/ + DTW 抽出 | 6 | 3 | 待開始 | — |
+| 11 | P2 | ATR 停損加漲跌停 slippage | 7 | 5 | 待開始 | — |
+| 12 | P2 | Cross-router import → service layer | 5 | 3 | 待開始 | — |
+| 13 | P2 | rollover_forward_returns vectorize | 4 | 2 | 待開始 | — |
+| 14 | P3 | system_ops.py 再拆分 | 3 | 2 | 待開始 | — |
+
+### Phase 6 — 未來 / 觀察 (11 SP, ~1.4 週)
+
+| # | Priority | Item | Value | SP | Status | Depends |
+|---|----------|------|:-----:|:--:|--------|---------|
+| 15 | P2 | 資料備份機制 (GCS 每日 snapshot) | 7 | 3 | 待開始 | #1 完成 |
+| 16 | P3 | DTW Rerank (掃描模式上線 3 個月後評估) | 5 | 5 | 待開始 | #3 上線 3 個月 |
+| 17 | P3 | SQS / R88 解凍評估 (3 個月後) | 4 | 3 | 待開始 | 掃描模式上線 3 個月 |
+
+**Total: 16 items, 64 SP, ~8 週**
+
+---
+
 ## 開發進度
 
 ### 已完成
