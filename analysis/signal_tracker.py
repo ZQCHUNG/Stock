@@ -100,7 +100,12 @@ def record_daily_signals(stocks: dict[str, str] | None = None, max_workers: int 
     signals_recorded = []
 
     def _scan_stock(code):
-        """Scan a single stock for V4/V5/Adaptive signals."""
+        """Scan a single stock for V4/V5/Adaptive signals.
+
+        Only records signals for strategies listed in ACTIVE_STRATEGIES.
+        """
+        from config import ACTIVE_STRATEGIES
+
         results = []
         try:
             from data.fetcher import get_stock_data
@@ -111,85 +116,88 @@ def record_daily_signals(stocks: dict[str, str] | None = None, max_workers: int 
             current_price = float(df["close"].iloc[-1])
 
             # V4 signal
-            try:
-                from analysis.strategy_v4 import get_v4_analysis
-                v4 = get_v4_analysis(df)
-                if v4.get("signal") == "BUY":
-                    results.append({
-                        "code": code,
-                        "strategy": "V4",
-                        "signal_price": current_price,
-                        "entry_type": v4.get("entry_type", ""),
-                        "bias_confirmed": 0,
-                        "composite_score": None,
-                    })
-            except Exception as e:
-                logger.debug(f"V4 signal scan failed for {code}: {e}")
+            if "v4" in ACTIVE_STRATEGIES:
+                try:
+                    from analysis.strategy_v4 import get_v4_analysis
+                    v4 = get_v4_analysis(df)
+                    if v4.get("signal") == "BUY":
+                        results.append({
+                            "code": code,
+                            "strategy": "V4",
+                            "signal_price": current_price,
+                            "entry_type": v4.get("entry_type", ""),
+                            "bias_confirmed": 0,
+                            "composite_score": None,
+                        })
+                except Exception as e:
+                    logger.debug(f"V4 signal scan failed for {code}: {e}")
 
             # V5 signal
-            try:
-                from analysis.strategy_v5 import get_v5_analysis
-                v5 = get_v5_analysis(df)
-                if v5.get("signal") == "BUY":
-                    results.append({
-                        "code": code,
-                        "strategy": "V5",
-                        "signal_price": current_price,
-                        "entry_type": v5.get("entry_type", ""),
-                        "bias_confirmed": 1 if v5.get("bias_confirmed") else 0,
-                        "composite_score": None,
-                    })
-            except Exception as e:
-                logger.debug(f"V5 signal scan failed for {code}: {e}")
+            if "v5" in ACTIVE_STRATEGIES:
+                try:
+                    from analysis.strategy_v5 import get_v5_analysis
+                    v5 = get_v5_analysis(df)
+                    if v5.get("signal") == "BUY":
+                        results.append({
+                            "code": code,
+                            "strategy": "V5",
+                            "signal_price": current_price,
+                            "entry_type": v5.get("entry_type", ""),
+                            "bias_confirmed": 1 if v5.get("bias_confirmed") else 0,
+                            "composite_score": None,
+                        })
+                except Exception as e:
+                    logger.debug(f"V5 signal scan failed for {code}: {e}")
 
             # Adaptive signal
-            try:
-                from analysis.strategy_v4 import get_v4_analysis
-                from analysis.strategy_v5 import get_v5_analysis, adaptive_strategy_score
-                v4 = get_v4_analysis(df)
-                v5 = get_v5_analysis(df)
-
-                # Get regime
-                regime = "range_quiet"
+            if "adaptive" in ACTIVE_STRATEGIES:
                 try:
-                    from analysis.indicators import calculate_all_indicators
-                    import numpy as np
-                    ind = calculate_all_indicators(df)
-                    adx = ind["adx"].iloc[-1] if "adx" in ind.columns else 20
-                    if not np.isnan(adx):
-                        ret_std = df["close"].pct_change().tail(60).std() * (252 ** 0.5)
-                        if adx >= 25:
-                            regime = "trend_explosive" if ret_std > 0.3 else "trend_mild"
-                        else:
-                            regime = "range_volatile" if ret_std > 0.25 else "range_quiet"
+                    from analysis.strategy_v4 import get_v4_analysis
+                    from analysis.strategy_v5 import get_v5_analysis, adaptive_strategy_score
+                    v4 = get_v4_analysis(df)
+                    v5 = get_v5_analysis(df)
+
+                    # Get regime
+                    regime = "range_quiet"
+                    try:
+                        from analysis.indicators import calculate_all_indicators
+                        import numpy as np
+                        ind = calculate_all_indicators(df)
+                        adx = ind["adx"].iloc[-1] if "adx" in ind.columns else 20
+                        if not np.isnan(adx):
+                            ret_std = df["close"].pct_change().tail(60).std() * (252 ** 0.5)
+                            if adx >= 25:
+                                regime = "trend_explosive" if ret_std > 0.3 else "trend_mild"
+                            else:
+                                regime = "range_volatile" if ret_std > 0.25 else "range_quiet"
+                    except Exception as e:
+                        logger.debug(f"Regime detection failed for {code}: {e}")
+
+                    adaptive = adaptive_strategy_score(
+                        v4_signal=v4["signal"],
+                        v5_signal=v5["signal"],
+                        regime=regime,
+                        v4_confidence=1.0,
+                        v5_bias_confirmed=v5.get("bias_confirmed", False),
+                    )
+                    if adaptive["final_signal"] == "BUY":
+                        results.append({
+                            "code": code,
+                            "strategy": "Adaptive",
+                            "signal_price": current_price,
+                            "entry_type": f"regime={regime}",
+                            "bias_confirmed": 1 if v5.get("bias_confirmed") else 0,
+                            "composite_score": adaptive["composite_score"],
+                        })
+
+                    # Attach regime to all results for this stock
+                    for r in results:
+                        r["regime"] = regime
+
                 except Exception as e:
-                    logger.debug(f"Regime detection failed for {code}: {e}")
-
-                adaptive = adaptive_strategy_score(
-                    v4_signal=v4["signal"],
-                    v5_signal=v5["signal"],
-                    regime=regime,
-                    v4_confidence=1.0,
-                    v5_bias_confirmed=v5.get("bias_confirmed", False),
-                )
-                if adaptive["final_signal"] == "BUY":
-                    results.append({
-                        "code": code,
-                        "strategy": "Adaptive",
-                        "signal_price": current_price,
-                        "entry_type": f"regime={regime}",
-                        "bias_confirmed": 1 if v5.get("bias_confirmed") else 0,
-                        "composite_score": adaptive["composite_score"],
-                    })
-
-                # Attach regime to all results for this stock
-                for r in results:
-                    r["regime"] = regime
-
-            except Exception as e:
-                logger.debug(f"Adaptive signal scan failed for {code}: {e}")
-                for r in results:
-                    r.setdefault("regime", "range_quiet")
+                    logger.debug(f"Adaptive signal scan failed for {code}: {e}")
+                    for r in results:
+                        r.setdefault("regime", "range_quiet")
 
         except Exception as e:
             logger.warning(f"Signal scan failed for {code}: {e}")

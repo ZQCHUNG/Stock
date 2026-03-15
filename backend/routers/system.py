@@ -232,23 +232,101 @@ def api_performance():
 
 @router.get("/dashboard")
 def dashboard_summary():
-    """R52 P1: Dashboard summary — aggregates key data for the homepage.
+    """Dashboard summary — 3-section layout: status bar, scan placeholder, portfolio placeholder.
 
-    Returns positions summary, P&L, market regime, OMS efficiency, alerts.
+    Section 1 (status_bar): latest data date, stock count, last update, regime.
+    Section 2 (scan): placeholder for future scan top-15.
+    Section 3 (portfolio): placeholder for future portfolio tracking.
     """
     from backend.dependencies import make_serializable
 
     result = {
-        "positions": _dashboard_positions(),
-        "pnl": _dashboard_pnl(),
-        "regime": _dashboard_regime(),
-        "oms": _dashboard_oms(),
-        "alerts": _dashboard_alerts(),
-        "risk": _dashboard_risk(),
-        "today_signals": _dashboard_today_signals(),
-        "equity_curve": _dashboard_equity_curve(),
+        "status_bar": _dashboard_status_bar(),
+        "scan": {"enabled": False, "message": "掃描模式開發中 — Cloud Run 穩定後啟用"},
+        "portfolio": {"enabled": False, "message": "持股追蹤 — 即將推出"},
     }
     return make_serializable(result)
+
+
+def _dashboard_status_bar():
+    """Section 1: System status bar — data date, stock count, regime."""
+    import os
+    data_dir = Path(__file__).resolve().parent.parent.parent / "data"
+
+    # Latest data date from pit_close_matrix.parquet
+    latest_data_date = None
+    try:
+        import pandas as pd
+        close_path = data_dir / "pit_close_matrix.parquet"
+        if close_path.exists():
+            df = pd.read_parquet(close_path)
+            if hasattr(df.index, 'max'):
+                last_date = df.index.max()
+                latest_data_date = str(last_date)[:10] if last_date is not None else None
+    except Exception as e:
+        logger.debug(f"Dashboard status: close matrix read failed: {e}")
+
+    # Stock count from features_all.parquet
+    stock_count = 0
+    try:
+        import pandas as pd
+        features_path = data_dir / "pattern_data" / "features" / "features_all.parquet"
+        if features_path.exists():
+            df = pd.read_parquet(features_path)
+            # Count unique stocks (code column or index)
+            if "code" in df.columns:
+                stock_count = int(df["code"].nunique())
+            else:
+                stock_count = len(df)
+    except Exception as e:
+        logger.debug(f"Dashboard status: features read failed: {e}")
+
+    # Last update time (use close matrix mtime)
+    last_update = None
+    try:
+        close_path = data_dir / "pit_close_matrix.parquet"
+        if close_path.exists():
+            mtime = os.path.getmtime(close_path)
+            last_update = datetime.fromtimestamp(mtime).isoformat()
+    except Exception as e:
+        logger.debug(f"Dashboard status: mtime read failed: {e}")
+
+    # Current regime from market_guard or regime_classifier
+    regime_label = "unknown"
+    regime_level = None
+    try:
+        from analysis.market_guard import get_market_exposure_limit
+        from data.fetcher import get_taiex_data
+        taiex_df = get_taiex_data(period_days=300)
+        if taiex_df is not None and len(taiex_df) >= 200:
+            status = get_market_exposure_limit(taiex_df)
+            regime_label = status.level_label  # NORMAL / CAUTION / LOCKDOWN
+            regime_level = status.level
+    except Exception as e:
+        logger.debug(f"Dashboard status: market guard failed: {e}")
+        # Fallback to ML regime classifier
+        try:
+            from backend.regime_classifier import classify_market_regime
+            from data.fetcher import get_stock_data
+            df = get_stock_data("0050", period_days=250)
+            if df is not None and len(df) >= 60:
+                rd = classify_market_regime(
+                    close=df["close"].values,
+                    high=df["high"].values,
+                    low=df["low"].values,
+                    volume=df["volume"].values.astype(float),
+                )
+                regime_label = rd.get("regime_label", "unknown")
+        except Exception as e2:
+            logger.debug(f"Dashboard status: regime classifier fallback failed: {e2}")
+
+    return {
+        "latest_data_date": latest_data_date,
+        "stock_count": stock_count,
+        "last_update": last_update,
+        "regime": regime_label,
+        "regime_level": regime_level,
+    }
 
 
 def _dashboard_positions():

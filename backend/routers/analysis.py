@@ -113,10 +113,17 @@ def get_v5_signal(code: str, period_days: int = 365):
     from data.fetcher import get_stock_data
     from analysis.strategy_v5 import get_v5_analysis
     from backend.dependencies import make_serializable
+    from config import ACTIVE_STRATEGIES
     try:
         df = get_stock_data(code, period_days=period_days)
         result = get_v5_analysis(df)
-        return make_serializable(result)
+        result = make_serializable(result)
+        if "v5" not in ACTIVE_STRATEGIES:
+            result["active"] = False
+            result["note"] = "Strategy frozen — observation mode only"
+        else:
+            result["active"] = True
+        return result
     except Exception as e:
         _raise_stock_data_error(code, e)
 
@@ -130,10 +137,17 @@ def get_bold_signal(code: str, period_days: int = 1095):
     from data.fetcher import get_stock_data
     from analysis.strategy_bold import get_bold_analysis
     from backend.dependencies import make_serializable
+    from config import ACTIVE_STRATEGIES
     try:
         df = get_stock_data(code, period_days=period_days)
         result = get_bold_analysis(df)
-        return make_serializable(result)
+        result = make_serializable(result)
+        if "bold" not in ACTIVE_STRATEGIES:
+            result["active"] = False
+            result["note"] = "Strategy frozen — observation mode only"
+        else:
+            result["active"] = True
+        return result
     except Exception as e:
         _raise_stock_data_error(code, e)
 
@@ -227,6 +241,7 @@ def get_adaptive_signal(code: str, period_days: int = 365):
     from analysis.strategy_v4 import get_v4_analysis
     from analysis.strategy_v5 import get_v5_analysis, adaptive_strategy_score
     from backend.dependencies import make_serializable
+    from config import ACTIVE_STRATEGIES
     try:
         df = get_stock_data(code, period_days=period_days)
         v4 = get_v4_analysis(df)
@@ -249,11 +264,17 @@ def get_adaptive_signal(code: str, period_days: int = 365):
             v5_bias_confirmed=v5.get("bias_confirmed", False),
         )
 
-        return make_serializable({
+        result = make_serializable({
             "v4": v4,
             "v5": v5,
             "adaptive": adaptive,
         })
+        if "adaptive" not in ACTIVE_STRATEGIES:
+            result["active"] = False
+            result["note"] = "Strategy frozen — observation mode only"
+        else:
+            result["active"] = True
+        return result
     except Exception as e:
         _raise_stock_data_error(code, e)
 

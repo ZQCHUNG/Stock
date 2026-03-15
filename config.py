@@ -298,5 +298,10 @@ STRATEGY_V4_PARAMS = {
 
 }
 
+# Active strategies — only these generate actionable signals.
+# Other strategies still return analysis data but are marked as frozen/observation-only.
+# Valid values: "v4", "v5", "bold", "adaptive"
+ACTIVE_STRATEGIES = ["v4"]
+
 # 台股交易單位
 TRADE_UNIT = 1000  # 一張 = 1000 股
