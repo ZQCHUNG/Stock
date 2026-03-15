@@ -8,6 +8,18 @@
 #   - GCS bucket created: gs://stock-daily-data-ooooorz
 #
 # Estimated cost: ~NT$50-100/month (Cloud Run Job ~44min/day, 4Gi RAM, 2 vCPU)
+#
+# Notification setup:
+#   Telegram Bot is used for pipeline notifications (3 alert levels).
+#   Set the following env vars before deploying:
+#     TG_BOT_TOKEN  — Telegram Bot API token (get from @BotFather)
+#     TG_CHAT_ID    — Target chat ID (send /start to your bot, then call getUpdates)
+#
+#   To find your chat ID:
+#     curl "https://api.telegram.org/bot<TOKEN>/getUpdates"
+#     Look for "chat":{"id": <NUMBER>} in the response.
+#
+#   These are passed as env vars to Cloud Run Job (not hardcoded).
 
 set -euo pipefail
 
@@ -20,6 +32,10 @@ JOB_NAME="stock-daily-update"
 GCS_BUCKET="stock-daily-data-${PROJECT}"
 IMAGE="gcr.io/${PROJECT}/${JOB_NAME}"
 SA_EMAIL="${PROJECT}@appspot.gserviceaccount.com"
+
+# Telegram notification (read from environment, not hardcoded)
+TG_BOT_TOKEN="${TG_BOT_TOKEN:-}"
+TG_CHAT_ID="${TG_CHAT_ID:-}"
 
 # Job resources — tuned for 1096 stocks, 65 features
 MEMORY="4Gi"
@@ -84,6 +100,20 @@ build_image() {
 
 create_job() {
     echo "[4/5] Creating Cloud Run Job..."
+
+    # Build env vars string — always include GCS_BUCKET, conditionally add TG vars
+    ENV_VARS="GCS_BUCKET=${GCS_BUCKET}"
+    if [[ -n "${TG_BOT_TOKEN}" ]]; then
+        ENV_VARS="${ENV_VARS},TG_BOT_TOKEN=${TG_BOT_TOKEN}"
+    else
+        echo "  WARNING: TG_BOT_TOKEN not set — Telegram notifications will be disabled"
+    fi
+    if [[ -n "${TG_CHAT_ID}" ]]; then
+        ENV_VARS="${ENV_VARS},TG_CHAT_ID=${TG_CHAT_ID}"
+    else
+        echo "  WARNING: TG_CHAT_ID not set — Telegram notifications will be disabled"
+    fi
+
     # Check if job already exists
     if gcloud run jobs describe "${JOB_NAME}" --region="${REGION}" --project="${PROJECT}" &>/dev/null; then
         echo "  Job exists — updating..."
@@ -94,7 +124,7 @@ create_job() {
             --max-retries "${MAX_RETRIES}" \
             --memory "${MEMORY}" \
             --cpu "${CPU}" \
-            --set-env-vars "GCS_BUCKET=${GCS_BUCKET}" \
+            --set-env-vars "${ENV_VARS}" \
             --project "${PROJECT}"
     else
         echo "  Creating new job..."
@@ -105,7 +135,7 @@ create_job() {
             --max-retries "${MAX_RETRIES}" \
             --memory "${MEMORY}" \
             --cpu "${CPU}" \
-            --set-env-vars "GCS_BUCKET=${GCS_BUCKET}" \
+            --set-env-vars "${ENV_VARS}" \
             --project "${PROJECT}"
     fi
 }

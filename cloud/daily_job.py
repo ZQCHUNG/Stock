@@ -5,7 +5,7 @@ Runs the complete daily pipeline as a Cloud Run Job:
   2. Run daily_update.py (close matrix, RS, screener, forward returns, signals)
   3. Run build_features.py (65 features, price cache, forward returns)
   4. Upload results to GCS bucket
-  5. Send completion notification via LINE (3 alert levels)
+  5. Send completion notification via Telegram Bot (3 alert levels)
 
 Designed to be idempotent — safe to re-run on the same day.
 Each step catches its own errors so later steps still execute.
@@ -17,7 +17,8 @@ Alert levels:
 
 Environment variables:
   GCS_BUCKET       — GCS bucket name for result uploads (required)
-  LINE_TOKEN       — LINE Notify token for notifications (optional)
+  TG_BOT_TOKEN     — Telegram Bot API token for notifications (optional)
+  TG_CHAT_ID       — Telegram chat ID for notifications (required if TG_BOT_TOKEN set)
   SKIP_FEATURES    — set to "1" to skip build_features (saves ~30 min)
   DRY_RUN          — set to "1" to skip GCS upload (local test mode)
 """
@@ -45,7 +46,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # Config from environment
 GCS_BUCKET = os.environ.get("GCS_BUCKET", "")
-LINE_TOKEN = os.environ.get("LINE_TOKEN", "")
+TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID", "")
 SKIP_FEATURES = os.environ.get("SKIP_FEATURES", "0") == "1"
 DRY_RUN = os.environ.get("DRY_RUN", "0") == "1"
 
@@ -302,10 +304,36 @@ def determine_alert_level(results: dict) -> tuple:
 
 
 # ---------------------------------------------------------------------------
+# Telegram Bot Helper
+# ---------------------------------------------------------------------------
+def send_telegram(message: str, token: str, chat_id: str) -> bool:
+    """Send a message via Telegram Bot API.
+
+    Args:
+        message: Text to send (Markdown supported).
+        token: Telegram Bot API token.
+        chat_id: Target chat ID.
+
+    Returns:
+        True if the message was sent successfully, False otherwise.
+    """
+    import requests
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "Markdown",
+    }
+    resp = requests.post(url, json=payload, timeout=10)
+    return resp.ok
+
+
+# ---------------------------------------------------------------------------
 # Step 4: Send Notification (3 alert levels)
 # ---------------------------------------------------------------------------
 def step_notify(results: dict) -> dict:
-    """Send LINE Notify with pipeline summary. Always sends a notification.
+    """Send Telegram notification with pipeline summary. Always sends.
 
     Alert levels:
         SUCCESS — brief confirmation with stock count and duration
@@ -322,39 +350,44 @@ def step_notify(results: dict) -> dict:
 
     logger.info("Alert level: %s, issues: %s", alert_level, issues)
 
-    if not LINE_TOKEN:
-        logger.info("LINE_TOKEN not set — skipping notification")
+    if not TG_BOT_TOKEN:
+        logger.info("TG_BOT_TOKEN not set — skipping notification")
         return {"status": "skipped", "alert_level": alert_level}
 
-    try:
-        import requests
+    if not TG_CHAT_ID:
+        logger.warning("TG_CHAT_ID not set — cannot send Telegram notification")
+        return {"status": "skipped", "reason": "no_chat_id", "alert_level": alert_level}
 
+    try:
         total_elapsed = results.get("total_elapsed_s", 0)
         daily_result = results.get("daily_update", {}).get("result", {})
         stock_count = daily_result.get("stock_count", 0)
+
+        # Emoji prefix per alert level
+        level_icon = {
+            ALERT_SUCCESS: "OK",
+            ALERT_WARNING: "WARNING",
+            ALERT_ABORT: "ABORT",
+        }
+        prefix = level_icon.get(alert_level, "INFO")
 
         # Build message based on alert level
         if alert_level == ALERT_SUCCESS:
             stock_str = f"{stock_count:,}" if stock_count else "?"
             elapsed_min = total_elapsed / 60
-            message = f"\nDaily update OK: {stock_str} stocks, {elapsed_min:.1f} min"
+            message = f"*[{prefix}]* Daily update OK\n{stock_str} stocks, {elapsed_min:.1f} min"
 
         elif alert_level == ALERT_WARNING:
             issue_list = "\n".join(f"  - {i}" for i in issues)
-            message = f"\nDaily update completed with warnings:\n{issue_list}"
+            message = f"*[{prefix}]* Daily update completed with warnings:\n{issue_list}"
 
         else:  # ALERT_ABORT
             reason = issues[0] if issues else "Unknown error"
-            message = f"\nDaily update ABORTED: {reason}"
+            message = f"*[{prefix}]* Daily update ABORTED\n{reason}"
 
-        resp = requests.post(
-            "https://notify-api.line.me/api/notify",
-            headers={"Authorization": f"Bearer {LINE_TOKEN}"},
-            data={"message": message},
-            timeout=10,
-        )
-        logger.info("LINE notify sent (level=%s, status=%d)", alert_level, resp.status_code)
-        return {"status": "ok", "http_status": resp.status_code, "alert_level": alert_level}
+        ok = send_telegram(message, TG_BOT_TOKEN, TG_CHAT_ID)
+        logger.info("Telegram notify sent (level=%s, ok=%s)", alert_level, ok)
+        return {"status": "ok" if ok else "error", "alert_level": alert_level}
     except Exception as e:
         logger.error("Notification FAILED: %s", e)
         return {"status": "error", "error": str(e), "alert_level": alert_level}
@@ -369,6 +402,8 @@ def main():
     logger.info("Cloud Run Daily Job — START")
     logger.info("  Date: %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     logger.info("  GCS_BUCKET: %s", GCS_BUCKET or "(not set)")
+    logger.info("  TG_BOT_TOKEN: %s", "set" if TG_BOT_TOKEN else "(not set)")
+    logger.info("  TG_CHAT_ID: %s", TG_CHAT_ID or "(not set)")
     logger.info("  SKIP_FEATURES: %s", SKIP_FEATURES)
     logger.info("  DRY_RUN: %s", DRY_RUN)
     logger.info("=" * 60)
