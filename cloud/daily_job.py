@@ -395,26 +395,19 @@ def determine_alert_level(results: dict) -> tuple:
         return ALERT_ABORT, [f"Feature build failed: {features.get('error', '?')[:120]}"]
 
     # WARNING conditions
-    # 1. Some stocks failed to fetch
     daily_result = daily.get("result", {})
-    failed_stocks = daily_result.get("failed_stocks", 0)
-    if failed_stocks > 0:
-        issues.append(f"{failed_stocks} stocks failed to fetch")
+
+    # 1. Coverage < 90% (stocks with data in latest row / total stocks)
+    coverage_pct = daily_result.get("coverage_pct", 0)
+    stock_count = daily_result.get("stock_count", 0)
+    total_stocks = daily_result.get("total_stocks", 0)
+    if total_stocks > 0 and coverage_pct < 90:
+        issues.append(f"Low coverage: {stock_count}/{total_stocks} ({coverage_pct}%)")
 
     # 2. Build time > 30 min
     total_elapsed = results.get("total_elapsed_s", 0)
     if total_elapsed > BUILD_TIME_WARNING_S:
         issues.append(f"Build time {total_elapsed/60:.1f} min > {BUILD_TIME_WARNING_S/60:.0f} min threshold")
-
-    # 3. Stock count dropped > 10% from yesterday
-    stock_count = daily_result.get("stock_count", 0)
-    prev_stock_count = daily_result.get("prev_stock_count", 0)
-    if prev_stock_count > 0 and stock_count > 0:
-        drop_pct = (prev_stock_count - stock_count) / prev_stock_count
-        if drop_pct > STOCK_COUNT_DROP_PCT:
-            issues.append(
-                f"Stock count dropped {drop_pct:.1%}: {prev_stock_count} -> {stock_count}"
-            )
 
     # 4. GCS upload had partial failures
     if gcs.get("status") == "error":
@@ -487,6 +480,8 @@ def step_notify(results: dict) -> dict:
         total_elapsed = results.get("total_elapsed_s", 0)
         daily_result = results.get("daily_update", {}).get("result", {})
         stock_count = daily_result.get("stock_count", 0)
+        total_stocks = daily_result.get("total_stocks", 0)
+        coverage_pct = daily_result.get("coverage_pct", 0)
 
         # Emoji prefix per alert level
         level_icon = {
@@ -496,11 +491,18 @@ def step_notify(results: dict) -> dict:
         }
         prefix = level_icon.get(alert_level, "INFO")
 
+        # Build coverage string: "1,847/1,973 (93.7%)"
+        if total_stocks > 0:
+            coverage_str = f"{stock_count:,}/{total_stocks:,} ({coverage_pct}%)"
+        elif stock_count > 0:
+            coverage_str = f"{stock_count:,} stocks"
+        else:
+            coverage_str = "? stocks"
+
         # Build message based on alert level
         if alert_level == ALERT_SUCCESS:
-            stock_str = f"{stock_count:,}" if stock_count else "?"
             elapsed_min = total_elapsed / 60
-            message = f"*[{prefix}]* Daily update OK\n{stock_str} stocks, {elapsed_min:.1f} min"
+            message = f"*[{prefix}]* Daily update OK\n{coverage_str}, {elapsed_min:.1f} min"
 
         elif alert_level == ALERT_WARNING:
             issue_list = "\n".join(f"  - {i}" for i in issues)

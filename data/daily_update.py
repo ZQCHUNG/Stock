@@ -354,12 +354,13 @@ def _yf_incremental_update(existing: pd.DataFrame) -> dict:
                     close_df = data["Close"]
                     for date in close_df.index:
                         date = pd.Timestamp(date)
-                        if date not in existing.index:
-                            for ticker_col in close_df.columns:
-                                code = ticker_to_code.get(ticker_col, ticker_col.split(".")[0])
-                                val = close_df.loc[date, ticker_col]
-                                if pd.notna(val) and code in existing.columns:
-                                    existing.loc[date, code] = val
+                        is_new_date = date not in existing.index
+                        for ticker_col in close_df.columns:
+                            code = ticker_to_code.get(ticker_col, ticker_col.split(".")[0])
+                            val = close_df.loc[date, ticker_col]
+                            if pd.notna(val) and code in existing.columns:
+                                existing.loc[date, code] = val
+                        if is_new_date:
                             new_dates_added += 1
         except Exception as e:
             logger.warning("yf batch %d failed: %s", batch_idx // BATCH_SIZE + 1, e)
@@ -826,14 +827,24 @@ def run_daily_update() -> dict:
     logger.info("[Step 1/9] Extending close matrix...")
     try:
         results["close_matrix"] = extend_close_matrix()
-        # V1.1 P0: Validate data quality — check for all-NaN latest row
+        # V1.1 P0: Validate data quality — check coverage of latest row
         if PIT_CLOSE_PATH.exists():
             _cm = pd.read_parquet(PIT_CLOSE_PATH)
             if len(_cm) > 0:
-                last_row_nan_pct = _cm.iloc[-1].isna().mean()
-                if last_row_nan_pct > 0.9:
-                    logger.error("Data quality alert: %.0f%% NaN in latest row!", last_row_nan_pct * 100)
-                    _notify_data_source_switch("all_sources", "ALERT", f"latest row {last_row_nan_pct:.0%} NaN")
+                total_stocks = len(_cm.columns)
+                valid_stocks = int(_cm.iloc[-1].notna().sum())
+                coverage_pct = valid_stocks / total_stocks if total_stocks > 0 else 0
+                results["close_matrix"]["stock_count"] = valid_stocks
+                results["close_matrix"]["total_stocks"] = total_stocks
+                results["close_matrix"]["coverage_pct"] = round(coverage_pct * 100, 1)
+                # Propagate to top-level for daily_job.py consumption
+                results["stock_count"] = valid_stocks
+                results["total_stocks"] = total_stocks
+                results["coverage_pct"] = round(coverage_pct * 100, 1)
+                logger.info("Coverage: %d/%d stocks (%.1f%%)", valid_stocks, total_stocks, coverage_pct * 100)
+                if coverage_pct < 0.1:
+                    logger.error("Data quality alert: only %.1f%% coverage in latest row!", coverage_pct * 100)
+                    _notify_data_source_switch("all_sources", "ALERT", f"latest row coverage {coverage_pct:.0%}")
                     results["close_matrix"]["data_quality_warning"] = True
             del _cm
     except Exception as e:
