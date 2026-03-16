@@ -14,7 +14,7 @@ past winners.
   6. Presets use weight multiplication (not dimension filtering)
   7. Scanning: post-market only (once per day)
   8. UI stats: median and quartiles (NOT averages)
-  9. Hit rate: Top-5 templates, how many actually D30 > +20%
+  9. Hit rate: Top-5 templates, how many have ALL fwd returns positive
 
 All parameters marked [PLACEHOLDER] pending validation.
 """
@@ -453,12 +453,18 @@ def scan_market(
     preset: str = "technical",
     top_k: int = DEFAULT_TOP_K,
     max_per_industry: int = DEFAULT_MAX_PER_INDUSTRY,
+    min_active_days: int = 5,
+    min_traded_ratio: float = 0.9,
 ) -> list:
     """Daily scan: compare current market against golden templates.
 
     For each stock in today's features, compute weighted cosine similarity
     against all templates (optionally filtered by regime). Rank by
     composite = similarity * 0.7 + consistency * 0.3.
+
+    Filters applied before ranking:
+      - Active stock filter: last trade within min_active_days of latest market date
+      - Liquidity filter: must have traded >= min_traded_ratio of last 20 days
 
     Apply industry cap: max_per_industry stocks from the same industry
     in the final top-K list.
@@ -472,11 +478,16 @@ def scan_market(
             [PLACEHOLDER: PRESET_WEIGHTS_001]
         top_k: [PLACEHOLDER: TOP_K_001] Number of results to return.
         max_per_industry: [PLACEHOLDER: MAX_PER_INDUSTRY_001] Industry cap.
+        min_active_days: Max calendar days gap from latest market date to
+            consider a stock as active. Default 5 (~5 trading days ~ 7 cal days).
+        min_traded_ratio: Minimum fraction of last 20 trading days with valid
+            close prices. Stocks below this are considered illiquid. Default 0.9.
 
     Returns:
         list of dicts, each containing:
             stock_code, similarity, consistency, composite_score,
-            top_template_matches (top 5), stats (median/quartiles).
+            hit_rate (fraction of top-5 templates with ALL fwd returns positive),
+            top_template_matches (top 5), stats (median/quartiles per horizon).
     """
     t0 = time.time()
 
@@ -529,7 +540,30 @@ def scan_market(
     feat_df = pd.read_parquet(feat_path)
     feat_df["date"] = pd.to_datetime(feat_df["date"])
     latest_df = feat_df.sort_values("date").groupby("stock_code").tail(1).reset_index(drop=True)
-    logger.info("Current features: %d stocks (latest dates)", len(latest_df))
+    n_before_filter = len(latest_df)
+    logger.info("Current features: %d stocks (latest dates)", n_before_filter)
+
+    if len(latest_df) == 0:
+        return []
+
+    # --- Fix 1: Filter delisted/inactive stocks ---
+    # --- Fix 2: Filter illiquid stocks (no volume data → use close matrix gaps) ---
+    close_path = Path(close_matrix_parquet) if close_matrix_parquet else CLOSE_MATRIX_FILE
+    if close_path.exists():
+        close_matrix = pd.read_parquet(close_path)
+        close_matrix.index = pd.to_datetime(close_matrix.index)
+        active_liquid = _get_active_liquid_stocks(
+            close_matrix, min_active_days, min_traded_ratio,
+        )
+        pre_count = len(latest_df)
+        latest_df = latest_df[latest_df["stock_code"].isin(active_liquid)].reset_index(drop=True)
+        n_filtered = pre_count - len(latest_df)
+        logger.info(
+            "Active/liquid filter: kept %d, removed %d (inactive=%d-day gap or <%.0f%% traded)",
+            len(latest_df), n_filtered, min_active_days, min_traded_ratio * 100,
+        )
+    else:
+        logger.warning("Close matrix not found at %s — skipping active/liquid filter", close_path)
 
     if len(latest_df) == 0:
         return []
@@ -600,13 +634,13 @@ def scan_market(
                 "consistency": round(float(top_consistencies[j]), 4),
             })
 
-        # Stats: median and quartiles (NOT averages) — design point #8
-        fwd_d30_values = [m["fwd_d30"] for m in top_matches if m["fwd_d30"] is not None]
-        stats = _compute_quartile_stats(fwd_d30_values) if fwd_d30_values else {}
+        # Stats: median and quartiles per horizon (NOT averages) — design point #8
+        stats = _compute_per_horizon_stats(top_matches)
 
-        # Hit rate: how many of top-5 actually D30 > +20% — design point #9
-        hit_count = sum(1 for v in fwd_d30_values if v is not None and v >= DEFAULT_D30_THRESHOLD)
-        hit_rate = hit_count / len(fwd_d30_values) if fwd_d30_values else 0.0
+        # Hit rate (Fix 3): fraction of top-5 templates where ALL forward
+        # returns are positive (the "consistency at match level" concept).
+        # Old definition was "D30 > 20%" which was always 5/5 by construction.
+        hit_rate = _compute_hit_rate(top_matches)
 
         stock_code = str(latest_df.iloc[i]["stock_code"])
         results.append({
@@ -636,6 +670,145 @@ def scan_market(
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+
+
+def _get_active_liquid_stocks(
+    close_matrix: pd.DataFrame,
+    min_active_days: int = 5,
+    min_traded_ratio: float = 0.9,
+) -> set:
+    """Identify active and liquid stocks from close matrix.
+
+    Fix 1 — Active filter: stock's last valid close must be within
+    `min_active_days` calendar days of the latest market date.
+
+    Fix 2 — Liquidity filter: stock must have valid close prices for
+    at least `min_traded_ratio` fraction of the last 20 trading days.
+    This catches illiquid/suspended stocks without needing volume data.
+
+    Args:
+        close_matrix: Close price DataFrame (dates x stocks).
+        min_active_days: Max calendar days gap to latest market date.
+        min_traded_ratio: Min fraction of last-20 days with valid prices.
+
+    Returns:
+        Set of stock codes passing both filters.
+    """
+    if close_matrix.empty:
+        return set()
+
+    latest_market_date = close_matrix.index[-1]
+    # Use last 20 trading days for liquidity check
+    lookback = min(20, len(close_matrix))
+    recent = close_matrix.iloc[-lookback:]
+
+    active_stocks = set()
+    for col in close_matrix.columns:
+        # Fix 1: Check if stock has recent data
+        last_valid = close_matrix[col].last_valid_index()
+        if last_valid is None:
+            continue
+        days_gap = (latest_market_date - last_valid).days
+        if days_gap > min_active_days:
+            continue
+
+        # Fix 2: Check trading frequency in last 20 days
+        valid_count = recent[col].notna().sum()
+        traded_ratio = valid_count / lookback
+        if traded_ratio < min_traded_ratio:
+            continue
+
+        active_stocks.add(col)
+
+    return active_stocks
+
+
+def _compute_hit_rate(top_matches: list) -> float:
+    """Compute hit rate: fraction of top-5 templates with ALL forward returns positive.
+
+    Fix 3 — Old definition was "D30 > 20%" which was always 5/5 since
+    golden templates are filtered by D30 >= 20% by construction.
+    New definition: a template "hits" when every available forward return
+    (D7, D14, D30, D90) is positive. This captures true consistency.
+
+    Args:
+        top_matches: List of match dicts with fwd_d7/d14/d30/d90 keys.
+
+    Returns:
+        Float 0.0 to 1.0.
+    """
+    if not top_matches:
+        return 0.0
+
+    hit_count = 0
+    for m in top_matches:
+        fwd_values = [m.get(k) for k in ("fwd_d7", "fwd_d14", "fwd_d30", "fwd_d90")]
+        valid = [v for v in fwd_values if v is not None]
+        if valid and all(v > 0 for v in valid):
+            hit_count += 1
+
+    return hit_count / len(top_matches)
+
+
+def _compute_per_horizon_stats(top_matches: list) -> dict:
+    """Compute median and quartiles for each forward return horizon.
+
+    Fix 4 — Old stats only covered D30. New version covers all horizons
+    with median, Q1 (25th percentile), Q3 (75th percentile).
+
+    Args:
+        top_matches: List of match dicts with fwd_d7/d14/d30/d90 keys.
+
+    Returns:
+        dict keyed by horizon label, each containing median/q25/q75/count.
+        Empty dict if no valid data.
+    """
+    if not top_matches:
+        return {}
+
+    stats = {}
+    for label in FORWARD_LABELS:
+        values = [m[label] for m in top_matches if m.get(label) is not None]
+        if values:
+            arr = np.array(values, dtype=np.float64)
+            stats[label] = {
+                "median": round(float(np.median(arr)), 6),
+                "q25": round(float(np.percentile(arr, 25)), 6),
+                "q75": round(float(np.percentile(arr, 75)), 6),
+                "min": round(float(np.min(arr)), 6),
+                "max": round(float(np.max(arr)), 6),
+                "count": len(arr),
+            }
+    return stats
+
+
+def compute_score_distribution(results: list) -> dict:
+    """Compute composite score distribution from scan results.
+
+    Fix 5 — Run this after scan_market(..., top_k=9999) to understand
+    whether scores are compressed or well-spread.
+
+    Args:
+        results: Full list of scan_market results (use large top_k).
+
+    Returns:
+        dict with mean, median, p25, p75, p90, p95, max, count.
+    """
+    if not results:
+        return {"count": 0}
+
+    scores = np.array([r["composite_score"] for r in results], dtype=np.float64)
+    return {
+        "count": len(scores),
+        "mean": round(float(np.mean(scores)), 6),
+        "median": round(float(np.median(scores)), 6),
+        "p25": round(float(np.percentile(scores, 25)), 6),
+        "p75": round(float(np.percentile(scores, 75)), 6),
+        "p90": round(float(np.percentile(scores, 90)), 6),
+        "p95": round(float(np.percentile(scores, 95)), 6),
+        "max": round(float(np.max(scores)), 6),
+        "min": round(float(np.min(scores)), 6),
+    }
 
 
 def _safe_float(val) -> Optional[float]:

@@ -26,11 +26,15 @@ from analysis.golden_template_builder import (
     _build_weight_vector,
     _cap_per_stock,
     _compute_forward_returns_batch,
+    _compute_hit_rate,
+    _compute_per_horizon_stats,
     _compute_quartile_stats,
     _dedup_per_stock,
+    _get_active_liquid_stocks,
     _safe_float,
     build_golden_templates,
     compute_consistency,
+    compute_score_distribution,
     scan_market,
 )
 
@@ -299,6 +303,170 @@ class TestComputeForwardReturnsBatch:
         assert np.isnan(fwd[0, 0])  # d7
 
 
+class TestGetActiveLiquidStocks:
+    """Tests for _get_active_liquid_stocks() — Fix 1 & Fix 2."""
+
+    def test_active_stock_kept(self):
+        """Stock with data up to latest date passes."""
+        dates = pd.bdate_range("2025-01-02", periods=30)
+        close = pd.DataFrame({"2330": np.ones(30) * 500}, index=dates)
+        result = _get_active_liquid_stocks(close, min_active_days=5, min_traded_ratio=0.9)
+        assert "2330" in result
+
+    def test_stale_stock_removed(self):
+        """Stock whose last price is >5 days before latest market date."""
+        dates = pd.bdate_range("2025-01-02", periods=30)
+        prices = np.ones(30) * 500
+        prices[-6:] = np.nan  # No data for last 6 trading days (~8 cal days)
+        close = pd.DataFrame({"2330": prices}, index=dates)
+        result = _get_active_liquid_stocks(close, min_active_days=5, min_traded_ratio=0.0)
+        assert "2330" not in result
+
+    def test_illiquid_stock_removed(self):
+        """Stock with too many gaps in last 20 days."""
+        dates = pd.bdate_range("2025-01-02", periods=30)
+        prices = np.ones(30) * 500
+        # Put NaN gaps in 5 of the last 20 days (75% traded < 90% threshold)
+        prices[-20:-15] = np.nan
+        close = pd.DataFrame({"2330": prices}, index=dates)
+        result = _get_active_liquid_stocks(close, min_active_days=5, min_traded_ratio=0.9)
+        assert "2330" not in result
+
+    def test_mixed_stocks(self):
+        """One active+liquid, one stale, one illiquid."""
+        dates = pd.bdate_range("2025-01-02", periods=30)
+        good = np.ones(30) * 500
+        stale = np.ones(30) * 100
+        stale[-8:] = np.nan  # Stale: no data for 8 days
+        illiquid = np.ones(30) * 200
+        illiquid[-20:-14] = np.nan  # Illiquid: 6 gaps in last 20 days
+        close = pd.DataFrame({"GOOD": good, "STALE": stale, "ILLIQUID": illiquid}, index=dates)
+        result = _get_active_liquid_stocks(close, min_active_days=5, min_traded_ratio=0.9)
+        assert "GOOD" in result
+        assert "STALE" not in result
+        assert "ILLIQUID" not in result
+
+    def test_empty_matrix(self):
+        close = pd.DataFrame()
+        result = _get_active_liquid_stocks(close)
+        assert result == set()
+
+
+class TestComputeHitRate:
+    """Tests for _compute_hit_rate() — Fix 3."""
+
+    def test_all_positive(self):
+        """All templates have all positive returns → hit_rate = 1.0."""
+        matches = [
+            {"fwd_d7": 0.05, "fwd_d14": 0.10, "fwd_d30": 0.25, "fwd_d90": 0.40},
+            {"fwd_d7": 0.01, "fwd_d14": 0.02, "fwd_d30": 0.30, "fwd_d90": 0.50},
+        ]
+        assert _compute_hit_rate(matches) == 1.0
+
+    def test_mixed(self):
+        """One template has a negative return → hit_rate = 0.5."""
+        matches = [
+            {"fwd_d7": 0.05, "fwd_d14": 0.10, "fwd_d30": 0.25, "fwd_d90": 0.40},
+            {"fwd_d7": -0.02, "fwd_d14": 0.10, "fwd_d30": 0.25, "fwd_d90": 0.40},
+        ]
+        assert _compute_hit_rate(matches) == 0.5
+
+    def test_all_negative_d7(self):
+        """All templates have negative D7 → hit_rate = 0.0."""
+        matches = [
+            {"fwd_d7": -0.05, "fwd_d14": 0.10, "fwd_d30": 0.25, "fwd_d90": 0.40},
+            {"fwd_d7": -0.02, "fwd_d14": 0.10, "fwd_d30": 0.25, "fwd_d90": 0.40},
+        ]
+        assert _compute_hit_rate(matches) == 0.0
+
+    def test_with_none_values(self):
+        """None values are excluded; remaining must all be positive."""
+        matches = [
+            {"fwd_d7": None, "fwd_d14": 0.10, "fwd_d30": 0.25, "fwd_d90": None},
+        ]
+        assert _compute_hit_rate(matches) == 1.0
+
+    def test_empty(self):
+        assert _compute_hit_rate([]) == 0.0
+
+
+class TestComputePerHorizonStats:
+    """Tests for _compute_per_horizon_stats() — Fix 4."""
+
+    def test_all_horizons_present(self):
+        """Stats should cover each forward return horizon."""
+        matches = [
+            {"fwd_d7": 0.05, "fwd_d14": 0.10, "fwd_d30": 0.25, "fwd_d90": 0.40},
+            {"fwd_d7": 0.03, "fwd_d14": 0.08, "fwd_d30": 0.22, "fwd_d90": 0.35},
+            {"fwd_d7": 0.07, "fwd_d14": 0.12, "fwd_d30": 0.30, "fwd_d90": 0.50},
+        ]
+        stats = _compute_per_horizon_stats(matches)
+        for label in FORWARD_LABELS:
+            assert label in stats, f"Missing stats for {label}"
+            assert "median" in stats[label]
+            assert "q25" in stats[label]
+            assert "q75" in stats[label]
+            assert "count" in stats[label]
+            assert stats[label]["count"] == 3
+
+    def test_median_correctness(self):
+        matches = [
+            {"fwd_d7": 0.01, "fwd_d14": 0.10, "fwd_d30": 0.20, "fwd_d90": 0.30},
+            {"fwd_d7": 0.05, "fwd_d14": 0.20, "fwd_d30": 0.30, "fwd_d90": 0.40},
+            {"fwd_d7": 0.09, "fwd_d14": 0.30, "fwd_d30": 0.40, "fwd_d90": 0.50},
+        ]
+        stats = _compute_per_horizon_stats(matches)
+        assert stats["fwd_d7"]["median"] == 0.05
+        assert stats["fwd_d14"]["median"] == 0.20
+
+    def test_with_none(self):
+        """None values excluded from stats."""
+        matches = [
+            {"fwd_d7": 0.05, "fwd_d14": None, "fwd_d30": 0.25, "fwd_d90": None},
+        ]
+        stats = _compute_per_horizon_stats(matches)
+        assert "fwd_d7" in stats
+        assert "fwd_d14" not in stats  # All None → excluded
+        assert "fwd_d90" not in stats
+
+    def test_no_mean_in_stats(self):
+        """Design point #8: stats must NOT contain mean."""
+        matches = [
+            {"fwd_d7": 0.05, "fwd_d14": 0.10, "fwd_d30": 0.25, "fwd_d90": 0.40},
+        ]
+        stats = _compute_per_horizon_stats(matches)
+        for label in stats:
+            assert "mean" not in stats[label]
+
+    def test_empty(self):
+        assert _compute_per_horizon_stats([]) == {}
+
+
+class TestComputeScoreDistribution:
+    """Tests for compute_score_distribution() — Fix 5."""
+
+    def test_basic(self):
+        results = [{"composite_score": v} for v in [0.3, 0.5, 0.7, 0.8, 0.9]]
+        dist = compute_score_distribution(results)
+        assert dist["count"] == 5
+        assert dist["median"] == 0.7
+        assert dist["min"] == 0.3
+        assert dist["max"] == 0.9
+        assert "p25" in dist
+        assert "p75" in dist
+        assert "p90" in dist
+        assert "p95" in dist
+
+    def test_empty(self):
+        dist = compute_score_distribution([])
+        assert dist["count"] == 0
+
+    def test_single(self):
+        dist = compute_score_distribution([{"composite_score": 0.42}])
+        assert dist["count"] == 1
+        assert dist["median"] == 0.42
+
+
 # ===========================================================================
 # E2E tests (only run with real data)
 # ===========================================================================
@@ -471,8 +639,8 @@ class TestScanMarketE2E:
         assert len(r_tech) > 0
         assert len(r_value) > 0
 
-    def test_scan_stats_has_quartiles(self, templates_dir):
-        """Design point #8: stats should have median/quartiles, NOT averages."""
+    def test_scan_stats_has_per_horizon_quartiles(self, templates_dir):
+        """Design point #8: stats per horizon with median/quartiles, NOT averages."""
         results = scan_market(
             templates_path=str(templates_dir / "golden_templates.parquet"),
             preset="all", top_k=5,
@@ -482,11 +650,14 @@ class TestScanMarketE2E:
 
         stats = results[0].get("stats", {})
         if stats:
-            assert "median" in stats
-            assert "q25" in stats
-            assert "q75" in stats
-            # Should NOT have "mean" (design decision)
-            assert "mean" not in stats
+            # Stats should be keyed by horizon
+            for label in stats:
+                assert label.startswith("fwd_d"), f"Unexpected key: {label}"
+                assert "median" in stats[label]
+                assert "q25" in stats[label]
+                assert "q75" in stats[label]
+                # Should NOT have "mean" (design decision)
+                assert "mean" not in stats[label]
 
     def test_scan_hit_rate_in_range(self, templates_dir):
         """Design point #9: hit_rate should be between 0 and 1."""
