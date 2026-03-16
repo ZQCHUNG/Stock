@@ -56,3 +56,6 @@ workflow.txt
 # Directories for temp artifacts
 screenshots/
 snapshots/
+data/pattern_data/features/daily_features.parquet
+data/pattern_data/features/golden_templates_20d.parquet
+data/pattern_data/features/golden_templates_20d_norms.npy

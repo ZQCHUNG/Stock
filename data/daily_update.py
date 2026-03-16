@@ -447,14 +447,19 @@ def _notify_data_source_switch(failed_source: str, active_source: str, reason: s
     """
     try:
         from backend.scheduler import _send_notification
-        msg = (
-            f"⚠️ 數據源切換警告\n"
-            f"主源 {failed_source} 異常: {reason[:100]}\n"
-            f"已切換至備援: {active_source}\n"
-            f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-        )
-        _send_notification(msg)
-        logger.info("Data source switch notification sent")
+    except ImportError:
+        logger.warning("backend.scheduler not available (Docker?), skipping notification")
+        _send_notification = None
+    try:
+        if _send_notification:
+            msg = (
+                f"⚠️ 數據源切換警告\n"
+                f"主源 {failed_source} 異常: {reason[:100]}\n"
+                f"已切換至備援: {active_source}\n"
+                f"時間: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+            )
+            _send_notification(msg)
+            logger.info("Data source switch notification sent")
     except Exception as e:
         logger.warning("Failed to send data source switch notification: %s", e)
 
@@ -908,8 +913,15 @@ def run_daily_update() -> dict:
             if trail_msg:
                 try:
                     from backend.scheduler import _send_notification
-                    _send_notification(trail_msg)
-                    results["trailing_stops"]["notification_sent"] = True
+                except ImportError:
+                    _send_notification = None
+                try:
+                    if _send_notification:
+                        _send_notification(trail_msg)
+                        results["trailing_stops"]["notification_sent"] = True
+                    else:
+                        logger.warning("backend.scheduler not available, skipping trail notification")
+                        results["trailing_stops"]["notification_sent"] = False
                 except Exception as e:
                     logger.debug(f"Optional operation failed: {e}")
                     results["trailing_stops"]["notification_sent"] = False
@@ -961,8 +973,13 @@ def run_daily_update() -> dict:
     try:
         review_msg = generate_daily_review()
         if review_msg:
-            from backend.scheduler import _send_notification
-            _send_notification(review_msg)
+            try:
+                from backend.scheduler import _send_notification
+            except ImportError:
+                logger.warning("backend.scheduler not available (Docker?), skipping notification")
+                _send_notification = None
+            if _send_notification:
+                _send_notification(review_msg)
             results["daily_review"] = {"sent": True, "length": len(review_msg)}
         else:
             results["daily_review"] = {"sent": False, "reason": "empty"}

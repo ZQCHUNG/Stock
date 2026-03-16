@@ -68,6 +68,11 @@ GCS_DATA_FILES = [
     "data/pattern_data/features/forward_returns.parquet",
     "data/pattern_data/features/price_cache.parquet",
     "data/pattern_data/features/feature_metadata.json",
+    "data/pattern_data/features/daily_features.parquet",
+    "data/pattern_data/features/daily_feature_metadata.json",
+    "data/pattern_data/features/golden_templates_20d.parquet",
+    "data/pattern_data/features/golden_templates_20d_norms.npy",
+    "data/pattern_data/features/golden_templates_20d_metadata.json",
     "data/screener.db",
     "data/market_data.db",
 ]
@@ -238,25 +243,67 @@ def step_daily_update() -> dict:
 # Step 2: Build Features (65 features, price cache, forward returns)
 # ---------------------------------------------------------------------------
 def step_build_features() -> dict:
-    """Run the feature engineering pipeline (~30 min)."""
+    """Run the 20-dim feature engineering pipeline (~2 min).
+
+    Replaces the full 65-dim build_features.py with the lightweight
+    close-only pipeline: 20 technical features + 20-dim golden templates.
+    """
     logger.info("=" * 50)
-    logger.info("Step 2: Build Features")
+    logger.info("Step 2: Build 20-Dim Features + Golden Templates")
     logger.info("=" * 50)
 
     if SKIP_FEATURES:
         logger.info("SKIP_FEATURES=1 — skipping feature build")
         return {"status": "skipped"}
 
+    results = {}
+    t0 = time.time()
+
+    # Step 2a: Build 20-dim daily features from close matrix
     try:
-        from data.build_features import main as build_main
-        t0 = time.time()
-        build_main()
-        elapsed = time.time() - t0
-        logger.info("Feature build complete in %.1fs", elapsed)
-        return {"status": "ok", "elapsed_s": round(elapsed, 1)}
+        from data.build_daily_features import build_daily_features
+        feat_meta = build_daily_features()
+        results["daily_features"] = {
+            "status": "ok",
+            "rows": feat_meta.get("total_rows", 0),
+            "stocks": feat_meta.get("stock_count", 0),
+            "elapsed_s": feat_meta.get("elapsed_s", 0),
+        }
+        logger.info("Daily features built: %d rows", feat_meta.get("total_rows", 0))
     except Exception as e:
-        logger.error("Feature build FAILED: %s", e, exc_info=True)
-        return {"status": "error", "error": str(e)}
+        logger.error("Daily feature build FAILED: %s", e, exc_info=True)
+        results["daily_features"] = {"status": "error", "error": str(e)}
+
+    # Step 2b: Build 20-dim golden templates
+    try:
+        from data.build_golden_templates_20d import build_golden_templates_20d
+        tpl_meta = build_golden_templates_20d()
+        results["golden_templates_20d"] = {
+            "status": "ok",
+            "templates": tpl_meta.get("after_cap", 0),
+            "stocks": tpl_meta.get("stocks_represented", 0),
+            "elapsed_s": tpl_meta.get("elapsed_s", 0),
+        }
+        logger.info("Golden templates 20d built: %d templates", tpl_meta.get("after_cap", 0))
+    except Exception as e:
+        logger.error("Golden template 20d build FAILED: %s", e, exc_info=True)
+        results["golden_templates_20d"] = {"status": "error", "error": str(e)}
+
+    elapsed = time.time() - t0
+    results["elapsed_s"] = round(elapsed, 1)
+
+    # Determine overall status
+    statuses = [v.get("status") for v in results.values() if isinstance(v, dict)]
+    if all(s == "ok" for s in statuses):
+        results["status"] = "ok"
+    elif any(s == "error" for s in statuses):
+        results["status"] = "error"
+        results["error"] = "partial failure in feature build"
+    else:
+        results["status"] = "ok"
+
+    logger.info("Feature build complete in %.1fs", elapsed)
+    return results
 
 
 # ---------------------------------------------------------------------------
