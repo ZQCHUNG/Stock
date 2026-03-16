@@ -57,8 +57,10 @@ BUILD_TIME_WARNING_S = 1800
 # [PLACEHOLDER: STOCK_COUNT_DROP_THRESHOLD_001] 10% drop triggers warning
 STOCK_COUNT_DROP_PCT = 0.10
 
-# Files to upload to GCS after pipeline completes
-UPLOAD_ARTIFACTS = [
+# Files managed via GCS — downloaded before pipeline, uploaded after completion.
+# Paths are relative to PROJECT_ROOT. GCS blob names mirror this structure
+# under the "latest/" prefix (e.g. latest/data/pit_close_matrix.parquet).
+GCS_DATA_FILES = [
     "data/pit_close_matrix.parquet",
     "data/pit_rs_matrix.parquet",
     "data/pit_rs_percentile.parquet",
@@ -67,6 +69,7 @@ UPLOAD_ARTIFACTS = [
     "data/pattern_data/features/price_cache.parquet",
     "data/pattern_data/features/feature_metadata.json",
     "data/screener.db",
+    "data/market_data.db",
 ]
 
 # Alert level constants
@@ -94,6 +97,76 @@ def is_trading_day(target_date: date = None) -> bool:
         target_date = date.today()
     # Monday=0 ... Friday=4 are weekdays; Saturday=5, Sunday=6 are weekends
     return target_date.weekday() < 5
+
+
+# ---------------------------------------------------------------------------
+# Step 0: Download data from GCS
+# ---------------------------------------------------------------------------
+def step_download_from_gcs() -> dict:
+    """Download latest data files from GCS before processing.
+
+    Downloads all files listed in GCS_DATA_FILES from the ``latest/``
+    prefix in the configured GCS bucket.  Missing blobs are logged as
+    warnings (they may not exist on first run) but do not cause failure.
+
+    Returns:
+        dict with status and counts.
+    """
+    logger.info("=" * 50)
+    logger.info("Step 0: Download data from GCS")
+    logger.info("=" * 50)
+
+    if DRY_RUN:
+        logger.info("DRY_RUN=1 — skipping GCS download")
+        return {"status": "dry_run"}
+
+    if not GCS_BUCKET:
+        logger.warning("GCS_BUCKET not set — skipping download")
+        return {"status": "skipped", "reason": "no_bucket"}
+
+    try:
+        from google.cloud import storage
+
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET)
+
+        downloaded = []
+        missing = []
+
+        for rel_path in GCS_DATA_FILES:
+            blob_name = f"latest/{rel_path}"
+            local_path = PROJECT_ROOT / rel_path
+
+            # Ensure parent directory exists
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+
+            blob = bucket.blob(blob_name)
+            if not blob.exists():
+                logger.warning("Blob not found in GCS: %s — skipping", blob_name)
+                missing.append(rel_path)
+                continue
+
+            blob.download_to_filename(str(local_path))
+            size_mb = local_path.stat().st_size / (1024 * 1024)
+            logger.info(
+                "Downloaded: gs://%s/%s -> %s (%.1f MB)",
+                GCS_BUCKET, blob_name, rel_path, size_mb,
+            )
+            downloaded.append(rel_path)
+
+        logger.info(
+            "GCS download complete: %d downloaded, %d missing",
+            len(downloaded), len(missing),
+        )
+        return {
+            "status": "ok",
+            "downloaded": len(downloaded),
+            "missing": len(missing),
+            "missing_files": missing,
+        }
+    except Exception as e:
+        logger.error("GCS download FAILED: %s", e, exc_info=True)
+        return {"status": "error", "error": str(e)}
 
 
 # ---------------------------------------------------------------------------
@@ -213,17 +286,19 @@ def step_upload_gcs() -> dict:
         uploaded = []
         failed = []
 
-        for rel_path in UPLOAD_ARTIFACTS:
+        for rel_path in GCS_DATA_FILES:
             local_path = PROJECT_ROOT / rel_path
             if not local_path.exists():
                 logger.warning("Artifact not found: %s", rel_path)
                 failed.append(rel_path)
                 continue
 
-            # Upload to: daily/<date>/<filename> and latest/<filename>
-            filename = local_path.name
+            # Upload to both latest/ and daily/<date>/ preserving directory structure
+            # e.g. data/pattern_data/features/features_all.parquet ->
+            #   latest/data/pattern_data/features/features_all.parquet
+            #   daily/2026-03-17/data/pattern_data/features/features_all.parquet
             for gcs_prefix in [f"daily/{today}", "latest"]:
-                blob_name = f"{gcs_prefix}/{filename}"
+                blob_name = f"{gcs_prefix}/{rel_path}"
                 blob = bucket.blob(blob_name)
                 blob.upload_from_filename(str(local_path))
                 logger.info("Uploaded: gs://%s/%s", GCS_BUCKET, blob_name)
@@ -256,12 +331,15 @@ def determine_alert_level(results: dict) -> tuple:
     """
     issues = []
 
+    download = results.get("gcs_download", {})
     daily = results.get("daily_update", {})
     features = results.get("build_features", {})
     gcs = results.get("gcs_upload", {})
     freshness = results.get("data_freshness", {})
 
     # ABORT conditions: critical step failed entirely
+    if download.get("status") == "error":
+        return ALERT_ABORT, [f"GCS download failed: {download.get('error', '?')[:120]}"]
     if daily.get("status") == "error":
         return ALERT_ABORT, [f"Daily update failed: {daily.get('error', '?')[:120]}"]
     if freshness.get("status") == "error":
@@ -416,6 +494,9 @@ def main():
 
     t0 = time.time()
     results = {}
+
+    # Step 0: Download data from GCS (must run before anything that reads data)
+    results["gcs_download"] = step_download_from_gcs()
 
     # Step 1: Daily update
     results["daily_update"] = step_daily_update()

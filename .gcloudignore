@@ -1,0 +1,70 @@
+# Cloud Build ignore — keep upload small (only pipeline code needed)
+# See also: .dockerignore (controls Docker build context)
+
+# Frontend (not needed for data pipeline)
+frontend/
+node_modules/
+
+# Backend server
+backend/
+
+# Tests
+tests/
+
+# Notebooks
+colab/
+
+# Git
+.git/
+
+# IDE
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+
+# Large data files (downloaded from GCS at runtime)
+data/pattern_data/raw/
+data/pattern_data/features/*.parquet
+data/pattern_data/features/*.pkl
+data/cache/
+data/backup/
+data/browser_state/
+data/daily_reports/
+data/*.parquet
+data/*.db
+
+# Docs
+*.md
+memory/
+
+# Backtest results (not needed at runtime)
+data/*_results.json
+data/*_report.json
+data/*_validation*.json
+data/*_sweep*.json
+data/*_test*.json
+
+# Misc data files not needed for pipeline
+data/active_stocks.json
+data/alert_config.json
+data/bold_*.json
+data/sniper_*.json
+data/vcp_*.json
+data/rebalancer_state.json
+data/rs_*.json
+data/accumulation_*.json
+data/param_sweep_*.json
+data/portfolio_*.json
+
+# Cloud extras (keep cloud/Dockerfile, cloud/daily_job.py, cloud/cloudbuild.yaml)
+cloud/deploy.sh
+cloud/README.md
+cloud/__pycache__/
+
+# Root-level Dockerfiles (not the one in cloud/)
+/Dockerfile
+/.dockerignore
+
+# Backtest module (not needed for daily pipeline)
+backtest/

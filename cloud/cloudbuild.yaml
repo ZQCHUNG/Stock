@@ -1,0 +1,12 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/stock-daily-update'
+      - '-f'
+      - 'cloud/Dockerfile'
+      - '.'
+images:
+  - 'gcr.io/$PROJECT_ID/stock-daily-update'
+timeout: '600s'

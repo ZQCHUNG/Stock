@@ -21,8 +21,11 @@ COPY analysis/ analysis/
 # Copy the job entry point
 COPY cloud/daily_job.py cloud/daily_job.py
 
-# Non-root user for security
-RUN useradd -m worker
+# Ensure data directories exist for GCS downloads (may be empty after .dockerignore)
+RUN mkdir -p data/pattern_data/features data/pattern_data/raw data/cache
+
+# Non-root user for security — must own data/ for GCS downloads
+RUN useradd -m worker && chown -R worker:worker /app/data
 USER worker
 
 ENV PYTHONUNBUFFERED=1

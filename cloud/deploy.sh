@@ -5,7 +5,7 @@
 # Prerequisites:
 #   - gcloud CLI authenticated
 #   - APIs enabled: Cloud Run, Cloud Build, Cloud Scheduler, Artifact Registry
-#   - GCS bucket created: gs://stock-daily-data-ooooorz
+#   - GCS bucket created: gs://ooooorz-stock-data
 #
 # Estimated cost: ~NT$50-100/month (Cloud Run Job ~44min/day, 4Gi RAM, 2 vCPU)
 #
@@ -29,7 +29,7 @@ set -euo pipefail
 PROJECT="ooooorz"
 REGION="asia-east1"                    # Taiwan region (lowest latency)
 JOB_NAME="stock-daily-update"
-GCS_BUCKET="stock-daily-data-${PROJECT}"
+GCS_BUCKET="ooooorz-stock-data"
 IMAGE="gcr.io/${PROJECT}/${JOB_NAME}"
 SA_EMAIL="${PROJECT}@appspot.gserviceaccount.com"
 
@@ -87,14 +87,11 @@ LIFECYCLE
 
 build_image() {
     echo "[3/5] Building and pushing Docker image..."
-    # Build from project root (not cloud/ dir) so COPY paths work
-    # Build from project root with Dockerfile in cloud/
+    # Build from project root using cloud/cloudbuild.yaml (specifies cloud/Dockerfile)
     gcloud builds submit \
-        --tag "${IMAGE}" \
+        --config "cloud/cloudbuild.yaml" \
         --project "${PROJECT}" \
-        --timeout=600 \
         --gcs-log-dir="gs://${GCS_BUCKET}/build-logs" \
-        --dockerfile="cloud/Dockerfile" \
         .
 }
 
